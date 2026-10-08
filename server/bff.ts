@@ -39,17 +39,31 @@ import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paym
 import { upsertContact, removeContact, listContacts, ContactError } from './services/contactService.js';
 import { getReceivePreference, setReceivePreference, ReceivePreferenceError } from './services/receivePreferenceService.js';
 import { follow, unfollow, sendConnectionRequest, acceptConnection, rejectConnection } from './db/repositories/socialRepository.js';
+import { assertServerRuntimeConfig } from './config/runtimeConfig.js';
+import { getRateLimitPolicy } from './config/rateLimits.js';
+import { requestObservability } from './middleware/observability.js';
+import { PROVIDER_MANIFEST } from '../src/providers/registry/providerManifest.js';
+import { evaluateMainnetReadiness } from './readiness/mainnetReadiness.js';
 
+const runtimeConfig = assertServerRuntimeConfig();
+const RATE_POLICY = getRateLimitPolicy();
 const app = express();
+app.set('trust proxy', runtimeConfig.environment === 'mainnet' ? 1 : false);
+app.use(requestObservability);
 
 // ── Body parsing with size limits ────────────────────────────────────────────
 app.use(express.json({ limit: '4kb' }));
 
 // ── CORS for local dev ───────────────────────────────────────────────────────
-app.use((_req: Request, res: Response, next: NextFunction): void => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Veyra-User-Id');
+app.use((req: Request, res: Response, next: NextFunction): void => {
+  const allowedOrigin = runtimeConfig.environment === 'mainnet' ? runtimeConfig.appOrigin : '*';
+  if (allowedOrigin === '*' || req.header('origin') === allowedOrigin || !req.header('origin')) {
+    res.setHeader('Access-Control-Allow-Origin', allowedOrigin ?? '');
+  }
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Veyra-User-Id, X-Request-Id');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
+  if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   next();
 });
 
@@ -63,9 +77,9 @@ interface RateWindow {
 
 const rateLimitStore = new Map<string, RateWindow>();
 
-function rateLimit(maxRequests: number, windowMs: number) {
+function rateLimit(maxRequests: number, windowMs: number, bucket: 'path' | 'global' = 'path') {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const key = `${req.ip ?? 'unknown'}:${req.path}`;
+    const key = `${req.ip ?? 'unknown'}:${bucket === 'global' ? 'global' : req.path}`;
     const now = Date.now();
     const window = rateLimitStore.get(key);
     if (!window || now > window.resetAt) {
@@ -90,9 +104,11 @@ setInterval(() => {
   }
 }, 60_000);
 
-const AGENT_RATE = rateLimit(30, 60_000);
-const STABLEFX_RATE = rateLimit(20, 60_000);
-const IDENTITY_RATE = rateLimit(20, 60_000);
+const GLOBAL_RATE = rateLimit(RATE_POLICY.globalPerMinute, 60_000, 'global');
+const AGENT_RATE = rateLimit(RATE_POLICY.agentPerMinute, 60_000);
+const STABLEFX_RATE = rateLimit(RATE_POLICY.stableFxPerMinute, 60_000);
+const IDENTITY_RATE = rateLimit(RATE_POLICY.identityPerMinute, 60_000);
+app.use('/api', GLOBAL_RATE);
 
 // ── Identity auth boundary ──────────────────────────────────────────────────
 // Production accepts only a signed Bearer session. The X-Veyra-User-Id header
@@ -1100,6 +1116,16 @@ app.get('/api/health', (_req: Request, res: Response): void => {
     llmProvider: LLM_PROVIDER,
     llmModel: LLM_MODEL,
     circleApiConfigured: !!process.env.CIRCLE_API_KEY,
+    ts: Date.now(),
+  });
+});
+
+app.get('/api/health/readiness', (_req: Request, res: Response): void => {
+  const report = evaluateMainnetReadiness(process.env, PROVIDER_MANIFEST);
+  res.status(report.ready ? 200 : 503).json({
+    ok: report.ready,
+    environment: runtimeConfig.environment,
+    checks: report.checks,
     ts: Date.now(),
   });
 });

@@ -206,3 +206,17 @@ describe('findEligibleProvider', () => {
     if (result.found) expect(result.entry.providerId).toBe('cctp-v2-bridge');
   });
 });
+
+describe('Phase 3A provider environment gate', () => {
+  it('blocks testnet providers when runtime environment is mainnet', () => {
+    const result = checkProviderEligibility(
+      'arc-erc20-transfer',
+      'TRANSFER',
+      ARC_TESTNET_CHAIN_ID,
+      ARC_TESTNET_USDC,
+      'mainnet',
+    );
+    expect(result.eligible).toBe(false);
+    expect(result.status).toBe('ENVIRONMENT_NOT_SUPPORTED');
+  });
+});

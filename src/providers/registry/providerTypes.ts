@@ -188,6 +188,7 @@ export type ProviderEligibilityStatus =
   | 'CHAIN_NOT_SUPPORTED'
   | 'ASSET_NOT_SUPPORTED'
   | 'CAPABILITY_NOT_SUPPORTED'
+  | 'ENVIRONMENT_NOT_SUPPORTED'
   | 'NOT_FOUND';
 
 export interface ProviderEligibilityResult {

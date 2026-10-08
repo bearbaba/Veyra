@@ -21,6 +21,7 @@ import type {
   ProviderHealthStatus,
   ProviderManifestEntry,
   ProviderResult,
+  ProviderEnvironment,
 } from './providerTypes';
 
 // ── Health Store ──────────────────────────────────────────────────────────────
@@ -87,6 +88,13 @@ export function getProvidersForCapability(
 
 // ── Execution Eligibility ─────────────────────────────────────────────────────
 
+function environmentMatches(providerEnvironment: ProviderEnvironment, runtimeEnvironment: 'local' | 'testnet' | 'mainnet'): boolean {
+  if (providerEnvironment === 'all') return true;
+  if (runtimeEnvironment === 'local') return providerEnvironment === 'local' || providerEnvironment === 'testnet';
+  return providerEnvironment === runtimeEnvironment;
+}
+
+
 /**
  * Check whether a provider may execute a given action on a given chain
  * with a given asset.
@@ -101,6 +109,7 @@ export function checkProviderEligibility(
   capability: ProviderCapability,
   chainId: number,
   assetAddress?: string,
+  runtimeEnvironment: 'local' | 'testnet' | 'mainnet' = 'testnet',
 ): ProviderEligibilityResult {
   const result = getProvider(providerId);
 
@@ -114,6 +123,25 @@ export function checkProviderEligibility(
   }
 
   const { entry, effectiveHealth: health } = result;
+
+  if (!environmentMatches(entry.environment, runtimeEnvironment)) {
+    return {
+      eligible: false,
+      status: 'ENVIRONMENT_NOT_SUPPORTED',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" is registered for ${entry.environment}, not ${runtimeEnvironment}.`,
+    };
+  }
+
+  // Mainnet never trusts manifest-only health. A fresh runtime health record is mandatory.
+  if (runtimeEnvironment === 'mainnet' && !_healthStore.has(providerId)) {
+    return {
+      eligible: false,
+      status: 'HEALTH_UNKNOWN',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" has no fresh runtime health record for mainnet.`,
+    };
+  }
 
   // Must be enabled
   if (!entry.enabled) {
@@ -226,12 +254,13 @@ export function findEligibleProvider(
   capability: ProviderCapability,
   chainId: number,
   assetAddress?: string,
+  runtimeEnvironment: 'local' | 'testnet' | 'mainnet' = 'testnet',
 ): { found: true; entry: ProviderManifestEntry; requiresConfirmation: boolean } | { found: false; reason: string } {
   const candidates = getProvidersForCapability(capability);
 
   // Prefer fully-OK providers first
   for (const entry of candidates) {
-    const check = checkProviderEligibility(entry.providerId, capability, chainId, assetAddress);
+    const check = checkProviderEligibility(entry.providerId, capability, chainId, assetAddress, runtimeEnvironment);
     if (check.eligible && !check.requiresConfirmation) {
       return { found: true, entry, requiresConfirmation: false };
     }
@@ -239,7 +268,7 @@ export function findEligibleProvider(
 
   // Fall back to DEGRADED if no OK provider
   for (const entry of candidates) {
-    const check = checkProviderEligibility(entry.providerId, capability, chainId, assetAddress);
+    const check = checkProviderEligibility(entry.providerId, capability, chainId, assetAddress, runtimeEnvironment);
     if (check.eligible && check.requiresConfirmation) {
       return { found: true, entry, requiresConfirmation: true };
     }
@@ -247,7 +276,7 @@ export function findEligibleProvider(
 
   const reasons = candidates
     .map((e) => {
-      const r = checkProviderEligibility(e.providerId, capability, chainId, assetAddress);
+      const r = checkProviderEligibility(e.providerId, capability, chainId, assetAddress, runtimeEnvironment);
       return `${e.providerId}: ${r.detail}`;
     })
     .join('; ');

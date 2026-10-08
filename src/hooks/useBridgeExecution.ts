@@ -32,6 +32,7 @@ import { checkProviderEligibility } from '../providers/registry/providerRegistry
 import type { BridgeAction } from '../core/actions/actionSchema';
 import { generatePlanReceiptId, generateExecutionReceiptId } from '../core/receipt/receiptId';
 import type { VeyraReceipt } from '../core/receipt/receiptTypes';
+import { VEYRA_ENV } from '../lib/env';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -107,6 +108,8 @@ export function useBridgeExecution() {
       'cctp-v2-bridge',
       'BRIDGE',
       action.sourceChainId,
+      undefined,
+      VEYRA_ENV,
     );
     if (eligibility.status !== 'ELIGIBLE') {
       const entry = findManifestEntry('cctp-v2-bridge');
