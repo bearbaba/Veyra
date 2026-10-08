@@ -8,6 +8,8 @@ describe('Phase 3A production runtime gate', () => {
     VEYRA_SESSION_SECRET: '01234567890123456789012345678901',
     VEYRA_APP_ORIGIN: 'https://app.veyra.example',
     VEYRA_SIGNER_BACKEND: 'kms', VEYRA_KMS_KEY_ID: 'alias/veyra-mainnet-relayer',
+    VEYRA_SIGNER_URL: 'https://signer.veyra.example',
+    VEYRA_SIGNER_AUTH_TOKEN: '01234567890123456789012345678901',
     X_CLIENT_ID: 'client', X_REDIRECT_URI: 'https://app.veyra.example/api/auth/x/callback',
   };
 

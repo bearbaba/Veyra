@@ -2,8 +2,8 @@ import { PROVIDER_MANIFEST } from '../src/providers/registry/providerManifest.js
 import { getAllProviderHealthRecords } from '../src/providers/registry/providerRegistry.js';
 import { probeDatabaseReadiness } from '../server/readiness/databaseReadiness.js';
 import { evaluateMainnetReadiness } from '../server/readiness/mainnetReadiness.js';
-import { refreshMainnetProviderHealth } from '../server/services/providerHealthService.js';
 import { probeSignerReadiness } from '../server/readiness/signerReadiness.js';
+import { refreshMainnetProviderHealth } from '../server/services/providerHealthService.js';
 
 const [database, signer] = await Promise.all([
   probeDatabaseReadiness(process.env.DATABASE_URL),
@@ -15,5 +15,5 @@ const report = evaluateMainnetReadiness(process.env, PROVIDER_MANIFEST, {
   signer,
   providerHealth: getAllProviderHealthRecords(),
 });
-console.log(JSON.stringify(report, null, 2));
+console.log(JSON.stringify({ ...report, signer: signer.health }, null, 2));
 if (!report.ready) process.exit(1);

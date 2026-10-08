@@ -20,7 +20,10 @@
     "contracts:test": "forge test",
     "readiness:mainnet": "bun run scripts/mainnet-readiness.ts",
     "db:verify": "bun run scripts/db-readiness.ts",
-    "providers:health": "bun run scripts/provider-health.ts"
+    "providers:health": "bun run scripts/provider-health.ts",
+    "signer:health": "bun run scripts/signer-health.ts",
+    "db:activate:mainnet": "bun run scripts/production-db-activate.ts",
+    "production:preflight": "bun run scripts/production-preflight.ts"
   },
   "dependencies": {
     "@circle-fin/adapter-viem-v2": "^1.18.0",

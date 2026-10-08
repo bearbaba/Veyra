@@ -1,5 +1,7 @@
 import type { ProviderHealthRecord, ProviderManifestEntry } from '../../src/providers/registry/providerTypes.js';
 import type { DatabaseReadinessReport } from './databaseReadiness.js';
+import type { SignerReadinessReport } from './signerReadiness.js';
+import { SECURITY_CONFIG } from '../../src/lib/securityConfig.js';
 import { validateServerRuntimeConfig } from '../config/runtimeConfig.js';
 
 export interface ReadinessCheck { id: string; ok: boolean; detail: string; }
@@ -8,6 +10,8 @@ export interface MainnetReadinessReport { ready: boolean; checks: ReadinessCheck
 export interface MainnetReadinessContext {
   database?: DatabaseReadinessReport;
   providerHealth?: ProviderHealthRecord[];
+  signer?: SignerReadinessReport;
+  now?: number;
 }
 
 export function evaluateMainnetReadiness(
@@ -19,14 +23,21 @@ export function evaluateMainnetReadiness(
   const mainnetProviders = providers.filter((p) => p.environment === 'mainnet' || p.environment === 'all');
   const executableMainnetProviders = mainnetProviders.filter((p) => p.enabled && p.lifecycleStage === 'ENABLED');
   const unverifiedEnabled = executableMainnetProviders.filter((p) => p.trustStatus === 'UNVERIFIED');
+  const now = context.now ?? Date.now();
   const freshHealthByProvider = new Map((context.providerHealth ?? []).map((record) => [record.providerId, record]));
   const unhealthyEnabled = executableMainnetProviders.filter((provider) => {
     const health = freshHealthByProvider.get(provider.providerId);
-    return !health || health.status === 'UNKNOWN' || health.status === 'DOWN';
+    const stale = !health || now - health.checkedAt > SECURITY_CONFIG.MAX_PROVIDER_HEALTH_AGE_MS;
+    return stale || health.status === 'UNKNOWN' || health.status === 'DOWN';
   });
 
   const checks: ReadinessCheck[] = [
     { id: 'runtime-config', ok: runtime.ok, detail: runtime.ok ? 'Production runtime configuration passes safety gates.' : runtime.errors.join(' ') },
+    {
+      id: 'signer-readiness',
+      ok: context.signer?.ready === true,
+      detail: context.signer?.ready ? 'Production KMS/HSM signer gateway is configured and healthy.' : 'Production signer verification has not passed.',
+    },
     {
       id: 'database-readiness',
       ok: context.database?.ready === true,

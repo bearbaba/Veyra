@@ -13,6 +13,8 @@ export interface ServerRuntimeConfig {
   sessionSecretConfigured: boolean;
   signerBackend: SignerBackend;
   kmsKeyId?: string;
+  signerUrl?: string;
+  signerAuthTokenConfigured: boolean;
   xClientIdConfigured: boolean;
   xRedirectUri?: string;
 }
@@ -47,6 +49,8 @@ export function readServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env): S
     sessionSecretConfigured: Boolean(env.VEYRA_SESSION_SECRET && env.VEYRA_SESSION_SECRET.length >= 32),
     signerBackend: resolveSignerBackend(env),
     kmsKeyId: env.VEYRA_KMS_KEY_ID,
+    signerUrl: env.VEYRA_SIGNER_URL,
+    signerAuthTokenConfigured: Boolean(env.VEYRA_SIGNER_AUTH_TOKEN && env.VEYRA_SIGNER_AUTH_TOKEN.length >= 32),
     xClientIdConfigured: Boolean(env.X_CLIENT_ID),
     xRedirectUri: env.X_REDIRECT_URI,
   };
@@ -85,6 +89,8 @@ export function validateServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env
   if (env.RELAY_PRIVATE_KEY) errors.push('RELAY_PRIVATE_KEY is forbidden in mainnet. Use KMS/HSM signing.');
   if (config.signerBackend !== 'kms') errors.push('Mainnet requires VEYRA_SIGNER_BACKEND=kms.');
   if (!config.kmsKeyId) errors.push('Mainnet requires VEYRA_KMS_KEY_ID.');
+  if (!isHttpsUrl(config.signerUrl)) errors.push('Mainnet requires VEYRA_SIGNER_URL using https://.');
+  if (!config.signerAuthTokenConfigured) errors.push('Mainnet requires VEYRA_SIGNER_AUTH_TOKEN with at least 32 characters.');
   if (!config.xClientIdConfigured) errors.push('Mainnet requires X_CLIENT_ID for production account linking.');
   if (!isHttpsUrl(config.xRedirectUri)) errors.push('Mainnet requires X_REDIRECT_URI using https://.');
 

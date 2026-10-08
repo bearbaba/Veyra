@@ -44,6 +44,7 @@ import { getRateLimitPolicy } from './config/rateLimits.js';
 import { requestObservability } from './middleware/observability.js';
 import { PROVIDER_MANIFEST } from '../src/providers/registry/providerManifest.js';
 import { evaluateMainnetReadiness } from './readiness/mainnetReadiness.js';
+import { probeSignerReadiness } from './readiness/signerReadiness.js';
 import { probeDatabaseReadiness } from './readiness/databaseReadiness.js';
 import { refreshMainnetProviderHealth } from './services/providerHealthService.js';
 import { getAllProviderHealthRecords } from '../src/providers/registry/providerRegistry.js';
@@ -1134,13 +1135,22 @@ app.get('/api/health/providers', async (_req: Request, res: Response): Promise<v
   res.status(ok ? 200 : 503).json({ ok, ...report, ts: Date.now() });
 });
 
+app.get('/api/health/signer', async (_req: Request, res: Response): Promise<void> => {
+  const report = await probeSignerReadiness(process.env);
+  res.status(report.ready ? 200 : 503).json({ ok: report.ready, ...report, ts: Date.now() });
+});
+
 app.get('/api/health/readiness', async (_req: Request, res: Response): Promise<void> => {
-  const database = await probeDatabaseReadiness(process.env.DATABASE_URL);
+  const [database, signer] = await Promise.all([
+    probeDatabaseReadiness(process.env.DATABASE_URL),
+    probeSignerReadiness(process.env),
+  ]);
   if (runtimeConfig.environment === 'mainnet') {
     await refreshMainnetProviderHealth(process.env);
   }
   const report = evaluateMainnetReadiness(process.env, PROVIDER_MANIFEST, {
     database,
+    signer,
     providerHealth: getAllProviderHealthRecords(),
   });
   res.status(report.ready ? 200 : 503).json({
