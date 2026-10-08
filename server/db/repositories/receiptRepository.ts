@@ -26,10 +26,10 @@ export interface CreateReceiptParams {
   senderUserId:         string;
   senderWalletId:       string;
   senderAddress:        string;
-  senderChainId:        bigint;
+  senderChainId:        number;
   recipientSnapshotId:  string;
   recipientAddress:     string;
-  recipientChainId:     bigint;
+  recipientChainId:     number;
   amountRaw:            string;
   amountDecimals:       number;
   assetId:              string;
@@ -82,7 +82,7 @@ export async function createReceipt(
       dedupKey,
       environment:         params.environment,
       status:              'INTENT_CAPTURED',
-      revision:            1n,
+      revision:            1,
     });
   } catch (err: unknown) {
     // Postgres unique violation on dedup_key.

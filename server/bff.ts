@@ -30,6 +30,8 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { validateIntentResponse } from '../src/core/intent/intentSchema';
 import { MANIFEST_CONSTANTS } from '../src/providers/registry/providerManifest';
+import { createWalletChallenge, verifyWalletChallenge, WalletProofError } from './services/walletProofService.js';
+import { freezeSnapshot, verifySnapshot, IdentityResolutionError } from './services/identityResolver.js';
 
 const app = express();
 
@@ -39,7 +41,7 @@ app.use(express.json({ limit: '4kb' }));
 // ── CORS for local dev ───────────────────────────────────────────────────────
 app.use((_req: Request, res: Response, next: NextFunction): void => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Veyra-User-Id');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   next();
 });
@@ -83,6 +85,134 @@ setInterval(() => {
 
 const AGENT_RATE = rateLimit(30, 60_000);
 const STABLEFX_RATE = rateLimit(20, 60_000);
+const IDENTITY_RATE = rateLimit(20, 60_000);
+
+// ── Identity auth boundary ──────────────────────────────────────────────────
+// Production identity routes MUST be backed by a real authenticated Veyra session.
+// Until that session layer lands, the explicit X-Veyra-User-Id header is accepted
+// only outside production so local/dev E2E can proceed without weakening prod.
+function getAuthenticatedVeyraUserId(req: Request): string | null {
+  if (process.env.NODE_ENV === 'production') return null;
+  const raw = req.header('x-veyra-user-id');
+  if (!raw || !/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(raw)) return null;
+  return raw;
+}
+
+function identityError(res: Response, err: unknown): void {
+  if (err instanceof WalletProofError) {
+    res.status(err.httpStatus).json({ ok: false, error: err.code, message: err.message });
+    return;
+  }
+  if (err instanceof IdentityResolutionError) {
+    res.status(400).json({ ok: false, error: err.code, message: err.message });
+    return;
+  }
+  console.error('[BFF] identity route error:', err);
+  res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+}
+
+// ── POST /api/identity/challenge ────────────────────────────────────────────
+app.post('/api/identity/challenge', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const veyraUserId = getAuthenticatedVeyraUserId(req);
+    if (!veyraUserId) {
+      res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Authenticated Veyra session required' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const walletAddress = typeof body.walletAddress === 'string' ? body.walletAddress : '';
+    const chainId = typeof body.chainId === 'number' ? body.chainId : Number.NaN;
+    if (body.proofScheme !== undefined && body.proofScheme !== 'EIP_712' && body.proofScheme !== 'PERSONAL_SIGN') {
+      res.status(400).json({ error: 'INVALID_PROOF_SCHEME' });
+      return;
+    }
+    const proofScheme = body.proofScheme === 'PERSONAL_SIGN' ? 'PERSONAL_SIGN' : 'EIP_712';
+    const { db } = await import('./db/client.js');
+    const challenge = await createWalletChallenge(db, { veyraUserId, walletAddress, chainId, proofScheme });
+    res.status(201).json({ ok: true, challenge });
+  } catch (err) {
+    identityError(res, err);
+  }
+});
+
+// ── POST /api/identity/verify-wallet ────────────────────────────────────────
+app.post('/api/identity/verify-wallet', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const veyraUserId = getAuthenticatedVeyraUserId(req);
+    if (!veyraUserId) {
+      res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Authenticated Veyra session required' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const challengeId = typeof body.challengeId === 'string' ? body.challengeId : '';
+    const walletAddress = typeof body.walletAddress === 'string' ? body.walletAddress : '';
+    const signature = typeof body.signature === 'string' ? body.signature : '';
+    if (!/^chl_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(challengeId) || !/^0x[0-9a-fA-F]+$/.test(signature)) {
+      res.status(400).json({ error: 'INVALID_REQUEST', message: 'Valid challengeId and hex signature required' });
+      return;
+    }
+    const { db } = await import('./db/client.js');
+    const wallet = await verifyWalletChallenge(db, {
+      veyraUserId,
+      challengeId,
+      walletAddress,
+      signature: signature as `0x${string}`,
+    });
+    res.json({ ok: true, wallet });
+  } catch (err) {
+    identityError(res, err);
+  }
+});
+
+// ── POST /api/identity/snapshot ─────────────────────────────────────────────
+app.post('/api/identity/snapshot', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const veyraUserId = getAuthenticatedVeyraUserId(req);
+    if (!veyraUserId) {
+      res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Authenticated Veyra session required' });
+      return;
+    }
+    const recipientUserId = typeof (req.body as Record<string, unknown>).veyraUserId === 'string'
+      ? String((req.body as Record<string, unknown>).veyraUserId)
+      : '';
+    if (!/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(recipientUserId)) {
+      res.status(400).json({ error: 'INVALID_RECIPIENT' });
+      return;
+    }
+    const { db } = await import('./db/client.js');
+    const snapshot = await freezeSnapshot(db, recipientUserId);
+    res.status(201).json({ ok: true, snapshot });
+  } catch (err) {
+    identityError(res, err);
+  }
+});
+
+// ── POST /api/identity/verify-snapshot ──────────────────────────────────────
+app.post('/api/identity/verify-snapshot', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const veyraUserId = getAuthenticatedVeyraUserId(req);
+    if (!veyraUserId) {
+      res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Authenticated Veyra session required' });
+      return;
+    }
+    const snapshotId = typeof (req.body as Record<string, unknown>).snapshotId === 'string'
+      ? String((req.body as Record<string, unknown>).snapshotId)
+      : '';
+    if (!/^snp_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(snapshotId)) {
+      res.status(400).json({ error: 'INVALID_SNAPSHOT_ID' });
+      return;
+    }
+    const { db } = await import('./db/client.js');
+    const result = await verifySnapshot(db, snapshotId);
+    if (!result.ok) {
+      res.status(result.reason === 'SNAPSHOT_NOT_FOUND' ? 404 : 409).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    identityError(res, err);
+  }
+});
 
 // ── LLM Configuration ────────────────────────────────────────────────────────
 
@@ -471,7 +601,8 @@ app.get('/api/stablefx/trade/:tradeId', STABLEFX_RATE, async (req: Request, res:
       return;
     }
 
-    const { tradeId } = req.params;
+    const rawTradeId = req.params.tradeId;
+    const tradeId = Array.isArray(rawTradeId) ? rawTradeId[0] : rawTradeId;
     if (!tradeId || !/^[a-zA-Z0-9_-]{1,100}$/.test(tradeId)) {
       res.status(400).json({ error: 'Invalid tradeId' });
       return;

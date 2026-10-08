@@ -43,7 +43,7 @@ export async function createUser(
       displayName:       params.displayName ?? '',
       avatarUrl:         params.avatarUrl,
       bio:               params.bio ?? '',
-      identityRevision:  1n,  // Postgres trigger will increment; seed at 1
+      identityRevision:  1,   // Postgres trigger will increment; seed at 1
     });
 
     // 3. Write initial handle_history row (handle is "claimed" at creation).
@@ -55,7 +55,7 @@ export async function createUser(
     // 4. Write the initial identity_revision audit row.
     await writeRevisionAudit(tx, {
       veyraUserId,
-      revisionNumber: 1n,
+      revisionNumber: 1,
       trigger:        'WALLET_ADDED',   // Closest trigger at account creation
       detail:         { event: 'account_created', handle: normalizedHandle },
     });
@@ -125,7 +125,7 @@ export async function changeHandle(
       .where(eq(veyraUsers.veyraUserId, veyraUserId));
 
     // 6. Write audit row.
-    const newRevision = (user.revision ?? 1n) + 1n;
+    const newRevision = (user.revision ?? 1) + 1;
     await writeRevisionAudit(tx, {
       veyraUserId,
       revisionNumber: newRevision,
@@ -146,7 +146,7 @@ export async function softDeleteUser(db: DbClient, veyraUserId: string): Promise
 export async function getIdentityRevision(
   db: DbClient,
   veyraUserId: string,
-): Promise<bigint | null> {
+): Promise<number | null> {
   const [row] = await db
     .select({ identityRevision: veyraUsers.identityRevision })
     .from(veyraUsers)
@@ -183,7 +183,7 @@ async function assertHandleAvailable(
 
 interface RevisionAuditParams {
   veyraUserId:    string;
-  revisionNumber: bigint;
+  revisionNumber: number;
   trigger:        typeof identityRevisions.$inferInsert['trigger'];
   detail:         Record<string, unknown>;
 }

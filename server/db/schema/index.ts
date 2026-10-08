@@ -4,6 +4,7 @@
 export * from './enums.js';
 export * from './identity.js';
 export * from './wallets.js';
+export * from './proofChallenges.js';
 export * from './snapshots.js';
 export * from './social.js';
 export * from './payments.js';

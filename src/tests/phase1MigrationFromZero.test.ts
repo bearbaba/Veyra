@@ -1,9 +1,9 @@
 /**
  * Phase 1 — migration-from-zero integration test.
  *
- * Creates a clean `veyra_migration_test` database, applies both migration
- * files in journal order (0000 then 0001), then verifies:
- *   - all 17 expected tables exist
+ * Creates a clean `veyra_migration_test` database, applies all migration
+ * files in journal order (0000, 0001, then 0002), then verifies:
+ *   - all 18 expected tables exist
  *   - critical UNIQUE constraints are enforced
  *   - CHECK constraints reject invalid data
  *   - append-only triggers reject UPDATE/DELETE on execution_events
@@ -82,6 +82,8 @@ beforeAll(async () => {
     await execMigration(client, loadMigration('0000_phase1_initial.sql'));
     // 0001: supplemental — triggers, partial indexes, CHECK constraints
     await execMigration(client, loadMigration('0001_phase1_supplemental.sql'));
+    // 0002: Phase 2 wallet-proof challenges
+    await execMigration(client, loadMigration('0002_phase2_identity_proof.sql'));
   } finally {
     client.release();
   }
@@ -108,12 +110,13 @@ function pgTest(name: string, fn: () => Promise<void>) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('migration-from-zero: all 17 tables exist', () => {
+describe('migration-from-zero: all 18 tables exist', () => {
   const EXPECTED_TABLES = [
     'veyra_users',
     'handle_history',
     'linked_identities',
     'wallet_bindings',
+    'proof_challenges',
     'identity_snapshots',
     'receive_preferences',
     'social_follows',
@@ -137,7 +140,7 @@ describe('migration-from-zero: all 17 tables exist', () => {
     for (const tbl of EXPECTED_TABLES) {
       expect(actual.has(tbl), `missing table: ${tbl}`).toBe(true);
     }
-    expect(res.rows.length).toBeGreaterThanOrEqual(17);
+    expect(res.rows.length).toBeGreaterThanOrEqual(18);
   });
 });
 
@@ -235,6 +238,42 @@ describe('migration-from-zero: critical constraints', () => {
         expect(err.message).toMatch(/unique/i);
       },
     );
+  });
+});
+
+describe('migration-from-zero: proof challenge constraints', () => {
+  pgTest('proof challenge requires expiry after issue time', async () => {
+    await expect(
+      testPool.query(`
+        INSERT INTO proof_challenges
+          (challenge_id, veyr_user_id, wallet_address, chain_id, proof_scheme,
+           proof_version, nonce, plain_message, message_hash, issued_at, expires_at, status)
+        VALUES
+          ('chl_bad_expiry','usr_migtest','0x0000000000000000000000000000000000000001',5042002,
+           'EIP_712','1','0x01','msg','0xhash',NOW(),NOW() - interval '1 second','ISSUED')
+      `),
+    ).rejects.toThrow(/chk_proof_challenges_expiry_after_issue/i);
+  });
+
+  pgTest('only one active challenge exists per wallet/chain/user', async () => {
+    await testPool.query(`
+      INSERT INTO proof_challenges
+        (challenge_id, veyr_user_id, wallet_address, chain_id, proof_scheme,
+         proof_version, nonce, plain_message, message_hash, issued_at, expires_at, status)
+      VALUES
+        ('chl_unique_1','usr_migtest','0x0000000000000000000000000000000000000002',5042002,
+         'EIP_712','1','0x02','msg','0xhash',NOW(),NOW() + interval '10 minutes','ISSUED')
+    `);
+    await expect(
+      testPool.query(`
+        INSERT INTO proof_challenges
+          (challenge_id, veyr_user_id, wallet_address, chain_id, proof_scheme,
+           proof_version, nonce, plain_message, message_hash, issued_at, expires_at, status)
+        VALUES
+          ('chl_unique_2','usr_migtest','0x0000000000000000000000000000000000000002',5042002,
+           'EIP_712','1','0x03','msg','0xhash',NOW(),NOW() + interval '10 minutes','ISSUED')
+      `),
+    ).rejects.toThrow(/unique/i);
   });
 });
 

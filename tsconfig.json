@@ -4,7 +4,11 @@
     "incremental": true,
     "target": "ES2020",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",
@@ -20,8 +24,12 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
     "paths": {
-      "@/*": ["./src/*"],
-      "viem/_types/*": ["./node_modules/viem/_types/*"],
+      "@/*": [
+        "./src/*"
+      ],
+      "viem/_types/*": [
+        "./node_modules/viem/_types/*"
+      ],
       "/home/runner/_work/stablecoin-kits-private/stablecoin-kits-private/node_modules/viem/_types/accounts/index.d.ts": [
         "./node_modules/viem/_types/accounts/index.d.ts"
       ],
@@ -31,6 +39,9 @@
       ]
     }
   },
-  "include": ["src", "scripts"]
+  "include": [
+    "src",
+    "scripts",
+    "server"
+  ]
 }
-

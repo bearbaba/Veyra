@@ -16,11 +16,12 @@
  *   0000_phase1_initial.sql        — 17 tables, enums, FKs, basic indexes
  *   0001_phase1_supplemental.sql   — partial indexes, triggers, CHECK constraints,
  *                                    PLpgSQL functions, append-only enforcement
+ *   0002_phase2_identity_proof.sql — single-use wallet proof challenges
  *
  * A clean-clone workflow:
  *   1. Start an empty Postgres instance (e.g. `docker compose up -d postgres`)
  *   2. Run `bun run db:migrate`
- *   3. The exact schema — 17 tables, all indexes, all triggers, all constraints —
+ *   3. The exact schema — 18 tables, all indexes, all triggers, all constraints —
  *      is created deterministically from zero, with no manual psql steps.
  */
 

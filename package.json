@@ -9,7 +9,7 @@
     "deploy:self": "bun run ./scripts/self-deploy.ts",
     "compass:deploy": "bun run ./scripts/compass-deploy.ts",
     "fetch:abi": "bun run ./scripts/fetch-abi.ts",
-    "lint": "oxlint --type-aware --quiet src scripts --fix; s=$?; oxlint --quiet --fix .; exit $((s>0?s:$?))",
+    "lint": "oxlint --type-aware --quiet src scripts --fix && oxlint --quiet --fix .",
     "typecheck": "tsc --noEmit",
     "check": "bash scripts/check.sh",
     "test": "vitest run",

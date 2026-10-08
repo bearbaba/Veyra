@@ -17,7 +17,7 @@ import type { walletProofSchemeEnum, walletTypeEnum } from '../schema/enums.js';
 export interface AddWalletParams {
   veyraUserId:      string;
   walletAddress:    string;          // will be stored as-is; lower-case index handles lookup
-  chainId:          bigint;
+  chainId:          number;
   walletType?:      typeof walletTypeEnum.enumValues[number];
   proofScheme:      typeof walletProofSchemeEnum.enumValues[number];
   proofVersion:     string;

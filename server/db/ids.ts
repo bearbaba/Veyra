@@ -44,6 +44,7 @@ export const newTipId          = () => makeId('ptp_');
 export const newHandleHistId   = () => makeId('hdl_');
 export const newQuoteId        = () => makeId('quo_');
 export const newIntentId       = () => makeId('int_');
+export const newChallengeId    = () => makeId('chl_');
 
 /**
  * Server-issued client intent ID (amendment 5).
