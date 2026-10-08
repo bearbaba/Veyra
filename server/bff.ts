@@ -44,6 +44,9 @@ import { getRateLimitPolicy } from './config/rateLimits.js';
 import { requestObservability } from './middleware/observability.js';
 import { PROVIDER_MANIFEST } from '../src/providers/registry/providerManifest.js';
 import { evaluateMainnetReadiness } from './readiness/mainnetReadiness.js';
+import { probeDatabaseReadiness } from './readiness/databaseReadiness.js';
+import { refreshMainnetProviderHealth } from './services/providerHealthService.js';
+import { getAllProviderHealthRecords } from '../src/providers/registry/providerRegistry.js';
 
 const runtimeConfig = assertServerRuntimeConfig();
 const RATE_POLICY = getRateLimitPolicy();
@@ -1120,8 +1123,26 @@ app.get('/api/health', (_req: Request, res: Response): void => {
   });
 });
 
-app.get('/api/health/readiness', (_req: Request, res: Response): void => {
-  const report = evaluateMainnetReadiness(process.env, PROVIDER_MANIFEST);
+app.get('/api/health/database', async (_req: Request, res: Response): Promise<void> => {
+  const report = await probeDatabaseReadiness(process.env.DATABASE_URL);
+  res.status(report.ready ? 200 : 503).json({ ok: report.ready, ...report, ts: Date.now() });
+});
+
+app.get('/api/health/providers', async (_req: Request, res: Response): Promise<void> => {
+  const report = await refreshMainnetProviderHealth(process.env);
+  const ok = report.providerRecords.length > 0 && report.providerRecords.every((record) => record.status === 'OK');
+  res.status(ok ? 200 : 503).json({ ok, ...report, ts: Date.now() });
+});
+
+app.get('/api/health/readiness', async (_req: Request, res: Response): Promise<void> => {
+  const database = await probeDatabaseReadiness(process.env.DATABASE_URL);
+  if (runtimeConfig.environment === 'mainnet') {
+    await refreshMainnetProviderHealth(process.env);
+  }
+  const report = evaluateMainnetReadiness(process.env, PROVIDER_MANIFEST, {
+    database,
+    providerHealth: getAllProviderHealthRecords(),
+  });
   res.status(report.ready ? 200 : 503).json({
     ok: report.ready,
     environment: runtimeConfig.environment,

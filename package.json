@@ -18,7 +18,9 @@
     "db:migrate": "bun run server/db/migrate.ts",
     "db:studio": "bunx drizzle-kit studio",
     "contracts:test": "forge test",
-    "readiness:mainnet": "bun run scripts/mainnet-readiness.ts"
+    "readiness:mainnet": "bun run scripts/mainnet-readiness.ts",
+    "db:verify": "bun run scripts/db-readiness.ts",
+    "providers:health": "bun run scripts/provider-health.ts"
   },
   "dependencies": {
     "@circle-fin/adapter-viem-v2": "^1.18.0",

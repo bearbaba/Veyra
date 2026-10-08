@@ -36,6 +36,15 @@ export function updateProviderHealth(record: ProviderHealthRecord): void {
   _healthStore.set(record.providerId, record);
 }
 
+export function getProviderHealthRecord(providerId: string): ProviderHealthRecord | undefined {
+  const record = _healthStore.get(providerId);
+  return record ? { ...record } : undefined;
+}
+
+export function getAllProviderHealthRecords(): ProviderHealthRecord[] {
+  return [..._healthStore.values()].map((record) => ({ ...record }));
+}
+
 /**
  * Return the effective health for a provider, respecting the health TTL.
  * If the last check is older than MAX_PROVIDER_HEALTH_AGE_MS, returns UNKNOWN.

@@ -43,6 +43,7 @@
  */
 
 import type { ProviderManifestEntry } from './providerTypes';
+import { MAINNET_PROVIDER_MANIFEST } from './mainnetProviderManifest';
 
 // Arc Testnet
 const ARC_TESTNET_USDC = '0x3600000000000000000000000000000000000000';
@@ -68,7 +69,7 @@ const ARC_TESTNET_EURC = '0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a';
 const CCTP_V2_VERIFIED_DATE = '2026-10-07';
 const STABLEFX_VERIFIED_DATE = '2026-10-07';
 
-export const PROVIDER_MANIFEST: ProviderManifestEntry[] = [
+const TESTNET_PROVIDER_MANIFEST: ProviderManifestEntry[] = [
   // ── Arc ERC-20 Payment / Transfer ────────────────────────────────────────
   {
     providerId: 'arc-erc20-transfer',
@@ -274,6 +275,11 @@ export const PROVIDER_MANIFEST: ProviderManifestEntry[] = [
         'CCTP V2 bridge (cctp-v2-bridge) is enabled as the primary bridge route.',
     },
   },
+];
+
+export const PROVIDER_MANIFEST: ProviderManifestEntry[] = [
+  ...TESTNET_PROVIDER_MANIFEST,
+  ...MAINNET_PROVIDER_MANIFEST,
 ];
 
 export function findManifestEntry(providerId: string): ProviderManifestEntry | undefined {
