@@ -24,13 +24,15 @@ import type { TransferAction } from '@/core/actions/actionSchema';
 import { usePipelineEvaluation } from '@/hooks/usePipelineEvaluation';
 import { useTransferExecution } from '@/hooks/useTransferExecution';
 import { VeyraReceiptView } from '../receipt/VeyraReceiptView';
+import type { PreparedRecipient } from '@/lib/api/identityApi';
 
 interface TransactionReviewSheetProps {
   action: TransferAction;
+  recipient?: PreparedRecipient | null;
   onClose: () => void;
 }
 
-export function TransactionReviewSheet({ action, onClose }: TransactionReviewSheetProps) {
+export function TransactionReviewSheet({ action, recipient, onClose }: TransactionReviewSheetProps) {
   const { policy, risk, loading: evalLoading, error: evalError } = usePipelineEvaluation(action);
   const { state: execState, execute, reset } = useTransferExecution();
 
@@ -111,6 +113,12 @@ export function TransactionReviewSheet({ action, onClose }: TransactionReviewShe
                       <span className="text-base font-medium" style={{ color: 'var(--muted)' }}>USDC</span>
                     </span>
                   </div>
+                  {recipient?.snapshot ? (
+                    <>
+                      <DetailRow label="Recipient" value={recipient.snapshot.displayName || `@${recipient.snapshot.veyraHandle}`} />
+                      <DetailRow label="Veyra" value={`@${recipient.snapshot.veyraHandle}`} />
+                    </>
+                  ) : null}
                   <DetailRow label="To" value={`${action.to.slice(0, 8)}...${action.to.slice(-6)}`} mono />
                   <DetailRow label="From" value={`${action.from.slice(0, 8)}...${action.from.slice(-6)}`} mono />
                   <DetailRow label="Network" value="Arc Testnet" />
@@ -174,7 +182,11 @@ export function TransactionReviewSheet({ action, onClose }: TransactionReviewShe
                 {/* CTA */}
                 {!evalLoading && !evalError && (
                   <button
-                    onClick={() => void execute(action)}
+                    onClick={() => void execute(action, recipient?.snapshot ? {
+                      snapshotId: recipient.snapshot.snapshotId,
+                      expectedWalletAddress: action.to,
+                      expectedChainId: action.chainId,
+                    } : undefined)}
                     disabled={isBlocked || evalLoading}
                     className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed disabled:scale-100"
                     style={{ background: isBlocked ? 'var(--danger)' : 'var(--accent)', color: '#0d1b2f' }}

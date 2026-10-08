@@ -1,6 +1,7 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../db/client.js';
 import { newSnapshotId } from '../db/ids.js';
+import { isBlockedEither } from '../db/repositories/socialRepository.js';
 import {
   identitySnapshots,
   linkedIdentities,
@@ -22,7 +23,7 @@ export class IdentityResolutionError extends Error {
   }
 }
 
-export async function resolveRecipient(db: DbClient, rawInput: string): Promise<ResolvedRecipient> {
+export async function resolveRecipient(db: DbClient, rawInput: string, senderUserId?: string): Promise<ResolvedRecipient> {
   const input = rawInput.trim();
   if (/^0x[0-9a-fA-F]{40}$/.test(input)) return { kind: 'WALLET', walletAddress: input };
 
@@ -34,7 +35,12 @@ export async function resolveRecipient(db: DbClient, rawInput: string): Promise<
     .from(veyraUsers)
     .where(and(sql`lower(${veyraUsers.veyraHandle}) = lower(${handle})`, eq(veyraUsers.status, 'ACTIVE'), isNull(veyraUsers.deletedAt)))
     .limit(1);
-  if (veyra) return { kind: 'VEYRA_IDENTITY', veyraUserId: veyra.veyraUserId };
+  if (veyra) {
+    if (senderUserId && senderUserId !== veyra.veyraUserId && await isBlockedEither(db, senderUserId, veyra.veyraUserId)) {
+      throw new IdentityResolutionError('RECIPIENT_BLOCKED', 'Payment cannot be initiated because a block relationship exists');
+    }
+    return { kind: 'VEYRA_IDENTITY', veyraUserId: veyra.veyraUserId };
+  }
 
   const [linked] = await db
     .select({ veyraUserId: linkedIdentities.veyraUserId })
@@ -46,7 +52,12 @@ export async function resolveRecipient(db: DbClient, rawInput: string): Promise<
       isNull(linkedIdentities.revokedAt),
     ))
     .limit(1);
-  if (linked) return { kind: 'VEYRA_IDENTITY', veyraUserId: linked.veyraUserId };
+  if (linked) {
+    if (senderUserId && senderUserId !== linked.veyraUserId && await isBlockedEither(db, senderUserId, linked.veyraUserId)) {
+      throw new IdentityResolutionError('RECIPIENT_BLOCKED', 'Payment cannot be initiated because a block relationship exists');
+    }
+    return { kind: 'VEYRA_IDENTITY', veyraUserId: linked.veyraUserId };
+  }
 
   throw new IdentityResolutionError('RECIPIENT_NOT_FOUND', 'No Veyra or linked X identity matched this recipient');
 }

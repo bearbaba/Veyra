@@ -2,8 +2,8 @@
  * Phase 1 — migration-from-zero integration test.
  *
  * Creates a clean `veyra_migration_test` database, applies all migration
- * files in journal order (0000, 0001, then 0002), then verifies:
- *   - all 18 expected tables exist
+ * files in journal order (0000 through 0004), then verifies:
+ *   - all 19 expected tables exist
  *   - critical UNIQUE constraints are enforced
  *   - CHECK constraints reject invalid data
  *   - append-only triggers reject UPDATE/DELETE on execution_events
@@ -84,6 +84,10 @@ beforeAll(async () => {
     await execMigration(client, loadMigration('0001_phase1_supplemental.sql'));
     // 0002: Phase 2 wallet-proof challenges
     await execMigration(client, loadMigration('0002_phase2_identity_proof.sql'));
+    // 0003: Phase 2 profile/session hardening
+    await execMigration(client, loadMigration('0003_phase2_profile_and_session.sql'));
+    // 0004: Phase 2C durable X OAuth state
+    await execMigration(client, loadMigration('0004_phase2c_x_oauth.sql'));
   } finally {
     client.release();
   }
@@ -110,13 +114,14 @@ function pgTest(name: string, fn: () => Promise<void>) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('migration-from-zero: all 18 tables exist', () => {
+describe('migration-from-zero: all 19 tables exist', () => {
   const EXPECTED_TABLES = [
     'veyra_users',
     'handle_history',
     'linked_identities',
     'wallet_bindings',
     'proof_challenges',
+    'oauth_link_states',
     'identity_snapshots',
     'receive_preferences',
     'social_follows',
@@ -140,7 +145,7 @@ describe('migration-from-zero: all 18 tables exist', () => {
     for (const tbl of EXPECTED_TABLES) {
       expect(actual.has(tbl), `missing table: ${tbl}`).toBe(true);
     }
-    expect(res.rows.length).toBeGreaterThanOrEqual(18);
+    expect(res.rows.length).toBeGreaterThanOrEqual(19);
   });
 });
 

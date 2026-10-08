@@ -22,6 +22,7 @@ import { generateExecutionReceiptId } from '@/core/receipt/receiptId';
 import { saveReceipt } from '@/core/receipt/receiptStore';
 import type { VeyraReceipt } from '@/core/receipt/receiptTypes';
 import { buildTxExplorerUrl } from '@/onchain-facts';
+import { verifyPaymentRecipient } from '@/lib/api/identityApi';
 
 export type TransferStep =
   | 'IDLE'
@@ -72,7 +73,7 @@ export function useTransferExecution() {
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
 
-  const execute = useCallback(async (action: TransferAction) => {
+  const execute = useCallback(async (action: TransferAction, recipientGuard?: { snapshotId: string; expectedWalletAddress: string; expectedChainId: number }) => {
     if (!publicClient) {
       setState((s) => ({ ...s, step: 'FAILED', error: 'No public client available' }));
       return;
@@ -81,6 +82,10 @@ export function useTransferExecution() {
     setState({ step: 'SIGNING', txHash: null, receipt: null, explorerUrl: null, error: null });
 
     try {
+      // Revalidate a frozen Veyra identity immediately before wallet signature.
+      // If profile/wallet/revision changed since review, execution fails closed.
+      if (recipientGuard) await verifyPaymentRecipient(recipientGuard);
+
       // ── Step 1: Sign + broadcast ───────────────────────────────────────────
       const hash = await writeContractAsync({
         address: action.tokenAddress as `0x${string}`,

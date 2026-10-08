@@ -11,3 +11,4 @@ export * from './payments.js';
 // posts.ts is exported here for Drizzle migration generation ONLY.
 // Application code must not import post tables directly — see posts.ts header.
 export * from './posts.js';
+export * from './oauth.js';

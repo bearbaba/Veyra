@@ -10,7 +10,7 @@
  * There is NO shortcut writeContract call that bypasses the pipeline.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAccount, useSwitchChain } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { isAddress } from 'viem';
@@ -20,6 +20,8 @@ import { getUsdc, requireChain } from '@/onchain-facts';
 import { createTransferAction } from '@/core/pipeline/transferPipeline';
 import { TransactionReviewSheet } from '../transfer/TransactionReviewSheet';
 import type { TransferAction } from '@/core/actions/actionSchema';
+import { preparePaymentRecipient, type PreparedRecipient } from '@/lib/api/identityApi';
+import type { IntentCandidate } from '@/core/intent/intentSchema';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
 
@@ -31,33 +33,61 @@ export function PayPage() {
   const [amount, setAmount]       = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<TransferAction | null>(null);
+  const [preparedRecipient, setPreparedRecipient] = useState<PreparedRecipient | null>(null);
+  const [resolving, setResolving] = useState(false);
 
   const usdc = getUsdc(ARC_TESTNET_CHAIN_ID);
   const arcChain = requireChain(ARC_TESTNET_CHAIN_ID);
   const isCorrectChain = chainId === ARC_TESTNET_CHAIN_ID;
 
-  const recipientValid = isAddress(recipient);
+  const recipientValid = recipient.trim().length > 0 && recipient.trim().length <= 128;
   const amountNum = parseFloat(amount);
   const amountValid = !isNaN(amountNum) && amountNum > 0;
-  const canProceed = isConnected && isCorrectChain && recipientValid && amountValid && !!address && !!usdc;
+  const canProceed = isConnected && isCorrectChain && recipientValid && amountValid && !!address && !!usdc && !resolving;
 
-  function handlePrepare() {
+  useEffect(() => {
+    const raw = sessionStorage.getItem('veyra:agent-intent');
+    if (!raw) return;
+    sessionStorage.removeItem('veyra:agent-intent');
+    try {
+      const candidate = JSON.parse(raw) as IntentCandidate;
+      if (candidate.actionType !== 'TRANSFER') return;
+      if (candidate.recipientRaw?.raw) setRecipient(candidate.recipientRaw.raw);
+      if (candidate.amountRaw?.raw) {
+        const match = candidate.amountRaw.raw.match(/\d+(?:\.\d+)?/);
+        if (match) setAmount(match[0]);
+      }
+    } catch {
+      // Invalid sessionStorage data is ignored; it is not trusted for execution.
+    }
+  }, []);
+
+  async function handlePrepare() {
     if (!canProceed || !address || !usdc) return;
     setActionError(null);
+    setResolving(true);
 
     try {
+      const prepared: PreparedRecipient = isAddress(recipient)
+        ? { kind: 'WALLET', resolvedAddress: recipient, chainId: ARC_TESTNET_CHAIN_ID, snapshot: null }
+        : await preparePaymentRecipient(recipient, ARC_TESTNET_CHAIN_ID);
+      if (!isAddress(prepared.resolvedAddress)) throw new Error('Resolved recipient is not a valid EVM address');
       const amountParsed = parseAmount(ARC_TESTNET_CHAIN_ID, amount);
       const action = createTransferAction({
         from: address,
-        to: recipient,
+        to: prepared.resolvedAddress,
         tokenAddress: usdc.address,
         tokenDecimals: usdc.decimals,
         amount: amountParsed.raw,
         chainId: ARC_TESTNET_CHAIN_ID,
       });
+      setPreparedRecipient(prepared);
       setPendingAction(action);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to prepare transfer');
+      setPreparedRecipient(null);
+      setActionError(err instanceof Error ? err.message : 'Failed to resolve recipient');
+    } finally {
+      setResolving(false);
     }
   }
 
@@ -118,15 +148,13 @@ export function PayPage() {
               <input
                 value={recipient}
                 onChange={(e) => setRecipient(e.target.value.trim())}
-                placeholder="0x..."
+                placeholder="@veyra, @xhandle, or 0x..."
                 className="w-full bg-transparent text-sm outline-none mono"
-                style={{
-                  color: recipient && !recipientValid ? 'var(--danger)' : 'var(--ink)',
-                }}
+                style={{ color: recipient && !recipientValid ? 'var(--danger)' : 'var(--ink)' }}
               />
               {recipient && !recipientValid && (
                 <p className="text-xs mt-1.5" style={{ color: 'var(--danger)' }}>
-                  Enter a valid EVM address
+                  Enter a Veyra handle, X handle, or EVM address
                 </p>
               )}
             </div>
@@ -165,13 +193,13 @@ export function PayPage() {
 
           {/* CTA */}
           <button
-            onClick={handlePrepare}
+            onClick={() => void handlePrepare()}
             disabled={!canProceed}
             className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed disabled:scale-100"
             style={{ background: 'var(--accent)', color: '#0d1b2f' }}
           >
             <SendHorizontal className="size-4" />
-            Review Transfer
+            {resolving ? 'Resolving recipient...' : 'Review Transfer'}
           </button>
 
           <p className="text-xs text-center" style={{ color: 'var(--subtle)' }}>
@@ -184,7 +212,8 @@ export function PayPage() {
       {pendingAction && (
         <TransactionReviewSheet
           action={pendingAction}
-          onClose={() => setPendingAction(null)}
+          recipient={preparedRecipient}
+          onClose={() => { setPendingAction(null); setPreparedRecipient(null); }}
         />
       )}
     </div>

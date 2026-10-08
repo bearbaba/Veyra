@@ -7,15 +7,42 @@
 
 import { useAccount } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
-import { Shield, Copy, Check, Info } from 'lucide-react';
-import { useState } from 'react';
+import { Shield, Copy, Check, Info, Link2, Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { DEFAULT_VEYRA_POLICY } from '@/core/policy/policyEngine';
 import { SECURITY_CONFIG } from '@/lib/securityConfig';
 import { VEYRA_ENV } from '@/lib/env';
+import { beginXLink, getMyProfile, type MyProfile } from '@/lib/api/identityApi';
 
 export function SettingsPage() {
   const { address, isConnected } = useAccount();
   const [copied, setCopied] = useState(false);
+  const [profile, setProfile] = useState<MyProfile | null>(null);
+  const [xLoading, setXLoading] = useState(false);
+  const [xError, setXError] = useState<string | null>(null);
+
+
+  useEffect(() => {
+    let cancelled = false;
+    void getMyProfile().then((next) => {
+      if (!cancelled) setProfile(next);
+    }).catch(() => {
+      // A wallet-only user may not have a Veyra session yet. Keep Settings usable.
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  async function linkX() {
+    setXLoading(true);
+    setXError(null);
+    try {
+      const authorizeUrl = await beginXLink('/settings');
+      window.location.assign(authorizeUrl);
+    } catch (err) {
+      setXError(err instanceof Error ? err.message : 'Unable to start X linking');
+      setXLoading(false);
+    }
+  }
 
   function copyAddress() {
     if (!address) return;
@@ -54,6 +81,42 @@ export function SettingsPage() {
               {copied ? <Check className="size-3.5" style={{ color: 'var(--success)' }} /> : <Copy className="size-3.5" />}
               {copied ? 'Copied' : 'Copy'}
             </button>
+          </div>
+        )}
+      </Section>
+
+      {/* Linked identity */}
+      <Section title="Linked Identity" icon={<Link2 className="size-4" />}>
+        {profile?.x ? (
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium" style={{ color: 'var(--ink)' }}>
+                @{profile.x.xHandle ?? 'X account'}
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+                X account ID {profile.x.xAccountId} · immutable binding
+              </p>
+            </div>
+            <span className="text-xs px-2 py-1 rounded-full"
+              style={{ background: 'var(--success-muted)', color: 'var(--success)' }}>
+              Linked
+            </span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>
+              Link X to let people resolve your current X handle to your Veyra identity. Your numeric X account ID is the binding key.
+            </p>
+            <button
+              onClick={() => void linkX()}
+              disabled={xLoading}
+              className="flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold disabled:opacity-50"
+              style={{ background: 'var(--surface)', border: '1px solid var(--border-strong)', color: 'var(--ink)' }}
+            >
+              {xLoading ? <Loader2 className="size-4 animate-spin" /> : <Link2 className="size-4" />}
+              Link X account
+            </button>
+            {xError && <p className="text-xs" style={{ color: 'var(--danger)' }}>{xError}</p>}
           </div>
         )}
       </Section>

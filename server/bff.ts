@@ -34,6 +34,8 @@ import { createWalletChallenge, verifyWalletChallenge, WalletProofError } from '
 import { freezeSnapshot, resolveRecipient, verifySnapshot, IdentityResolutionError } from './services/identityResolver.js';
 import { getAuthenticatedVeyraUserId } from './auth/session.js';
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
+import { beginXOAuthLink, completeXOAuthLink, XOAuthError } from './services/xOAuthService.js';
+import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
 
 const app = express();
 
@@ -44,7 +46,7 @@ app.use(express.json({ limit: '4kb' }));
 app.use((_req: Request, res: Response, next: NextFunction): void => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Veyra-User-Id');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
   next();
 });
 
@@ -103,6 +105,10 @@ function identityError(res: Response, err: unknown): void {
     return;
   }
   if (err instanceof ProfileError) {
+    res.status(err.httpStatus).json({ ok: false, error: err.code, message: err.message });
+    return;
+  }
+  if (err instanceof XOAuthError) {
     res.status(err.httpStatus).json({ ok: false, error: err.code, message: err.message });
     return;
   }
@@ -181,8 +187,113 @@ app.post('/api/identity/resolve', IDENTITY_RATE, async (req: Request, res: Respo
       return;
     }
     const { db } = await import('./db/client.js');
-    const resolved = await resolveRecipient(db, recipient);
+    const resolved = await resolveRecipient(db, recipient, veyraUserId);
     res.json({ ok: true, resolved });
+  } catch (err) {
+    identityError(res, err);
+  }
+});
+
+// ── POST /api/identity/prepare-payment ───────────────────────────────────────
+app.post('/api/identity/prepare-payment', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const veyraUserId = getAuthenticatedVeyraUserId(req);
+    if (!veyraUserId) {
+      res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Authenticated Veyra session required' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const recipient = typeof body.recipient === 'string' ? body.recipient.trim() : '';
+    const chainId = typeof body.chainId === 'number' ? body.chainId : Number.NaN;
+    if (!recipient || recipient.length > 128 || !Number.isSafeInteger(chainId) || chainId <= 0) {
+      res.status(400).json({ error: 'INVALID_PAYMENT_RECIPIENT' });
+      return;
+    }
+    const { db } = await import('./db/client.js');
+    const prepared = await preparePaymentRecipient(db, veyraUserId, recipient, chainId);
+    res.json({ ok: true, prepared });
+  } catch (err) {
+    identityError(res, err);
+  }
+});
+
+// ── POST /api/identity/verify-payment ────────────────────────────────────────
+app.post('/api/identity/verify-payment', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const veyraUserId = getAuthenticatedVeyraUserId(req);
+    if (!veyraUserId) {
+      res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Authenticated Veyra session required' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const snapshotId = typeof body.snapshotId === 'string' ? body.snapshotId : '';
+    const expectedWalletAddress = typeof body.expectedWalletAddress === 'string' ? body.expectedWalletAddress : '';
+    const expectedChainId = typeof body.expectedChainId === 'number' ? body.expectedChainId : Number.NaN;
+    if (!/^snp_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(snapshotId)
+      || !/^0x[0-9a-fA-F]{40}$/.test(expectedWalletAddress)
+      || !Number.isSafeInteger(expectedChainId) || expectedChainId <= 0) {
+      res.status(400).json({ error: 'INVALID_SNAPSHOT_VERIFICATION' });
+      return;
+    }
+    const { db } = await import('./db/client.js');
+    const verified = await verifyPaymentRecipient(db, { snapshotId, expectedWalletAddress, expectedChainId });
+    if (!verified.ok) {
+      res.status(409).json(verified);
+      return;
+    }
+    res.json(verified);
+  } catch (err) {
+    identityError(res, err);
+  }
+});
+
+// ── POST /api/auth/x/start ───────────────────────────────────────────────────
+app.post('/api/auth/x/start', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const veyraUserId = getAuthenticatedVeyraUserId(req);
+    if (!veyraUserId) {
+      res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Authenticated Veyra session required' });
+      return;
+    }
+    const clientId = process.env.X_CLIENT_ID ?? '';
+    const redirectUri = process.env.X_REDIRECT_URI ?? '';
+    const returnPath = typeof (req.body as Record<string, unknown>).returnPath === 'string'
+      ? String((req.body as Record<string, unknown>).returnPath)
+      : '/settings';
+    const { db } = await import('./db/client.js');
+    const started = await beginXOAuthLink(db, veyraUserId, { clientId, redirectUri, returnPath });
+    res.status(201).json({ ok: true, ...started });
+  } catch (err) {
+    identityError(res, err);
+  }
+});
+
+// ── GET /api/auth/x/callback ─────────────────────────────────────────────────
+app.get('/api/auth/x/callback', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const state = typeof req.query.state === 'string' ? req.query.state : '';
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    if (!state || !code) {
+      res.status(400).json({ error: 'INVALID_OAUTH_CALLBACK' });
+      return;
+    }
+    const clientId = process.env.X_CLIENT_ID ?? '';
+    if (!clientId) throw new XOAuthError('X_OAUTH_NOT_CONFIGURED', 'X OAuth is not configured', 503);
+    const { db } = await import('./db/client.js');
+    const completed = await completeXOAuthLink(db, {
+      state,
+      code,
+      clientId,
+      clientSecret: process.env.X_CLIENT_SECRET,
+    });
+    const appOrigin = process.env.VEYRA_APP_ORIGIN;
+    if (appOrigin) {
+      const target = new URL(completed.returnPath, appOrigin);
+      target.searchParams.set('x_linked', '1');
+      res.redirect(303, target.toString());
+      return;
+    }
+    res.json({ ok: true, profile: completed.profile });
   } catch (err) {
     identityError(res, err);
   }
