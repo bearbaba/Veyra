@@ -177,18 +177,31 @@ export async function sendConnectionRequest(
   });
 }
 
+async function pendingConnectionForResponse(db: DbClient, responderUserId: string, otherUserId: string) {
+  const [userAId, userBId] = canonicalPair(responderUserId, otherUserId);
+  const [latest] = await db.select().from(socialConnections)
+    .where(and(eq(socialConnections.userAId, userAId), eq(socialConnections.userBId, userBId)))
+    .orderBy(desc(socialConnections.createdAt)).limit(1);
+  if (!latest || !['PENDING_INITIATOR', 'PENDING_TARGET'].includes(latest.status)) {
+    throw new Error('No pending connection request exists for this pair.');
+  }
+  if (latest.initiatorUserId === responderUserId) {
+    throw new Error('The connection initiator cannot accept or reject their own request.');
+  }
+  if (await isBlockedEither(db, responderUserId, otherUserId)) {
+    throw new Error('Cannot respond to connection request: a block relationship exists.');
+  }
+  return { userAId, userBId, initiatorUserId: latest.initiatorUserId };
+}
+
 export async function acceptConnection(
   db: DbClient,
   acceptorUserId: string,
   otherUserId: string,
 ): Promise<void> {
-  const [userAId, userBId] = canonicalPair(acceptorUserId, otherUserId);
+  const pending = await pendingConnectionForResponse(db, acceptorUserId, otherUserId);
   await db.insert(socialConnections).values({
-    connectionId:    newConnectionId(),
-    userAId,
-    userBId,
-    initiatorUserId: otherUserId,  // original initiator
-    status:          'CONNECTED',
+    connectionId: newConnectionId(), ...pending, status: 'CONNECTED',
   });
 }
 
@@ -197,13 +210,9 @@ export async function rejectConnection(
   rejectorUserId: string,
   otherUserId: string,
 ): Promise<void> {
-  const [userAId, userBId] = canonicalPair(rejectorUserId, otherUserId);
+  const pending = await pendingConnectionForResponse(db, rejectorUserId, otherUserId);
   await db.insert(socialConnections).values({
-    connectionId:    newConnectionId(),
-    userAId,
-    userBId,
-    initiatorUserId: otherUserId,
-    status:          'REJECTED',
+    connectionId: newConnectionId(), ...pending, status: 'REJECTED',
   });
 }
 

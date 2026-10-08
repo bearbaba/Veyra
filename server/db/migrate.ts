@@ -21,7 +21,7 @@
  * A clean-clone workflow:
  *   1. Start an empty Postgres instance (e.g. `docker compose up -d postgres`)
  *   2. Run `bun run db:migrate`
- *   3. The exact schema — 18 tables, all indexes, all triggers, all constraints —
+ *   3. The exact schema — 20 tables, all indexes, all triggers, all constraints —
  *      is created deterministically from zero, with no manual psql steps.
  */
 

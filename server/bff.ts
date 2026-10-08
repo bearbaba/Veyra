@@ -36,6 +36,9 @@ import { getAuthenticatedVeyraUserId } from './auth/session.js';
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
 import { beginXOAuthLink, completeXOAuthLink, XOAuthError } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
+import { upsertContact, removeContact, listContacts, ContactError } from './services/contactService.js';
+import { getReceivePreference, setReceivePreference, ReceivePreferenceError } from './services/receivePreferenceService.js';
+import { follow, unfollow, sendConnectionRequest, acceptConnection, rejectConnection } from './db/repositories/socialRepository.js';
 
 const app = express();
 
@@ -108,6 +111,10 @@ function identityError(res: Response, err: unknown): void {
     res.status(err.httpStatus).json({ ok: false, error: err.code, message: err.message });
     return;
   }
+  if (err instanceof ContactError || err instanceof ReceivePreferenceError) {
+    res.status(400).json({ ok: false, error: err.code, message: err.message });
+    return;
+  }
   if (err instanceof XOAuthError) {
     res.status(err.httpStatus).json({ ok: false, error: err.code, message: err.message });
     return;
@@ -115,6 +122,119 @@ function identityError(res: Response, err: unknown): void {
   console.error('[BFF] identity route error:', err);
   res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
 }
+
+// ── Phase 2D social/contact/preferences ─────────────────────────────────────
+app.get('/api/social/contacts', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) { res.status(401).json({ error: 'AUTH_REQUIRED' }); return; }
+    const { db } = await import('./db/client.js');
+    res.json({ ok: true, contacts: await listContacts(db, userId) });
+  } catch (err) { identityError(res, err); }
+});
+
+app.post('/api/social/contacts', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) { res.status(401).json({ error: 'AUTH_REQUIRED' }); return; }
+    const body = req.body as Record<string, unknown>;
+    const recipient = typeof body.recipient === 'string' ? body.recipient : '';
+    const alias = typeof body.alias === 'string' ? body.alias : undefined;
+    const favorite = body.favorite === true;
+    if (!recipient || recipient.length > 128) { res.status(400).json({ error: 'INVALID_RECIPIENT' }); return; }
+    const { db } = await import('./db/client.js');
+    res.json({ ok: true, contact: await upsertContact(db, userId, recipient, alias, favorite) });
+  } catch (err) { identityError(res, err); }
+});
+
+app.post('/api/social/contacts/remove', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) { res.status(401).json({ error: 'AUTH_REQUIRED' }); return; }
+    const contactUserId = typeof (req.body as Record<string, unknown>).contactUserId === 'string' ? String((req.body as Record<string, unknown>).contactUserId) : '';
+    if (!contactUserId) { res.status(400).json({ error: 'INVALID_CONTACT' }); return; }
+    const { db } = await import('./db/client.js');
+    await removeContact(db, userId, contactUserId);
+    res.json({ ok: true });
+  } catch (err) { identityError(res, err); }
+});
+
+app.post('/api/social/follow', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) { res.status(401).json({ error: 'AUTH_REQUIRED' }); return; }
+    const target = typeof (req.body as Record<string, unknown>).veyraUserId === 'string' ? String((req.body as Record<string, unknown>).veyraUserId) : '';
+    if (!target || target === userId) { res.status(400).json({ error: 'INVALID_TARGET' }); return; }
+    const { db } = await import('./db/client.js');
+    await follow(db, userId, target); res.json({ ok: true });
+  } catch (err) { identityError(res, err); }
+});
+
+app.post('/api/social/unfollow', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) { res.status(401).json({ error: 'AUTH_REQUIRED' }); return; }
+    const target = typeof (req.body as Record<string, unknown>).veyraUserId === 'string' ? String((req.body as Record<string, unknown>).veyraUserId) : '';
+    if (!target || target === userId) { res.status(400).json({ error: 'INVALID_TARGET' }); return; }
+    const { db } = await import('./db/client.js');
+    await unfollow(db, userId, target); res.json({ ok: true });
+  } catch (err) { identityError(res, err); }
+});
+
+app.post('/api/social/friend/request', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) { res.status(401).json({ error: 'AUTH_REQUIRED' }); return; }
+    const target = typeof (req.body as Record<string, unknown>).veyraUserId === 'string' ? String((req.body as Record<string, unknown>).veyraUserId) : '';
+    if (!target || target === userId) { res.status(400).json({ error: 'INVALID_TARGET' }); return; }
+    const { db } = await import('./db/client.js');
+    await sendConnectionRequest(db, userId, target); res.json({ ok: true });
+  } catch (err) { identityError(res, err); }
+});
+
+app.post('/api/social/friend/respond', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) { res.status(401).json({ error: 'AUTH_REQUIRED' }); return; }
+    const body = req.body as Record<string, unknown>;
+    const target = typeof body.veyraUserId === 'string' ? body.veyraUserId : '';
+    const decision = body.decision;
+    if (!target || target === userId || (decision !== 'ACCEPT' && decision !== 'REJECT')) { res.status(400).json({ error: 'INVALID_RESPONSE' }); return; }
+    const { db } = await import('./db/client.js');
+    if (decision === 'ACCEPT') await acceptConnection(db, userId, target); else await rejectConnection(db, userId, target);
+    res.json({ ok: true });
+  } catch (err) { identityError(res, err); }
+});
+
+app.get('/api/preferences/receive', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) { res.status(401).json({ error: 'AUTH_REQUIRED' }); return; }
+    const { db } = await import('./db/client.js');
+    res.json({ ok: true, preference: await getReceivePreference(db, userId) });
+  } catch (err) { identityError(res, err); }
+});
+
+app.patch('/api/preferences/receive', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) { res.status(401).json({ error: 'AUTH_REQUIRED' }); return; }
+    const body = req.body as Record<string, unknown>;
+    const visibility = body.visibility;
+    if (typeof body.preferredTokenId !== 'string' || typeof body.preferredChainId !== 'number' || typeof body.primaryWalletId !== 'string' || !['PUBLIC','FRIENDS_ONLY','PRIVATE'].includes(String(visibility))) {
+      res.status(400).json({ error: 'INVALID_RECEIVE_PREFERENCE' }); return;
+    }
+    const { db } = await import('./db/client.js');
+    const preference = await setReceivePreference(db, userId, {
+      preferredTokenId: body.preferredTokenId,
+      preferredChainId: body.preferredChainId,
+      primaryWalletId: body.primaryWalletId,
+      visibility: visibility as 'PUBLIC' | 'FRIENDS_ONLY' | 'PRIVATE',
+      alternativeRoutes: Array.isArray(body.alternativeRoutes) ? body.alternativeRoutes : [],
+    });
+    res.json({ ok: true, preference });
+  } catch (err) { identityError(res, err); }
+});
 
 // ── GET /api/profile/me ─────────────────────────────────────────────────────
 app.get('/api/profile/me', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
@@ -365,6 +485,10 @@ app.post('/api/identity/snapshot', IDENTITY_RATE, async (req: Request, res: Resp
       : '';
     if (!/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(recipientUserId)) {
       res.status(400).json({ error: 'INVALID_RECIPIENT' });
+      return;
+    }
+    if (recipientUserId !== veyraUserId) {
+      res.status(403).json({ error: 'SNAPSHOT_DIRECT_ACCESS_FORBIDDEN', message: 'Use the payment preparation endpoint for recipient snapshots' });
       return;
     }
     const { db } = await import('./db/client.js');

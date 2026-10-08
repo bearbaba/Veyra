@@ -12,3 +12,4 @@ export * from './payments.js';
 // Application code must not import post tables directly — see posts.ts header.
 export * from './posts.js';
 export * from './oauth.js';
+export * from './contacts.js';

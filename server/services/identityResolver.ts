@@ -2,6 +2,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../db/client.js';
 import { newSnapshotId } from '../db/ids.js';
 import { isBlockedEither } from '../db/repositories/socialRepository.js';
+import { resolveContactAlias } from './contactService.js';
 import {
   identitySnapshots,
   linkedIdentities,
@@ -29,6 +30,16 @@ export async function resolveRecipient(db: DbClient, rawInput: string, senderUse
 
   const handle = input.startsWith('@') ? input.slice(1) : input;
   if (!handle) throw new IdentityResolutionError('INVALID_RECIPIENT', 'Recipient is empty');
+
+  if (senderUserId) {
+    const contactUserId = await resolveContactAlias(db, senderUserId, handle);
+    if (contactUserId) {
+      if (await isBlockedEither(db, senderUserId, contactUserId)) {
+        throw new IdentityResolutionError('RECIPIENT_BLOCKED', 'Payment cannot be initiated because a block relationship exists');
+      }
+      return { kind: 'VEYRA_IDENTITY', veyraUserId: contactUserId };
+    }
+  }
 
   const [veyra] = await db
     .select({ veyraUserId: veyraUsers.veyraUserId })
