@@ -31,7 +31,9 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import { validateIntentResponse } from '../src/core/intent/intentSchema';
 import { MANIFEST_CONSTANTS } from '../src/providers/registry/providerManifest';
 import { createWalletChallenge, verifyWalletChallenge, WalletProofError } from './services/walletProofService.js';
-import { freezeSnapshot, verifySnapshot, IdentityResolutionError } from './services/identityResolver.js';
+import { freezeSnapshot, resolveRecipient, verifySnapshot, IdentityResolutionError } from './services/identityResolver.js';
+import { getAuthenticatedVeyraUserId } from './auth/session.js';
+import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
 
 const app = express();
 
@@ -41,7 +43,7 @@ app.use(express.json({ limit: '4kb' }));
 // ── CORS for local dev ───────────────────────────────────────────────────────
 app.use((_req: Request, res: Response, next: NextFunction): void => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Veyra-User-Id');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Veyra-User-Id');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   next();
 });
@@ -88,15 +90,8 @@ const STABLEFX_RATE = rateLimit(20, 60_000);
 const IDENTITY_RATE = rateLimit(20, 60_000);
 
 // ── Identity auth boundary ──────────────────────────────────────────────────
-// Production identity routes MUST be backed by a real authenticated Veyra session.
-// Until that session layer lands, the explicit X-Veyra-User-Id header is accepted
-// only outside production so local/dev E2E can proceed without weakening prod.
-function getAuthenticatedVeyraUserId(req: Request): string | null {
-  if (process.env.NODE_ENV === 'production') return null;
-  const raw = req.header('x-veyra-user-id');
-  if (!raw || !/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(raw)) return null;
-  return raw;
-}
+// Production accepts only a signed Bearer session. The X-Veyra-User-Id header
+// remains available only outside production for local E2E.
 
 function identityError(res: Response, err: unknown): void {
   if (err instanceof WalletProofError) {
@@ -107,9 +102,91 @@ function identityError(res: Response, err: unknown): void {
     res.status(400).json({ ok: false, error: err.code, message: err.message });
     return;
   }
+  if (err instanceof ProfileError) {
+    res.status(err.httpStatus).json({ ok: false, error: err.code, message: err.message });
+    return;
+  }
   console.error('[BFF] identity route error:', err);
   res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
 }
+
+// ── GET /api/profile/me ─────────────────────────────────────────────────────
+app.get('/api/profile/me', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const veyraUserId = getAuthenticatedVeyraUserId(req);
+    if (!veyraUserId) {
+      res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Authenticated Veyra session required' });
+      return;
+    }
+    const { db } = await import('./db/client.js');
+    const profile = await getProfile(db, veyraUserId);
+    res.json({ ok: true, profile });
+  } catch (err) {
+    identityError(res, err);
+  }
+});
+
+// ── PATCH /api/profile/me ───────────────────────────────────────────────────
+app.patch('/api/profile/me', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const veyraUserId = getAuthenticatedVeyraUserId(req);
+    if (!veyraUserId) {
+      res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Authenticated Veyra session required' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const useXRaw = body.useX;
+    const useX = useXRaw && typeof useXRaw === 'object'
+      ? {
+          displayName: (useXRaw as Record<string, unknown>).displayName === true,
+          avatarUrl: (useXRaw as Record<string, unknown>).avatarUrl === true,
+          bio: (useXRaw as Record<string, unknown>).bio === true,
+        }
+      : undefined;
+    const profileVisibility = typeof body.profileVisibility === 'string'
+      && ['PUBLIC', 'FOLLOWERS_ONLY', 'PRIVATE'].includes(body.profileVisibility)
+      ? body.profileVisibility as 'PUBLIC' | 'FOLLOWERS_ONLY' | 'PRIVATE'
+      : undefined;
+    if (body.profileVisibility !== undefined && !profileVisibility) {
+      res.status(400).json({ error: 'INVALID_PROFILE_VISIBILITY' });
+      return;
+    }
+    const { db } = await import('./db/client.js');
+    const profile = await updateProfile(db, veyraUserId, {
+      displayName: typeof body.displayName === 'string' ? body.displayName : undefined,
+      avatarUrl: body.avatarUrl === null || typeof body.avatarUrl === 'string' ? body.avatarUrl : undefined,
+      bio: typeof body.bio === 'string' ? body.bio : undefined,
+      profileVisibility,
+      useX,
+    });
+    res.json({ ok: true, profile });
+  } catch (err) {
+    identityError(res, err);
+  }
+});
+
+// ── POST /api/identity/resolve ──────────────────────────────────────────────
+app.post('/api/identity/resolve', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const veyraUserId = getAuthenticatedVeyraUserId(req);
+    if (!veyraUserId) {
+      res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Authenticated Veyra session required' });
+      return;
+    }
+    const recipient = typeof (req.body as Record<string, unknown>).recipient === 'string'
+      ? String((req.body as Record<string, unknown>).recipient)
+      : '';
+    if (!recipient || recipient.length > 128) {
+      res.status(400).json({ error: 'INVALID_RECIPIENT' });
+      return;
+    }
+    const { db } = await import('./db/client.js');
+    const resolved = await resolveRecipient(db, recipient);
+    res.json({ ok: true, resolved });
+  } catch (err) {
+    identityError(res, err);
+  }
+});
 
 // ── POST /api/identity/challenge ────────────────────────────────────────────
 app.post('/api/identity/challenge', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {

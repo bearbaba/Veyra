@@ -137,6 +137,7 @@ export const revisionTriggerEnum = pgEnum('revision_trigger', [
   'HANDLE_CHANGED',
   'ACCOUNT_SUSPENDED',
   'ACCOUNT_RESTORED',
+  'PROFILE_UPDATED',
 ]);
 
 // ── Posts (schema-forward) ──────────────────────────────────────────────────
