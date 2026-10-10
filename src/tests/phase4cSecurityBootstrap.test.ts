@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   initializeSecurityRuntime,
   resetSecurityRuntimeBootstrapForTesting,
@@ -15,13 +15,14 @@ import {
 } from '../core/receipt/quoteReplayStore';
 
 beforeEach(async () => {
-  vi.useFakeTimers();
+  // Keep real timers here. fake-indexeddb dispatches asynchronous IDB events;
+  // Vitest fake timers can prevent those callbacks from firing and make the
+  // async store reset/hydration hook hang until the hook timeout.
   resetSecurityRuntimeBootstrapForTesting();
-  resetSecurityGate();
-  vi.clearAllTimers();
   forceUnhydratedForTesting();
   await resetQuoteReplayStore();
   forceUnhydratedForTesting();
+  resetSecurityGate();
 });
 
 describe('Phase 4C security bootstrap', () => {
