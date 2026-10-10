@@ -35,6 +35,7 @@ import {
   type PublicClient,
   type WalletClient,
   type Hash,
+  type TransactionReceipt,
   getAddress,
 } from 'viem';
 import { MANIFEST_CONSTANTS } from '../registry/providerManifest';
@@ -82,6 +83,12 @@ const TOKEN_MESSENGER_V2_ABI = [
     outputs: [],
   },
 ] as const;
+
+const MESSAGE_SENT_TOPIC =
+  '0x8c5261668696ce22758910d05bab8f186d6eb247ceac2af2e82c7dc17669b036';
+const ERC20_TRANSFER_TOPIC =
+  '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+const ZERO_ADDRESS_TOPIC = `0x${'0'.repeat(64)}`;
 
 const MESSAGE_TRANSMITTER_V2_ABI = [
   {
@@ -151,7 +158,7 @@ export async function fetchCctpAttestation(sourceDomain: number, txHash: Hash): 
     return { status: 'pending' };
   }
   const msg = messages[0];
-  if (msg.status === 'complete' && msg.attestation) {
+  if (msg.status === 'complete' && msg.message && msg.attestation) {
     return {
       status: 'complete',
       message: msg.message,
@@ -285,6 +292,89 @@ export async function receiveMessage(
   );
   await publicClient.waitForTransactionReceipt({ hash });
   return hash;
+}
+
+// ── Receipt evidence verification ────────────────────────────────────────────
+
+function addressToTopic(address: Address): string {
+  return `0x${'0'.repeat(24)}${address.slice(2).toLowerCase()}`;
+}
+
+export function verifyCctpSourceReceiptEvidence(
+  receipt: Pick<TransactionReceipt, 'status' | 'logs'>,
+): { verified: boolean; detail: string } {
+  if (receipt.status !== 'success') {
+    return { verified: false, detail: 'Source CCTP transaction did not succeed.' };
+  }
+
+  const transmitter =
+    MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER.toLowerCase();
+  const hasMessageSent = receipt.logs.some(
+    (log) =>
+      log.address.toLowerCase() === transmitter &&
+      log.topics[0]?.toLowerCase() === MESSAGE_SENT_TOPIC,
+  );
+
+  if (!hasMessageSent) {
+    return {
+      verified: false,
+      detail:
+        'Source CCTP receipt is missing MessageSent from MessageTransmitterV2.',
+    };
+  }
+
+  return {
+    verified: true,
+    detail:
+      'Source CCTP receipt succeeded and contains MessageSent from MessageTransmitterV2.',
+  };
+}
+
+export function verifyCctpDestinationReceiptEvidence(
+  receipt: Pick<TransactionReceipt, 'status' | 'logs'>,
+  recipientAddress: Address,
+  tokenAddress: Address,
+  expectedAmount: bigint,
+): { verified: boolean; detail: string; transferAmount: bigint | null } {
+  if (receipt.status !== 'success') {
+    return {
+      verified: false,
+      detail: 'Destination CCTP receive transaction did not succeed.',
+      transferAmount: null,
+    };
+  }
+
+  const token = getAddress(tokenAddress).toLowerCase();
+  const recipientTopic = addressToTopic(getAddress(recipientAddress));
+
+  for (const log of receipt.logs) {
+    if (
+      log.address.toLowerCase() !== token ||
+      log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC ||
+      log.topics[1]?.toLowerCase() !== ZERO_ADDRESS_TOPIC ||
+      log.topics[2]?.toLowerCase() !== recipientTopic ||
+      !/^0x[0-9a-fA-F]{64}$/.test(log.data)
+    ) {
+      continue;
+    }
+
+    const transferAmount = BigInt(log.data);
+    if (transferAmount === expectedAmount) {
+      return {
+        verified: true,
+        detail:
+          'Destination receipt contains the exact USDC mint to the reviewed recipient.',
+        transferAmount,
+      };
+    }
+  }
+
+  return {
+    verified: false,
+    detail:
+      'Destination receipt does not contain the exact expected USDC mint to the reviewed recipient.',
+    transferAmount: null,
+  };
 }
 
 // ── Step 6: Post-receive balance verification ────────────────────────────────
