@@ -386,6 +386,9 @@ export function verifyCctpSourceReceiptEvidence(
   const expectedDomain = chainIdToCctpDomain(
     expected.destinationChainId,
   );
+  const expectedDestinationMessenger = addressToBytes32(
+    getAddress(MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER),
+  ).toLowerCase();
   const zeroCaller = `0x${'0'.repeat(64)}`;
 
   for (const log of receipt.logs) {
@@ -410,6 +413,8 @@ export function verifyCctpSourceReceiptEvidence(
           getAddress(expected.depositor).toLowerCase() &&
         args.mintRecipient.toLowerCase() === expectedRecipient &&
         Number(args.destinationDomain) === expectedDomain &&
+        args.destinationTokenMessenger.toLowerCase() ===
+          expectedDestinationMessenger &&
         args.destinationCaller.toLowerCase() === zeroCaller &&
         args.maxFee === 0n &&
         Number(args.minFinalityThreshold) ===
