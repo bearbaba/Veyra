@@ -57,6 +57,27 @@ export function validateProviderActivationEvidenceRecord(
   if (!entry.capabilities.includes(evidence.capability)) {
     errors.push('CAPABILITY_NOT_DECLARED');
   }
+  if (!evidence.realExecution) errors.push('REAL_EXECUTION_REQUIRED');
+  if (!evidence.finalStateVerified) errors.push('FINAL_STATE_VERIFICATION_REQUIRED');
+  if (!evidence.receiptVerified) errors.push('RECEIPT_VERIFICATION_REQUIRED');
+  if (!evidence.signatureBudgetVerified) {
+    errors.push('SIGNATURE_BUDGET_VERIFICATION_REQUIRED');
+  }
+  if (!evidence.duplicatePreventionVerified) {
+    errors.push('DUPLICATE_PREVENTION_VERIFICATION_REQUIRED');
+  }
+  if (!evidence.adapterVersion.trim()) errors.push('ADAPTER_VERSION_REQUIRED');
+
+  if (evidence.capability === 'BRIDGE' && !evidence.recoveryVerified) {
+    errors.push('RECOVERY_VERIFICATION_REQUIRED');
+  }
+  if (
+    (evidence.capability === 'EARN_DEPOSIT' ||
+      evidence.capability === 'EARN_WITHDRAW') &&
+    !evidence.explainabilityVerified
+  ) {
+    errors.push('EXPLAINABILITY_VERIFICATION_REQUIRED');
+  }
   if (
     entry.packageVersion &&
     evidence.adapterVersion.trim() !== entry.packageVersion.trim()
