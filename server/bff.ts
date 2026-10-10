@@ -1307,8 +1307,8 @@ app.post('/api/receipts/bridge', IDENTITY_RATE, async (req: Request, res: Respon
     };
 
     const { db } = await import('./db/client.js');
-    const receiptId = await createBridgeActivityReceipt(db, userId, input);
-    res.status(201).json({ ok: true, receiptId });
+    const created = await createBridgeActivityReceipt(db, userId, input);
+    res.status(201).json({ ok: true, ...created });
   } catch (err) {
     if (err instanceof ActivityReceiptInputError) {
       res.status(err.httpStatus).json({
