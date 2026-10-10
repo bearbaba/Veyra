@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BridgeRecoveryConflictError,
+  evaluateBridgeRelayDecision,
   mergeBridgeRecoveryCheckpoint,
   type BridgeRecoveryInput,
 } from '../../server/db/repositories/bridgeRecoveryRepository';
@@ -73,6 +74,42 @@ describe('Phase 4C durable bridge recovery merge', () => {
     expect(() =>
       mergeBridgeRecoveryCheckpoint(null, value),
     ).toThrow(/receiveTxHash/i);
+  });
+
+  it('allows relay only from ATTESTATION_READY and uses persisted evidence', () => {
+    const ready = {
+      ...checkpoint('ATTESTATION_READY'),
+      attestationMessage: '0x1234',
+      attestationSignature: '0xabcd',
+      updatedAt: 2000,
+    };
+
+    expect(evaluateBridgeRelayDecision(ready)).toEqual({
+      mode: 'SUBMIT',
+      destinationChainId: ready.destinationChainId,
+      message: '0x1234',
+      attestation: '0xabcd',
+    });
+
+    expect(() =>
+      evaluateBridgeRelayDecision(checkpoint('SOURCE_CONFIRMED')),
+    ).toThrow(/not allowed/i);
+  });
+
+  it('returns the existing destination tx instead of relaying twice', () => {
+    const broadcast = {
+      ...checkpoint('DESTINATION_BROADCAST'),
+      attestationMessage: '0x1234',
+      attestationSignature: '0xabcd',
+      receiveTxHash: '0x' + '33'.repeat(32),
+      updatedAt: 2000,
+    };
+
+    expect(evaluateBridgeRelayDecision(broadcast)).toEqual({
+      mode: 'ALREADY_SUBMITTED',
+      destinationChainId: broadcast.destinationChainId,
+      receiveTxHash: broadcast.receiveTxHash,
+    });
   });
 
   it('keeps previously persisted evidence when later updates omit it', () => {
