@@ -18,8 +18,10 @@ import type {
 } from '../bridge/bridgeProviderTypes';
 import { buildRouteId } from '../../core/router/routeEngine';
 
-const PROVIDER_ID = 'cctp-v2-bridge';
-const PROVIDER_VERSION = 'cctp-v2-api';
+export const CCTP_V2_PROVIDER_ID = 'cctp-v2-bridge';
+export const CCTP_V2_PROVIDER_VERSION = 'cctp-v2-api';
+const PROVIDER_ID = CCTP_V2_PROVIDER_ID;
+const PROVIDER_VERSION = CCTP_V2_PROVIDER_VERSION;
 const STANDARD_ESTIMATED_TIME_MS = 15 * 60 * 1000;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
