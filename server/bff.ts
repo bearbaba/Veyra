@@ -52,6 +52,18 @@ import { probeDatabaseReadiness } from './readiness/databaseReadiness.js';
 import { refreshMainnetProviderHealth } from './services/providerHealthService.js';
 import { getAllProviderHealthRecords } from '../src/providers/registry/providerRegistry.js';
 import {
+  ActivityReceiptInputError,
+  createBridgeActivityReceipt,
+} from './services/activityReceiptService.js';
+import {
+  getResumableReceipts as getResumableActivityReceipts,
+  listReceiptsForUser,
+  ReceiptTransitionError,
+  syncReceiptRevision,
+  type ReceiptStatus as ActivityReceiptStatus,
+} from './db/repositories/receiptRepository.js';
+import { receiptStatusEnum } from './db/schema/enums.js';
+import {
   BridgeRecoveryConflictError,
   assertBridgeRecoveryWalletOwnership,
   evaluateBridgeRelayDecision,
@@ -1234,6 +1246,211 @@ app.get('/api/cctp/attestation', async (req: Request, res: Response): Promise<vo
   } catch (err) {
     console.error('[BFF] /api/cctp/attestation error:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── Activity receipts ──────────────────────────────────────────────────────
+
+const ACTIVITY_RECEIPT_STATUSES = new Set<string>(receiptStatusEnum.enumValues);
+
+function parseOptionalHash(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(value)) {
+    throw new ReceiptTransitionError('Invalid transaction hash in receipt sync.');
+  }
+  return value;
+}
+
+app.post('/api/receipts/bridge', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const input = {
+      clientIntentId:
+        typeof body.clientIntentId === 'string' ? body.clientIntentId : '',
+      routeId: typeof body.routeId === 'string' ? body.routeId : '',
+      senderAddress:
+        typeof body.senderAddress === 'string' ? body.senderAddress : '',
+      sourceChainId:
+        typeof body.sourceChainId === 'number'
+          ? body.sourceChainId
+          : Number.NaN,
+      destinationAddress:
+        typeof body.destinationAddress === 'string'
+          ? body.destinationAddress
+          : '',
+      destinationChainId:
+        typeof body.destinationChainId === 'number'
+          ? body.destinationChainId
+          : Number.NaN,
+      amountRaw: typeof body.amountRaw === 'string' ? body.amountRaw : '',
+      tokenAddress:
+        typeof body.tokenAddress === 'string' ? body.tokenAddress : '',
+      recipientSnapshotId:
+        typeof body.recipientSnapshotId === 'string'
+          ? body.recipientSnapshotId
+          : null,
+      policyResult:
+        body.policyResult &&
+        typeof body.policyResult === 'object' &&
+        !Array.isArray(body.policyResult)
+          ? (body.policyResult as Record<string, unknown>)
+          : undefined,
+      preflightResults: Array.isArray(body.preflightResults)
+        ? body.preflightResults
+        : undefined,
+    };
+
+    const { db } = await import('./db/client.js');
+    const receiptId = await createBridgeActivityReceipt(db, userId, input);
+    res.status(201).json({ ok: true, receiptId });
+  } catch (err) {
+    if (err instanceof ActivityReceiptInputError) {
+      res.status(err.httpStatus).json({
+        ok: false,
+        error: err.code,
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/receipts/bridge error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+app.post('/api/receipts/sync', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const status =
+      typeof body.status === 'string' &&
+      ACTIVITY_RECEIPT_STATUSES.has(body.status)
+        ? (body.status as ActivityReceiptStatus)
+        : null;
+    const revision =
+      typeof body.revision === 'number' ? body.revision : Number.NaN;
+    const receiptId =
+      typeof body.receiptId === 'string' ? body.receiptId : '';
+
+    if (
+      !receiptId ||
+      !status ||
+      !Number.isSafeInteger(revision) ||
+      revision < 1
+    ) {
+      res.status(400).json({
+        ok: false,
+        error: 'INVALID_RECEIPT_SYNC',
+      });
+      return;
+    }
+
+    const input = {
+      receiptId,
+      revision,
+      status,
+      burnTxHash: parseOptionalHash(body.burnTxHash),
+      burnChainId:
+        typeof body.burnChainId === 'number' ? body.burnChainId : undefined,
+      burnBlockNumber:
+        typeof body.burnBlockNumber === 'number'
+          ? body.burnBlockNumber
+          : undefined,
+      receiveTxHash: parseOptionalHash(body.receiveTxHash),
+      receiveChainId:
+        typeof body.receiveChainId === 'number'
+          ? body.receiveChainId
+          : undefined,
+      receiveBlockNumber:
+        typeof body.receiveBlockNumber === 'number'
+          ? body.receiveBlockNumber
+          : undefined,
+      messageHash:
+        typeof body.messageHash === 'string' ? body.messageHash : undefined,
+      messageBytes:
+        typeof body.messageBytes === 'string' ? body.messageBytes : undefined,
+      attestationNonce:
+        typeof body.attestationNonce === 'string'
+          ? body.attestationNonce
+          : undefined,
+      failureReason:
+        typeof body.failureReason === 'string'
+          ? body.failureReason.slice(0, 1000)
+          : undefined,
+      resumable:
+        typeof body.resumable === 'boolean' ? body.resumable : undefined,
+      resumePayload:
+        body.resumePayload &&
+        typeof body.resumePayload === 'object' &&
+        !Array.isArray(body.resumePayload)
+          ? (body.resumePayload as Record<string, unknown>)
+          : undefined,
+    };
+
+    const { db } = await import('./db/client.js');
+    const result = await syncReceiptRevision(db, userId, input);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof ReceiptTransitionError) {
+      res.status(409).json({
+        ok: false,
+        error: 'RECEIPT_TRANSITION_CONFLICT',
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/receipts/sync error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+app.get('/api/receipts', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+
+    const rawLimit =
+      typeof req.query.limit === 'string' ? Number(req.query.limit) : 100;
+    const { db } = await import('./db/client.js');
+    const receipts = await listReceiptsForUser(
+      db,
+      userId,
+      Number.isFinite(rawLimit) ? rawLimit : 100,
+    );
+    res.json({ ok: true, receipts });
+  } catch (err) {
+    console.error('[BFF] /api/receipts error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+app.get('/api/receipts/resumable', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const receipts = await getResumableActivityReceipts(db, userId);
+    res.json({ ok: true, receipts });
+  } catch (err) {
+    console.error('[BFF] /api/receipts/resumable error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
   }
 });
 
