@@ -23,6 +23,8 @@ import {
   broadcastDepositForBurn,
   fetchCctpAttestation,
   broadcastReceiveMessage,
+  verifyCctpDestinationReceiptEvidence,
+  verifyCctpSourceReceiptEvidence,
   verifyDestinationBalance,
   readBalance,
   chainIdToCctpDomain,
@@ -30,7 +32,7 @@ import {
 import { findManifestEntry, MANIFEST_CONSTANTS } from '../providers/registry/providerManifest';
 import { checkProviderEligibility } from '../providers/registry/providerRegistry';
 import type { BridgeAction } from '../core/actions/actionSchema';
-import { generatePlanReceiptId, generateExecutionReceiptId } from '../core/receipt/receiptId';
+import { generateExecutionReceiptId } from '../core/receipt/receiptId';
 import type { VeyraReceipt } from '../core/receipt/receiptTypes';
 import { VEYRA_ENV } from '../lib/env';
 import { assertExecutionReady } from '../core/execution/executionReadiness';
@@ -171,6 +173,24 @@ export function useBridgeExecution() {
       return;
     }
 
+    const actionFrom = getAddress(action.from);
+    const requestedWallet = getAddress(walletAddress);
+    const connectedWallet = walletClient.account?.address
+      ? getAddress(walletClient.account.address)
+      : null;
+    if (
+      requestedWallet !== actionFrom ||
+      !connectedWallet ||
+      connectedWallet !== actionFrom
+    ) {
+      setState({
+        phase: 'FAILED',
+        error:
+          'Connected wallet does not match the deterministic bridge sender.',
+      });
+      return;
+    }
+
     const destRpc        = DEST_CHAIN_RPC[action.destinationChainId];
     const destUsdcAddress = DEST_CHAIN_USDC[action.destinationChainId];
     if (!destRpc || !destUsdcAddress) {
@@ -240,7 +260,7 @@ export function useBridgeExecution() {
       // Generate immutable recovery metadata BEFORE asking the wallet to burn.
       // The adapter returns the tx hash immediately after broadcast; Veyra then
       // persists SOURCE_BROADCAST before waiting for confirmation.
-      const planId = generatePlanReceiptId();
+      const planId = action.actionId;
       const checkpointCreatedAt = Date.now();
       const checkpointMetadata: Omit<
         BridgeRecoveryCheckpoint,
@@ -296,8 +316,13 @@ export function useBridgeExecution() {
         hash: burnTxHash,
         timeout: 60_000,
       });
-      if (sourceReceipt.status !== 'success') {
-        setState({ phase: 'FAILED', burnTxHash, error: `Source tx reverted: ${burnTxHash}` });
+      const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt);
+      if (!sourceEvidence.verified) {
+        setState({
+          phase: 'FAILED',
+          burnTxHash,
+          error: `Source CCTP verification failed: ${sourceEvidence.detail}`,
+        });
         return;
       }
       setState({ phase: 'BRIDGE_UNCONFIRMED', approveTxHash, burnTxHash });
@@ -389,12 +414,19 @@ export function useBridgeExecution() {
         hash: receiveTxHash,
         timeout: 60_000,
       });
-      if (destinationReceipt.status !== 'success') {
+      const destinationEvidence = verifyCctpDestinationReceiptEvidence(
+        destinationReceipt,
+        recipientAddress,
+        destUsdcAddress,
+        action.amount,
+      );
+      if (!destinationEvidence.verified) {
         setState({
           phase: 'FAILED',
           burnTxHash,
           receiveTxHash,
-          error: `Destination receive tx reverted: ${receiveTxHash}`,
+          error:
+            `Destination CCTP receipt verification failed: ${destinationEvidence.detail}`,
         });
         return;
       }
@@ -573,11 +605,13 @@ export function useBridgeExecution() {
         return;
       }
 
-      if (sourceReceipt.status !== 'success') {
+      const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt);
+      if (!sourceEvidence.verified) {
         setState({
           phase: 'FAILED',
           burnTxHash,
-          error: `Persisted source burn reverted: ${burnTxHash}`,
+          error:
+            `Persisted source burn failed CCTP verification: ${sourceEvidence.detail}`,
         });
         return;
       }
@@ -730,12 +764,19 @@ export function useBridgeExecution() {
           return;
         }
 
-        if (destReceiptObj.status !== 'success') {
+        const destinationEvidence = verifyCctpDestinationReceiptEvidence(
+          destReceiptObj,
+          recipientAddress,
+          destUsdcAddress,
+          amount,
+        );
+        if (!destinationEvidence.verified) {
           setState({
             phase: 'FAILED',
             burnTxHash,
             receiveTxHash,
-            error: 'Persisted destination receive transaction reverted.',
+            error:
+              `Persisted destination transaction failed CCTP verification: ${destinationEvidence.detail}`,
           });
           return;
         }
