@@ -3,6 +3,7 @@ import type { BridgeRecoveryCheckpoint } from '../../core/execution/bridgeCheckp
 const DEV_USER_ID = import.meta.env.VITE_DEV_VEYRA_USER_ID as string | undefined;
 
 function bridgeAuthHeaders(): Record<string, string> {
+  if (typeof sessionStorage === 'undefined') return {};
   const token = sessionStorage.getItem('veyra:session-token');
   if (token) return { Authorization: `Bearer ${token}` };
   if (import.meta.env.DEV && DEV_USER_ID) return { 'X-Veyra-User-Id': DEV_USER_ID };
