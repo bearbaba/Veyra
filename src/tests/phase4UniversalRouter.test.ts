@@ -6,8 +6,9 @@ const arc = { networkId: 'arc', displayName: 'Arc', family: 'EVM' as const, chai
 const arbitrum = { networkId: 'arbitrum', displayName: 'Arbitrum', family: 'EVM' as const, chainId: 42161 };
 
 function route(overrides: Partial<RouteCandidate> & Pick<RouteCandidate, 'routeId'>): RouteCandidate {
+  const { routeId, ...rest } = overrides;
   return {
-    routeId: overrides.routeId,
+    routeId,
     capability: 'BRIDGE',
     providerId: 'provider',
     source: arc,
@@ -18,7 +19,7 @@ function route(overrides: Partial<RouteCandidate> & Pick<RouteCandidate, 'routeI
     ux: { protocolSignatures: 1, veyraAddedSignatures: 0, manualNetworkSwitches: 0, extraManualConfirmations: 0 },
     cost: { feeUsd: 0.2, etaSeconds: 45 },
     explanation: 'Eligible route.',
-    ...overrides,
+    ...rest,
   };
 }
 
