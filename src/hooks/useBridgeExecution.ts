@@ -241,6 +241,7 @@ async function loadBridgeActivityProgress(
       handle: {
         receiptId: receipt.receiptId,
         revision: receipt.revision,
+        status: receipt.status,
       },
       status: receipt.status,
     };
@@ -376,7 +377,7 @@ export function useBridgeExecution() {
     abortRef.current = false;
     let activityProgress: BridgeActivityProgress = {
       handle: activityReceipt,
-      status: 'PREFLIGHT_PASSED',
+      status: activityReceipt.status ?? 'PREFLIGHT_PASSED',
     };
 
     // Canonical final execution boundary. This runs before allowance checks or
