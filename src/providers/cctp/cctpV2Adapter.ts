@@ -36,6 +36,7 @@ import {
   type WalletClient,
   type Hash,
   type TransactionReceipt,
+  decodeEventLog,
   getAddress,
 } from 'viem';
 import { MANIFEST_CONSTANTS } from '../registry/providerManifest';
@@ -67,6 +68,31 @@ const ERC20_BALANCE_ABI = [
 ] as const;
 
 const TOKEN_MESSENGER_V2_ABI = [
+  {
+    name: 'DepositForBurn',
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'burnToken', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'depositor', type: 'address', indexed: true },
+      { name: 'mintRecipient', type: 'bytes32', indexed: false },
+      { name: 'destinationDomain', type: 'uint32', indexed: false },
+      {
+        name: 'destinationTokenMessenger',
+        type: 'bytes32',
+        indexed: false,
+      },
+      { name: 'destinationCaller', type: 'bytes32', indexed: false },
+      { name: 'maxFee', type: 'uint256', indexed: false },
+      {
+        name: 'minFinalityThreshold',
+        type: 'uint32',
+        indexed: true,
+      },
+      { name: 'hookData', type: 'bytes', indexed: false },
+    ],
+  },
   {
     name: 'depositForBurn',
     type: 'function',
@@ -300,11 +326,23 @@ function addressToTopic(address: Address): string {
   return `0x${'0'.repeat(24)}${address.slice(2).toLowerCase()}`;
 }
 
+export interface CctpSourceReceiptExpectation {
+  burnToken: Address;
+  amount: bigint;
+  depositor: Address;
+  mintRecipient: Address;
+  destinationChainId: number;
+}
+
 export function verifyCctpSourceReceiptEvidence(
   receipt: Pick<TransactionReceipt, 'status' | 'logs'>,
+  expected?: CctpSourceReceiptExpectation,
 ): { verified: boolean; detail: string } {
   if (receipt.status !== 'success') {
-    return { verified: false, detail: 'Source CCTP transaction did not succeed.' };
+    return {
+      verified: false,
+      detail: 'Source CCTP transaction did not succeed.',
+    };
   }
 
   const transmitter =
@@ -323,10 +361,78 @@ export function verifyCctpSourceReceiptEvidence(
     };
   }
 
+  if (!expected) {
+    return {
+      verified: true,
+      detail:
+        'Source CCTP receipt succeeded and contains MessageSent from MessageTransmitterV2.',
+    };
+  }
+
+  const messenger =
+    MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER.toLowerCase();
+  const expectedRecipient = addressToBytes32(
+    getAddress(expected.mintRecipient),
+  ).toLowerCase();
+  const expectedDomain = chainIdToCctpDomain(
+    expected.destinationChainId,
+  );
+  const zeroCaller = `0x${'0'.repeat(64)}`;
+
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== messenger) continue;
+
+    try {
+      const decoded = decodeEventLog({
+        abi: TOKEN_MESSENGER_V2_ABI,
+        data: log.data,
+        topics: log.topics,
+        strict: true,
+      });
+      if (decoded.eventName !== 'DepositForBurn') continue;
+
+      const args = decoded.args as {
+        burnToken: Address;
+        amount: bigint;
+        depositor: Address;
+        mintRecipient: `0x${string}`;
+        destinationDomain: number;
+        destinationTokenMessenger: `0x${string}`;
+        destinationCaller: `0x${string}`;
+        maxFee: bigint;
+        minFinalityThreshold: number;
+        hookData: `0x${string}`;
+      };
+
+      if (
+        args.burnToken.toLowerCase() ===
+          getAddress(expected.burnToken).toLowerCase() &&
+        args.amount === expected.amount &&
+        args.depositor.toLowerCase() ===
+          getAddress(expected.depositor).toLowerCase() &&
+        args.mintRecipient.toLowerCase() === expectedRecipient &&
+        Number(args.destinationDomain) === expectedDomain &&
+        args.destinationCaller.toLowerCase() === zeroCaller &&
+        args.maxFee === 0n &&
+        Number(args.minFinalityThreshold) ===
+          MANIFEST_CONSTANTS.CCTP_STANDARD_FINALITY &&
+        args.hookData === '0x'
+      ) {
+        return {
+          verified: true,
+          detail:
+            'Source receipt contains exact CCTP DepositForBurn and MessageSent evidence for the reviewed bridge.',
+        };
+      }
+    } catch {
+      // Ignore unrelated/un-decodable TokenMessenger logs.
+    }
+  }
+
   return {
-    verified: true,
+    verified: false,
     detail:
-      'Source CCTP receipt succeeded and contains MessageSent from MessageTransmitterV2.',
+      'Source CCTP receipt does not contain the exact reviewed DepositForBurn event.',
   };
 }
 
