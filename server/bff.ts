@@ -50,6 +50,13 @@ import { probeSignerReadiness } from './readiness/signerReadiness.js';
 import { probeDatabaseReadiness } from './readiness/databaseReadiness.js';
 import { refreshMainnetProviderHealth } from './services/providerHealthService.js';
 import { getAllProviderHealthRecords } from '../src/providers/registry/providerRegistry.js';
+import {
+  BridgeRecoveryConflictError,
+  loadPendingBridgeRecoveryCheckpoints,
+  persistBridgeRecoveryCheckpoint,
+  type BridgeRecoveryInput,
+  type BridgeRecoveryStage,
+} from './db/repositories/bridgeRecoveryRepository.js';
 
 const runtimeConfig = assertServerRuntimeConfig();
 const RATE_POLICY = getRateLimitPolicy();
@@ -1188,34 +1195,84 @@ app.get('/api/cctp/attestation', async (req: Request, res: Response): Promise<vo
   }
 });
 
-// ── POST /api/bridge/persist ──────────────────────────────────────────────────
-// Persists a pending bridge receipt so it can be resumed after reload.
-// In MVP this is in-process memory. A production deployment would use a DB.
+// ── Durable bridge recovery persistence ───────────────────────────────────────
+// Authenticated Veyra users get a Postgres-backed mirror of local recovery
+// checkpoints. Chain/provider state remains authoritative; this server state is
+// advancement-only recovery metadata and can never create a new source burn.
 
-const pendingBridges = new Map<string, unknown>();
+const BRIDGE_RECOVERY_STAGES = new Set<BridgeRecoveryStage>([
+  'SOURCE_BROADCAST',
+  'SOURCE_CONFIRMED',
+  'ATTESTATION_READY',
+  'DESTINATION_BROADCAST',
+  'VERIFIED',
+]);
 
-app.post('/api/bridge/persist', async (req: Request, res: Response): Promise<void> => {
+function parseBridgeRecoveryInput(body: Record<string, unknown>): BridgeRecoveryInput {
+  const stage = typeof body.stage === 'string' && BRIDGE_RECOVERY_STAGES.has(body.stage as BridgeRecoveryStage)
+    ? body.stage as BridgeRecoveryStage
+    : null;
+
+  const input: BridgeRecoveryInput = {
+    planId: typeof body.planId === 'string' ? body.planId : '',
+    stage: stage ?? 'SOURCE_BROADCAST',
+    burnTxHash: typeof body.burnTxHash === 'string' ? body.burnTxHash : '',
+    sourceChainId: typeof body.sourceChainId === 'number' ? body.sourceChainId : Number.NaN,
+    destinationChainId: typeof body.destinationChainId === 'number' ? body.destinationChainId : Number.NaN,
+    walletAddress: typeof body.walletAddress === 'string' ? body.walletAddress : '',
+    recipientAddress: typeof body.recipientAddress === 'string' ? body.recipientAddress : '',
+    amount: typeof body.amount === 'string' ? body.amount : '',
+    tokenAddress: typeof body.tokenAddress === 'string' ? body.tokenAddress : '',
+    balanceBefore: typeof body.balanceBefore === 'string' ? body.balanceBefore : '',
+    createdAt: typeof body.createdAt === 'number' ? body.createdAt : Number.NaN,
+    updatedAt: typeof body.updatedAt === 'number' ? body.updatedAt : Number.NaN,
+  };
+
+  if (!stage) throw new BridgeRecoveryConflictError('Invalid bridge recovery stage');
+  if (typeof body.attestationMessage === 'string') input.attestationMessage = body.attestationMessage;
+  if (typeof body.attestationSignature === 'string') input.attestationSignature = body.attestationSignature;
+  if (typeof body.receiveTxHash === 'string') input.receiveTxHash = body.receiveTxHash;
+
+  return input;
+}
+
+app.post('/api/bridge/persist', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
   try {
-    const body = req.body as Record<string, unknown>;
-    const planId = typeof body.planId === 'string' ? body.planId : null;
-    const burnTxHash = typeof body.burnTxHash === 'string' ? body.burnTxHash : null;
-    if (!planId || !burnTxHash) {
-      res.status(400).json({ error: 'planId and burnTxHash required' });
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
       return;
     }
-    pendingBridges.set(planId, { ...body, persistedAt: Date.now() });
-    res.json({ ok: true, planId });
+
+    const input = parseBridgeRecoveryInput(req.body as Record<string, unknown>);
+    const { db } = await import('./db/client.js');
+    const checkpoint = await persistBridgeRecoveryCheckpoint(db, userId, input);
+    res.json({ ok: true, checkpoint });
   } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({ ok: false, error: 'BRIDGE_RECOVERY_CONFLICT', message: err.message });
+      return;
+    }
     console.error('[BFF] /api/bridge/persist error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
   }
 });
 
-// ── GET /api/bridge/pending ───────────────────────────────────────────────────
+app.get('/api/bridge/pending', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
 
-app.get('/api/bridge/pending', (_req: Request, res: Response): void => {
-  const all = Array.from(pendingBridges.values());
-  res.json({ ok: true, pending: all });
+    const { db } = await import('./db/client.js');
+    const pending = await loadPendingBridgeRecoveryCheckpoints(db, userId);
+    res.json({ ok: true, pending });
+  } catch (err) {
+    console.error('[BFF] /api/bridge/pending error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
 });
 
 // ── POST /api/bridge/relay-receive ───────────────────────────────────────────

@@ -13,3 +13,4 @@ export * from './payments.js';
 export * from './posts.js';
 export * from './oauth.js';
 export * from './contacts.js';
+export * from './bridgeRecovery.js';
