@@ -72,6 +72,9 @@ export interface VeyraReceipt {
   /** Current receipt status. */
   status: ReceiptStatus;
 
+  /** Monotonic browser/server reconciliation revision. */
+  syncRevision?: number;
+
   /** Chain ID of the primary action. */
   chainId: number;
 
