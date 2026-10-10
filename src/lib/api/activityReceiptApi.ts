@@ -44,6 +44,8 @@ export interface ActivityReceiptRemoteRecord {
   providerId: string;
   providerVersion: string;
   routeId: string;
+  surface: string;
+  action: string;
   status: ActivityReceiptStatus;
   revision: number;
   burnTxHash: string | null;
