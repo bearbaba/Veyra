@@ -220,6 +220,148 @@ async function advanceBridgeActivity(
   };
 }
 
+interface RecoveryActivityEvidence {
+  planId: string;
+  burnTxHash: string;
+  sourceChainId: number;
+  sourceBlockNumber?: number;
+  receiveTxHash?: string;
+  destinationChainId: number;
+  destinationBlockNumber?: number;
+}
+
+async function loadBridgeActivityProgress(
+  routeId: string,
+): Promise<BridgeActivityProgress | null> {
+  try {
+    const receipts = await loadResumableActivityReceiptsRemote();
+    const receipt = receipts.find((item) => item.routeId === routeId);
+    if (!receipt) return null;
+    return {
+      handle: {
+        receiptId: receipt.receiptId,
+        revision: receipt.revision,
+      },
+      status: receipt.status,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function catchUpRecoveryActivity(
+  progress: BridgeActivityProgress,
+  target: ActivityReceiptStatus,
+  evidence: RecoveryActivityEvidence,
+): Promise<BridgeActivityProgress> {
+  let current = progress;
+
+  const advance = async (
+    status: ActivityReceiptStatus,
+    extra: Parameters<typeof advanceActivityReceiptRemote>[2],
+  ) => {
+    current = await advanceBridgeActivity(current, status, extra);
+  };
+
+  if (
+    current.status === 'FAILED' ||
+    current.status === 'INVALIDATED' ||
+    current.status === 'DUPLICATE_DETECTED' ||
+    current.status === 'CANCELLED' ||
+    current.status === 'COMPLETE'
+  ) {
+    return current;
+  }
+
+  const targetRank = BRIDGE_ACTIVITY_RANK[target];
+  if (targetRank === undefined) return current;
+
+  const rank = () => BRIDGE_ACTIVITY_RANK[current.status] ?? -1;
+
+  if (rank() < (BRIDGE_ACTIVITY_RANK.PREFLIGHT_PASSED ?? 2)) {
+    await advance('PREFLIGHT_PASSED', {});
+  }
+  if (rank() < (BRIDGE_ACTIVITY_RANK.SIGNED ?? 3)) {
+    await advance('SIGNED', { resumable: true });
+  }
+  if (rank() < (BRIDGE_ACTIVITY_RANK.BROADCAST ?? 4)) {
+    await advance('BROADCAST', {
+      burnTxHash: evidence.burnTxHash,
+      burnChainId: evidence.sourceChainId,
+      resumable: true,
+      resumePayload: bridgeResumePayload(evidence.planId),
+    });
+  }
+  if (
+    targetRank >= (BRIDGE_ACTIVITY_RANK.SOURCE_CONFIRMED ?? 5) &&
+    rank() < (BRIDGE_ACTIVITY_RANK.SOURCE_CONFIRMED ?? 5)
+  ) {
+    await advance('SOURCE_CONFIRMED', {
+      burnTxHash: evidence.burnTxHash,
+      burnChainId: evidence.sourceChainId,
+      burnBlockNumber: evidence.sourceBlockNumber,
+      resumable: true,
+      resumePayload: bridgeResumePayload(evidence.planId),
+    });
+  }
+  if (
+    targetRank >= (BRIDGE_ACTIVITY_RANK.ATTESTATION_PENDING ?? 6) &&
+    rank() < (BRIDGE_ACTIVITY_RANK.ATTESTATION_PENDING ?? 6)
+  ) {
+    await advance('ATTESTATION_PENDING', {
+      resumable: true,
+      resumePayload: bridgeResumePayload(evidence.planId),
+    });
+  }
+
+  if (
+    targetRank >= (BRIDGE_ACTIVITY_RANK.RECEIVE_PENDING ?? 8) &&
+    current.status === 'RECEIVE_FAILED_RETRYABLE'
+  ) {
+    await advance('RECEIVE_PENDING', {
+      receiveTxHash: evidence.receiveTxHash,
+      receiveChainId: evidence.destinationChainId,
+      resumable: true,
+      resumePayload: bridgeResumePayload(evidence.planId),
+    });
+  } else if (
+    targetRank >= (BRIDGE_ACTIVITY_RANK.RECEIVE_PENDING ?? 8) &&
+    rank() < (BRIDGE_ACTIVITY_RANK.RECEIVE_PENDING ?? 8)
+  ) {
+    await advance('RECEIVE_PENDING', {
+      receiveTxHash: evidence.receiveTxHash,
+      receiveChainId: evidence.destinationChainId,
+      resumable: true,
+      resumePayload: bridgeResumePayload(evidence.planId),
+    });
+  }
+
+  if (
+    targetRank >= (BRIDGE_ACTIVITY_RANK.CONFIRMED ?? 9) &&
+    rank() < (BRIDGE_ACTIVITY_RANK.CONFIRMED ?? 9)
+  ) {
+    await advance('CONFIRMED', {
+      receiveTxHash: evidence.receiveTxHash,
+      receiveChainId: evidence.destinationChainId,
+      receiveBlockNumber: evidence.destinationBlockNumber,
+      resumable: false,
+      resumePayload: null,
+    });
+  }
+
+  if (
+    target === 'COMPLETE' &&
+    current.status !== 'COMPLETE'
+  ) {
+    await advance('COMPLETE', {
+      resumable: false,
+      resumePayload: null,
+    });
+  }
+
+  return current;
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useBridgeExecution() {
@@ -855,6 +997,7 @@ export function useBridgeExecution() {
     const recipientAddress = getAddress(checkpoint.recipientAddress);
     const amount = BigInt(checkpoint.amount);
     const balanceBefore = BigInt(checkpoint.balanceBefore);
+    let recoveryActivity = await loadBridgeActivityProgress(checkpoint.planId);
 
     if (amount <= 0n || balanceBefore < 0n) {
       setState({ phase: 'FAILED', error: 'Invalid recovery amount metadata.' });
@@ -917,10 +1060,47 @@ export function useBridgeExecution() {
         await persistRecoveryCheckpoint(current);
       }
 
+      if (recoveryActivity) {
+        try {
+          recoveryActivity = await catchUpRecoveryActivity(
+            recoveryActivity,
+            'SOURCE_CONFIRMED',
+            {
+              planId: current.planId,
+              burnTxHash,
+              sourceChainId: current.sourceChainId,
+              sourceBlockNumber: Number(sourceReceipt.blockNumber),
+              destinationChainId: current.destinationChainId,
+            },
+          );
+        } catch {
+          // Never strand already-submitted funds because Activity persistence
+          // is temporarily unavailable. Chain/checkpoint recovery remains live.
+        }
+      }
+
       const sourceDomain = chainIdToCctpDomain(current.sourceChainId);
 
       if (current.stage === 'SOURCE_CONFIRMED') {
         setState({ phase: 'BRIDGE_UNCONFIRMED', burnTxHash });
+
+        if (recoveryActivity) {
+          try {
+            recoveryActivity = await catchUpRecoveryActivity(
+              recoveryActivity,
+              'ATTESTATION_PENDING',
+              {
+                planId: current.planId,
+                burnTxHash,
+                sourceChainId: current.sourceChainId,
+                sourceBlockNumber: Number(sourceReceipt.blockNumber),
+                destinationChainId: current.destinationChainId,
+              },
+            );
+          } catch {
+            // Activity mirror is additive during recovery.
+          }
+        }
 
         let attestation: { message: string; attestation: string } | null = null;
         let attempts = 0;
@@ -1059,6 +1239,25 @@ export function useBridgeExecution() {
           updatedAt: Date.now(),
         };
         await persistRecoveryCheckpoint(current);
+
+        if (recoveryActivity) {
+          try {
+            recoveryActivity = await catchUpRecoveryActivity(
+              recoveryActivity,
+              'RECEIVE_PENDING',
+              {
+                planId: current.planId,
+                burnTxHash,
+                sourceChainId: current.sourceChainId,
+                sourceBlockNumber: Number(sourceReceipt.blockNumber),
+                receiveTxHash,
+                destinationChainId: current.destinationChainId,
+              },
+            );
+          } catch {
+            // Activity mirror is additive during recovery.
+          }
+        }
       }
 
       if (current.stage === 'DESTINATION_BROADCAST') {
@@ -1067,6 +1266,26 @@ export function useBridgeExecution() {
         }
 
         const receiveTxHash = current.receiveTxHash as Hash;
+
+        if (recoveryActivity) {
+          try {
+            recoveryActivity = await catchUpRecoveryActivity(
+              recoveryActivity,
+              'RECEIVE_PENDING',
+              {
+                planId: current.planId,
+                burnTxHash,
+                sourceChainId: current.sourceChainId,
+                sourceBlockNumber: Number(sourceReceipt.blockNumber),
+                receiveTxHash,
+                destinationChainId: current.destinationChainId,
+              },
+            );
+          } catch {
+            // Activity mirror is additive during recovery.
+          }
+        }
+
         let destReceiptObj;
         try {
           destReceiptObj = await destPublicClient.getTransactionReceipt({
@@ -1089,6 +1308,24 @@ export function useBridgeExecution() {
           amount,
         );
         if (!destinationEvidence.verified) {
+          if (recoveryActivity) {
+            try {
+              recoveryActivity = await advanceBridgeActivity(
+                recoveryActivity,
+                'RECEIVE_FAILED_RETRYABLE',
+                {
+                  receiveTxHash,
+                  receiveChainId: current.destinationChainId,
+                  failureReason: destinationEvidence.detail,
+                  resumable: true,
+                  resumePayload: bridgeResumePayload(current.planId),
+                },
+              );
+            } catch {
+              // Recovery remains checkpoint-driven.
+            }
+          }
+
           setState({
             phase: 'FAILED',
             burnTxHash,
@@ -1114,6 +1351,25 @@ export function useBridgeExecution() {
         );
 
         if (!verification.verified) {
+          if (recoveryActivity) {
+            try {
+              recoveryActivity = await advanceBridgeActivity(
+                recoveryActivity,
+                'RECEIVE_FAILED_RETRYABLE',
+                {
+                  receiveTxHash,
+                  receiveChainId: current.destinationChainId,
+                  receiveBlockNumber: Number(destReceiptObj.blockNumber),
+                  failureReason: verification.detail,
+                  resumable: true,
+                  resumePayload: bridgeResumePayload(current.planId),
+                },
+              );
+            } catch {
+              // Recovery remains checkpoint-driven.
+            }
+          }
+
           setState({
             phase: 'FAILED',
             burnTxHash,
@@ -1161,6 +1417,27 @@ export function useBridgeExecution() {
           updatedAt: Date.now(),
         };
         await persistRecoveryCheckpoint(current);
+
+        if (recoveryActivity) {
+          try {
+            recoveryActivity = await catchUpRecoveryActivity(
+              recoveryActivity,
+              'COMPLETE',
+              {
+                planId: current.planId,
+                burnTxHash,
+                sourceChainId: current.sourceChainId,
+                sourceBlockNumber: Number(sourceReceipt.blockNumber),
+                receiveTxHash,
+                destinationChainId: current.destinationChainId,
+                destinationBlockNumber: Number(destReceiptObj.blockNumber),
+              },
+            );
+          } catch {
+            // Receipt reconciliation can retry later; execution is already
+            // authoritatively verified on-chain.
+          }
+        }
 
         setState({
           phase: 'VERIFIED',
