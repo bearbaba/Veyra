@@ -159,21 +159,28 @@ export class ReceiptTransitionError extends Error {
   }
 }
 
+export function isReceiptTransitionAllowed(
+  from: ReceiptStatus,
+  to: ReceiptStatus,
+): boolean {
+  if (from === to) return true;
+  if (TERMINAL_STATUSES.has(from)) return false;
+  return ALLOWED_TRANSITIONS[from].has(to);
+}
+
 function assertTransitionAllowed(
   from: ReceiptStatus,
   to: ReceiptStatus,
 ): void {
-  if (from === to) return;
+  if (isReceiptTransitionAllowed(from, to)) return;
   if (TERMINAL_STATUSES.has(from)) {
     throw new ReceiptTransitionError(
       `Receipt is terminal at ${from}; transition to ${to} is forbidden.`,
     );
   }
-  if (!ALLOWED_TRANSITIONS[from].has(to)) {
-    throw new ReceiptTransitionError(
-      `Invalid receipt transition ${from} -> ${to}.`,
-    );
-  }
+  throw new ReceiptTransitionError(
+    `Invalid receipt transition ${from} -> ${to}.`,
+  );
 }
 
 function transitionDates(status: ReceiptStatus, now: Date) {
