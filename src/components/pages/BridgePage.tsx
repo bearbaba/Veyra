@@ -18,7 +18,13 @@ import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { Globe, AlertTriangle, Info, ArrowRight, Loader2, CheckCircle, Lock } from 'lucide-react';
 import { parseUnits, type Address } from 'viem';
-import { evaluateBridgeAction, createBridgeAction, isSupportedBridgeRoute } from '../../core/pipeline/bridgePipeline';
+import {
+  createBridgeActionFromRoute,
+  evaluateBridgeAction,
+} from '../../core/pipeline/bridgePipeline';
+import { selectBridgeRoutes } from '../../core/router/routeEngine';
+import { cctpV2BridgeProvider } from '../../providers/cctp/cctpBridgeProvider';
+import type { PreflightResult } from '../../providers/bridge/bridgeProviderTypes';
 import { MANIFEST_CONSTANTS, findManifestEntry } from '../../providers/registry/providerManifest';
 import { useBridgeExecution, type BridgeExecutionState } from '../../hooks/useBridgeExecution';
 import {
@@ -34,7 +40,11 @@ type BridgeState =
   | { phase: 'INPUT' }
   | { phase: 'EVALUATING' }
   | { phase: 'BLOCKED'; reason: string }
-  | { phase: 'REVIEW'; evaluation: ReturnType<typeof evaluateBridgeAction> }
+  | {
+      phase: 'REVIEW';
+      evaluation: ReturnType<typeof evaluateBridgeAction>;
+      providerPreflight: PreflightResult[];
+    }
   | { phase: 'APPROVING' }
   | { phase: 'BURNING' }
   | { phase: 'BRIDGE_PENDING'; burnTxHash: string }
@@ -77,41 +87,84 @@ export function BridgePage() {
 
   const selectedDest = DESTINATION_CHAINS.find((c) => c.id === destChainId)!;
 
-  function handleEvaluate() {
+  async function handleEvaluate() {
     if (!address || !amount || !recipientAddress) return;
 
-    const parsed = parseFloat(amount);
-    if (isNaN(parsed) || parsed <= 0) return;
-
-    if (!isSupportedBridgeRoute(MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID, destChainId)) {
-      setBridgeState({ phase: 'BLOCKED', reason: `Route Arc Testnet → chain ${destChainId} is not supported` });
-      return;
-    }
+    const parsed = Number.parseFloat(amount);
+    if (!Number.isFinite(parsed) || parsed <= 0) return;
 
     setBridgeState({ phase: 'EVALUATING' });
 
     try {
-      const amountBigInt = parseUnits(amount, 6); // USDC has 6 decimals
-      const action = createBridgeAction({
-        from: address,
-        to: recipientAddress,
-        amount: amountBigInt,
-        sourceChainId: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
-        destinationChainId: destChainId,
-        tokenAddress: MANIFEST_CONSTANTS.ARC_TESTNET_USDC,
-        tokenDecimals: 6,
+      const amountBigInt = parseUnits(amount, 6);
+      const clientIntentId = crypto.randomUUID();
+      const routeSelection = await selectBridgeRoutes({
+        params: {
+          clientIntentId,
+          senderAddress: address,
+          recipientSnapshotId:
+            `direct:${recipientAddress.trim().toLowerCase()}`,
+          destinationAddress: recipientAddress,
+          sourceChainId: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
+          destinationChainId: destChainId,
+          sourceTokenAddress: MANIFEST_CONSTANTS.ARC_TESTNET_USDC,
+          amountIn: amountBigInt,
+        },
+        adapters: [cctpV2BridgeProvider],
+        runtimeEnvironment: 'testnet',
       });
 
-      const evaluation = evaluateBridgeAction(action);
-
-      if (!evaluation.canProceed) {
-        setBridgeState({ phase: 'BLOCKED', reason: evaluation.blockedReason ?? 'Action blocked' });
+      const route = routeSelection.routes[0];
+      if (!route) {
+        const details = routeSelection.excludedProviders
+          .map((item) => `${item.providerId}: ${item.reason}`)
+          .join('; ');
+        setBridgeState({
+          phase: 'BLOCKED',
+          reason:
+            details || 'No lifecycle-enabled bridge route is available.',
+        });
         return;
       }
 
-      setBridgeState({ phase: 'REVIEW', evaluation });
+      const providerPreflight =
+        await cctpV2BridgeProvider.preflight(route);
+      const hardBlock = providerPreflight.find(
+        (check) => check.severity === 'HARD_BLOCK' && !check.passed,
+      );
+      if (hardBlock) {
+        setBridgeState({
+          phase: 'BLOCKED',
+          reason: hardBlock.message,
+        });
+        return;
+      }
+
+      const action = createBridgeActionFromRoute({
+        route,
+        from: address,
+        tokenDecimals: 6,
+      });
+      const evaluation = evaluateBridgeAction(action);
+
+      if (!evaluation.canProceed) {
+        setBridgeState({
+          phase: 'BLOCKED',
+          reason: evaluation.blockedReason ?? 'Action blocked',
+        });
+        return;
+      }
+
+      setBridgeState({
+        phase: 'REVIEW',
+        evaluation,
+        providerPreflight,
+      });
     } catch (err) {
-      setBridgeState({ phase: 'FAILED', error: err instanceof Error ? err.message : 'Evaluation failed' });
+      setBridgeState({
+        phase: 'FAILED',
+        error: err instanceof Error ? err.message : 'Evaluation failed',
+      });
     }
   }
 
@@ -247,7 +300,7 @@ export function BridgePage() {
           )}
 
           <button
-            onClick={handleEvaluate}
+            onClick={() => void handleEvaluate()}
             disabled={!amount || !recipientAddress || bridgeState.phase === 'EVALUATING'}
             className="w-full rounded-2xl py-3.5 font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: 'var(--accent)', color: '#0d1b2f' }}
@@ -260,6 +313,7 @@ export function BridgePage() {
       ) : bridgeState.phase === 'REVIEW' ? (
         <BridgeReviewCard
           evaluation={bridgeState.evaluation}
+          providerPreflight={bridgeState.providerPreflight}
           amount={amount}
           destName={selectedDest.name}
           onConfirm={() => void handleConfirmBridge(bridgeState.evaluation)}
@@ -302,12 +356,14 @@ export function BridgePage() {
 
 function BridgeReviewCard({
   evaluation,
+  providerPreflight,
   amount,
   destName,
   onConfirm,
   onCancel,
 }: {
   evaluation: ReturnType<typeof evaluateBridgeAction>;
+  providerPreflight: PreflightResult[];
   amount: string;
   destName: string;
   onConfirm: () => void;
@@ -325,7 +381,23 @@ function BridgeReviewCard({
         <ReviewRow label="Provider" value="Circle CCTP V2" />
         <ReviewRow label="Policy" value={evaluation.policyResult.decision} success={evaluation.policyResult.decision === 'PASS'} />
         <ReviewRow label="Risk" value={`${evaluation.riskResult.level} (${evaluation.riskResult.score})`} success={evaluation.riskResult.level !== 'CRITICAL'} />
-        <ReviewRow label="Preflight" value={evaluation.preflightResult.ok ? 'PASS' : 'FAIL'} success={evaluation.preflightResult.ok} />
+        <ReviewRow
+          label="Preflight"
+          value={
+            providerPreflight.every(
+              (check) => check.severity !== 'HARD_BLOCK' || check.passed,
+            )
+              ? 'PASS'
+              : 'FAIL'
+          }
+          success={providerPreflight.every(
+            (check) => check.severity !== 'HARD_BLOCK' || check.passed,
+          )}
+        />
+        <ReviewRow
+          label="Provider checks"
+          value={`${providerPreflight.filter((check) => check.passed).length}/${providerPreflight.length} passed`}
+        />
         <ReviewRow label="Estimated time" value="~15 min (standard)" />
       </div>
       <div className="flex gap-2 px-4 py-3 border-t" style={{ borderColor: 'var(--border)' }}>
