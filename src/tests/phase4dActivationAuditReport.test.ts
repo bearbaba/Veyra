@@ -63,6 +63,29 @@ describe('Phase 4D activation evidence ledger', () => {
       .toContain('ADAPTER_VERSION_MISMATCH');
   });
 
+  it('rejects structurally present but unverified activation claims', () => {
+    const entry = findManifestEntry('circle-appkit-bridge')!;
+    const record = bridgeRecord({
+      evidence: {
+        ...bridgeRecord().evidence,
+        realExecution: false,
+        finalStateVerified: false,
+        receiptVerified: false,
+        signatureBudgetVerified: false,
+        recoveryVerified: false,
+        duplicatePreventionVerified: false,
+      },
+    });
+
+    const errors = validateProviderActivationEvidenceRecord(entry, record);
+    expect(errors).toContain('REAL_EXECUTION_REQUIRED');
+    expect(errors).toContain('FINAL_STATE_VERIFICATION_REQUIRED');
+    expect(errors).toContain('RECEIPT_VERIFICATION_REQUIRED');
+    expect(errors).toContain('SIGNATURE_BUDGET_VERIFICATION_REQUIRED');
+    expect(errors).toContain('DUPLICATE_PREVENTION_VERIFICATION_REQUIRED');
+    expect(errors).toContain('RECOVERY_VERIFICATION_REQUIRED');
+  });
+
   it('rejects duplicate audit record IDs', () => {
     const record = bridgeRecord();
     const errors = validateProviderActivationLedger(
