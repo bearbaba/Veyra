@@ -104,6 +104,76 @@ function environmentMatches(providerEnvironment: ProviderEnvironment, runtimeEnv
 }
 
 
+function normalizeAssetIdentifier(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function assetSupportedOnChain(
+  entry: ProviderManifestEntry,
+  chainId: number,
+  assetIdentifier: string,
+): boolean {
+  const asset = normalizeAssetIdentifier(assetIdentifier);
+  const matrix = entry.networkAssetSupport ?? [];
+
+  if (matrix.length > 0) {
+    const rows = matrix.filter((row) => row.chainId === chainId);
+    if (rows.length === 0) return false;
+    return rows.some((row) =>
+      row.assets.some((candidate) => normalizeAssetIdentifier(candidate) === asset),
+    );
+  }
+
+  // Legacy single-network providers may still use the flat list. Empty means
+  // unrestricted for non-asset-specific providers such as simulation.
+  return (
+    entry.supportedAssets.length === 0 ||
+    entry.supportedAssets.some(
+      (candidate) => normalizeAssetIdentifier(candidate) === asset,
+    )
+  );
+}
+
+function assetSupportedOnNetwork(
+  entry: ProviderManifestEntry,
+  network: { networkId: string; chainId?: number },
+  assetIdentifier: string,
+): boolean {
+  const asset = normalizeAssetIdentifier(assetIdentifier);
+  const normalizedNetworkId = network.networkId.trim().toLowerCase();
+  const matrix = entry.networkAssetSupport ?? [];
+
+  if (matrix.length === 0) {
+    // EVM legacy path may still use supportedAssets. Non-EVM execution must
+    // have an explicit network↔asset matrix before it can be enabled.
+    if (network.chainId !== undefined) {
+      return assetSupportedOnChain(entry, network.chainId, assetIdentifier);
+    }
+    return false;
+  }
+
+  const rows = matrix.filter((row) => {
+    if (row.chainId !== undefined && network.chainId !== undefined && row.chainId !== network.chainId) {
+      return false;
+    }
+    if (row.chainId !== undefined && network.chainId === undefined) {
+      return false;
+    }
+    if (
+      row.networkId !== undefined &&
+      row.networkId.trim().toLowerCase() !== normalizedNetworkId
+    ) {
+      return false;
+    }
+    return row.chainId !== undefined || row.networkId !== undefined;
+  });
+
+  return rows.some((row) =>
+    row.assets.some((candidate) => normalizeAssetIdentifier(candidate) === asset),
+  );
+}
+
+
 /**
  * Check whether a provider may execute a given action on a given chain
  * with a given asset.
@@ -204,11 +274,12 @@ export function checkProviderEligibility(
     };
   }
 
-  // Asset must be supported (skip check if provider has no asset restrictions, i.e. empty = unrestricted for simulation-like providers)
+  // Asset must be supported on this exact chain. Multi-network providers use
+  // the network↔asset matrix so an address from chain A cannot be accepted on
+  // chain B merely because it appears in the provider's flat asset list.
   if (
     assetAddress !== undefined &&
-    entry.supportedAssets.length > 0 &&
-    !entry.supportedAssets.includes(assetAddress.toLowerCase())
+    !assetSupportedOnChain(entry, chainId, assetAddress)
   ) {
     return {
       eligible: false,
@@ -412,6 +483,18 @@ export function checkProviderNetworkEligibility(
       status: 'CAPABILITY_NOT_SUPPORTED',
       requiresConfirmation: false,
       detail: `Provider "${providerId}" does not support capability "${capability}".`,
+    };
+  }
+  if (
+    assetAddress !== undefined &&
+    !assetSupportedOnNetwork(entry, network, assetAddress)
+  ) {
+    return {
+      eligible: false,
+      status: 'ASSET_NOT_SUPPORTED',
+      requiresConfirmation: false,
+      detail:
+        `Provider "${providerId}" does not support asset "${assetAddress}" on network "${network.networkId}".`,
     };
   }
   if (health === 'DOWN' || health === 'UNKNOWN') {
