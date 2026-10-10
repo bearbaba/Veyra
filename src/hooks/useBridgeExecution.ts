@@ -25,6 +25,7 @@ import {
   broadcastReceiveMessage,
   verifyCctpDestinationReceiptEvidence,
   verifyCctpSourceReceiptEvidence,
+  verifyCctpSourceTransactionBinding,
   verifyDestinationBalance,
   readBalance,
   chainIdToCctpDomain,
@@ -335,10 +336,36 @@ export function useBridgeExecution() {
       if (abortRef.current) return;
 
       // ── Step 3: Verify source tx receipt ─────────────────────────────────
-      const sourceReceipt = await sourcePublicClient.waitForTransactionReceipt({
-        hash: burnTxHash,
-        timeout: 60_000,
-      });
+      const [sourceReceipt, sourceTransaction] = await Promise.all([
+        sourcePublicClient.waitForTransactionReceipt({
+          hash: burnTxHash,
+          timeout: 60_000,
+        }),
+        sourcePublicClient.getTransaction({ hash: burnTxHash }),
+      ]);
+      const sourceBinding = verifyCctpSourceTransactionBinding(
+        {
+          from: sourceTransaction.from,
+          to: sourceTransaction.to,
+          input: sourceTransaction.input,
+        },
+        {
+          sender: getAddress(action.from),
+          recipient: getAddress(action.to),
+          tokenAddress: getAddress(action.tokenAddress),
+          amount: action.amount,
+          destinationChainId: action.destinationChainId,
+        },
+      );
+      if (!sourceBinding.verified) {
+        setState({
+          phase: 'FAILED',
+          burnTxHash,
+          error: `Source CCTP binding failed: ${sourceBinding.detail}`,
+        });
+        return;
+      }
+
       const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt);
       if (!sourceEvidence.verified) {
         setState({
@@ -656,15 +683,45 @@ export function useBridgeExecution() {
       });
 
       let sourceReceipt;
+      let sourceTransaction;
       try {
-        sourceReceipt = await sourcePublicClient.getTransactionReceipt({
-          hash: burnTxHash,
-        });
+        [sourceReceipt, sourceTransaction] = await Promise.all([
+          sourcePublicClient.getTransactionReceipt({
+            hash: burnTxHash,
+          }),
+          sourcePublicClient.getTransaction({
+            hash: burnTxHash,
+          }),
+        ]);
       } catch {
         setState({
           phase: 'BRIDGE_PENDING',
           burnTxHash,
           error: 'Source burn is still pending or not yet indexed. Retry recovery later.',
+        });
+        return;
+      }
+
+      const sourceBinding = verifyCctpSourceTransactionBinding(
+        {
+          from: sourceTransaction.from,
+          to: sourceTransaction.to,
+          input: sourceTransaction.input,
+        },
+        {
+          sender: getAddress(current.walletAddress),
+          recipient: getAddress(current.recipientAddress),
+          tokenAddress: getAddress(current.tokenAddress),
+          amount,
+          destinationChainId: current.destinationChainId,
+        },
+      );
+      if (!sourceBinding.verified) {
+        setState({
+          phase: 'FAILED',
+          burnTxHash,
+          error:
+            `Persisted source burn failed route binding: ${sourceBinding.detail}`,
         });
         return;
       }
