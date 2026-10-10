@@ -79,3 +79,97 @@ export function verifyMinimumOutput(
     detail: 'Final output satisfies the reviewed minimum.',
   };
 }
+
+
+const ERC20_TRANSFER_TOPIC =
+  '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+const UINT256_DATA_RE = /^0x[0-9a-fA-F]{64}$/;
+
+export interface Erc20ReceiptLog {
+  address: string;
+  topics: readonly string[];
+  data: string;
+}
+
+export interface Erc20TransferReceiptEvidence {
+  status: 'success' | 'reverted';
+  logs: readonly Erc20ReceiptLog[];
+}
+
+export interface Erc20TransferVerification {
+  verified: boolean;
+  detail: string;
+  transferAmount: bigint | null;
+}
+
+function addressTopic(address: string): string {
+  return `0x${'0'.repeat(24)}${address.slice(2).toLowerCase()}`;
+}
+
+/**
+ * Require the authoritative transaction receipt to contain the exact reviewed
+ * ERC-20 Transfer(token, from, to, amount). Balance deltas remain useful final
+ * state evidence, but this binds the delta to the transaction being verified.
+ */
+export function verifyErc20TransferReceiptEvidence(input: {
+  receipt: Erc20TransferReceiptEvidence;
+  tokenAddress: string;
+  from: string;
+  to: string;
+  amount: bigint;
+}): Erc20TransferVerification {
+  if (input.receipt.status !== 'success') {
+    return {
+      verified: false,
+      detail: 'Transaction receipt did not succeed.',
+      transferAmount: null,
+    };
+  }
+
+  if (
+    !EVM_ADDRESS_RE.test(input.tokenAddress) ||
+    !EVM_ADDRESS_RE.test(input.from) ||
+    !EVM_ADDRESS_RE.test(input.to) ||
+    input.amount <= 0n
+  ) {
+    return {
+      verified: false,
+      detail: 'Reviewed ERC-20 transfer evidence input is invalid.',
+      transferAmount: null,
+    };
+  }
+
+  const token = input.tokenAddress.toLowerCase();
+  const fromTopic = addressTopic(input.from);
+  const toTopic = addressTopic(input.to);
+
+  for (const log of input.receipt.logs) {
+    if (
+      log.address.toLowerCase() !== token ||
+      log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC ||
+      log.topics[1]?.toLowerCase() !== fromTopic ||
+      log.topics[2]?.toLowerCase() !== toTopic ||
+      !UINT256_DATA_RE.test(log.data)
+    ) {
+      continue;
+    }
+
+    const transferAmount = BigInt(log.data);
+    if (transferAmount === input.amount) {
+      return {
+        verified: true,
+        detail:
+          'Authoritative receipt contains the exact reviewed ERC-20 transfer.',
+        transferAmount,
+      };
+    }
+  }
+
+  return {
+    verified: false,
+    detail:
+      'Authoritative receipt does not contain the exact reviewed ERC-20 transfer.',
+    transferAmount: null,
+  };
+}
