@@ -15,7 +15,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { useWriteContract, usePublicClient } from 'wagmi';
+import { useWriteContract, usePublicClient, useAccount, useSwitchChain } from 'wagmi';
 import { formatUnits } from 'viem';
 import type { TransferAction } from '@/core/actions/actionSchema';
 import { generateExecutionReceiptId } from '@/core/receipt/receiptId';
@@ -72,6 +72,8 @@ export function useTransferExecution() {
 
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
+  const { chainId } = useAccount();
+  const { switchChainAsync } = useSwitchChain();
 
   const execute = useCallback(async (action: TransferAction, recipientGuard?: { snapshotId: string; expectedWalletAddress: string; expectedChainId: number }) => {
     if (!publicClient) {
@@ -85,6 +87,12 @@ export function useTransferExecution() {
       // Revalidate a frozen Veyra identity immediately before wallet signature.
       // If profile/wallet/revision changed since review, execution fails closed.
       if (recipientGuard) await verifyPaymentRecipient(recipientGuard);
+
+      // Wallet network is transport state, not product state. Read/plan works
+      // cross-network; only request the actual source network when signing.
+      if (chainId !== action.chainId) {
+        await switchChainAsync({ chainId: action.chainId });
+      }
 
       // ── Step 1: Sign + broadcast ───────────────────────────────────────────
       const hash = await writeContractAsync({
@@ -160,7 +168,7 @@ export function useTransferExecution() {
       await saveReceipt(failedReceipt);
       setState((s) => ({ ...s, step: 'FAILED', error: msg, receipt: failedReceipt }));
     }
-  }, [writeContractAsync, publicClient, state.txHash]);
+  }, [writeContractAsync, publicClient, state.txHash, chainId, switchChainAsync]);
 
   function reset() {
     setState({ step: 'IDLE', txHash: null, receipt: null, explorerUrl: null, error: null });

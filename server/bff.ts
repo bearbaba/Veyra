@@ -29,8 +29,10 @@
 
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { validateIntentResponse } from '../src/core/intent/intentSchema';
+import { createFallbackAgentResponse, validateAgentChatResponse, type AgentHistoryMessage } from '../src/core/agent/agentV2';
 import { MANIFEST_CONSTANTS } from '../src/providers/registry/providerManifest';
 import { createWalletChallenge, verifyWalletChallenge, WalletProofError } from './services/walletProofService.js';
+import { beginIdentityRegistration, completeIdentityRegistration, IdentityRegistrationError } from './services/identityRegistrationService.js';
 import { freezeSnapshot, resolveRecipient, verifySnapshot, IdentityResolutionError } from './services/identityResolver.js';
 import { getAuthenticatedVeyraUserId } from './auth/session.js';
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
@@ -119,7 +121,7 @@ app.use('/api', GLOBAL_RATE);
 // remains available only outside production for local E2E.
 
 function identityError(res: Response, err: unknown): void {
-  if (err instanceof WalletProofError) {
+  if (err instanceof WalletProofError || err instanceof IdentityRegistrationError) {
     res.status(err.httpStatus).json({ ok: false, error: err.code, message: err.message });
     return;
   }
@@ -142,6 +144,41 @@ function identityError(res: Response, err: unknown): void {
   console.error('[BFF] identity route error:', err);
   res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
 }
+
+// ── Veyra ID registration ────────────────────────────────────────────────────
+// Registration is wallet-owned: the server issues a short-lived, HMAC-bound
+// claim and the connected wallet signs EIP-712 before the identity is created.
+app.post('/api/identity/register/challenge', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const handle = typeof body.handle === 'string' ? body.handle : '';
+    const walletAddress = typeof body.walletAddress === 'string' ? body.walletAddress : '';
+    const chainId = typeof body.chainId === 'number' ? body.chainId : Number.NaN;
+    const { db } = await import('./db/client.js');
+    const challenge = await beginIdentityRegistration(db, { handle, walletAddress, chainId });
+    res.status(201).json({ ok: true, challenge });
+  } catch (err) {
+    identityError(res, err);
+  }
+});
+
+app.post('/api/identity/register/complete', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const claimToken = typeof body.claimToken === 'string' ? body.claimToken : '';
+    const signature = typeof body.signature === 'string' ? body.signature : '';
+    if (!claimToken || !/^0x[0-9a-fA-F]+$/.test(signature)) {
+      res.status(400).json({ error: 'INVALID_REQUEST', message: 'claimToken and a hex signature are required' });
+      return;
+    }
+    const { db } = await import('./db/client.js');
+    const registration = await completeIdentityRegistration(db, { claimToken, signature: signature as `0x${string}` });
+    const profile = await getProfile(db, registration.veyraUserId);
+    res.status(201).json({ ok: true, registration, profile, sessionToken: registration.sessionToken });
+  } catch (err) {
+    identityError(res, err);
+  }
+});
 
 // ── Phase 2D social/contact/preferences ─────────────────────────────────────
 app.get('/api/social/contacts', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
@@ -608,9 +645,66 @@ Rules:
   CONVERT: fromAmount, fromCurrency, toCurrency
   BRIDGE: fromAmount, fromCurrency (must be USDC), sourceChain, destinationChain`;
 
+const AGENT_CHAT_SYSTEM_PROMPT = `You are Veyra, a multilingual assistant for a human-first payment application.
+
+PRODUCT ROLE:
+- Veyra helps people pay another person using a Veyra ID, X handle, or wallet address.
+- Veyra can prepare TRANSFER, CONVERT, and BRIDGE intents for review.
+- Identity resolution, balances, token contracts, routes, fees, policy, risk, signing, and execution are deterministic system responsibilities — never facts you invent.
+- The user always reviews and signs financial actions. You never sign, broadcast, or bypass policy.
+
+CONVERSATION:
+- Reply naturally in the SAME language as the user's latest message. English is the default only when the language is unclear.
+- Support mixed-language messages naturally.
+- Be concise, warm, and practical. Do not behave like a parser-only bot.
+- You may explain how Veyra works and help the user formulate an action.
+- Do not provide investment advice, predictions, or fabricated balances, prices, fees, APY, routes, transaction status, or recipient ownership.
+- Never alter or translate wallet addresses, transaction hashes, token symbols, contract addresses, numeric amounts, Veyra IDs, or X handles.
+- If an action is missing one required detail, ask ONLY for the missing detail rather than repeating fields already provided.
+
+OUTPUT:
+Return ONLY JSON in this shape:
+{
+  "reply": "natural-language reply in the user's language",
+  "locale": "best-effort BCP-47 language code such as en, vi, ja, es",
+  "mode": "CHAT" | "ACTION" | "CLARIFICATION",
+  "intent": null | {
+    "displaySummary": "short summary in the user's language",
+    "status": "RESOLVED" | "NEEDS_CLARIFICATION" | "AMBIGUOUS" | "UNSUPPORTED" | "UNRECOGNISED",
+    "candidates": [{
+      "actionType": "TRANSFER" | "CONVERT" | "BRIDGE",
+      "recipient": "string or null",
+      "fromAmount": "string or null",
+      "fromCurrency": "string or null",
+      "toCurrency": "string or null",
+      "sourceChain": "string or null",
+      "destinationChain": "string or null",
+      "confidence": 0.0
+    }],
+    "missingParams": [],
+    "clarificationQuestion": null
+  }
+}
+
+Required intent fields:
+- TRANSFER: recipient, fromAmount, fromCurrency.
+- CONVERT: fromAmount, fromCurrency, toCurrency.
+- BRIDGE: fromAmount, fromCurrency, destinationChain. sourceChain is optional if the user did not state it.
+For ordinary conversation, set mode=CHAT and intent=null.
+All extracted values are untrusted strings and must reflect only what the user explicitly said.`;
+
 // ── LLM call helpers ─────────────────────────────────────────────────────────
 
-async function callOpenAI(userMessage: string): Promise<unknown> {
+async function callOpenAI(
+  userMessage: string,
+  systemPrompt: string = AGENT_SYSTEM_PROMPT,
+  history: AgentHistoryMessage[] = [],
+): Promise<unknown> {
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    ...history.map((message) => ({ role: message.role === 'agent' ? 'assistant' : 'user', content: message.text })),
+    { role: 'user', content: userMessage },
+  ];
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -619,12 +713,9 @@ async function callOpenAI(userMessage: string): Promise<unknown> {
     },
     body: JSON.stringify({
       model: LLM_MODEL,
-      messages: [
-        { role: 'system', content: AGENT_SYSTEM_PROMPT },
-        { role: 'user', content: userMessage },
-      ],
-      temperature: 0,
-      max_tokens: 512,
+      messages,
+      temperature: 0.2,
+      max_tokens: 700,
       response_format: { type: 'json_object' },
     }),
   });
@@ -638,7 +729,15 @@ async function callOpenAI(userMessage: string): Promise<unknown> {
   return JSON.parse(raw) as unknown;
 }
 
-async function callAnthropic(userMessage: string): Promise<unknown> {
+async function callAnthropic(
+  userMessage: string,
+  systemPrompt: string = AGENT_SYSTEM_PROMPT,
+  history: AgentHistoryMessage[] = [],
+): Promise<unknown> {
+  const messages = [
+    ...history.map((message) => ({ role: message.role === 'agent' ? 'assistant' : 'user', content: message.text })),
+    { role: 'user', content: userMessage },
+  ];
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -648,9 +747,9 @@ async function callAnthropic(userMessage: string): Promise<unknown> {
     },
     body: JSON.stringify({
       model: LLM_MODEL,
-      max_tokens: 512,
-      system: AGENT_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userMessage }],
+      max_tokens: 700,
+      system: systemPrompt,
+      messages,
     }),
   });
   if (!res.ok) {
@@ -660,23 +759,52 @@ async function callAnthropic(userMessage: string): Promise<unknown> {
     content: Array<{ type: string; text: string }>;
   };
   const text = data.content.find((c) => c.type === 'text')?.text ?? '{}';
-  // Strip any markdown fences Anthropic might emit
   const jsonText = text.replace(/^```json?\s*/m, '').replace(/```\s*$/m, '').trim();
   return JSON.parse(jsonText) as unknown;
 }
 
-async function callLLM(userMessage: string): Promise<unknown> {
-  if (LLM_PROVIDER === 'openai') return callOpenAI(userMessage);
-  if (LLM_PROVIDER === 'anthropic') return callAnthropic(userMessage);
-  // No LLM configured — return a structured stub for development
-  return {
-    intentType: 'UNKNOWN',
-    confidence: 'LOW',
-    candidates: [],
-    missingParams: [],
-    clarificationQuestion: null,
-    displaySummary: '[Dev mode: No LLM key configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.]',
-  };
+async function callLLM(
+  userMessage: string,
+  systemPrompt: string = AGENT_SYSTEM_PROMPT,
+  history: AgentHistoryMessage[] = [],
+): Promise<unknown> {
+  if (LLM_PROVIDER === 'openai') return callOpenAI(userMessage, systemPrompt, history);
+  if (LLM_PROVIDER === 'anthropic') return callAnthropic(userMessage, systemPrompt, history);
+  throw new Error('No LLM provider configured');
+}
+
+function sanitizeAgentHistory(raw: unknown): AgentHistoryMessage[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .slice(-10)
+    .map((item): AgentHistoryMessage | null => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+      const record = item as Record<string, unknown>;
+      const role = record.role === 'agent' ? 'agent' : record.role === 'user' ? 'user' : null;
+      const text = typeof record.text === 'string' ? record.text.trim().slice(0, 500) : '';
+      return role && text ? { role, text } : null;
+    })
+    .filter((item): item is AgentHistoryMessage => item !== null);
+}
+
+function messageLooksLikeInjection(message: string): boolean {
+  const lowerMsg = message.toLowerCase();
+  const injectionPatterns = [
+    'ignore previous instructions',
+    'ignore all previous',
+    'disregard the system',
+    'new instructions:',
+    'override policy',
+    'bypass safety',
+    'sign automatically',
+    'skip confirmation',
+    'execute without',
+    'system prompt',
+    '</system>',
+    '<|im_start|>',
+    '```system',
+  ];
+  return injectionPatterns.some((pattern) => lowerMsg.includes(pattern));
 }
 
 // ── Request body validation ──────────────────────────────────────────────────
@@ -684,6 +812,90 @@ async function callLLM(userMessage: string): Promise<unknown> {
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v.trim().length > 0;
 }
+
+// ── POST /api/agent/chat ─────────────────────────────────────────────────────
+// Conversation and planning are deliberately separate from execution. If the
+// configured LLM is unavailable, this endpoint still returns a deterministic,
+// multilingual fallback response instead of taking the Agent UI down.
+app.post('/api/agent/chat', AGENT_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    if (!isNonEmptyString(body.message)) {
+      res.status(400).json({ error: 'message must be a non-empty string' });
+      return;
+    }
+    if (body.message.length > 2000) {
+      res.status(400).json({ error: 'message too long (max 2000 chars)' });
+      return;
+    }
+
+    const history = sanitizeAgentHistory(body.history);
+    const providerLabel = LLM_PROVIDER === 'none' ? 'local-fallback' : `${LLM_PROVIDER}:${LLM_MODEL}`;
+    const fallback = createFallbackAgentResponse(body.message, {
+      provider: providerLabel,
+      executionAvailable: false,
+      history,
+    });
+
+    if (messageLooksLikeInjection(body.message)) {
+      res.json({
+        ...fallback,
+        reply: 'I can help with Veyra, but I cannot follow instructions that try to bypass safety or signing rules.',
+        mode: 'CHAT',
+        intent: undefined,
+      });
+      return;
+    }
+
+    if (LLM_PROVIDER === 'none') {
+      res.json(fallback);
+      return;
+    }
+
+    try {
+      const raw = await callLLM(body.message, AGENT_CHAT_SYSTEM_PROMPT, history);
+      const validated = validateAgentChatResponse(raw, body.message, {
+        conversation: 'ONLINE',
+        planning: 'ONLINE',
+        execution: 'LOCKED',
+        provider: providerLabel,
+      });
+      res.json({
+        ...validated,
+        degraded: false,
+        capabilities: {
+          ...validated.capabilities,
+          conversation: 'ONLINE',
+          planning: 'ONLINE',
+          execution: 'LOCKED',
+          provider: providerLabel,
+        },
+      });
+    } catch (llmErr) {
+      console.error('[BFF] Agent chat provider error; using fallback:', llmErr);
+      res.json(fallback);
+    }
+  } catch (err) {
+    console.error('[BFF] /api/agent/chat error:', err);
+    const message = typeof (req.body as Record<string, unknown> | undefined)?.message === 'string'
+      ? String((req.body as Record<string, unknown>).message)
+      : '';
+    const history = sanitizeAgentHistory((req.body as Record<string, unknown> | undefined)?.history);
+    res.json(createFallbackAgentResponse(message || 'help', { provider: 'server-fallback', history }));
+  }
+});
+
+app.get('/api/agent/status', (_req: Request, res: Response): void => {
+  const online = LLM_PROVIDER !== 'none';
+  res.json({
+    ok: true,
+    conversation: online ? 'ONLINE' : 'FALLBACK',
+    planning: online ? 'ONLINE' : 'FALLBACK',
+    execution: 'LOCKED',
+    provider: online ? `${LLM_PROVIDER}:${LLM_MODEL}` : 'local-fallback',
+    ts: Date.now(),
+  });
+});
 
 // ── POST /api/agent/parse ────────────────────────────────────────────────────
 
@@ -702,23 +914,7 @@ app.post('/api/agent/parse', AGENT_RATE, async (req: Request, res: Response): Pr
     }
 
     // Prompt injection guard: reject messages that look like prompt injection attempts
-    const lowerMsg = body.message.toLowerCase();
-    const injectionPatterns = [
-      'ignore previous instructions',
-      'ignore all previous',
-      'disregard the system',
-      'new instructions:',
-      'override policy',
-      'bypass safety',
-      'sign automatically',
-      'skip confirmation',
-      'execute without',
-      'system prompt',
-      '</system>',
-      '<|im_start|>',
-      '```system',
-    ];
-    if (injectionPatterns.some((p) => lowerMsg.includes(p))) {
+    if (messageLooksLikeInjection(body.message)) {
       // Return BLOCKED intent — do not call LLM
       res.json({
         ok: true,
@@ -740,8 +936,9 @@ app.post('/api/agent/parse', AGENT_RATE, async (req: Request, res: Response): Pr
     try {
       rawLLMOutput = await callLLM(body.message);
     } catch (llmErr) {
-      console.error('[BFF] LLM error:', llmErr);
-      res.status(502).json({ error: 'Agent service temporarily unavailable' });
+      console.error('[BFF] LLM parse error; using deterministic fallback:', llmErr);
+      const fallback = createFallbackAgentResponse(body.message, { provider: 'server-fallback' });
+      res.json({ ok: true, intent: fallback.intent ?? validateIntentResponse({ status: 'UNRECOGNISED', candidates: [], displaySummary: fallback.reply }) });
       return;
     }
 

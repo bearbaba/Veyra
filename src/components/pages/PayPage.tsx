@@ -1,24 +1,21 @@
 /**
- * Veyra Pay Page — Send USDC on Arc
+ * Veyra Pay — human-first payment entry point.
  *
- * Manual direct-form path. Collects recipient + amount, then routes through
- * the SAME deterministic pipeline as the Agent path:
- *
- *   TransferAction → Policy → Risk → Simulation → Review → User signature
- *   → Execution → Verification → VeyraReceipt
- *
- * There is NO shortcut writeContract call that bypasses the pipeline.
+ * The UI talks about paying a person. The current executable preview route is
+ * deliberately narrow: Arc Testnet USDC. Identity resolution and deterministic
+ * policy/risk/simulation still run before the user can sign.
  */
 
 import { useEffect, useState } from 'react';
-import { useAccount, useSwitchChain } from 'wagmi';
+import { useAccount } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { isAddress } from 'viem';
-import { SendHorizontal, AlertTriangle } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle2, SendHorizontal, ShieldCheck, Sparkles } from 'lucide-react';
 import { parseAmount } from '@/onchain-money';
 import { getUsdc, requireChain } from '@/onchain-facts';
 import { createTransferAction } from '@/core/pipeline/transferPipeline';
 import { TransactionReviewSheet } from '../transfer/TransactionReviewSheet';
+import { BrandLogo } from '../brand/BrandLogo';
 import type { TransferAction } from '@/core/actions/actionSchema';
 import { preparePaymentRecipient, type PreparedRecipient } from '@/lib/api/identityApi';
 import type { IntentCandidate } from '@/core/intent/intentSchema';
@@ -26,11 +23,10 @@ import type { IntentCandidate } from '@/core/intent/intentSchema';
 const ARC_TESTNET_CHAIN_ID = 5042002;
 
 export function PayPage() {
-  const { address, isConnected, chainId } = useAccount();
-  const { switchChain } = useSwitchChain();
+  const { address, isConnected } = useAccount();
 
   const [recipient, setRecipient] = useState('');
-  const [amount, setAmount]       = useState('');
+  const [amount, setAmount] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<TransferAction | null>(null);
   const [preparedRecipient, setPreparedRecipient] = useState<PreparedRecipient | null>(null);
@@ -38,12 +34,11 @@ export function PayPage() {
 
   const usdc = getUsdc(ARC_TESTNET_CHAIN_ID);
   const arcChain = requireChain(ARC_TESTNET_CHAIN_ID);
-  const isCorrectChain = chainId === ARC_TESTNET_CHAIN_ID;
 
   const recipientValid = recipient.trim().length > 0 && recipient.trim().length <= 128;
-  const amountNum = parseFloat(amount);
-  const amountValid = !isNaN(amountNum) && amountNum > 0;
-  const canProceed = isConnected && isCorrectChain && recipientValid && amountValid && !!address && !!usdc && !resolving;
+  const amountNum = Number.parseFloat(amount);
+  const amountValid = Number.isFinite(amountNum) && amountNum > 0;
+  const canProceed = isConnected && recipientValid && amountValid && Boolean(address) && Boolean(usdc) && !resolving;
 
   useEffect(() => {
     const raw = sessionStorage.getItem('veyra:agent-intent');
@@ -58,7 +53,7 @@ export function PayPage() {
         if (match) setAmount(match[0]);
       }
     } catch {
-      // Invalid sessionStorage data is ignored; it is not trusted for execution.
+      // Session storage is convenience-only and never trusted for execution.
     }
   }, []);
 
@@ -72,6 +67,7 @@ export function PayPage() {
         ? { kind: 'WALLET', resolvedAddress: recipient, chainId: ARC_TESTNET_CHAIN_ID, snapshot: null }
         : await preparePaymentRecipient(recipient, ARC_TESTNET_CHAIN_ID);
       if (!isAddress(prepared.resolvedAddress)) throw new Error('Resolved recipient is not a valid EVM address');
+
       const amountParsed = parseAmount(ARC_TESTNET_CHAIN_ID, amount);
       const action = createTransferAction({
         from: address,
@@ -83,132 +79,125 @@ export function PayPage() {
       });
       setPreparedRecipient(prepared);
       setPendingAction(action);
-    } catch (err) {
+    } catch (error) {
       setPreparedRecipient(null);
-      setActionError(err instanceof Error ? err.message : 'Failed to resolve recipient');
+      setActionError(error instanceof Error ? error.message : 'Failed to resolve recipient');
     } finally {
       setResolving(false);
     }
   }
 
   return (
-    <div className="max-w-md mx-auto px-4 py-8">
-      <div className="mb-6">
-        <h1 className="display text-2xl font-bold" style={{ color: 'var(--ink)', letterSpacing: '-0.02em' }}>
-          Send USDC
-        </h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-          {arcChain.name}
-        </p>
+    <div className="mx-auto max-w-2xl px-4 py-7 md:px-7 md:py-9">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--accent)' }}>
+            <Sparkles className="size-4" /> Universal Pay
+          </div>
+          <h1 className="display mt-2 text-3xl font-black" style={{ color: 'var(--ink)', letterSpacing: '-0.04em' }}>Pay someone.</h1>
+          <p className="mt-1 text-sm leading-6" style={{ color: 'var(--muted)' }}>
+            Start with a person. Veyra resolves the endpoint and keeps routing complexity underneath the review flow.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 rounded-2xl px-3 py-2" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+          <BrandLogo logoKey="arc" size={26} />
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--success)' }}>Active preview route</div>
+            <div className="text-xs font-semibold" style={{ color: 'var(--ink-2)' }}>Arc Testnet · USDC</div>
+          </div>
+        </div>
       </div>
 
       {!isConnected ? (
-        <div className="rounded-2xl p-6 text-center space-y-4"
-          style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
-          <p className="text-sm" style={{ color: 'var(--muted)' }}>
-            Connect your wallet to send USDC
+        <div className="rounded-3xl p-7 text-center" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border-strong)' }}>
+          <div className="mx-auto flex size-12 items-center justify-center rounded-2xl" style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}>
+            <SendHorizontal className="size-5" />
+          </div>
+          <h2 className="mt-4 text-lg font-bold" style={{ color: 'var(--ink)' }}>Connect your wallet to pay</h2>
+          <p className="mx-auto mt-1 max-w-md text-sm leading-6" style={{ color: 'var(--muted)' }}>
+            Your wallet remains the signing authority. Veyra never signs a payment on your behalf.
           </p>
-          <ConnectKitButton />
+          <div className="mt-5 flex justify-center"><ConnectKitButton /></div>
         </div>
       ) : (
         <div className="space-y-4">
-          {/* Chain warning */}
-          {!isCorrectChain && (
-            <div className="flex items-start gap-2.5 rounded-xl p-3.5"
-              style={{ background: 'var(--warning-muted)', border: '1px solid var(--border)' }}>
-              <AlertTriangle className="size-4 mt-0.5 shrink-0" style={{ color: 'var(--warning)' }} />
-              <div className="flex-1">
-                <p className="text-sm font-medium" style={{ color: 'var(--warning)' }}>
-                  Wrong network
-                </p>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-                  Switch to {arcChain.name} to send USDC.
-                </p>
-                <button
-                  onClick={() => switchChain({ chainId: ARC_TESTNET_CHAIN_ID })}
-                  className="mt-2 text-xs font-semibold"
-                  style={{ color: 'var(--accent)' }}
-                >
-                  Switch network
-                </button>
-              </div>
+          <div className="flex items-start gap-3 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <ShieldCheck className="mt-0.5 size-4 shrink-0" style={{ color: 'var(--success)' }} />
+            <div>
+              <p className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>No manual network setup required</p>
+              <p className="mt-0.5 text-xs leading-5" style={{ color: 'var(--muted)' }}>Veyra can resolve and prepare the payment regardless of the network currently selected in your wallet. If the source transaction needs Arc, Veyra requests the source network only when you are ready to sign.</p>
             </div>
-          )}
+          </div>
 
-          {/* Form card */}
-          <div className="rounded-2xl overflow-hidden"
-            style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
-
-            {/* Recipient */}
-            <div className="p-4 border-b" style={{ borderColor: 'var(--border)' }}>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-2"
-                style={{ color: 'var(--muted)' }}>
-                Recipient
-              </label>
+          <div className="overflow-hidden rounded-[28px]" style={{ background: 'linear-gradient(145deg,rgba(23,43,67,0.98),rgba(16,31,51,0.98))', border: '1px solid var(--border-strong)' }}>
+            <div className="border-b p-5" style={{ borderColor: 'var(--border)' }}>
+              <label className="block text-xs font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--muted)' }}>Who are you paying?</label>
               <input
                 value={recipient}
-                onChange={(e) => setRecipient(e.target.value.trim())}
-                placeholder="@veyra, @xhandle, or 0x..."
-                className="w-full bg-transparent text-sm outline-none mono"
+                onChange={(event) => setRecipient(event.target.value.trim())}
+                placeholder="@veyra, @xhandle, or 0x…"
+                className="mt-3 w-full bg-transparent text-xl font-semibold outline-none"
                 style={{ color: recipient && !recipientValid ? 'var(--danger)' : 'var(--ink)' }}
+                autoComplete="off"
+                spellCheck={false}
               />
-              {recipient && !recipientValid && (
-                <p className="text-xs mt-1.5" style={{ color: 'var(--danger)' }}>
-                  Enter a Veyra handle, X handle, or EVM address
-                </p>
-              )}
+              <p className="mt-2 text-xs" style={{ color: 'var(--subtle)' }}>Human-readable recipients resolve server-side to a verified wallet snapshot before review.</p>
             </div>
 
-            {/* Amount */}
-            <div className="p-4">
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-2"
-                style={{ color: 'var(--muted)' }}>
-                Amount
-              </label>
-              <div className="flex items-baseline gap-2">
+            <div className="p-5">
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-xs font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--muted)' }}>Amount</label>
+                <div className="flex items-center gap-2 rounded-xl px-2.5 py-1.5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                  <BrandLogo logoKey="usdc" size={20} />
+                  <span className="text-xs font-bold" style={{ color: 'var(--ink-2)' }}>USDC</span>
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
                 <input
                   inputMode="decimal"
                   value={amount}
-                  onChange={(e) => {
-                    const v = e.target.value.replace(/[^0-9.]/g, '');
-                    if (v === '' || /^\d*\.?\d*$/.test(v)) setAmount(v);
+                  onChange={(event) => {
+                    const value = event.target.value.replace(/[^0-9.]/g, '');
+                    if (value === '' || /^\d*\.?\d*$/.test(value)) setAmount(value);
                   }}
                   placeholder="0.00"
-                  className="display flex-1 bg-transparent text-3xl font-bold tabular-nums outline-none"
+                  className="display min-w-0 flex-1 bg-transparent text-4xl font-black tabular-nums outline-none"
                   style={{ color: 'var(--ink)' }}
                 />
-                <span className="text-lg font-medium" style={{ color: 'var(--muted)' }}>USDC</span>
+                <span className="text-lg font-semibold" style={{ color: 'var(--muted)' }}>USDC</span>
               </div>
             </div>
           </div>
 
-          {/* Error */}
+          <div className="grid gap-2 sm:grid-cols-3">
+            <TrustItem icon={<CheckCircle2 className="size-3.5" />} text="Identity re-verified" />
+            <TrustItem icon={<ShieldCheck className="size-3.5" />} text="Policy before signing" />
+            <TrustItem icon={<BrandLogo logoKey="arc" size={18} />} text="Arc preview route" />
+          </div>
+
           {actionError && (
-            <div className="flex items-start gap-2 rounded-xl p-3"
-              style={{ background: 'var(--danger-muted)', border: '1px solid var(--border)', color: 'var(--danger)' }}>
-              <AlertTriangle className="size-4 mt-0.5 shrink-0" />
+            <div className="flex items-start gap-2 rounded-2xl p-3.5" style={{ background: 'var(--danger-muted)', border: '1px solid var(--border)', color: 'var(--danger)' }}>
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <span className="text-sm">{actionError}</span>
             </div>
           )}
 
-          {/* CTA */}
           <button
             onClick={() => void handlePrepare()}
             disabled={!canProceed}
-            className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed disabled:scale-100"
-            style={{ background: 'var(--accent)', color: '#0d1b2f' }}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 disabled:scale-100"
+            style={{ background: 'linear-gradient(135deg,#c8ff65,#91e9b5)', color: '#0b1b25' }}
           >
-            <SendHorizontal className="size-4" />
-            {resolving ? 'Resolving recipient...' : 'Review Transfer'}
+            {resolving ? 'Resolving recipient…' : 'Review payment'}
+            {!resolving && <ArrowRight className="size-4" />}
           </button>
 
-          <p className="text-xs text-center" style={{ color: 'var(--subtle)' }}>
-            Policy, risk, and simulation checks run before you sign.
+          <p className="text-center text-[11px] leading-5" style={{ color: 'var(--subtle)' }}>
+            No provider, chain, amount, or recipient can be changed after review without a new verification cycle.
           </p>
         </div>
       )}
 
-      {/* Transaction Review Sheet */}
       {pendingAction && (
         <TransactionReviewSheet
           action={pendingAction}
@@ -216,6 +205,14 @@ export function PayPage() {
           onClose={() => { setPendingAction(null); setPreparedRecipient(null); }}
         />
       )}
+    </div>
+  );
+}
+
+function TrustItem({ icon, text }: { icon: React.ReactNode; text: string }) {
+  return (
+    <div className="flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-[11px] font-semibold" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--muted)' }}>
+      <span style={{ color: 'var(--success)' }}>{icon}</span>{text}
     </div>
   );
 }

@@ -71,3 +71,48 @@ export async function beginXLink(returnPath = '/settings'): Promise<string> {
   const result = await postJson<{ ok: true; authorizeUrl: string }>('/api/auth/x/start', { returnPath });
   return result.authorizeUrl;
 }
+
+export interface IdentityRegistrationChallenge {
+  claimToken: string;
+  expiresAt: string;
+  typedData: {
+    domain: { name: string; version: string; chainId: number; verifyingContract: `0x${string}` };
+    types: {
+      IdentityClaim: readonly [
+        { readonly name: 'handle'; readonly type: 'string' },
+        { readonly name: 'walletAddress'; readonly type: 'address' },
+        { readonly name: 'chainId'; readonly type: 'uint256' },
+        { readonly name: 'nonce'; readonly type: 'bytes32' },
+        { readonly name: 'issuedAt'; readonly type: 'uint256' },
+        { readonly name: 'expiresAt'; readonly type: 'uint256' },
+      ];
+    };
+    primaryType: 'IdentityClaim';
+    message: {
+      handle: string;
+      walletAddress: `0x${string}`;
+      chainId: number;
+      nonce: `0x${string}`;
+      issuedAt: number;
+      expiresAt: number;
+    };
+  };
+}
+
+export async function beginVeyraIdRegistration(input: {
+  handle: string;
+  walletAddress: string;
+  chainId: number;
+}): Promise<IdentityRegistrationChallenge> {
+  const result = await postJson<{ ok: true; challenge: IdentityRegistrationChallenge }>('/api/identity/register/challenge', input);
+  return result.challenge;
+}
+
+export async function completeVeyraIdRegistration(input: {
+  claimToken: string;
+  signature: `0x${string}`;
+}): Promise<{ profile: MyProfile; sessionToken: string }> {
+  const result = await postJson<{ ok: true; profile: MyProfile; sessionToken: string }>('/api/identity/register/complete', input);
+  sessionStorage.setItem('veyra:session-token', result.sessionToken);
+  return { profile: result.profile, sessionToken: result.sessionToken };
+}
