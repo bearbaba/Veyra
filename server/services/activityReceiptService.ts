@@ -4,6 +4,7 @@ import type { DbClient } from '../db/client.js';
 import { walletBindings } from '../db/schema/wallets.js';
 import {
   createReceipt,
+  transitionReceiptStatus,
   type CreateReceiptParams,
 } from '../db/repositories/receiptRepository.js';
 import { verifyPaymentRecipient } from './paymentRecipientService.js';
@@ -64,7 +65,7 @@ async function findOwnedSenderWallet(
   userId: string,
   senderAddress: string,
   sourceChainId: number,
-): Promise<string> {
+): Promise<{ receiptId: string; revision: number }> {
   const [wallet] = await db
     .select({ walletId: walletBindings.walletId })
     .from(walletBindings)
@@ -225,5 +226,14 @@ export async function createBridgeActivityReceipt(
     },
   };
 
-  return createReceipt(db, createParams);
+  const receiptId = await createReceipt(db, createParams);
+  await transitionReceiptStatus(
+    db,
+    receiptId,
+    'PREFLIGHT_PASSED',
+    undefined,
+    'bff',
+  );
+
+  return { receiptId, revision: 2 };
 }
