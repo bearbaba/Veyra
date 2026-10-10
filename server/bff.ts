@@ -1170,6 +1170,33 @@ app.get('/api/stablefx/trade/:tradeId', STABLEFX_RATE, async (req: Request, res:
 // Polls Circle's CCTP V2 attestation API for a message.
 // Route: GET /api/cctp/attestation?sourceDomain=26&txHash=0x...
 
+app.get('/api/cctp/health', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const zeroHash = `0x${'0'.repeat(64)}`;
+    const url =
+      `https://iris-api-sandbox.circle.com/v2/messages/${MANIFEST_CONSTANTS.ARC_TESTNET_CCTP_DOMAIN}` +
+      `?transactionHash=${zeroHash}`;
+
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(4_000),
+    });
+
+    // A 404/400 for a deliberately unknown transaction still proves the
+    // attestation service is reachable. 5xx/network failures do not.
+    const reachable = response.status < 500;
+    res.status(reachable ? 200 : 503).json({
+      ok: reachable,
+      service: 'circle-cctp-attestation',
+      status: response.status,
+    });
+  } catch {
+    res.status(503).json({
+      ok: false,
+      service: 'circle-cctp-attestation',
+    });
+  }
+});
+
 app.get('/api/cctp/attestation', async (req: Request, res: Response): Promise<void> => {
   try {
     const { sourceDomain, txHash } = req.query;
