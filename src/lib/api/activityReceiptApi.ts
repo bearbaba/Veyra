@@ -284,7 +284,9 @@ function isSurface(
   );
 }
 
-function remoteToReceipt(row: RemoteReceiptRecord): VeyraReceipt | null {
+export function remoteActivityReceiptToVeyra(
+  row: RemoteReceiptRecord,
+): VeyraReceipt | null {
   if (
     !isActionType(row.actionType) ||
     !isSurface(row.surface) ||
@@ -406,6 +408,6 @@ export async function loadRemoteActivityReceipts(): Promise<VeyraReceipt[]> {
   }
 
   return body.receipts
-    .map(remoteToReceipt)
+    .map(remoteActivityReceiptToVeyra)
     .filter((receipt): receipt is VeyraReceipt => receipt !== null);
 }
