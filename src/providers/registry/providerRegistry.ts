@@ -378,6 +378,18 @@ export function checkProviderNetworkEligibility(
       detail: `Provider "${providerId}" is registered for ${entry.environment}, not ${runtimeEnvironment}.`,
     };
   }
+
+  // Mainnet parity with EVM eligibility: manifest health is never enough.
+  // A fresh runtime health record is mandatory regardless of network family.
+  if (runtimeEnvironment === 'mainnet' && !_healthStore.has(providerId)) {
+    return {
+      eligible: false,
+      status: 'HEALTH_UNKNOWN',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" has no fresh runtime health record for mainnet.`,
+    };
+  }
+
   if (!entry.enabled) {
     return {
       eligible: false,
