@@ -38,6 +38,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: DEV source isolation
+        run: bun run check:dev-isolation
+
       - name: Lint
         run: |
           bunx oxlint --type-aware --quiet src scripts
@@ -48,3 +51,6 @@ jobs:
 
       - name: Build
         run: bun run build
+
+      - name: Production bundle isolation
+        run: bun run check:prod-bundle
