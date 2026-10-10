@@ -20,9 +20,9 @@ import { usePublicClient, useWalletClient, useSwitchChain } from 'wagmi';
 import { getAddress, createPublicClient, http, type Hash, type Address } from 'viem';
 import {
   approveTokenMessenger,
-  depositForBurn,
+  broadcastDepositForBurn,
   fetchCctpAttestation,
-  receiveMessage,
+  broadcastReceiveMessage,
   verifyDestinationBalance,
   readBalance,
   chainIdToCctpDomain,
@@ -208,17 +208,16 @@ export function useBridgeExecution() {
       if (abortRef.current) return;
 
       // ── Step 2: depositForBurn ────────────────────────────────────────────
-      setState({ phase: 'BURNING', approveTxHash });
-      const burnTxHash = await depositForBurn(walletClient, sourcePublicClient, action);
-      setState({ phase: 'BRIDGE_PENDING', approveTxHash, burnTxHash });
-
-      // Persist a local recovery checkpoint immediately after the source burn.
-      // From this point forward recovery must continue from burnTxHash and can
-      // never submit a second source burn.
+      // Generate immutable recovery metadata BEFORE asking the wallet to burn.
+      // The adapter returns the tx hash immediately after broadcast; Veyra then
+      // persists SOURCE_BROADCAST before waiting for confirmation.
       const planId = generatePlanReceiptId();
-      const checkpointBase: Omit<BridgeRecoveryCheckpoint, 'stage' | 'updatedAt'> = {
+      const checkpointCreatedAt = Date.now();
+      const checkpointMetadata: Omit<
+        BridgeRecoveryCheckpoint,
+        'stage' | 'updatedAt' | 'burnTxHash'
+      > = {
         planId,
-        burnTxHash,
         sourceChainId: action.sourceChainId,
         destinationChainId: action.destinationChainId,
         walletAddress,
@@ -226,8 +225,24 @@ export function useBridgeExecution() {
         amount: action.amount.toString(),
         tokenAddress: action.tokenAddress,
         balanceBefore: balanceBefore.toString(),
-        createdAt: Date.now(),
+        createdAt: checkpointCreatedAt,
       };
+
+      setState({ phase: 'BURNING', approveTxHash });
+      const burnTxHash = await broadcastDepositForBurn(walletClient, action);
+      setState({ phase: 'BRIDGE_PENDING', approveTxHash, burnTxHash });
+
+      const checkpointBase: Omit<
+        BridgeRecoveryCheckpoint,
+        'stage' | 'updatedAt'
+      > = {
+        ...checkpointMetadata,
+        burnTxHash,
+      };
+
+      // Critical crash-safety boundary: persist the broadcast hash before any
+      // receipt wait. A reload while the burn is pending can now recover from
+      // the exact source tx instead of offering a second burn.
       await persistRecoveryCheckpoint({
         ...checkpointBase,
         stage: 'SOURCE_BROADCAST',
@@ -308,15 +323,17 @@ export function useBridgeExecution() {
       }
 
       setState({ phase: 'RECEIVING', approveTxHash, burnTxHash });
-      const receiveTxHash = await receiveMessage(
+      const receiveTxHash = await broadcastReceiveMessage(
         walletClient,
-        destPublicClient,
         action.destinationChainId,
         recipientAddress,
         attestation.message,
         attestation.attestation,
       );
 
+      // Persist the destination tx hash before waiting for confirmation. This
+      // prevents a reload from submitting receiveMessage again just because the
+      // original destination transaction was still pending.
       await persistRecoveryCheckpoint({
         ...checkpointBase,
         stage: 'DESTINATION_BROADCAST',
@@ -327,6 +344,20 @@ export function useBridgeExecution() {
       });
 
       if (abortRef.current) return;
+
+      const destinationReceipt = await destPublicClient.waitForTransactionReceipt({
+        hash: receiveTxHash,
+        timeout: 60_000,
+      });
+      if (destinationReceipt.status !== 'success') {
+        setState({
+          phase: 'FAILED',
+          burnTxHash,
+          receiveTxHash,
+          error: `Destination receive tx reverted: ${receiveTxHash}`,
+        });
+        return;
+      }
 
       // ── Step 6: Verify destination balance delta ──────────────────────────
       setState({ phase: 'VERIFYING', approveTxHash, burnTxHash, receiveTxHash });
@@ -350,9 +381,9 @@ export function useBridgeExecution() {
       }
 
       // ── Step 7: Generate VeyraReceipt ─────────────────────────────────────
-      const sourceReceiptObj  = await sourcePublicClient.getTransactionReceipt({ hash: burnTxHash });
-      const destReceiptObj    = await destPublicClient.getTransactionReceipt({ hash: receiveTxHash });
-      const receiptId         = generateExecutionReceiptId(action.sourceChainId, burnTxHash);
+      const sourceReceiptObj = await sourcePublicClient.getTransactionReceipt({ hash: burnTxHash });
+      const destReceiptObj = destinationReceipt;
+      const receiptId = generateExecutionReceiptId(action.sourceChainId, burnTxHash);
 
       const veyraReceipt: VeyraReceipt = {
         receiptId,
@@ -613,15 +644,16 @@ export function useBridgeExecution() {
         await switchChainAsync({ chainId: current.destinationChainId });
 
         setState({ phase: 'RECEIVING', burnTxHash });
-        const receiveTxHash = await receiveMessage(
+        const receiveTxHash = await broadcastReceiveMessage(
           walletClient,
-          destPublicClient,
           current.destinationChainId,
           recipientAddress,
           current.attestationMessage!,
           current.attestationSignature!,
         );
 
+        // Persist before any confirmation/read. If the page disappears now,
+        // recovery resumes by verifying this exact destination tx.
         current = {
           ...current,
           stage: 'DESTINATION_BROADCAST',
