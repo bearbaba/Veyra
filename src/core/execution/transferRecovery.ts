@@ -27,6 +27,8 @@ function failure(
     receipt: {
       ...receipt,
       status: 'FAILED',
+      syncRevision: (receipt.syncRevision ?? 1) + 1,
+      syncPending: Boolean(receipt.executionContext),
       completedAt: Date.now(),
       displaySummary: `Transfer verification failed: ${detail}`,
     },
@@ -103,6 +105,8 @@ export async function recoverPendingTransferReceipt(
     receipt: {
       ...receipt,
       status: 'VERIFIED',
+      syncRevision: (receipt.syncRevision ?? 1) + 1,
+      syncPending: Boolean(receipt.executionContext),
       executionBlock: Number(txReceipt.blockNumber),
       completedAt: Date.now(),
       actualAmountDelta: evidence.transferAmount,
