@@ -12,8 +12,11 @@ ALTER TYPE execution_event_type ADD VALUE IF NOT EXISTS 'RESUMED';
 --> statement-breakpoint
 ALTER TYPE execution_event_type ADD VALUE IF NOT EXISTS 'CANCELLED';
 --> statement-breakpoint
+ALTER TYPE execution_event_type ADD VALUE IF NOT EXISTS 'STATUS_TRANSITION';
+--> statement-breakpoint
 
 ALTER TABLE activity_receipts
+  ALTER COLUMN recipient_snapshot_id DROP NOT NULL,
   ADD COLUMN IF NOT EXISTS surface text NOT NULL DEFAULT 'BRIDGE',
   ADD COLUMN IF NOT EXISTS action text NOT NULL DEFAULT 'BRIDGE',
   ADD COLUMN IF NOT EXISTS provider_version text NOT NULL DEFAULT 'unknown',
