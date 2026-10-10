@@ -39,7 +39,6 @@ type UnifiedBalancesParams = Parameters<UnifiedBalanceApi['getBalances']>[0];
 type UnifiedBalancesResult = Awaited<ReturnType<UnifiedBalanceApi['getBalances']>>;
 type UnifiedSpendParams = Parameters<UnifiedBalanceApi['spend']>[0];
 type UnifiedSpendResult = Awaited<ReturnType<UnifiedBalanceApi['spend']>>;
-type UnifiedDepositParams = Parameters<UnifiedBalanceApi['deposit']>[0];
 type UnifiedDepositResult = Awaited<ReturnType<UnifiedBalanceApi['deposit']>>;
 type EarnApi = AppKit['earn'];
 type EarnExploreParams = Parameters<EarnApi['exploreVaults']>[0];
