@@ -150,6 +150,20 @@ Browser reconciliation is revision-aware. A stale browser never overwrites a
 newer server record and immutable money-moving receipt fields are not accepted
 from receipt sync requests.
 
+
+Receipt revisions are strictly contiguous: browser sync may advance only from
+revision `N` to `N + 1`. Source/destination transaction hashes, chain IDs and
+block numbers become immutable once recorded.
+
+For CCTP, lifecycle evidence is also stage-bound:
+
+- `BROADCAST` and later require the reviewed source burn hash/chain
+- `SOURCE_CONFIRMED` and later require an authoritative source block
+- `RECEIVE_PENDING` and later require the destination transaction/chain
+- `CONFIRMED` and `COMPLETE` require the authoritative destination block
+- resume payloads must bind to the exact receipt route ID
+- terminal receipts cannot remain resumable
+
 ## Server-bound receipt creation
 
 Before the wallet execution boundary, the authenticated BFF:
@@ -181,6 +195,21 @@ execution boundaries:
 - destination receive broadcast
 - verified destination receipt/state
 - confirmed/completed
+
+
+The BFF does not trust browser claims for the authoritative confirmation stages.
+Before accepting `SOURCE_CONFIRMED`, it independently reads the Arc receipt and
+requires the exact reviewed CCTP `DepositForBurn` plus canonical
+`MessageSent` evidence. Before accepting `CONFIRMED`, it independently reads
+the destination receipt and transaction, requires the exact canonical USDC mint
+to the reviewed recipient, decodes the transaction as
+`receiveMessage(bytes,bytes)` to the canonical MessageTransmitterV2, and binds
+that calldata to Circle's authoritative attestation for the persisted source
+burn.
+
+A successful source transaction whose exact CCTP evidence cannot yet be proven
+is kept fail-closed and resumable/reconcilable. It is never converted into a
+fresh source execution.
 
 Once the source may have been submitted, a temporary Activity API failure does
 not cause a second burn. The persistent action replay lock and bridge recovery
@@ -231,6 +260,9 @@ Implemented and CI-testable:
 - authenticated system-of-record receipt creation
 - full ActivityReceipt transition model
 - revision conflict protection
+- immutable execution-evidence enforcement
+- server-authoritative CCTP source/destination confirmation
+- source-attestation-to-destination-calldata binding
 - production Activity states
 - reload/recovery reconciliation
 - ProviderAdapter execute/resume boundaries
