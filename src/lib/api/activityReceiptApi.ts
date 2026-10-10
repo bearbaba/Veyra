@@ -239,3 +239,33 @@ export async function loadResumableActivityReceiptsRemote(): Promise<
     ? (payload.receipts as ActivityReceiptRemoteRecord[])
     : [];
 }
+
+
+export async function advanceActivityReceiptRemote(
+  handle: ActivityReceiptHandle,
+  status: ActivityReceiptStatus,
+  extra: Omit<
+    ActivityReceiptSyncRequest,
+    'receiptId' | 'revision' | 'status'
+  > = {},
+): Promise<{
+  handle: ActivityReceiptHandle;
+  status: ActivityReceiptStatus;
+  conflict: boolean;
+}> {
+  const result = await syncActivityReceiptRemote({
+    receiptId: handle.receiptId,
+    revision: handle.revision + 1,
+    status,
+    ...extra,
+  });
+
+  return {
+    handle: {
+      receiptId: result.serverRecord.receiptId,
+      revision: result.serverRecord.revision,
+    },
+    status: result.serverRecord.status,
+    conflict: result.conflict,
+  };
+}
