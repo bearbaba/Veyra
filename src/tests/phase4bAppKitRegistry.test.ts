@@ -37,12 +37,13 @@ describe('Phase 4B Circle App Kit provider lifecycle', () => {
     }
   });
 
-  it('describes Solana without inventing a numeric EVM chain id', () => {
+  it('recognizes Solana at the product layer without claiming the current viem adapter can execute it', () => {
+    expect(circleChainForNetworkId('solana-devnet')).toBe('Solana_Devnet');
     const entry = findManifestEntry('circle-appkit-unified-balance');
-    expect(entry?.supportedNetworkIds).toContain('solana-devnet');
+    expect(entry?.supportedNetworkIds).not.toContain('solana-devnet');
   });
 
-  it('fails closed on disabled non-EVM execution', () => {
+  it('fails closed on non-EVM execution until a Solana adapter path is implemented', () => {
     const result = checkProviderNetworkEligibility(
       'circle-appkit-unified-balance',
       'UNIFIED_BALANCE',
@@ -51,6 +52,6 @@ describe('Phase 4B Circle App Kit provider lifecycle', () => {
       'testnet',
     );
     expect(result.eligible).toBe(false);
-    expect(result.status).toBe('DISABLED');
+    expect(result.status).toBe('CHAIN_NOT_SUPPORTED');
   });
 });
