@@ -1,4 +1,5 @@
 import { hydrateQuoteReplayStore } from '../core/receipt/quoteReplayStore';
+import { hydrateActionExecutionReplayStore } from '../core/execution/actionExecutionReplayStore';
 import { validateEnv } from './env';
 import {
   markSecurityGateFailed,
@@ -25,6 +26,7 @@ export function initializeSecurityRuntime(): Promise<void> {
     try {
       validateEnv();
       await hydrateQuoteReplayStore();
+      await hydrateActionExecutionReplayStore();
       markSecurityGateReady();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
