@@ -184,10 +184,14 @@ export async function executeReviewedAppKitBridge(input: {
 export async function retryAppKitBridge(input: {
   provider: EIP1193Provider;
   result: BridgeResult;
+  useForwarder: boolean;
 }): Promise<BridgeResult> {
   assertRetryBridgeAllowed(input.result);
   const adapter = await adapterFromProvider(input.provider);
-  return appKit.retryBridge(input.result, { from: adapter, to: adapter });
+  return appKit.retryBridge(input.result, {
+    from: adapter,
+    to: input.useForwarder ? undefined : adapter,
+  });
 }
 
 /** Read-only unified balance. No wallet network switch is required. */
