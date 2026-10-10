@@ -78,7 +78,7 @@ export const cctpV2BridgeProvider: BridgeProviderAdapter = {
     );
   },
 
-  async quoteRoute(params: RouteQuoteParams): Promise<RouteOption | null> {
+  quoteRoute(params: RouteQuoteParams): Promise<RouteOption | null> {
     if (
       params.amountIn <= 0n ||
       !isAddress(params.senderAddress) ||
@@ -90,7 +90,7 @@ export const cctpV2BridgeProvider: BridgeProviderAdapter = {
         params.sourceTokenAddress,
       )
     ) {
-      return null;
+      return Promise.resolve(null);
     }
 
     const supported = this.capabilities.supportedRoutes.find(
@@ -100,7 +100,7 @@ export const cctpV2BridgeProvider: BridgeProviderAdapter = {
         route.sourceTokenAddress.toLowerCase() ===
           params.sourceTokenAddress.toLowerCase(),
     );
-    if (!supported) return null;
+    if (!supported) return Promise.resolve(null);
 
     const quotedAt = Date.now();
     const expiresAt = quotedAt + this.capabilities.quoteTtlMs;
@@ -117,7 +117,7 @@ export const cctpV2BridgeProvider: BridgeProviderAdapter = {
       providerVersion: this.version,
     });
 
-    return {
+    return Promise.resolve({
       routeId,
       provider: this.providerId,
       providerVersion: this.version,
@@ -155,7 +155,7 @@ export const cctpV2BridgeProvider: BridgeProviderAdapter = {
         finality: 'STANDARD',
         sourceDomain: MANIFEST_CONSTANTS.ARC_TESTNET_CCTP_DOMAIN,
       },
-    };
+    });
   },
 
   async preflight(routeOption: RouteOption): Promise<PreflightResult[]> {
@@ -279,23 +279,27 @@ export const cctpV2BridgeProvider: BridgeProviderAdapter = {
     return results;
   },
 
-  async execute(
+  execute(
     _routeOption: RouteOption,
     _signer: TransactionSigner,
     _onProgress: (trace: ActivityTrace) => void,
   ): Promise<ExecutionResult> {
-    throw new Error(
-      '[cctpBridgeProvider] Execution requires the production bridge execution runtime. Route adapters never bypass useBridgeExecution.',
+    return Promise.reject(
+      new Error(
+        '[cctpBridgeProvider] Execution requires the production bridge execution runtime. Route adapters never bypass useBridgeExecution.',
+      ),
     );
   },
 
-  async resume(
+  resume(
     _resumePayload: ResumePayload,
     _signer: TransactionSigner,
     _onProgress: (trace: ActivityTrace) => void,
   ): Promise<ExecutionResult> {
-    throw new Error(
-      '[cctpBridgeProvider] Resume requires the production bridge recovery runtime. Route adapters never bypass persisted checkpoint reconciliation.',
+    return Promise.reject(
+      new Error(
+        '[cctpBridgeProvider] Resume requires the production bridge recovery runtime. Route adapters never bypass persisted checkpoint reconciliation.',
+      ),
     );
   },
 };
