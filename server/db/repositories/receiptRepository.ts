@@ -145,6 +145,21 @@ export interface ReceiptSyncInput extends ReceiptTransitionExtra {
   status: ReceiptStatus;
 }
 
+
+export interface ReceiptExecutionEvidenceState {
+  providerId: string;
+  action: string;
+  routeId: string;
+  senderChainId: number;
+  recipientChainId: number;
+  burnTxHash: string | null;
+  burnChainId: number | null;
+  burnBlockNumber: number | null;
+  receiveTxHash: string | null;
+  receiveChainId: number | null;
+  receiveBlockNumber: number | null;
+}
+
 export class DuplicateSendError extends Error {
   constructor(message: string) {
     super(message);
@@ -236,8 +251,8 @@ function assertUnchangedEvidence<T>(
   }
 }
 
-function assertImmutableExecutionEvidence(
-  current: typeof activityReceipts.$inferSelect,
+export function validateReceiptSyncEvidence(
+  current: ReceiptExecutionEvidenceState,
   input: ReceiptSyncInput,
 ): void {
   assertOptionalTxHash(input.burnTxHash, 'burnTxHash');
@@ -608,7 +623,7 @@ export async function syncReceiptRevision(
     }
 
     assertTransitionAllowed(current.status, input.status);
-    assertImmutableExecutionEvidence(current, input);
+    validateReceiptSyncEvidence(current, input);
 
     const now = new Date();
     const [updated] = await tx
