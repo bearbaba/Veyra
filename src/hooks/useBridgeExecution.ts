@@ -608,7 +608,13 @@ export function useBridgeExecution() {
         hash: burnTxHash,
         timeout: 60_000,
       });
-      const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt);
+      const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt, {
+        burnToken: getAddress(action.tokenAddress),
+        amount: action.amount,
+        depositor: getAddress(action.from),
+        mintRecipient: getAddress(action.to),
+        destinationChainId: action.destinationChainId,
+      });
       if (!sourceEvidence.verified) {
         activityProgress = await advanceBridgeActivity(
           activityProgress,
@@ -1119,7 +1125,13 @@ export function useBridgeExecution() {
         return;
       }
 
-      const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt);
+      const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt, {
+        burnToken: getAddress(current.tokenAddress),
+        amount: BigInt(current.amount),
+        depositor: getAddress(current.walletAddress),
+        mintRecipient: getAddress(current.recipientAddress),
+        destinationChainId: current.destinationChainId,
+      });
       if (!sourceEvidence.verified) {
         setState({
           phase: 'FAILED',
