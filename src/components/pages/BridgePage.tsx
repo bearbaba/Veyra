@@ -250,7 +250,9 @@ export function BridgePage() {
         preflightResults: freshPreflight,
       });
 
-      await bridgeExecution.executeBridge(
+      await bridgeExecution.executeProviderRoute(
+        cctpV2BridgeProvider,
+        refreshedRoute,
         executionAction,
         address,
         activityReceipt,
@@ -270,7 +272,10 @@ export function BridgePage() {
   }
 
   async function handleResumeBridge(checkpoint: BridgeRecoveryCheckpoint) {
-    await bridgeExecution.resumeBridge(checkpoint);
+    await bridgeExecution.resumeProviderCheckpoint(
+      cctpV2BridgeProvider,
+      checkpoint,
+    );
     setRecoveryCandidates(await bridgeExecution.loadRecoveryCandidates());
   }
 
