@@ -193,6 +193,10 @@ export function assertReviewedAppKitBridgeMatchesAction(
   reviewed: ReviewedAppKitBridge,
   action: BridgeAction,
 ): void {
+  assertAddress(action.from);
+  assertAddress(action.to);
+  assertAddress(reviewed.request.recipientAddress);
+
   if (action.providerId !== 'circle-appkit-bridge') {
     throw new Error('[appKit] Bridge action provider does not match circle-appkit-bridge.');
   }
