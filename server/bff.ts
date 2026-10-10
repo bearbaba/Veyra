@@ -56,6 +56,10 @@ import {
   createBridgeActivityReceipt,
 } from './services/activityReceiptService.js';
 import {
+  ActivityReceiptEvidenceError,
+  verifyOwnedActivityReceiptTransitionEvidence,
+} from './services/activityReceiptVerificationService.js';
+import {
   getResumableReceipts as getResumableActivityReceipts,
   listReceiptsForUser,
   ReceiptTransitionError,
@@ -1398,9 +1402,18 @@ app.post('/api/receipts/sync', IDENTITY_RATE, async (req: Request, res: Response
     };
 
     const { db } = await import('./db/client.js');
+    await verifyOwnedActivityReceiptTransitionEvidence(db, userId, input);
     const result = await syncReceiptRevision(db, userId, input);
     res.json({ ok: true, ...result });
   } catch (err) {
+    if (err instanceof ActivityReceiptEvidenceError) {
+      res.status(err.httpStatus).json({
+        ok: false,
+        error: err.code,
+        message: err.message,
+      });
+      return;
+    }
     if (err instanceof ReceiptTransitionError) {
       res.status(409).json({
         ok: false,
