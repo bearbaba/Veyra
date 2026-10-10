@@ -47,6 +47,58 @@ export class BridgeRecoveryConflictError extends Error {
   }
 }
 
+
+export type BridgeRelayDecision =
+  | {
+      mode: 'SUBMIT';
+      destinationChainId: number;
+      message: string;
+      attestation: string;
+    }
+  | {
+      mode: 'ALREADY_SUBMITTED';
+      destinationChainId: number;
+      receiveTxHash: string;
+    };
+
+export function evaluateBridgeRelayDecision(
+  checkpoint: BridgeRecoveryInput,
+): BridgeRelayDecision {
+  assertBaseInput(checkpoint);
+
+  if (checkpoint.stage === 'DESTINATION_BROADCAST') {
+    if (!checkpoint.receiveTxHash) {
+      throw new BridgeRecoveryConflictError(
+        'Destination broadcast checkpoint is missing receiveTxHash',
+      );
+    }
+    return {
+      mode: 'ALREADY_SUBMITTED',
+      destinationChainId: checkpoint.destinationChainId,
+      receiveTxHash: checkpoint.receiveTxHash,
+    };
+  }
+
+  if (checkpoint.stage !== 'ATTESTATION_READY') {
+    throw new BridgeRecoveryConflictError(
+      `Bridge relay is not allowed from stage ${checkpoint.stage}`,
+    );
+  }
+
+  if (!checkpoint.attestationMessage || !checkpoint.attestationSignature) {
+    throw new BridgeRecoveryConflictError(
+      'Bridge relay requires persisted attestation evidence',
+    );
+  }
+
+  return {
+    mode: 'SUBMIT',
+    destinationChainId: checkpoint.destinationChainId,
+    message: checkpoint.attestationMessage,
+    attestation: checkpoint.attestationSignature,
+  };
+}
+
 function assertBaseInput(input: BridgeRecoveryInput): void {
   if (!input.planId || input.planId.length > 160) {
     throw new BridgeRecoveryConflictError('Invalid bridge recovery planId');
@@ -297,6 +349,29 @@ export async function persistBridgeRecoveryCheckpoint(
     }
     throw error;
   }
+}
+
+export async function getBridgeRecoveryCheckpointForOwner(
+  db: DbClient,
+  ownerUserId: string,
+  planId: string,
+): Promise<BridgeRecoveryInput | null> {
+  if (!planId || planId.length > 160) {
+    throw new BridgeRecoveryConflictError('Invalid bridge recovery planId');
+  }
+
+  const [row] = await db
+    .select()
+    .from(bridgeRecoveryCheckpoints)
+    .where(
+      and(
+        eq(bridgeRecoveryCheckpoints.planId, planId),
+        eq(bridgeRecoveryCheckpoints.ownerUserId, ownerUserId),
+      ),
+    )
+    .limit(1);
+
+  return row ? rowToInput(row) : null;
 }
 
 export async function loadPendingBridgeRecoveryCheckpoints(
