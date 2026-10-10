@@ -34,6 +34,26 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+
+function isEvmAddress(value: string): boolean {
+  return /^0x[0-9a-fA-F]{40}$/.test(value);
+}
+
+function actionIsVerifiedArcStablePair(action: ConvertAction): boolean {
+  if (action.chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID) return false;
+
+  const pair = new Set([
+    action.fromTokenAddress.toLowerCase(),
+    action.toTokenAddress.toLowerCase(),
+  ]);
+
+  return (
+    pair.size === 2 &&
+    pair.has(MANIFEST_CONSTANTS.ARC_TESTNET_USDC.toLowerCase()) &&
+    pair.has(MANIFEST_CONSTANTS.ARC_TESTNET_EURC.toLowerCase())
+  );
+}
+
 function arcAssetMatches(value: unknown, tokenAddress: string): boolean {
   if (typeof value !== 'string') return false;
   const normalized = value.trim().toLowerCase();
@@ -85,6 +105,23 @@ export function verifyAppKitSwapExecution(input: {
 
   if (input.action.providerId !== 'circle-appkit-swap') {
     return fail('ConvertAction provider is not circle-appkit-swap.');
+  }
+
+  if (
+    input.action.provenance.providerId !== undefined &&
+    input.action.provenance.providerId !== 'circle-appkit-swap'
+  ) {
+    return fail('ConvertAction provenance provider is not circle-appkit-swap.');
+  }
+
+  if (!actionIsVerifiedArcStablePair(input.action)) {
+    return fail(
+      'ConvertAction is outside the verified Arc Testnet USDC/EURC swap scope.',
+    );
+  }
+
+  if (!isEvmAddress(input.expectedRecipientAddress)) {
+    return fail('Expected swap recipient is not a valid EVM address.');
   }
 
   const result = asRecord(input.result);
@@ -247,7 +284,7 @@ export function buildVerifiedAppKitSwapReceipt(input: {
     actualAmountDelta: verification.authoritativeOutputAmount,
     expectedAmountDelta: input.action.minAmountOut,
     riskScore: null,
-    policyDecision: 'PASS',
+    policyDecision: null,
     displaySummary:
       'App Kit swap verified against the successful chain receipt and decoded output amount.',
   };
