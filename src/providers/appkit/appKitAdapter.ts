@@ -3,6 +3,10 @@ import { createViemAdapterFromProvider } from '@circle-fin/adapter-viem-v2';
 import type { EIP1193Provider } from 'viem';
 import { assertRetryBridgeAllowed } from '../../core/router/bridgeRecovery';
 import {
+  assertEarnExplainabilityComplete,
+  type EarnExplainabilityInput,
+} from '../../core/earn/earnExplainability';
+import {
   assertCircleAppKitChain,
   type CircleAppKitChain,
 } from './appKitChains';
@@ -369,8 +373,10 @@ export async function executeEarnDeposit(input: {
   chain: string;
   vaultAddress: string;
   amount: string;
+  explainability: EarnExplainabilityInput;
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<EarnDepositResult> {
+  assertEarnExplainabilityComplete(input.explainability);
   const chain = assertCircleAppKitChain(input.chain);
   const amount = normalizeAmount(input.amount);
   const vaultAddress = assertAddress(input.vaultAddress);
