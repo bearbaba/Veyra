@@ -56,6 +56,22 @@ describe('Phase 4D network ↔ asset compatibility', () => {
     expect(result.status).toBe('ASSET_NOT_SUPPORTED');
   });
 
+  it('rejects a contradictory product networkId even when the numeric EVM chainId is valid', () => {
+    const result = checkProviderNetworkEligibility(
+      'cctp-v2-bridge',
+      'BRIDGE',
+      {
+        networkId: 'solana-devnet',
+        chainId: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
+      },
+      MANIFEST_CONSTANTS.ARC_TESTNET_USDC,
+      'testnet',
+    );
+
+    expect(result.eligible).toBe(false);
+    expect(result.status).toBe('CHAIN_NOT_SUPPORTED');
+  });
+
   it('requires an explicit matrix for every multi-chain asset-specific provider', () => {
     const multiChainAssetProviders = PROVIDER_MANIFEST.filter(
       (entry) => entry.supportedChainIds.length > 1 && entry.supportedAssets.length > 0,
