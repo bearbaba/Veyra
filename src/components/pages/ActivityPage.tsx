@@ -6,8 +6,8 @@
  * authoritative for execution truth.
  */
 
-import { useEffect, useState } from 'react';
-import { useAccount } from 'wagmi';
+import { useEffect, useRef, useState } from 'react';
+import { useAccount, usePublicClient } from 'wagmi';
 import { buildTxExplorerUrl } from '@/onchain-facts';
 import { useReceiptStore } from '@/hooks/useReceiptStore';
 import { useBridgeExecution } from '@/hooks/useBridgeExecution';
@@ -19,6 +19,9 @@ import {
   Loader2,
 } from 'lucide-react';
 import type { VeyraReceipt } from '@/core/receipt/receiptTypes';
+import { recoverPendingTransferReceipt } from '@/core/execution/transferRecovery';
+import { saveReceipt } from '@/core/receipt/receiptStore';
+import { MANIFEST_CONSTANTS } from '@/providers/registry/providerManifest';
 import {
   nextBridgeResumeInstruction,
   type BridgeRecoveryCheckpoint,
@@ -26,11 +29,50 @@ import {
 
 export function ActivityPage() {
   const { isConnected } = useAccount();
+  const publicClient = usePublicClient({
+    chainId: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
+  });
   const { receipts, loading, reload } = useReceiptStore();
   const bridgeExecution = useBridgeExecution();
+  const transferRecoveryAttempted = useRef(new Set<string>());
   const [recoveryCandidates, setRecoveryCandidates] = useState<
     BridgeRecoveryCheckpoint[]
   >([]);
+
+  useEffect(() => {
+    if (!publicClient || loading) return;
+
+    const pendingTransfers = receipts.filter(
+      (receipt) =>
+        receipt.actionType === 'TRANSFER' &&
+        receipt.status === 'PENDING' &&
+        Boolean(receipt.executionTxHash) &&
+        Boolean(receipt.transferTrace) &&
+        !transferRecoveryAttempted.current.has(receipt.receiptId),
+    );
+    if (pendingTransfers.length === 0) return;
+
+    let active = true;
+    for (const receipt of pendingTransfers) {
+      transferRecoveryAttempted.current.add(receipt.receiptId);
+      void recoverPendingTransferReceipt(publicClient, receipt)
+        .then(async (result) => {
+          if (result.status === 'PENDING') {
+            transferRecoveryAttempted.current.delete(receipt.receiptId);
+            return;
+          }
+          await saveReceipt(result.receipt);
+          if (active) await reload();
+        })
+        .catch(() => {
+          transferRecoveryAttempted.current.delete(receipt.receiptId);
+        });
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [loading, publicClient, receipts, reload]);
 
   useEffect(() => {
     let active = true;
