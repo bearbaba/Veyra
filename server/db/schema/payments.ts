@@ -1,5 +1,6 @@
 import {
   bigint,
+  boolean,
   index,
   jsonb,
   numeric,
@@ -32,7 +33,7 @@ export const activityReceipts = pgTable(
     senderWalletId:      text('sender_wallet_id').notNull().references(() => walletBindings.walletId),
     senderAddress:       text('sender_address').notNull(),
     senderChainId:       bigint('sender_chain_id', { mode: 'number' }).notNull(),
-    recipientSnapshotId: text('recipient_snapshot_id').notNull().references(() => identitySnapshots.snapshotId),
+    recipientSnapshotId: text('recipient_snapshot_id').references(() => identitySnapshots.snapshotId),
     recipientAddress:    text('recipient_address').notNull(),
     recipientChainId:    bigint('recipient_chain_id', { mode: 'number' }).notNull(),
     amountRaw:           numeric('amount_raw', { precision: 38, scale: 0 }).notNull(),
@@ -40,8 +41,18 @@ export const activityReceipts = pgTable(
     assetId:             text('asset_id').notNull(),
     tokenAddress:        text('token_address').notNull(),
     providerId:          text('provider_id').notNull(),
+    providerVersion:     text('provider_version').notNull().default('unknown'),
     routeId:             text('route_id').notNull(),
     quoteId:             text('quote_id'),
+    surface:             text('surface').notNull().default('BRIDGE'),
+    action:              text('action').notNull().default('BRIDGE'),
+    routeOption:         jsonb('route_option').notNull().$defaultFn(() => ({})),
+    policyResult:        jsonb('policy_result').notNull().$defaultFn(() => ({})),
+    preflightResults:    jsonb('preflight_results').notNull().$defaultFn(() => ([])),
+    resumePayload:       jsonb('resume_payload'),
+    resumable:           boolean('resumable').notNull().default(false),
+    lastWrittenBy:       text('last_written_by').notNull().default('bff'),
+    lastWrittenAt:       timestamp('last_written_at', { withTimezone: true }).notNull().defaultNow(),
     // SHA-256 of 9-axis composite (amendment 4: environment included).
     dedupKey:            text('dedup_key').notNull().unique(),
     // Bridge-specific (nullable for same-chain payments)
@@ -60,7 +71,9 @@ export const activityReceipts = pgTable(
     createdAt:           timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt:           timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     completedAt:         timestamp('completed_at', { withTimezone: true }),
+    confirmedAt:         timestamp('confirmed_at', { withTimezone: true }),
     failedAt:            timestamp('failed_at', { withTimezone: true }),
+    cancelledAt:         timestamp('cancelled_at', { withTimezone: true }),
     failureReason:       text('failure_reason'),
   },
   (t) => [
@@ -68,6 +81,8 @@ export const activityReceipts = pgTable(
     index('ix_activity_receipts_dedup').on(t.dedupKey),
     index('ix_activity_receipts_relay_pending').on(t.status, t.updatedAt),
     index('ix_activity_receipts_env').on(t.environment, t.senderUserId),
+    index('ix_activity_receipts_route_status').on(t.routeId, t.status),
+    index('ix_activity_receipts_resumable').on(t.senderUserId, t.resumable, t.updatedAt),
   ],
 );
 

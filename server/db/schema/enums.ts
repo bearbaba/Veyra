@@ -73,12 +73,15 @@ export const receiptStatusEnum = pgEnum('receipt_status', [
   'BROADCAST',
   'CONFIRMING',
   'CONFIRMED',
+  'SOURCE_CONFIRMED',
+  'ATTESTATION_PENDING',
   'FAILED',
   'RECEIVE_PENDING',
   'RECEIVE_FAILED_RETRYABLE',
   'COMPLETE',
   'DUPLICATE_DETECTED',
   'INVALIDATED',
+  'CANCELLED',
 ]);
 
 export const executionEventTypeEnum = pgEnum('execution_event_type', [
@@ -102,6 +105,9 @@ export const executionEventTypeEnum = pgEnum('execution_event_type', [
   'RECEIPT_COMPLETE',
   'RECEIPT_FAILED',
   'DUPLICATE_REJECTED',
+  'RESUMED',
+  'CANCELLED',
+  'STATUS_TRANSITION',
 ]);
 
 export const quoteStatusEnum = pgEnum('quote_status', [

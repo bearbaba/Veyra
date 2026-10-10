@@ -23,6 +23,11 @@ import {
   nextBridgeResumeInstruction,
   type BridgeRecoveryCheckpoint,
 } from '@/core/execution/bridgeCheckpointStore';
+import {
+  loadActivityReceiptsRemote,
+  type ActivityReceiptRemoteRecord,
+} from '@/lib/api/activityReceiptApi';
+import { cctpV2BridgeProvider } from '@/providers/cctp/cctpBridgeProvider';
 
 export function ActivityPage() {
   const { isConnected } = useAccount();
@@ -31,18 +36,21 @@ export function ActivityPage() {
   const [recoveryCandidates, setRecoveryCandidates] = useState<
     BridgeRecoveryCheckpoint[]
   >([]);
+  const [remoteReceipts, setRemoteReceipts] = useState<
+    ActivityReceiptRemoteRecord[]
+  >([]);
 
   useEffect(() => {
     let active = true;
 
-    void bridgeExecution
-      .loadRecoveryCandidates()
-      .then((rows) => {
-        if (active) setRecoveryCandidates(rows);
-      })
-      .catch(() => {
-        if (active) setRecoveryCandidates([]);
-      });
+    void Promise.all([
+      bridgeExecution.loadRecoveryCandidates().catch(() => []),
+      loadActivityReceiptsRemote().catch(() => []),
+    ]).then(([recoveryRows, activityRows]) => {
+      if (!active) return;
+      setRecoveryCandidates(recoveryRows);
+      setRemoteReceipts(activityRows);
+    });
 
     return () => {
       active = false;
@@ -50,9 +58,17 @@ export function ActivityPage() {
   }, [bridgeExecution.loadRecoveryCandidates]);
 
   async function resume(checkpoint: BridgeRecoveryCheckpoint) {
-    await bridgeExecution.resumeBridge(checkpoint);
+    await bridgeExecution.resumeProviderCheckpoint(
+      cctpV2BridgeProvider,
+      checkpoint,
+    );
     await reload();
-    setRecoveryCandidates(await bridgeExecution.loadRecoveryCandidates());
+    const [recoveryRows, activityRows] = await Promise.all([
+      bridgeExecution.loadRecoveryCandidates(),
+      loadActivityReceiptsRemote().catch(() => []),
+    ]);
+    setRecoveryCandidates(recoveryRows);
+    setRemoteReceipts(activityRows);
   }
 
   return (
@@ -68,6 +84,28 @@ export function ActivityPage() {
           Receipts and in-flight actions that still need attention
         </p>
       </div>
+
+      {remoteReceipts.length > 0 && (
+        <div className="mb-6 space-y-3">
+          <div>
+            <p
+              className="text-xs font-bold uppercase tracking-[0.16em]"
+              style={{ color: 'var(--muted)' }}
+            >
+              Durable activity
+            </p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>
+              Synced from Veyra's authenticated system of record.
+            </p>
+          </div>
+          {remoteReceipts.map((receipt) => (
+            <RemoteActivityCard
+              key={receipt.receiptId}
+              receipt={receipt}
+            />
+          ))}
+        </div>
+      )}
 
       {recoveryCandidates.length > 0 && (
         <div className="mb-6 space-y-3">
@@ -151,6 +189,119 @@ export function ActivityPage() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function RemoteActivityCard({
+  receipt,
+}: {
+  receipt: ActivityReceiptRemoteRecord;
+}) {
+  const terminal =
+    receipt.status === 'COMPLETE' ||
+    receipt.status === 'FAILED' ||
+    receipt.status === 'INVALIDATED' ||
+    receipt.status === 'DUPLICATE_DETECTED' ||
+    receipt.status === 'CANCELLED';
+
+  const statusColor =
+    receipt.status === 'COMPLETE'
+      ? 'var(--success)'
+      : receipt.status === 'FAILED' ||
+          receipt.status === 'INVALIDATED' ||
+          receipt.status === 'DUPLICATE_DETECTED'
+        ? 'var(--danger)'
+        : receipt.status === 'CANCELLED'
+          ? 'var(--muted)'
+          : 'var(--warning)';
+
+  return (
+    <div
+      className="rounded-2xl p-4"
+      style={{
+        background: 'var(--surface-strong)',
+        border: '1px solid var(--border)',
+      }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <span
+              className="text-sm font-semibold"
+              style={{ color: 'var(--ink)' }}
+            >
+              {receipt.action}
+            </span>
+            <span
+              className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+              style={{
+                color: statusColor,
+                background: 'var(--surface)',
+              }}
+            >
+              {receipt.status}
+            </span>
+          </div>
+          <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>
+            {receipt.providerId} · revision {receipt.revision}
+          </p>
+        </div>
+        {!terminal && receipt.resumable && (
+          <span
+            className="rounded-lg px-2 py-1 text-[10px] font-bold uppercase tracking-wider"
+            style={{
+              color: 'var(--warning)',
+              background: 'var(--warning-muted)',
+            }}
+          >
+            resumable
+          </span>
+        )}
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <DetailRow
+          label="Amount"
+          value={receipt.amountRaw}
+        />
+        <DetailRow
+          label="Route"
+          value={`${receipt.senderChainId} → ${receipt.recipientChainId}`}
+        />
+        {receipt.burnTxHash && (
+          <DetailRow
+            label="Source tx"
+            value={`${receipt.burnTxHash.slice(0, 10)}...`}
+            mono
+          />
+        )}
+        {receipt.receiveTxHash && (
+          <DetailRow
+            label="Destination tx"
+            value={`${receipt.receiveTxHash.slice(0, 10)}...`}
+            mono
+          />
+        )}
+      </div>
+
+      {receipt.status === 'SIGNED' && !receipt.burnTxHash && (
+        <p
+          className="mt-3 text-xs"
+          style={{ color: 'var(--warning)' }}
+        >
+          Submission outcome is uncertain. Veyra keeps this action locked and
+          will not replay it automatically.
+        </p>
+      )}
+
+      <div
+        className="mt-3 flex items-center gap-1.5 text-[11px]"
+        style={{ color: 'var(--subtle)' }}
+      >
+        <Clock className="size-3" />
+        Updated {new Date(receipt.updatedAt).toLocaleString()}
+      </div>
     </div>
   );
 }
