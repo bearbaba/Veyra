@@ -378,7 +378,7 @@ export function checkProviderRecoveryEligibility(
       eligible: false,
       status: 'NOT_FOUND',
       requiresConfirmation: false,
-      detail: \`Provider "\${providerId}" is not registered. Recovery cannot proceed.\`,
+      detail: `Provider "${providerId}" is not registered. Recovery cannot proceed.`,
     };
   }
 
@@ -389,7 +389,7 @@ export function checkProviderRecoveryEligibility(
       eligible: false,
       status: 'ENVIRONMENT_NOT_SUPPORTED',
       requiresConfirmation: false,
-      detail: \`Provider "\${providerId}" is registered for \${entry.environment}, not \${runtimeEnvironment}.\`,
+      detail: `Provider "${providerId}" is registered for ${entry.environment}, not ${runtimeEnvironment}.`,
     };
   }
 
@@ -398,7 +398,7 @@ export function checkProviderRecoveryEligibility(
       eligible: false,
       status: entry.trustStatus === 'UNVERIFIED' ? 'UNVERIFIED' : 'DISABLED',
       requiresConfirmation: false,
-      detail: \`Provider "\${providerId}" trust status \${entry.trustStatus} blocks recovery.\`,
+      detail: `Provider "${providerId}" trust status ${entry.trustStatus} blocks recovery.`,
     };
   }
 
@@ -407,7 +407,7 @@ export function checkProviderRecoveryEligibility(
       eligible: false,
       status: 'NOT_LIFECYCLE_READY',
       requiresConfirmation: false,
-      detail: \`Provider "\${providerId}" has no implemented recovery adapter.\`,
+      detail: `Provider "${providerId}" has no implemented recovery adapter.`,
     };
   }
 
@@ -416,7 +416,7 @@ export function checkProviderRecoveryEligibility(
       eligible: false,
       status: 'CAPABILITY_NOT_SUPPORTED',
       requiresConfirmation: false,
-      detail: \`Provider "\${providerId}" does not support capability "\${capability}".\`,
+      detail: `Provider "${providerId}" does not support capability "${capability}".`,
     };
   }
 
@@ -425,7 +425,7 @@ export function checkProviderRecoveryEligibility(
       eligible: false,
       status: 'CHAIN_NOT_SUPPORTED',
       requiresConfirmation: false,
-      detail: \`Provider "\${providerId}" does not support recovery source chain \${chainId}.\`,
+      detail: `Provider "${providerId}" does not support recovery source chain ${chainId}.`,
     };
   }
 
@@ -437,7 +437,7 @@ export function checkProviderRecoveryEligibility(
       eligible: false,
       status: 'ASSET_NOT_SUPPORTED',
       requiresConfirmation: false,
-      detail: \`Provider "\${providerId}" does not support recovery asset "\${assetAddress}" on chain \${chainId}.\`,
+      detail: `Provider "${providerId}" does not support recovery asset "${assetAddress}" on chain ${chainId}.`,
     };
   }
 
@@ -446,7 +446,7 @@ export function checkProviderRecoveryEligibility(
       eligible: false,
       status: 'HEALTH_DOWN',
       requiresConfirmation: false,
-      detail: \`Provider "\${providerId}" health is DOWN. Recovery is paused.\`,
+      detail: `Provider "${providerId}" health is DOWN. Recovery is paused.`,
     };
   }
 
@@ -456,7 +456,7 @@ export function checkProviderRecoveryEligibility(
       status: 'ELIGIBLE',
       requiresConfirmation: true,
       detail:
-        \`Provider "\${providerId}" recovery health is \${health}. \` +
+        `Provider "${providerId}" recovery health is ${health}. ` +
         'Funds are already in flight; retry requires explicit recovery confirmation.',
     };
   }
@@ -465,7 +465,7 @@ export function checkProviderRecoveryEligibility(
     eligible: true,
     status: 'ELIGIBLE',
     requiresConfirmation: false,
-    detail: \`Provider "\${providerId}" is eligible to recover the existing in-flight operation.\`,
+    detail: `Provider "${providerId}" is eligible to recover the existing in-flight operation.`,
   };
 }
 
