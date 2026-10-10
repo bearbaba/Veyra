@@ -33,7 +33,7 @@ export const activityReceipts = pgTable(
     senderWalletId:      text('sender_wallet_id').notNull().references(() => walletBindings.walletId),
     senderAddress:       text('sender_address').notNull(),
     senderChainId:       bigint('sender_chain_id', { mode: 'number' }).notNull(),
-    recipientSnapshotId: text('recipient_snapshot_id').notNull().references(() => identitySnapshots.snapshotId),
+    recipientSnapshotId: text('recipient_snapshot_id').references(() => identitySnapshots.snapshotId),
     recipientAddress:    text('recipient_address').notNull(),
     recipientChainId:    bigint('recipient_chain_id', { mode: 'number' }).notNull(),
     amountRaw:           numeric('amount_raw', { precision: 38, scale: 0 }).notNull(),
