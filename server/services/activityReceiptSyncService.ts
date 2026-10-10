@@ -9,6 +9,10 @@ import {
   type ActivityReceiptSyncInput,
 } from '../db/repositories/receiptRepository.js';
 import { findActiveWalletBinding } from '../db/repositories/walletRepository.js';
+import {
+  ActivityReceiptVerificationError,
+  verifyTerminalActivityReceiptSync,
+} from './activityReceiptVerificationService.js';
 
 const ACTION_TYPES = new Set([
   'TRANSFER',
@@ -401,8 +405,27 @@ export async function syncOwnedActivityReceipt(
 
   await assertSnapshotMatchesStoredRecipient(db, input);
 
+  let canonicalInput: ActivityReceiptSyncInput;
   try {
-    return await syncActivityReceipt(db, ownerUserId, wallet.walletId, input);
+    canonicalInput = await verifyTerminalActivityReceiptSync(input);
+  } catch (error) {
+    if (error instanceof ActivityReceiptVerificationError) {
+      throw new ActivityReceiptSyncError(
+        error.code,
+        error.message,
+        error.httpStatus,
+      );
+    }
+    throw error;
+  }
+
+  try {
+    return await syncActivityReceipt(
+      db,
+      ownerUserId,
+      wallet.walletId,
+      canonicalInput,
+    );
   } catch (error) {
     if (error instanceof ReceiptSyncConflictError) {
       throw new ActivityReceiptSyncError(
