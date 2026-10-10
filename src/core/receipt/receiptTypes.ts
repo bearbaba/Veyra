@@ -47,6 +47,21 @@ export interface BridgeTrace {
   destinationTimestamp?: number;
 }
 
+export interface ReceiptExecutionContext {
+  surface: 'PAY' | 'AGENT' | 'BRIDGE' | 'SYSTEM';
+  providerId: string;
+  routeId: string;
+  environment: 'testnet' | 'mainnet';
+  senderAddress: string;
+  recipientSnapshotId?: string | null;
+  recipientAddress: string;
+  recipientChainId: number;
+  assetId: string;
+  tokenAddress: string;
+  tokenDecimals: number;
+  quoteId?: string;
+}
+
 export interface TransferRecoveryTrace {
   providerId: string;
   tokenAddress: string;
@@ -74,6 +89,9 @@ export interface VeyraReceipt {
 
   /** Monotonic browser/server reconciliation revision. */
   syncRevision?: number;
+
+  /** True while this local version has not been acknowledged by the BFF. */
+  syncPending?: boolean;
 
   /** Chain ID of the primary action. */
   chainId: number;
@@ -116,6 +134,9 @@ export interface VeyraReceipt {
    * strings so the record remains safe to persist and hydrate across devices.
    */
   transferTrace?: TransferRecoveryTrace;
+
+  /** Durable normalized metadata required to reconcile with Postgres. */
+  executionContext?: ReceiptExecutionContext;
 }
 
 // ── Plan Receipt ──────────────────────────────────────────────────────────────
