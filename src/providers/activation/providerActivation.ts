@@ -70,6 +70,7 @@ export function evaluateProviderActivationReadiness(
       if (!item.finalStateVerified) return false;
       if (!item.receiptVerified) return false;
       if (!item.signatureBudgetVerified) return false;
+      if (!item.duplicatePreventionVerified) return false;
       if (!item.adapterVersion.trim()) return false;
       if (
         entry.packageVersion &&
@@ -79,7 +80,7 @@ export function evaluateProviderActivationReadiness(
       if (item.evidenceRefs.filter((ref) => ref.trim()).length === 0) return false;
 
       if (capability === 'BRIDGE') {
-        if (!item.recoveryVerified || !item.duplicatePreventionVerified) return false;
+        if (!item.recoveryVerified) return false;
       }
 
       if (capability === 'EARN_DEPOSIT' || capability === 'EARN_WITHDRAW') {
