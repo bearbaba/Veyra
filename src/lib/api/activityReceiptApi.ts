@@ -68,6 +68,7 @@ export interface ActivityReceiptRemoteRecord {
 export interface ActivityReceiptHandle {
   receiptId: string;
   revision: number;
+  status?: ActivityReceiptStatus;
 }
 
 export interface CreateBridgeActivityReceiptRequest {
@@ -161,7 +162,8 @@ export async function createBridgeActivityReceiptRemote(
   const payload = await parseResponse(response);
   if (
     typeof payload.receiptId !== 'string' ||
-    typeof payload.revision !== 'number'
+    typeof payload.revision !== 'number' ||
+    typeof payload.status !== 'string'
   ) {
     throw new ActivityReceiptApiError(
       502,
@@ -173,6 +175,7 @@ export async function createBridgeActivityReceiptRemote(
   return {
     receiptId: payload.receiptId,
     revision: payload.revision,
+    status: payload.status as ActivityReceiptStatus,
   };
 }
 
@@ -266,6 +269,7 @@ export async function advanceActivityReceiptRemote(
     handle: {
       receiptId: result.serverRecord.receiptId,
       revision: result.serverRecord.revision,
+      status: result.serverRecord.status,
     },
     status: result.serverRecord.status,
     conflict: result.conflict,
