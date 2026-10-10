@@ -24,6 +24,12 @@ import { VEYRA_ENV } from '../lib/env';
 import { assertExecutionReady } from '../core/execution/executionReadiness';
 import { verifyMinimumOutput } from '../core/execution/receiptVerification';
 import { saveReceipt } from '../core/receipt/receiptStore';
+import {
+  markQuoteBroadcast,
+  markQuoteUsed,
+  releaseReservation,
+  reserveQuote,
+} from '../core/receipt/quoteReplayStore';
 
 interface ConvertState {
   status: ConvertPipelineStatus;
@@ -87,6 +93,10 @@ export function useConvertExecution() {
     signTypedData: (typedData: StableFxQuoteResponse['typedData']) => Promise<string>,
   ) => {
     setState((prev) => ({ ...prev, status: 'SIGNING' }));
+
+    let quoteReserved = false;
+    let broadcastLocked = false;
+
     try {
       assertExecutionReady({
         action,
@@ -96,9 +106,31 @@ export function useConvertExecution() {
         runtimeEnvironment: VEYRA_ENV,
       });
 
+      if (action.provenance.quoteId !== quote.id) {
+        throw new Error('Reviewed Convert action is not bound to the supplied provider quote.');
+      }
+
+      const rawQuoteExpiry = new Date(quote.expiresAt).getTime();
+      if (!Number.isFinite(rawQuoteExpiry)) {
+        throw new Error('Provider quote has an invalid expiry timestamp.');
+      }
+
+      const reservation = await reserveQuote(quote.id, rawQuoteExpiry);
+      if (!reservation.success) {
+        throw new Error(`Provider quote cannot execute: ${reservation.reason}.`);
+      }
+      quoteReserved = true;
+
       const signature = await signTypedData(quote.typedData);
 
       setState((prev) => ({ ...prev, status: 'BROADCASTING' }));
+
+      // Lock the quote before attempting the remote trade submission. If the
+      // network outcome is uncertain after this point, the quote stays locked
+      // as BROADCAST rather than risking a duplicate provider submission.
+      await markQuoteBroadcast(quote.id);
+      broadcastLocked = true;
+      quoteReserved = false;
 
       // ConvertAction has no `from` field — walletAddress is passed explicitly as a param
       const trade = await createStableFxTrade({
@@ -118,7 +150,29 @@ export function useConvertExecution() {
           finalTrade = await pollStableFxTrade(trade.id);
           if (finalTrade.status === 'complete') break;
           if (finalTrade.status === 'failed') {
-            setState((prev) => ({ ...prev, status: 'FAILED', trade: finalTrade, error: 'Trade failed on Circle' }));
+            await markQuoteUsed(quote.id);
+            const failedReceipt: VeyraReceipt = {
+              receiptId: generatePlanReceiptId(),
+              planId: action.actionId,
+              actionType: 'CONVERT',
+              status: 'FAILED',
+              chainId: action.chainId,
+              createdAt: action.createdAt,
+              completedAt: Date.now(),
+              actualAmountDelta: null,
+              expectedAmountDelta: action.minAmountOut,
+              riskScore: null,
+              policyDecision: null,
+              displaySummary: 'Convert failed at the provider after submission.',
+            };
+            await saveReceipt(failedReceipt);
+            setState((prev) => ({
+              ...prev,
+              status: 'FAILED',
+              trade: finalTrade,
+              receipt: failedReceipt,
+              error: 'Trade failed on Circle',
+            }));
             return;
           }
         } catch {
@@ -171,6 +225,7 @@ export function useConvertExecution() {
           policyDecision: null,
           displaySummary: `Convert verification failed: ${verification.detail}`,
         };
+        await markQuoteUsed(quote.id);
         await saveReceipt(failedReceipt);
         setState((prev) => ({
           ...prev,
@@ -197,9 +252,22 @@ export function useConvertExecution() {
         displaySummary: `Convert ${finalTrade.from.amount} ${finalTrade.from.currency} → ${finalTrade.to.amount} ${finalTrade.to.currency}`,
       };
 
+      await markQuoteUsed(quote.id);
       await saveReceipt(receipt);
       setState((prev) => ({ ...prev, status: 'VERIFIED', trade: finalTrade, receipt }));
     } catch (err) {
+      // Only release a quote if execution definitely stopped before the
+      // provider-submission boundary. Once BROADCAST is recorded, uncertainty
+      // stays locked until reconciliation instead of permitting a double-submit.
+      if (quoteReserved && !broadcastLocked) {
+        try {
+          await releaseReservation(quote.id);
+        } catch {
+          // Preserve the original execution error; replay protection remains
+          // fail-closed if release itself cannot be confirmed.
+        }
+      }
+
       setState((prev) => ({
         ...prev,
         status: 'FAILED',
