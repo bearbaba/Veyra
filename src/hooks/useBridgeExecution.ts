@@ -616,21 +616,36 @@ export function useBridgeExecution() {
         destinationChainId: action.destinationChainId,
       });
       if (!sourceEvidence.verified) {
-        activityProgress = await advanceBridgeActivity(
-          activityProgress,
-          'FAILED',
-          {
+        if (sourceReceipt.status !== 'success') {
+          activityProgress = await advanceBridgeActivity(
+            activityProgress,
+            'FAILED',
+            {
+              burnTxHash,
+              burnChainId: action.sourceChainId,
+              burnBlockNumber: Number(sourceReceipt.blockNumber),
+              failureReason: sourceEvidence.detail,
+              resumable: false,
+            },
+          );
+          setState({
+            phase: 'FAILED',
             burnTxHash,
-            burnChainId: action.sourceChainId,
-            burnBlockNumber: Number(sourceReceipt.blockNumber),
-            failureReason: sourceEvidence.detail,
-            resumable: false,
-          },
-        );
+            error: `Source CCTP transaction failed: ${sourceEvidence.detail}`,
+          });
+          return;
+        }
+
+        // The source transaction succeeded, so never terminal-fail or reopen
+        // fresh execution merely because the exact CCTP evidence could not be
+        // established. Keep the broadcast checkpoint resumable for explicit
+        // reconciliation against authoritative chain/Circle state.
         setState({
-          phase: 'FAILED',
+          phase: 'BRIDGE_UNCONFIRMED',
           burnTxHash,
-          error: `Source CCTP verification failed: ${sourceEvidence.detail}`,
+          error:
+            `Source transaction succeeded but exact CCTP evidence is unverified: ${sourceEvidence.detail}. ` +
+            'The source action remains locked and must be reconciled; no second burn will be submitted.',
         });
         return;
       }
@@ -1134,10 +1149,14 @@ export function useBridgeExecution() {
       });
       if (!sourceEvidence.verified) {
         setState({
-          phase: 'FAILED',
+          phase: sourceReceipt.status === 'success'
+            ? 'BRIDGE_UNCONFIRMED'
+            : 'FAILED',
           burnTxHash,
           error:
-            `Persisted source burn failed CCTP verification: ${sourceEvidence.detail}`,
+            sourceReceipt.status === 'success'
+              ? `Persisted source transaction succeeded but exact CCTP evidence remains unverified: ${sourceEvidence.detail}. No replay will be attempted.`
+              : `Persisted source burn failed CCTP verification: ${sourceEvidence.detail}`,
         });
         return;
       }
