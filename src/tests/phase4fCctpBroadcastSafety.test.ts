@@ -7,6 +7,7 @@ import type {
 } from 'viem';
 import type { BridgeAction } from '../core/actions/actionSchema';
 import {
+  approveTokenMessenger,
   broadcastDepositForBurn,
   broadcastReceiveMessage,
   depositForBurn,
@@ -63,6 +64,21 @@ function action(): BridgeAction {
 }
 
 describe('Phase 4F CCTP broadcast safety', () => {
+  it('fails closed when the approval transaction reverts', async () => {
+    const walletClient = {
+      writeContract: vi.fn().mockResolvedValue(BURN_HASH),
+    } as unknown as WalletClient;
+    const publicClient = {
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({
+        status: 'reverted',
+      }),
+    } as unknown as PublicClient;
+
+    await expect(
+      approveTokenMessenger(walletClient, publicClient, action()),
+    ).rejects.toThrow(/approve transaction reverted/i);
+  });
+
   it('returns the source burn hash immediately from the wallet broadcast boundary', async () => {
     const writeContract = vi.fn().mockResolvedValue(BURN_HASH);
     const walletClient = { writeContract } as unknown as WalletClient;
@@ -94,6 +110,21 @@ describe('Phase 4F CCTP broadcast safety', () => {
     ).resolves.toBe(BURN_HASH);
 
     expect(order).toEqual(['broadcast', 'confirm']);
+  });
+
+  it('fails closed when the confirmed depositForBurn helper observes a revert', async () => {
+    const walletClient = {
+      writeContract: vi.fn().mockResolvedValue(BURN_HASH),
+    } as unknown as WalletClient;
+    const publicClient = {
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({
+        status: 'reverted',
+      }),
+    } as unknown as PublicClient;
+
+    await expect(
+      depositForBurn(walletClient, publicClient, action()),
+    ).rejects.toThrow(/depositForBurn transaction reverted/i);
   });
 
   it('returns destination receive hash before any receipt wait is required', async () => {
@@ -128,6 +159,28 @@ describe('Phase 4F CCTP broadcast safety', () => {
     ).rejects.toThrow(/No CCTP domain/i);
 
     expect(writeContract).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the confirmed receiveMessage helper observes a revert', async () => {
+    const walletClient = {
+      writeContract: vi.fn().mockResolvedValue(RECEIVE_HASH),
+    } as unknown as WalletClient;
+    const publicClient = {
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({
+        status: 'reverted',
+      }),
+    } as unknown as PublicClient;
+
+    await expect(
+      receiveMessage(
+        walletClient,
+        publicClient,
+        MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID,
+        RECIPIENT,
+        '0x1234',
+        '0xabcd',
+      ),
+    ).rejects.toThrow(/receiveMessage transaction reverted/i);
   });
 
   it('requires MessageSent from the canonical transmitter before source confirmation', () => {
