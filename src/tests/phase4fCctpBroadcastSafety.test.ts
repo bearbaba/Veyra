@@ -56,15 +56,15 @@ describe('Phase 4F CCTP broadcast safety', () => {
   it('keeps the legacy confirmed helper layered on top of broadcast', async () => {
     const order: string[] = [];
     const walletClient = {
-      writeContract: vi.fn().mockImplementation(async () => {
+      writeContract: vi.fn().mockImplementation(() => {
         order.push('broadcast');
-        return BURN_HASH;
+        return Promise.resolve(BURN_HASH);
       }),
     } as unknown as WalletClient;
     const publicClient = {
-      waitForTransactionReceipt: vi.fn().mockImplementation(async () => {
+      waitForTransactionReceipt: vi.fn().mockImplementation(() => {
         order.push('confirm');
-        return { status: 'success' };
+        return Promise.resolve({ status: 'success' });
       }),
     } as unknown as PublicClient;
 
@@ -148,15 +148,15 @@ describe('Phase 4F CCTP broadcast safety', () => {
   it('keeps the legacy receive helper broadcast-then-confirm ordered', async () => {
     const order: string[] = [];
     const walletClient = {
-      writeContract: vi.fn().mockImplementation(async () => {
+      writeContract: vi.fn().mockImplementation(() => {
         order.push('broadcast');
-        return RECEIVE_HASH;
+        return Promise.resolve(RECEIVE_HASH);
       }),
     } as unknown as WalletClient;
     const publicClient = {
-      waitForTransactionReceipt: vi.fn().mockImplementation(async () => {
+      waitForTransactionReceipt: vi.fn().mockImplementation(() => {
         order.push('confirm');
-        return { status: 'success' };
+        return Promise.resolve({ status: 'success' });
       }),
     } as unknown as PublicClient;
 
