@@ -4,8 +4,11 @@ import type { DbClient } from '../db/client.js';
 import { walletBindings } from '../db/schema/wallets.js';
 import {
   createReceipt,
+  DuplicateSendError,
+  getReceiptByRouteIdForUser,
   transitionReceiptStatus,
   type CreateReceiptParams,
+  type ReceiptStatus,
 } from '../db/repositories/receiptRepository.js';
 import { verifyPaymentRecipient } from './paymentRecipientService.js';
 import { MANIFEST_CONSTANTS } from '../../src/providers/registry/providerManifest.js';
@@ -105,7 +108,11 @@ export async function createBridgeActivityReceipt(
   db: DbClient,
   userId: string,
   input: CreateBridgeActivityReceiptInput,
-): Promise<{ receiptId: string; revision: number }> {
+): Promise<{
+  receiptId: string;
+  revision: number;
+  status: ReceiptStatus;
+}> {
   if (
     input.sourceChainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID ||
     input.tokenAddress.toLowerCase() !==
@@ -295,7 +302,27 @@ export async function createBridgeActivityReceipt(
     },
   };
 
-  const receiptId = await createReceipt(db, createParams);
+  let receiptId: string;
+  try {
+    receiptId = await createReceipt(db, createParams);
+  } catch (error) {
+    if (error instanceof DuplicateSendError) {
+      const existing = await getReceiptByRouteIdForUser(
+        db,
+        userId,
+        expectedRouteId,
+      );
+      if (existing) {
+        return {
+          receiptId: existing.receiptId,
+          revision: existing.revision,
+          status: existing.status,
+        };
+      }
+    }
+    throw error;
+  }
+
   await transitionReceiptStatus(
     db,
     receiptId,
@@ -304,5 +331,9 @@ export async function createBridgeActivityReceipt(
     'bff',
   );
 
-  return { receiptId, revision: 2 };
+  return {
+    receiptId,
+    revision: 2,
+    status: 'PREFLIGHT_PASSED',
+  };
 }
