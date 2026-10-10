@@ -156,31 +156,70 @@ export async function reserveQuote(quoteId: string, expiresAt: number): Promise<
   const db = await openDb();
   const now = Date.now();
 
-  // Check expiry first
   if (expiresAt <= now + SECURITY_CONFIG.QUOTE_EXPIRY_BUFFER_MS) {
     return { success: false, reason: 'EXPIRED' };
   }
 
-  const existing = await getEntry(db, quoteId);
+  // IMPORTANT: get + decision + put live in one readwrite transaction.
+  // This makes reservation atomic across concurrent tabs/callers. Performing
+  // get() and put() in separate transactions would allow two callers to both
+  // observe AVAILABLE and double-reserve the same provider quote.
+  return new Promise<ReserveResult>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const getReq = store.get(quoteId);
 
-  if (existing) {
-    if (existing.state === 'USED') return { success: false, reason: 'ALREADY_USED' };
-    if (existing.state === 'BROADCAST') return { success: false, reason: 'ALREADY_BROADCAST' };
-    if (existing.state === 'RESERVED') return { success: false, reason: 'ALREADY_RESERVED' };
-    // AVAILABLE: fall through to reserve
-  }
+    let result: ReserveResult | null = null;
 
-  const entry: QuoteEntry = {
-    quoteId,
-    state: 'RESERVED',
-    expiresAt,
-    reservedAt: now,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  };
+    getReq.onerror = () => {
+      reject(new Error('[quoteReplayStore] reserve get failed'));
+    };
 
-  await putEntry(db, entry);
-  return { success: true };
+    getReq.onsuccess = () => {
+      const existing = getReq.result as QuoteEntry | undefined;
+
+      if (existing?.state === 'USED') {
+        result = { success: false, reason: 'ALREADY_USED' };
+        return;
+      }
+      if (existing?.state === 'BROADCAST') {
+        result = { success: false, reason: 'ALREADY_BROADCAST' };
+        return;
+      }
+      if (existing?.state === 'RESERVED') {
+        result = { success: false, reason: 'ALREADY_RESERVED' };
+        return;
+      }
+
+      const entry: QuoteEntry = {
+        quoteId,
+        state: 'RESERVED',
+        expiresAt,
+        reservedAt: now,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      };
+
+      const putReq = store.put(entry);
+      putReq.onerror = () => {
+        reject(new Error('[quoteReplayStore] reserve put failed'));
+      };
+      putReq.onsuccess = () => {
+        result = { success: true };
+      };
+    };
+
+    tx.oncomplete = () => {
+      if (result) resolve(result);
+      else reject(new Error('[quoteReplayStore] reserve transaction completed without result'));
+    };
+    tx.onerror = () => {
+      reject(new Error(`[quoteReplayStore] reserve transaction failed: ${tx.error?.message ?? 'unknown'}`));
+    };
+    tx.onabort = () => {
+      reject(new Error(`[quoteReplayStore] reserve transaction aborted: ${tx.error?.message ?? 'unknown'}`));
+    };
+  });
 }
 
 /**
@@ -213,23 +252,40 @@ export async function markQuoteBroadcast(quoteId: string): Promise<void> {
   assertQuoteReplayStoreHydrated();
 
   const db = await openDb();
-  const existing = await getEntry(db, quoteId);
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const getReq = store.get(quoteId);
 
-  if (!existing) {
-    throw new Error(`[quoteReplayStore] Quote ${quoteId} not found — cannot mark broadcast.`);
-  }
-  if (existing.state === 'USED') {
-    throw new Error(`[quoteReplayStore] Quote ${quoteId} is already USED.`);
-  }
+    getReq.onerror = () => reject(new Error('[quoteReplayStore] broadcast get failed'));
+    getReq.onsuccess = () => {
+      const existing = getReq.result as QuoteEntry | undefined;
+      if (!existing) {
+        tx.abort();
+        reject(new Error(`[quoteReplayStore] Quote ${quoteId} not found — cannot mark broadcast.`));
+        return;
+      }
+      if (existing.state !== 'RESERVED') {
+        tx.abort();
+        reject(new Error(
+          `[quoteReplayStore] Quote ${quoteId} must be RESERVED before BROADCAST; current state is ${existing.state}.`,
+        ));
+        return;
+      }
 
-  const entry: QuoteEntry = {
-    ...existing,
-    state: 'BROADCAST',
-    broadcastAt: Date.now(),
-    updatedAt: Date.now(),
-  };
+      store.put({
+        ...existing,
+        state: 'BROADCAST',
+        broadcastAt: Date.now(),
+        updatedAt: Date.now(),
+      } satisfies QuoteEntry);
+    };
 
-  await putEntry(db, entry);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(new Error(
+      `[quoteReplayStore] broadcast transaction failed: ${tx.error?.message ?? 'unknown'}`,
+    ));
+  });
 }
 
 /** Mark a quote as used (BROADCAST → USED). */
@@ -237,20 +293,40 @@ export async function markQuoteUsed(quoteId: string): Promise<void> {
   assertQuoteReplayStoreHydrated();
 
   const db = await openDb();
-  const existing = await getEntry(db, quoteId);
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const getReq = store.get(quoteId);
 
-  if (!existing) {
-    throw new Error(`[quoteReplayStore] Quote ${quoteId} not found — cannot mark used.`);
-  }
+    getReq.onerror = () => reject(new Error('[quoteReplayStore] used get failed'));
+    getReq.onsuccess = () => {
+      const existing = getReq.result as QuoteEntry | undefined;
+      if (!existing) {
+        tx.abort();
+        reject(new Error(`[quoteReplayStore] Quote ${quoteId} not found — cannot mark used.`));
+        return;
+      }
+      if (existing.state !== 'BROADCAST') {
+        tx.abort();
+        reject(new Error(
+          `[quoteReplayStore] Quote ${quoteId} must be BROADCAST before USED; current state is ${existing.state}.`,
+        ));
+        return;
+      }
 
-  const entry: QuoteEntry = {
-    ...existing,
-    state: 'USED',
-    usedAt: Date.now(),
-    updatedAt: Date.now(),
-  };
+      store.put({
+        ...existing,
+        state: 'USED',
+        usedAt: Date.now(),
+        updatedAt: Date.now(),
+      } satisfies QuoteEntry);
+    };
 
-  await putEntry(db, entry);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(new Error(
+      `[quoteReplayStore] used transaction failed: ${tx.error?.message ?? 'unknown'}`,
+    ));
+  });
 }
 
 // ── Replay Detection ──────────────────────────────────────────────────────────
