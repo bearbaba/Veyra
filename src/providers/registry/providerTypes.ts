@@ -88,6 +88,20 @@ export interface ProviderContractAddress {
 }
 
 /**
+ * Exact network ↔ asset compatibility for a provider.
+ *
+ * The legacy supportedAssets list is intentionally not sufficient for a
+ * multi-network provider because it cannot tell which deployment belongs to
+ * which chain/network. Asset identifiers are normalized case-insensitively by
+ * the registry; EVM entries should use the exact token contract address.
+ */
+export interface ProviderNetworkAssetSupport {
+  networkId?: string;
+  chainId?: number;
+  assets: string[];
+}
+
+/**
  * Source provenance record. Every manifest entry carries this so we can
  * audit where addresses/versions came from.
  */
@@ -122,6 +136,15 @@ export interface ProviderManifestEntry {
 
   /** ERC-20 token addresses (lowercase) this provider works with. */
   supportedAssets: string[];
+
+  /**
+   * Exact per-network asset support.
+   *
+   * Required for new multi-network/cross-family financial providers before
+   * execution can be enabled. When present, eligibility uses this matrix
+   * instead of the flat supportedAssets list.
+   */
+  networkAssetSupport?: ProviderNetworkAssetSupport[];
 
   /** Which deployment environment this manifest entry applies to. */
   environment: ProviderEnvironment;
