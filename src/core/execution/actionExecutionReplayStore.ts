@@ -315,17 +315,37 @@ export async function getActionExecutionReplayEntry(
 
 /** Test-only helper. */
 export async function resetActionExecutionReplayStore(): Promise<void> {
-  if (_db) {
-    _db.close();
-    _db = null;
-  }
   _hydrated = false;
 
+  // Clear the object store in-place instead of deleteDatabase().
+  //
+  // Resolving a blocked delete request leaves that delete pending in
+  // fake-indexeddb (and can do the same in a real browser while another
+  // connection is still closing). A subsequent indexedDB.open() then waits
+  // behind the pending delete forever, which made later tests time out.
+  //
+  // Keeping one known connection and clearing the store gives tests the same
+  // clean-state guarantee without creating a delete/open race.
+  const db = await openDb();
   await new Promise<void>((resolve, reject) => {
-    const req = indexedDB.deleteDatabase(DB_NAME);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(new Error('[actionExecutionReplay] reset failed'));
-    req.onblocked = () => resolve();
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const req = tx.objectStore(STORE_NAME).clear();
+
+    req.onerror = () =>
+      reject(new Error('[actionExecutionReplay] reset clear failed'));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () =>
+      reject(
+        new Error(
+          `[actionExecutionReplay] reset failed: ${tx.error?.message ?? 'unknown'}`,
+        ),
+      );
+    tx.onabort = () =>
+      reject(
+        new Error(
+          `[actionExecutionReplay] reset aborted: ${tx.error?.message ?? 'unknown'}`,
+        ),
+      );
   });
 }
 
