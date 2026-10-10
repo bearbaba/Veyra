@@ -36,6 +36,14 @@ export type BridgeResumeInstruction =
   | 'VERIFY_DESTINATION'
   | 'NONE';
 
+const BRIDGE_STAGE_ORDER: Record<BridgeCheckpointStage, number> = {
+  SOURCE_BROADCAST: 0,
+  SOURCE_CONFIRMED: 1,
+  ATTESTATION_READY: 2,
+  DESTINATION_BROADCAST: 3,
+  VERIFIED: 4,
+};
+
 const DB_NAME = 'veyra-bridge-recovery';
 const DB_VERSION = 1;
 const STORE_NAME = 'checkpoints';
@@ -130,6 +138,74 @@ export function nextBridgeResumeInstruction(
     case 'VERIFIED':
       return 'NONE';
   }
+}
+
+function sameAddress(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
+function sameImmutableBridgeExecution(
+  a: BridgeRecoveryCheckpoint,
+  b: BridgeRecoveryCheckpoint,
+): boolean {
+  return (
+    a.planId === b.planId &&
+    a.burnTxHash.toLowerCase() === b.burnTxHash.toLowerCase() &&
+    a.sourceChainId === b.sourceChainId &&
+    a.destinationChainId === b.destinationChainId &&
+    sameAddress(a.walletAddress, b.walletAddress) &&
+    sameAddress(a.recipientAddress, b.recipientAddress) &&
+    a.amount === b.amount &&
+    sameAddress(a.tokenAddress, b.tokenAddress) &&
+    a.balanceBefore === b.balanceBefore &&
+    a.createdAt === b.createdAt
+  );
+}
+
+/**
+ * Merge local IndexedDB recovery state with the authenticated Postgres mirror.
+ *
+ * Conflicting remote rows never overwrite local immutable source execution.
+ * A remote-only checkpoint may be imported for cross-device recovery, but the
+ * resume path MUST still re-verify chain/provider state before any signature.
+ */
+export function reconcileBridgeRecoveryCandidates(
+  local: BridgeRecoveryCheckpoint[],
+  remote: BridgeRecoveryCheckpoint[],
+): BridgeRecoveryCheckpoint[] {
+  const merged = new Map<string, BridgeRecoveryCheckpoint>();
+
+  for (const checkpoint of local) {
+    merged.set(checkpoint.planId, checkpoint);
+  }
+
+  for (const checkpoint of remote) {
+    const existing = merged.get(checkpoint.planId);
+    if (!existing) {
+      merged.set(checkpoint.planId, checkpoint);
+      continue;
+    }
+
+    if (!sameImmutableBridgeExecution(existing, checkpoint)) {
+      // Local source execution wins on immutable conflict; caller may surface
+      // telemetry separately but must never silently replace the burn.
+      continue;
+    }
+
+    const existingRank = BRIDGE_STAGE_ORDER[existing.stage];
+    const remoteRank = BRIDGE_STAGE_ORDER[checkpoint.stage];
+
+    if (
+      remoteRank > existingRank ||
+      (remoteRank === existingRank && checkpoint.updatedAt > existing.updatedAt)
+    ) {
+      merged.set(checkpoint.planId, checkpoint);
+    }
+  }
+
+  return Array.from(merged.values())
+    .filter((checkpoint) => checkpoint.stage !== 'VERIFIED')
+    .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export async function resetBridgeCheckpointStoreForTesting(): Promise<void> {
