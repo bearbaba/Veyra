@@ -12,6 +12,7 @@ import {
   type ExecutionRuntimeEnvironment,
 } from '../../core/execution/executionReadiness';
 import { SECURITY_CONFIG } from '../../lib/securityConfig';
+import { assertSecurityGateReady } from '../../lib/securityGate';
 import { assertRetryBridgeAllowed } from '../../core/router/bridgeRecovery';
 import { quoteVeyraFee, type VeyraFeeQuote } from '../../core/fees/feeEngine';
 import { configuredVeyraTreasuryAddress } from '../../core/fees/treasuryConfig';
@@ -24,6 +25,7 @@ import {
   type CircleAppKitChain,
 } from './appKitChains';
 import { MANIFEST_CONSTANTS } from '../registry/providerManifest';
+import { checkProviderRecoveryEligibility } from '../registry/providerRegistry';
 
 const appKit = new AppKit();
 
@@ -87,6 +89,18 @@ function assertAddress(address: string): string {
   const value = address.trim();
   if (!/^0x[0-9a-fA-F]{40}$/.test(value)) throw new Error('Invalid EVM recipient address');
   return value;
+}
+
+
+function feeEnvironmentForRuntime(
+  runtimeEnvironment: ExecutionRuntimeEnvironment,
+): 'testnet' | 'mainnet' {
+  return runtimeEnvironment === 'mainnet' ? 'mainnet' : 'testnet';
+}
+
+function sameOptionalAddress(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.toLowerCase() === b.toLowerCase();
 }
 
 export interface AppKitBridgeReviewRequest {
@@ -341,16 +355,69 @@ export async function executeReviewedAppKitBridge(input: {
   return appKit.bridge(params);
 }
 
+export function assertAppKitBridgeRetryReady(input: {
+  reviewed: ReviewedAppKitBridge;
+  action: BridgeAction;
+  result: BridgeResult;
+  runtimeEnvironment: ExecutionRuntimeEnvironment;
+  recoveryConfirmed?: boolean;
+}): void {
+  assertSecurityGateReady();
+  assertReviewedAppKitBridgeMatchesAction(input.reviewed, input.action);
+  assertAddress(input.action.from);
+  assertAddress(input.action.to);
+
+  if (input.action.amount <= 0n) {
+    throw new Error('[appKit] Recovery action amount must be greater than zero.');
+  }
+  if (input.action.sourceChainId === input.action.destinationChainId) {
+    throw new Error('[appKit] Recovery action source and destination chains must differ.');
+  }
+
+  // Recovery proves that a source transfer was already submitted. It must not
+  // reuse the new-execution quote-freshness gate because that could strand
+  // in-flight funds after the original quote expires.
+  assertRetryBridgeAllowed(input.result);
+
+  const eligibility = checkProviderRecoveryEligibility(
+    'circle-appkit-bridge',
+    'BRIDGE',
+    input.action.sourceChainId,
+    input.action.tokenAddress,
+    input.runtimeEnvironment,
+  );
+
+  if (!eligibility.eligible || eligibility.status !== 'ELIGIBLE') {
+    throw new Error(
+      `[appKit] App Kit bridge recovery is not ready: ${eligibility.status}. ${eligibility.detail}`,
+    );
+  }
+
+  if (eligibility.requiresConfirmation && !input.recoveryConfirmed) {
+    throw new Error(
+      '[appKit] App Kit bridge recovery requires explicit confirmation because provider health is not fully OK.',
+    );
+  }
+}
+
 export async function retryAppKitBridge(input: {
   provider: EIP1193Provider;
   result: BridgeResult;
-  useForwarder: boolean;
+  reviewed: ReviewedAppKitBridge;
+  action: BridgeAction;
+  runtimeEnvironment: ExecutionRuntimeEnvironment;
+  recoveryConfirmed?: boolean;
+  ensureSourceChain?: EnsureSourceChain;
 }): Promise<BridgeResult> {
-  assertRetryBridgeAllowed(input.result);
+  assertAppKitBridgeRetryReady(input);
+
+  await assertWalletAccountMatchesBridgeAction(input.provider, input.action);
+  await input.ensureSourceChain?.();
+
   const adapter = await adapterFromProvider(input.provider);
   return appKit.retryBridge(input.result, {
     from: adapter,
-    to: input.useForwarder ? undefined : adapter,
+    to: input.reviewed.request.useForwarder ? undefined : adapter,
   });
 }
 
@@ -553,6 +620,36 @@ export function assertReviewedAppKitSwapMatchesAction(
   }
 }
 
+
+export function assertReviewedSwapFeeMatchesCurrentPolicy(
+  reviewed: ReviewedAppKitSwap,
+  runtimeEnvironment: ExecutionRuntimeEnvironment,
+): void {
+  const environment = feeEnvironmentForRuntime(runtimeEnvironment);
+  const current = quoteVeyraFee({
+    capability: 'SWAP',
+    providerId: 'circle-appkit-swap',
+    environment,
+    treasuryAddress: configuredVeyraTreasuryAddress(environment),
+  });
+  const reviewedFee = reviewed.request.veyraFee;
+
+  const matches =
+    reviewedFee.capability === current.capability &&
+    reviewedFee.providerId === current.providerId &&
+    reviewedFee.status === current.status &&
+    reviewedFee.collectionMode === current.collectionMode &&
+    reviewedFee.percentageBps === current.percentageBps &&
+    reviewedFee.veyraAddedSignatures === 0 &&
+    sameOptionalAddress(reviewedFee.treasuryAddress, current.treasuryAddress);
+
+  if (!matches) {
+    throw new Error(
+      '[appKit] Reviewed swap fee no longer matches current Veyra fee policy/Treasury. Obtain a fresh review.',
+    );
+  }
+}
+
 /** Estimate-only. Execution requires a later explicit user action. */
 export async function reviewAppKitSwap(input: {
   provider: EIP1193Provider;
@@ -634,6 +731,10 @@ export async function executeReviewedAppKitSwap(input: {
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<SwapResult> {
   assertReviewedAppKitSwapMatchesAction(input.reviewed, input.action);
+  assertReviewedSwapFeeMatchesCurrentPolicy(
+    input.reviewed,
+    input.runtimeEnvironment,
+  );
 
   assertExecutionReady({
     action: input.action,
@@ -973,4 +1074,3 @@ export async function executeEarnWithdrawal(input: {
   return appKit.earn.withdraw(params);
 }
 
-export { appKit };
