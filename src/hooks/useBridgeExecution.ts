@@ -421,6 +421,25 @@ export function useBridgeExecution() {
       return;
     }
 
+    if (checkpoint.sourceChainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID) {
+      setState({
+        phase: 'FAILED',
+        error: `Unsupported recovery source chain ${checkpoint.sourceChainId}`,
+      });
+      return;
+    }
+
+    if (
+      checkpoint.tokenAddress.toLowerCase() !==
+      MANIFEST_CONSTANTS.ARC_TESTNET_USDC.toLowerCase()
+    ) {
+      setState({
+        phase: 'FAILED',
+        error: 'Recovery checkpoint token does not match Arc Testnet USDC.',
+      });
+      return;
+    }
+
     const destRpc = DEST_CHAIN_RPC[checkpoint.destinationChainId];
     const destUsdcAddress = DEST_CHAIN_USDC[checkpoint.destinationChainId];
     if (!destRpc || !destUsdcAddress) {
@@ -436,6 +455,11 @@ export function useBridgeExecution() {
     const amount = BigInt(checkpoint.amount);
     const balanceBefore = BigInt(checkpoint.balanceBefore);
 
+    if (amount <= 0n || balanceBefore < 0n) {
+      setState({ phase: 'FAILED', error: 'Invalid recovery amount metadata.' });
+      return;
+    }
+
     const destPublicClient = createPublicClient({
       transport: http(destRpc),
       chain: {
@@ -449,32 +473,39 @@ export function useBridgeExecution() {
     try {
       let current = checkpoint;
 
-      // Recovery invariant: this function has no source-burn path. A persisted
-      // burnTxHash is the immutable source execution we continue from.
-      if (current.stage === 'SOURCE_BROADCAST') {
-        setState({ phase: 'BRIDGE_PENDING', burnTxHash });
-        try {
-          const sourceReceipt = await sourcePublicClient.getTransactionReceipt({
-            hash: burnTxHash,
-          });
-          if (sourceReceipt.status !== 'success') {
-            setState({
-              phase: 'FAILED',
-              burnTxHash,
-              error: `Persisted source burn reverted: ${burnTxHash}`,
-            });
-            return;
-          }
-        } catch {
-          // Still pending/not indexed. Keep checkpoint intact for another retry.
-          setState({
-            phase: 'BRIDGE_PENDING',
-            burnTxHash,
-            error: 'Source burn is still pending or not yet indexed. Retry recovery later.',
-          });
-          return;
-        }
+      // Every recovery source, including the authenticated server mirror, is
+      // re-grounded in source-chain state before Veyra trusts any later stage.
+      setState({
+        phase: current.stage === 'SOURCE_BROADCAST'
+          ? 'BRIDGE_PENDING'
+          : 'BRIDGE_UNCONFIRMED',
+        burnTxHash,
+      });
 
+      let sourceReceipt;
+      try {
+        sourceReceipt = await sourcePublicClient.getTransactionReceipt({
+          hash: burnTxHash,
+        });
+      } catch {
+        setState({
+          phase: 'BRIDGE_PENDING',
+          burnTxHash,
+          error: 'Source burn is still pending or not yet indexed. Retry recovery later.',
+        });
+        return;
+      }
+
+      if (sourceReceipt.status !== 'success') {
+        setState({
+          phase: 'FAILED',
+          burnTxHash,
+          error: `Persisted source burn reverted: ${burnTxHash}`,
+        });
+        return;
+      }
+
+      if (current.stage === 'SOURCE_BROADCAST') {
         current = {
           ...current,
           stage: 'SOURCE_CONFIRMED',
@@ -483,10 +514,11 @@ export function useBridgeExecution() {
         await persistRecoveryCheckpoint(current);
       }
 
+      const sourceDomain = chainIdToCctpDomain(current.sourceChainId);
+
       if (current.stage === 'SOURCE_CONFIRMED') {
         setState({ phase: 'BRIDGE_UNCONFIRMED', burnTxHash });
 
-        const sourceDomain = chainIdToCctpDomain(current.sourceChainId);
         let attestation: { message: string; attestation: string } | null = null;
         let attempts = 0;
 
@@ -531,11 +563,42 @@ export function useBridgeExecution() {
         await persistRecoveryCheckpoint(current);
       }
 
-      if (current.stage === 'ATTESTATION_READY') {
+      // A persisted/server-restored attestation is never trusted by itself.
+      // Re-fetch Circle's attestation for the immutable source burn and require
+      // an exact match before any destination-chain signature.
+      if (
+        current.stage === 'ATTESTATION_READY' ||
+        current.stage === 'DESTINATION_BROADCAST'
+      ) {
         if (!current.attestationMessage || !current.attestationSignature) {
-          throw new Error('Recovery checkpoint is missing verified attestation data.');
+          throw new Error('Recovery checkpoint is missing attestation data.');
         }
 
+        const authoritative = await fetchCctpAttestation(sourceDomain, burnTxHash);
+        if (
+          authoritative.status !== 'complete' ||
+          !authoritative.message ||
+          !authoritative.attestation
+        ) {
+          setState({
+            phase: 'BRIDGE_UNCONFIRMED',
+            burnTxHash,
+            error: 'Circle attestation could not be revalidated. Recovery remains paused.',
+          });
+          return;
+        }
+
+        if (
+          authoritative.message !== current.attestationMessage ||
+          authoritative.attestation !== current.attestationSignature
+        ) {
+          throw new Error(
+            'Persisted attestation does not match Circle attestation for the source burn.',
+          );
+        }
+      }
+
+      if (current.stage === 'ATTESTATION_READY') {
         const connected = walletClient.account?.address;
         if (!connected || connected.toLowerCase() !== recipientAddress.toLowerCase()) {
           setState({
@@ -555,8 +618,8 @@ export function useBridgeExecution() {
           destPublicClient,
           current.destinationChainId,
           recipientAddress,
-          current.attestationMessage,
-          current.attestationSignature,
+          current.attestationMessage!,
+          current.attestationSignature!,
         );
 
         current = {
@@ -574,6 +637,31 @@ export function useBridgeExecution() {
         }
 
         const receiveTxHash = current.receiveTxHash as Hash;
+        let destReceiptObj;
+        try {
+          destReceiptObj = await destPublicClient.getTransactionReceipt({
+            hash: receiveTxHash,
+          });
+        } catch {
+          setState({
+            phase: 'VERIFYING',
+            burnTxHash,
+            receiveTxHash,
+            error: 'Destination transaction is not indexed yet. Retry verification later.',
+          });
+          return;
+        }
+
+        if (destReceiptObj.status !== 'success') {
+          setState({
+            phase: 'FAILED',
+            burnTxHash,
+            receiveTxHash,
+            error: 'Persisted destination receive transaction reverted.',
+          });
+          return;
+        }
+
         setState({
           phase: 'VERIFYING',
           burnTxHash,
@@ -598,11 +686,6 @@ export function useBridgeExecution() {
           return;
         }
 
-        const [sourceReceiptObj, destReceiptObj] = await Promise.all([
-          sourcePublicClient.getTransactionReceipt({ hash: burnTxHash }),
-          destPublicClient.getTransactionReceipt({ hash: receiveTxHash }),
-        ]);
-
         const receiptId = generateExecutionReceiptId(
           current.sourceChainId,
           burnTxHash,
@@ -615,7 +698,7 @@ export function useBridgeExecution() {
           status: 'VERIFIED',
           chainId: current.sourceChainId,
           executionTxHash: burnTxHash,
-          executionBlock: Number(sourceReceiptObj.blockNumber),
+          executionBlock: Number(sourceReceipt.blockNumber),
           createdAt: current.createdAt,
           completedAt: Date.now(),
           actualAmountDelta: verification.actualDelta,
@@ -628,7 +711,7 @@ export function useBridgeExecution() {
             destinationChainId: current.destinationChainId,
             sourceTxHash: burnTxHash,
             destinationTxHash: receiveTxHash,
-            sourceBlock: Number(sourceReceiptObj.blockNumber),
+            sourceBlock: Number(sourceReceipt.blockNumber),
             destinationBlock: Number(destReceiptObj.blockNumber),
             bridgeStatus: 'VERIFIED',
             sourceTimestamp: current.createdAt,
