@@ -1,3 +1,5 @@
+import { decodeFunctionData, type Hex } from 'viem';
+
 export interface TokenDeltaVerification {
   verified: boolean;
   actualDelta: bigint;
@@ -171,5 +173,98 @@ export function verifyErc20TransferReceiptEvidence(input: {
     detail:
       'Authoritative receipt does not contain the exact reviewed ERC-20 transfer.',
     transferAmount: null,
+  };
+}
+
+
+const ERC20_TRANSFER_ABI = [
+  {
+    name: 'transfer',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'value', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+] as const;
+
+export interface Erc20TransferTransactionLike {
+  from: string;
+  to: string | null;
+  input: Hex;
+}
+
+export function verifyErc20TransferTransactionBinding(input: {
+  transaction: Erc20TransferTransactionLike;
+  tokenAddress: string;
+  from: string;
+  to: string;
+  amount: bigint;
+}): { verified: boolean; detail: string } {
+  if (
+    !EVM_ADDRESS_RE.test(input.tokenAddress) ||
+    !EVM_ADDRESS_RE.test(input.from) ||
+    !EVM_ADDRESS_RE.test(input.to) ||
+    input.amount <= 0n
+  ) {
+    return {
+      verified: false,
+      detail: 'Reviewed ERC-20 transaction binding input is invalid.',
+    };
+  }
+
+  if (input.transaction.from.toLowerCase() !== input.from.toLowerCase()) {
+    return {
+      verified: false,
+      detail: 'ERC-20 transaction sender does not match the reviewed sender.',
+    };
+  }
+
+  if (
+    !input.transaction.to ||
+    input.transaction.to.toLowerCase() !== input.tokenAddress.toLowerCase()
+  ) {
+    return {
+      verified: false,
+      detail: 'ERC-20 transaction target does not match the reviewed token.',
+    };
+  }
+
+  try {
+    const decoded = decodeFunctionData({
+      abi: ERC20_TRANSFER_ABI,
+      data: input.transaction.input,
+    });
+    if (decoded.functionName !== 'transfer') {
+      return {
+        verified: false,
+        detail: 'ERC-20 transaction is not a transfer call.',
+      };
+    }
+
+    const [recipient, amount] = decoded.args;
+    if (
+      recipient.toLowerCase() !== input.to.toLowerCase() ||
+      amount !== input.amount
+    ) {
+      return {
+        verified: false,
+        detail:
+          'ERC-20 transaction calldata does not match the reviewed recipient and amount.',
+      };
+    }
+  } catch {
+    return {
+      verified: false,
+      detail: 'ERC-20 transaction calldata could not be decoded safely.',
+    };
+  }
+
+  return {
+    verified: true,
+    detail:
+      'ERC-20 transaction exactly matches the reviewed sender, token, recipient, and amount.',
   };
 }
