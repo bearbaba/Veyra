@@ -8,12 +8,12 @@ import {
 } from '../../server/services/activityReceiptVerificationService.js';
 import { MANIFEST_CONSTANTS } from '../providers/registry/providerManifest';
 
-const FROM = '0x1111111111111111111111111111111111111111' as Address;
-const TO = '0x2222222222222222222222222222222222222222' as Address;
-const TX =
-  '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Hash;
-const RECEIVE_TX =
-  '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as Hash;
+const FROM: Address = '0x1111111111111111111111111111111111111111';
+const TO: Address = '0x2222222222222222222222222222222222222222';
+const TX: Hash =
+  '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const RECEIVE_TX: Hash =
+  '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const TRANSFER_TOPIC =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const MESSAGE_SENT_TOPIC =
@@ -51,11 +51,11 @@ const DEPOSIT_FOR_BURN_ABI = [
 ] as const;
 
 function addressTopic(address: Address): Hex {
-  return `0x${'0'.repeat(24)}${address.slice(2).toLowerCase()}` as Hex;
+  return `0x${'0'.repeat(24)}${address.slice(2).toLowerCase()}`;
 }
 
 function uint256Data(value: bigint): Hex {
-  return `0x${value.toString(16).padStart(64, '0')}` as Hex;
+  return `0x${value.toString(16).padStart(64, '0')}`;
 }
 
 function transferInput(
@@ -123,7 +123,7 @@ function transferClient(status: 'success' | 'reverted' = 'success'): ReceiptVeri
               {
                 address: MANIFEST_CONSTANTS.ARC_TESTNET_USDC,
                 topics: [
-                  TRANSFER_TOPIC as Hex,
+                  TRANSFER_TOPIC,
                   addressTopic(FROM),
                   addressTopic(TO),
                 ],
@@ -136,8 +136,8 @@ function transferClient(status: 'success' | 'reverted' = 'success'): ReceiptVeri
 }
 
 function cctpSourceClient(): ReceiptVerificationClient {
-  const mintRecipient =
-    `0x000000000000000000000000${TO.slice(2).toLowerCase()}` as Hex;
+  const mintRecipient: Hex =
+    `0x000000000000000000000000${TO.slice(2).toLowerCase()}`;
   const calldata = encodeFunctionData({
     abi: DEPOSIT_FOR_BURN_ABI,
     functionName: 'depositForBurn',
@@ -146,7 +146,7 @@ function cctpSourceClient(): ReceiptVerificationClient {
       MANIFEST_CONSTANTS.ETH_SEPOLIA_CCTP_DOMAIN,
       mintRecipient,
       MANIFEST_CONSTANTS.ARC_TESTNET_USDC,
-      `0x${'00'.repeat(32)}` as Hex,
+      `0x${'00'.repeat(32)}`,
       0n,
       MANIFEST_CONSTANTS.CCTP_STANDARD_FINALITY,
     ],
@@ -164,8 +164,8 @@ function cctpSourceClient(): ReceiptVerificationClient {
       logs: [
         {
           address: MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER,
-          topics: [MESSAGE_SENT_TOPIC as Hex],
-          data: '0x1234' as Hex,
+          topics: [MESSAGE_SENT_TOPIC],
+          data: '0x1234',
         },
       ],
     }),
@@ -182,8 +182,8 @@ function cctpDestinationClient(): ReceiptVerificationClient {
         {
           address: MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC,
           topics: [
-            TRANSFER_TOPIC as Hex,
-            `0x${'0'.repeat(64)}` as Hex,
+            TRANSFER_TOPIC,
+            `0x${'0'.repeat(64)}`,
             addressTopic(TO),
           ],
           data: uint256Data(1_000_000n),
@@ -222,7 +222,7 @@ describe('Phase 5 server-side receipt verification', () => {
       functionName: 'transfer',
       args: [TO, 2_000_000n],
     });
-    vi.mocked(client.getTransaction).mockResolvedValue({
+    client.getTransaction = vi.fn().mockResolvedValue({
       from: FROM,
       to: MANIFEST_CONSTANTS.ARC_TESTNET_USDC,
       input: badCalldata,
