@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   encodeAbiParameters,
   encodeEventTopics,
+  encodeFunctionData,
+  parseAbi,
   type TransactionReceipt,
 } from 'viem';
 import { MANIFEST_CONSTANTS } from '../providers/registry/providerManifest';
@@ -21,6 +23,27 @@ const MESSAGE_SENT_TOPIC =
   '0x8c5261668696ce22758910d05bab8f186d6eb247ceac2af2e82c7dc17669b036';
 const TRANSFER_TOPIC =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+const RECEIVE_MESSAGE_ABI = parseAbi([
+  'function receiveMessage(bytes message, bytes attestation) returns (bool success)',
+]);
+const MESSAGE = '0x12345678' as const;
+const ATTESTATION = '0xabcdef' as const;
+
+function receiveCall(
+  message: `0x${string}` = MESSAGE,
+  attestation: `0x${string}` = ATTESTATION,
+) {
+  return {
+    to: MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER,
+    input: encodeFunctionData({
+      abi: RECEIVE_MESSAGE_ABI,
+      functionName: 'receiveMessage',
+      args: [message, attestation],
+    }),
+  };
+}
+
 
 const DEPOSIT_EVENT = {
   name: 'DepositForBurn',
@@ -203,8 +226,13 @@ describe('Phase 5 authoritative ActivityReceipt evidence', () => {
     ).rejects.toBeInstanceOf(ActivityReceiptEvidenceError);
   });
 
-  it('accepts CONFIRMED only after the exact destination USDC mint is present', async () => {
+  it('accepts CONFIRMED only after the exact mint and source-bound receiveMessage call are present', async () => {
     const fetchReceipt = vi.fn().mockResolvedValue(destinationReceipt());
+    const fetchTransaction = vi.fn().mockResolvedValue(receiveCall());
+    const fetchAttestation = vi.fn().mockResolvedValue({
+      message: MESSAGE,
+      attestation: ATTESTATION,
+    });
 
     await expect(
       verifyActivityReceiptTransitionEvidence(
@@ -214,6 +242,8 @@ describe('Phase 5 authoritative ActivityReceipt evidence', () => {
           receiveBlockNumber: 200,
         },
         fetchReceipt,
+        fetchTransaction,
+        fetchAttestation,
       ),
     ).resolves.toBeUndefined();
 
@@ -221,6 +251,64 @@ describe('Phase 5 authoritative ActivityReceipt evidence', () => {
       MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID,
       DEST_TX,
     );
+    expect(fetchTransaction).toHaveBeenCalledWith(
+      MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID,
+      DEST_TX,
+    );
+    expect(fetchAttestation).toHaveBeenCalledWith(SOURCE_TX);
+  });
+
+  it('rejects a destination receiveMessage call with a different Circle attestation', async () => {
+    const fetchReceipt = vi.fn().mockResolvedValue(destinationReceipt());
+    const fetchTransaction = vi
+      .fn()
+      .mockResolvedValue(receiveCall('0x9999', ATTESTATION));
+    const fetchAttestation = vi.fn().mockResolvedValue({
+      message: MESSAGE,
+      attestation: ATTESTATION,
+    });
+
+    await expect(
+      verifyActivityReceiptTransitionEvidence(
+        context(),
+        {
+          status: 'CONFIRMED',
+          receiveBlockNumber: 200,
+        },
+        fetchReceipt,
+        fetchTransaction,
+        fetchAttestation,
+      ),
+    ).rejects.toMatchObject({
+      code: 'DESTINATION_ATTESTATION_MISMATCH',
+    });
+  });
+
+  it('rejects a destination transaction that calls a non-CCTP contract', async () => {
+    const fetchReceipt = vi.fn().mockResolvedValue(destinationReceipt());
+    const fetchTransaction = vi.fn().mockResolvedValue({
+      ...receiveCall(),
+      to: '0x3333333333333333333333333333333333333333',
+    });
+    const fetchAttestation = vi.fn().mockResolvedValue({
+      message: MESSAGE,
+      attestation: ATTESTATION,
+    });
+
+    await expect(
+      verifyActivityReceiptTransitionEvidence(
+        context(),
+        {
+          status: 'CONFIRMED',
+          receiveBlockNumber: 200,
+        },
+        fetchReceipt,
+        fetchTransaction,
+        fetchAttestation,
+      ),
+    ).rejects.toMatchObject({
+      code: 'DESTINATION_CALL_TARGET_MISMATCH',
+    });
   });
 
   it('rejects a destination receipt minting to a different recipient', async () => {
