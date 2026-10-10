@@ -67,7 +67,7 @@ export function buildCapabilityIntentGraph(raw: string): CapabilityIntentGraph {
       ...(amount ? { amountRaw: amount.replace(',', '.') } : {}),
       ...(asset ? { assetRaw: asset } : {}),
       ...(destination ? { destinationNetworkRaw: destination } : {}),
-      dependsOn: nodes.length ? [nodes[nodes.length - 1]!.nodeId] : [],
+      dependsOn: nodes.length ? [nodes[nodes.length - 1].nodeId] : [],
     });
   }
 
