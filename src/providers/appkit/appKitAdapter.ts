@@ -355,6 +355,53 @@ export async function retryAppKitBridge(input: {
   });
 }
 
+export function assertUnifiedSpendMatchesAction(input: {
+  sourceChain: CircleAppKitChain;
+  destinationChain: CircleAppKitChain;
+  recipientAddress: string;
+  amount: string;
+  action: BridgeAction;
+}): void {
+  const sourceChainId = appKitTestnetChainId(input.sourceChain);
+  const destinationChainId = appKitTestnetChainId(input.destinationChain);
+
+  if (input.action.providerId !== 'circle-appkit-unified-balance') {
+    throw new Error('[appKit] Unified spend action provider does not match circle-appkit-unified-balance.');
+  }
+  if (
+    input.action.provenance.providerId !== undefined &&
+    input.action.provenance.providerId !== 'circle-appkit-unified-balance'
+  ) {
+    throw new Error('[appKit] Unified spend provenance provider does not match circle-appkit-unified-balance.');
+  }
+  if (sourceChainId === null || destinationChainId === null) {
+    throw new Error('[appKit] Unified spend chain is outside the verified App Kit testnet scope.');
+  }
+  if (
+    input.action.chainId !== input.action.sourceChainId ||
+    input.action.sourceChainId !== sourceChainId ||
+    input.action.destinationChainId !== destinationChainId
+  ) {
+    throw new Error('[appKit] Unified spend chains do not match the deterministic action.');
+  }
+  if (input.action.to.toLowerCase() !== input.recipientAddress.toLowerCase()) {
+    throw new Error('[appKit] Unified spend recipient does not match the deterministic action.');
+  }
+
+  const reviewedAmount = parseUnits(input.amount, input.action.tokenDecimals);
+  if (reviewedAmount !== input.action.amount) {
+    throw new Error('[appKit] Unified spend amount does not match the deterministic action.');
+  }
+
+  const expectedUsdc = expectedTestnetUsdc(sourceChainId);
+  if (
+    !expectedUsdc ||
+    input.action.tokenAddress.toLowerCase() !== expectedUsdc.toLowerCase()
+  ) {
+    throw new Error('[appKit] Unified spend asset does not match the verified source-chain USDC deployment.');
+  }
+}
+
 /** Read-only unified balance. No wallet network switch is required. */
 export async function readUnifiedUsdcBalance(input: {
   provider: EIP1193Provider;
@@ -370,26 +417,19 @@ export async function readUnifiedUsdcBalance(input: {
   return appKit.unifiedBalance.getBalances(params);
 }
 
-export async function depositUnifiedUsdc(input: {
+export async function depositUnifiedUsdc(_input: {
   provider: EIP1193Provider;
   sourceChain: string;
   amount: string;
   allowanceStrategy?: 'authorize' | 'permit' | 'approve';
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<UnifiedDepositResult> {
-  const chain = assertCircleAppKitChain(input.sourceChain);
-  const amount = normalizeAmount(input.amount);
-  await input.ensureSourceChain?.();
-  const adapter = await adapterFromProvider(input.provider);
-  const params = {
-    from: { adapter, chain },
-    amount,
-    token: 'USDC',
-    ...(input.allowanceStrategy
-      ? { allowanceStrategy: input.allowanceStrategy }
-      : {}),
-  } as unknown as UnifiedDepositParams;
-  return appKit.unifiedBalance.deposit(params);
+  // Fail closed until Veyra has a canonical deterministic action schema that
+  // can bind a Unified deposit to its exact provider-controlled destination.
+  // A raw App Kit deposit call must never bypass assertExecutionReady().
+  throw new Error(
+    '[appKit] Unified deposit is blocked until a canonical Veyra Unified-deposit action is implemented and execution-bound.',
+  );
 }
 
 /**
@@ -402,12 +442,38 @@ export async function spendUnifiedUsdcForwarded(input: {
   destinationChain: string;
   recipientAddress: string;
   amount: string;
+  action: BridgeAction;
+  runtimeEnvironment: ExecutionRuntimeEnvironment;
+  degradedProviderConfirmed?: boolean;
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<UnifiedSpendResult> {
   const sourceChain = assertCircleAppKitChain(input.sourceChain);
   const destinationChain = assertCircleAppKitChain(input.destinationChain);
   const recipientAddress = assertAddress(input.recipientAddress);
   const amount = normalizeAmount(input.amount);
+
+  assertUnifiedSpendMatchesAction({
+    sourceChain,
+    destinationChain,
+    recipientAddress,
+    amount,
+    action: input.action,
+  });
+
+  assertExecutionReady({
+    action: input.action,
+    providerId: 'circle-appkit-unified-balance',
+    providerCapability: 'UNIFIED_BALANCE',
+    assetAddress: input.action.tokenAddress,
+    runtimeEnvironment: input.runtimeEnvironment,
+    degradedProviderConfirmed: input.degradedProviderConfirmed,
+  });
+
+  await assertWalletAccountMatchesAddress(
+    input.provider,
+    input.action.from,
+    'Unified spend sender',
+  );
   await input.ensureSourceChain?.();
   const adapter = await adapterFromProvider(input.provider);
   const params = {
