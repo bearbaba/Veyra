@@ -142,42 +142,46 @@ export function useConvertExecution() {
 
       setState((prev) => ({ ...prev, status: 'VERIFYING', trade }));
 
-      // Poll for completion (up to 60s)
+      // Poll for completion (up to 60s). Only network/status fetch errors
+      // are treated as transient; lifecycle/receipt errors must never be swallowed.
       let finalTrade = trade;
       for (let i = 0; i < 12; i++) {
         await new Promise((r) => setTimeout(r, 5000));
         try {
           finalTrade = await pollStableFxTrade(trade.id);
-          if (finalTrade.status === 'complete') break;
-          if (finalTrade.status === 'failed') {
-            await markQuoteUsed(quote.id);
-            const failedReceipt: VeyraReceipt = {
-              receiptId: generatePlanReceiptId(),
-              planId: action.actionId,
-              actionType: 'CONVERT',
-              status: 'FAILED',
-              chainId: action.chainId,
-              createdAt: action.createdAt,
-              completedAt: Date.now(),
-              actualAmountDelta: null,
-              expectedAmountDelta: action.minAmountOut,
-              riskScore: null,
-              policyDecision: null,
-              displaySummary: 'Convert failed at the provider after submission.',
-            };
-            await saveReceipt(failedReceipt);
-            setState((prev) => ({
-              ...prev,
-              status: 'FAILED',
-              trade: finalTrade,
-              receipt: failedReceipt,
-              error: 'Trade failed on Circle',
-            }));
-            return;
-          }
         } catch {
-          // Transient poll error — continue
+          // Transient poll error — continue without changing replay state.
+          continue;
         }
+
+        if (finalTrade.status === 'complete' || finalTrade.status === 'failed') break;
+      }
+
+      if (finalTrade.status === 'failed') {
+        await markQuoteUsed(quote.id);
+        const failedReceipt: VeyraReceipt = {
+          receiptId: generatePlanReceiptId(),
+          planId: action.actionId,
+          actionType: 'CONVERT',
+          status: 'FAILED',
+          chainId: action.chainId,
+          createdAt: action.createdAt,
+          completedAt: Date.now(),
+          actualAmountDelta: null,
+          expectedAmountDelta: action.minAmountOut,
+          riskScore: null,
+          policyDecision: null,
+          displaySummary: 'Convert failed at the provider after submission.',
+        };
+        await saveReceipt(failedReceipt);
+        setState((prev) => ({
+          ...prev,
+          status: 'FAILED',
+          trade: finalTrade,
+          receipt: failedReceipt,
+          error: 'Trade failed on Circle',
+        }));
+        return;
       }
 
       const receiptId = generatePlanReceiptId();
