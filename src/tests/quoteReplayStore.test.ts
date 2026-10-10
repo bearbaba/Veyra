@@ -73,6 +73,22 @@ describe('reserveQuote', () => {
       expect(result.reason).toBe('EXPIRED');
     }
   });
+
+  it('allows only one winner when two callers reserve the same quote concurrently', async () => {
+    const [a, b] = await Promise.all([
+      reserveQuote('q-concurrent', FUTURE_EXPIRY),
+      reserveQuote('q-concurrent', FUTURE_EXPIRY),
+    ]);
+
+    const successes = [a, b].filter((r) => r.success);
+    const failures = [a, b].filter((r) => !r.success);
+
+    expect(successes).toHaveLength(1);
+    expect(failures).toHaveLength(1);
+    if (!failures[0].success) {
+      expect(failures[0].reason).toBe('ALREADY_RESERVED');
+    }
+  });
 });
 
 describe('releaseReservation', () => {
@@ -120,6 +136,12 @@ describe('markQuoteBroadcast', () => {
     await markQuoteUsed('q-used-then-bc');
     await expect(markQuoteBroadcast('q-used-then-bc')).rejects.toThrow(/USED/i);
   });
+
+  it('rejects AVAILABLE → BROADCAST transition', async () => {
+    await reserveQuote('q-release-no-broadcast', FUTURE_EXPIRY);
+    await releaseReservation('q-release-no-broadcast');
+    await expect(markQuoteBroadcast('q-release-no-broadcast')).rejects.toThrow(/RESERVED/i);
+  });
 });
 
 describe('markQuoteUsed', () => {
@@ -132,6 +154,11 @@ describe('markQuoteUsed', () => {
     if (check.replayed) {
       expect(check.state).toBe('USED');
     }
+  });
+
+  it('rejects RESERVED → USED transition', async () => {
+    await reserveQuote('q-reserved-no-use', FUTURE_EXPIRY);
+    await expect(markQuoteUsed('q-reserved-no-use')).rejects.toThrow(/BROADCAST/i);
   });
 });
 
