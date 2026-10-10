@@ -43,6 +43,13 @@
       "when": 1791490000000,
       "tag": "0005_phase2d_social_contacts",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791620000000,
+      "tag": "0006_phase4c_bridge_recovery",
+      "breakpoints": true
     }
   ]
 }
