@@ -37,7 +37,7 @@ import { generateExecutionReceiptId } from '../core/receipt/receiptId';
 import type { VeyraReceipt } from '../core/receipt/receiptTypes';
 import { VEYRA_ENV } from '../lib/env';
 import { assertExecutionReady } from '../core/execution/executionReadiness';
-import { saveReceipt } from '../core/receipt/receiptStore';
+import { saveReceiptWithRemoteSync } from '../core/receipt/receiptSync';
 import {
   loadResumableBridgeCheckpoints,
   reconcileBridgeRecoveryCandidates,
@@ -560,6 +560,8 @@ export function useBridgeExecution() {
         planId,
         actionType:           'BRIDGE',
         status:               'VERIFIED',
+        syncRevision:         1,
+        syncPending:          true,
         chainId:              action.sourceChainId,
         executionTxHash:      burnTxHash,
         executionBlock:       Number(sourceReceiptObj.blockNumber),
@@ -579,9 +581,23 @@ export function useBridgeExecution() {
           destinationBlock:     Number(destReceiptObj.blockNumber),
           bridgeStatus:         'VERIFIED',
         },
+        executionContext: {
+          surface: 'BRIDGE',
+          providerId: 'cctp-v2-bridge',
+          routeId:
+            `bridge:cctp-v2-bridge:${action.sourceChainId}:${action.destinationChainId}:${action.tokenAddress.toLowerCase()}`,
+          environment: VEYRA_ENV === 'mainnet' ? 'mainnet' : 'testnet',
+          senderAddress: action.from,
+          recipientSnapshotId: null,
+          recipientAddress: action.to,
+          recipientChainId: action.destinationChainId,
+          assetId: 'usdc',
+          tokenAddress: action.tokenAddress,
+          tokenDecimals: action.tokenDecimals,
+        },
       };
 
-      await saveReceipt(veyraReceipt);
+      const syncedReceipt = await saveReceiptWithRemoteSync(veyraReceipt);
       await persistRecoveryCheckpoint({
         ...checkpointBase,
         stage: 'VERIFIED',
@@ -596,7 +612,7 @@ export function useBridgeExecution() {
         approveTxHash,
         burnTxHash,
         receiveTxHash,
-        receipt: veyraReceipt,
+        receipt: syncedReceipt,
       });
 
 
@@ -969,6 +985,8 @@ export function useBridgeExecution() {
           planId: current.planId,
           actionType: 'BRIDGE',
           status: 'VERIFIED',
+          syncRevision: 1,
+          syncPending: true,
           chainId: current.sourceChainId,
           executionTxHash: burnTxHash,
           executionBlock: Number(sourceReceipt.blockNumber),
@@ -988,9 +1006,23 @@ export function useBridgeExecution() {
             destinationBlock: Number(destReceiptObj.blockNumber),
             bridgeStatus: 'VERIFIED',
           },
+          executionContext: {
+            surface: 'BRIDGE',
+            providerId: 'cctp-v2-bridge',
+            routeId:
+              `bridge:cctp-v2-bridge:${current.sourceChainId}:${current.destinationChainId}:${current.tokenAddress.toLowerCase()}`,
+            environment: VEYRA_ENV === 'mainnet' ? 'mainnet' : 'testnet',
+            senderAddress: current.walletAddress,
+            recipientSnapshotId: null,
+            recipientAddress: current.recipientAddress,
+            recipientChainId: current.destinationChainId,
+            assetId: 'usdc',
+            tokenAddress: current.tokenAddress,
+            tokenDecimals: 6,
+          },
         };
 
-        await saveReceipt(receipt);
+        const syncedReceipt = await saveReceiptWithRemoteSync(receipt);
         current = {
           ...current,
           stage: 'VERIFIED',
@@ -1002,7 +1034,7 @@ export function useBridgeExecution() {
           phase: 'VERIFIED',
           burnTxHash,
           receiveTxHash,
-          receipt,
+          receipt: syncedReceipt,
         });
       }
     } catch (error) {
