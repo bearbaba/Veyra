@@ -64,6 +64,7 @@ export interface ActivityReceiptSyncInput {
   executionTxHash?: string;
   executionBlock?: number;
   actualAmountRaw?: string | null;
+  balanceBeforeRaw?: string | null;
   verifiedBalanceAfter?: string | null;
   riskScore?: number | null;
   policyDecision?: string | null;
@@ -308,6 +309,7 @@ export async function syncActivityReceipt(
             input.executionTxHash ?? existing.executionTxHash,
           executionBlock: input.executionBlock ?? existing.executionBlock,
           actualAmountRaw: input.actualAmountRaw ?? existing.actualAmountRaw,
+          balanceBeforeRaw: input.balanceBeforeRaw ?? existing.balanceBeforeRaw,
           verifiedBalanceAfter:
             input.verifiedBalanceAfter ?? existing.verifiedBalanceAfter,
           riskScore: input.riskScore ?? existing.riskScore,
@@ -397,6 +399,7 @@ export async function syncActivityReceipt(
         executionTxHash: input.executionTxHash,
         executionBlock: input.executionBlock,
         actualAmountRaw: input.actualAmountRaw ?? null,
+        balanceBeforeRaw: input.balanceBeforeRaw ?? null,
         verifiedBalanceAfter: input.verifiedBalanceAfter ?? null,
         riskScore: input.riskScore ?? null,
         policyDecision: input.policyDecision ?? null,
