@@ -45,6 +45,12 @@ import {
   loadRemoteBridgeCheckpoints,
   persistBridgeCheckpointRemote,
 } from '../lib/api/bridgeRecoveryApi';
+import {
+  lockActionExecution,
+  markActionExecutionSubmissionStarted,
+  releaseActionExecutionReservation,
+  reserveActionExecution,
+} from '../core/execution/actionExecutionReplayStore';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -172,6 +178,23 @@ export function useBridgeExecution() {
       return;
     }
 
+    const actionReservation = await reserveActionExecution({
+      actionId: action.actionId,
+      providerId: 'cctp-v2-bridge',
+      operation: 'BRIDGE',
+    });
+    if (!actionReservation.success) {
+      setState({
+        phase: 'FAILED',
+        error:
+          `Bridge action "${action.actionId}" cannot execute again: ` +
+          `${actionReservation.reason}. Resume/reconcile the existing execution instead.`,
+      });
+      return;
+    }
+
+    let sourceSubmissionStarted = false;
+
     // Read-only public client for the destination chain
     const destPublicClient = createPublicClient({
       transport: http(destRpc),
@@ -205,7 +228,10 @@ export function useBridgeExecution() {
         setState({ phase: 'APPROVE_CONFIRMED', approveTxHash });
       }
 
-      if (abortRef.current) return;
+      if (abortRef.current) {
+        await releaseActionExecutionReservation(action.actionId);
+        return;
+      }
 
       // ── Step 2: depositForBurn ────────────────────────────────────────────
       // Generate immutable recovery metadata BEFORE asking the wallet to burn.
@@ -229,6 +255,13 @@ export function useBridgeExecution() {
       };
 
       setState({ phase: 'BURNING', approveTxHash });
+
+      // Lock the deterministic action against a second fresh execution before
+      // opening the irreversible source-burn wallet request. If the browser
+      // disappears around submission, SUBMISSION_STARTED itself is fail-closed.
+      await markActionExecutionSubmissionStarted(action.actionId);
+      sourceSubmissionStarted = true;
+
       const burnTxHash = await broadcastDepositForBurn(walletClient, action);
       setState({ phase: 'BRIDGE_PENDING', approveTxHash, burnTxHash });
 
@@ -248,6 +281,10 @@ export function useBridgeExecution() {
         stage: 'SOURCE_BROADCAST',
         updatedAt: Date.now(),
       });
+
+      // The original fresh-execution path is now permanently closed for this
+      // actionId. All later progress uses the persisted bridge checkpoint.
+      await lockActionExecution(action.actionId);
 
       if (abortRef.current) return;
 
@@ -434,6 +471,14 @@ export function useBridgeExecution() {
 
 
     } catch (err) {
+      if (!sourceSubmissionStarted) {
+        try {
+          await releaseActionExecutionReservation(action.actionId);
+        } catch {
+          // Preserve the original error. A failed release remains fail-closed.
+        }
+      }
+
       setState((prev) => ({
         ...prev,
         phase: 'FAILED',
