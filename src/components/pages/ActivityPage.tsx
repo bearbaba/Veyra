@@ -27,6 +27,7 @@ import {
   loadActivityReceiptsRemote,
   type ActivityReceiptRemoteRecord,
 } from '@/lib/api/activityReceiptApi';
+import { cctpV2BridgeProvider } from '@/providers/cctp/cctpBridgeProvider';
 
 export function ActivityPage() {
   const { isConnected } = useAccount();
@@ -57,7 +58,10 @@ export function ActivityPage() {
   }, [bridgeExecution.loadRecoveryCandidates]);
 
   async function resume(checkpoint: BridgeRecoveryCheckpoint) {
-    await bridgeExecution.resumeBridge(checkpoint);
+    await bridgeExecution.resumeProviderCheckpoint(
+      cctpV2BridgeProvider,
+      checkpoint,
+    );
     await reload();
     const [recoveryRows, activityRows] = await Promise.all([
       bridgeExecution.loadRecoveryCandidates(),
