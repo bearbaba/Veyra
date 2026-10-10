@@ -26,6 +26,12 @@ import {
 } from './appKitChains';
 import { MANIFEST_CONSTANTS } from '../registry/providerManifest';
 import { checkProviderRecoveryEligibility } from '../registry/providerRegistry';
+import {
+  lockActionExecution,
+  markActionExecutionSubmissionStarted,
+  releaseActionExecutionReservation,
+  reserveActionExecution,
+} from '../../core/execution/actionExecutionReplayStore';
 
 const appKit = new AppKit();
 
@@ -181,6 +187,51 @@ async function assertWalletAccountMatchesAddress(
   );
   if (!matches) {
     throw new Error(`[appKit] Connected wallet does not match the reviewed ${context} account.`);
+  }
+}
+
+
+async function executeWithActionReplayLock<T>(input: {
+  actionId: string;
+  providerId: string;
+  operation: string;
+  submit: () => Promise<T>;
+}): Promise<T> {
+  const reservation = await reserveActionExecution({
+    actionId: input.actionId,
+    providerId: input.providerId,
+    operation: input.operation,
+  });
+
+  if (!reservation.success) {
+    throw new Error(
+      `[appKit] Action "${input.actionId}" cannot execute again: ${reservation.reason}.`,
+    );
+  }
+
+  let submissionStarted = false;
+
+  try {
+    await markActionExecutionSubmissionStarted(input.actionId);
+    submissionStarted = true;
+
+    const result = await input.submit();
+
+    // LOCKED means the initial provider submission path is permanently closed
+    // for this actionId. Receipt verification/recovery may continue separately.
+    await lockActionExecution(input.actionId);
+    return result;
+  } catch (error) {
+    if (!submissionStarted) {
+      try {
+        await releaseActionExecutionReservation(input.actionId);
+      } catch {
+        // Preserve the original error. A failed release remains fail-closed.
+      }
+    }
+    // Once submission has started, uncertainty stays locked. The caller must
+    // reconcile provider/chain state or use the dedicated recovery path.
+    throw error;
   }
 }
 
@@ -356,7 +407,12 @@ export async function executeReviewedAppKitBridge(input: {
     ...(quote ? { quote } : {}),
   } as unknown as BridgeParams;
 
-  return appKit.bridge(params);
+  return executeWithActionReplayLock({
+    actionId: input.action.actionId,
+    providerId: 'circle-appkit-bridge',
+    operation: 'BRIDGE',
+    submit: () => appKit.bridge(params),
+  });
 }
 
 export function assertAppKitBridgeRetryReady(input: {
@@ -561,7 +617,13 @@ export async function spendUnifiedUsdcForwarded(input: {
     amount,
     token: 'USDC',
   } as unknown as UnifiedSpendParams;
-  return appKit.unifiedBalance.spend(params);
+
+  return executeWithActionReplayLock({
+    actionId: input.action.actionId,
+    providerId: 'circle-appkit-unified-balance',
+    operation: 'UNIFIED_SPEND',
+    submit: () => appKit.unifiedBalance.spend(params),
+  });
 }
 
 export interface AppKitSwapReviewRequest {
@@ -775,7 +837,13 @@ export async function executeReviewedAppKitSwap(input: {
     amountIn: request.amountIn,
     ...(Object.keys(config).length > 0 ? { config } : {}),
   } as unknown as SwapParams;
-  return appKit.swap(params);
+
+  return executeWithActionReplayLock({
+    actionId: input.action.actionId,
+    providerId: 'circle-appkit-swap',
+    operation: 'SWAP',
+    submit: () => appKit.swap(params),
+  });
 }
 
 /** Discover is read-only; returned metadata must be surfaced with provenance. */
@@ -996,7 +1064,13 @@ export async function executeEarnDeposit(input: {
     vaultAddress: input.reviewed.request.vaultAddress,
     amount: input.reviewed.request.amount,
   } as unknown as EarnDepositParams;
-  return appKit.earn.deposit(params);
+
+  return executeWithActionReplayLock({
+    actionId: input.action.actionId,
+    providerId: 'circle-appkit-earn',
+    operation: 'EARN_DEPOSIT',
+    submit: () => appKit.earn.deposit(params),
+  });
 }
 
 export async function readEarnPosition(input: {
@@ -1075,6 +1149,12 @@ export async function executeEarnWithdrawal(input: {
     vaultAddress: input.reviewed.request.vaultAddress,
     amount: input.reviewed.request.amount,
   } as unknown as EarnWithdrawParams;
-  return appKit.earn.withdraw(params);
+
+  return executeWithActionReplayLock({
+    actionId: input.action.actionId,
+    providerId: 'circle-appkit-earn',
+    operation: 'EARN_WITHDRAW',
+    submit: () => appKit.earn.withdraw(params),
+  });
 }
 
