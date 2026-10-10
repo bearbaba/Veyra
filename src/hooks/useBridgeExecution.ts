@@ -500,7 +500,27 @@ export function useBridgeExecution() {
       let approveTxHash: Hash | undefined;
       if (allowance < action.amount) {
         setState({ phase: 'APPROVING' });
-        approveTxHash = await approveTokenMessenger(walletClient, sourcePublicClient, action);
+        approveTxHash = await approveTokenMessenger(
+          walletClient,
+          sourcePublicClient,
+          action,
+        );
+
+        const confirmedAllowance = await sourcePublicClient.readContract({
+          address: getAddress(action.tokenAddress),
+          abi: ERC20_ALLOWANCE_ABI,
+          functionName: 'allowance',
+          args: [
+            walletAddress,
+            getAddress(MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER),
+          ],
+        });
+        if (confirmedAllowance < action.amount) {
+          throw new Error(
+            'USDC approval confirmed but allowance is still below the reviewed bridge amount.',
+          );
+        }
+
         setState({ phase: 'APPROVE_CONFIRMED', approveTxHash });
       }
 
