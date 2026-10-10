@@ -8,12 +8,11 @@ import { SECURITY_CONFIG } from '../../lib/securityConfig';
 import { MANIFEST_CONSTANTS, findManifestEntry } from '../registry/providerManifest';
 import type {
   BridgeProviderAdapter,
-  ExecutionResult,
   PreflightResult,
   ResumePayload,
   RouteOption,
   RouteQuoteParams,
-  TransactionSigner,
+  BridgeProviderExecutionRuntime,
   ActivityTrace,
 } from '../bridge/bridgeProviderTypes';
 import { buildRouteId } from '../../core/router/routeEngine';
@@ -282,26 +281,58 @@ export const cctpV2BridgeProvider: BridgeProviderAdapter = {
   },
 
   execute(
-    _routeOption: RouteOption,
-    _signer: TransactionSigner,
-    _onProgress: (trace: ActivityTrace) => void,
-  ): Promise<ExecutionResult> {
-    return Promise.reject(
-      new Error(
-        '[cctpBridgeProvider] Execution requires the production bridge execution runtime. Route adapters never bypass useBridgeExecution.',
-      ),
-    );
+    routeOption: RouteOption,
+    runtime: BridgeProviderExecutionRuntime,
+    onProgress: (trace: ActivityTrace) => void,
+  ): Promise<void> {
+    if (
+      runtime.providerId !== this.providerId ||
+      routeOption.provider !== this.providerId ||
+      routeOption.providerVersion !== this.version ||
+      !this.canRoute(
+        routeOption.sourceChainId,
+        routeOption.destinationChainId,
+        routeOption.sourceTokenAddress,
+      )
+    ) {
+      return Promise.reject(
+        new Error(
+          '[cctpBridgeProvider] Runtime/route is not bound to the CCTP provider capability.',
+        ),
+      );
+    }
+
+    if (
+      routeOption.hops.length !== 1 ||
+      routeOption.multiHopEnabled
+    ) {
+      return Promise.reject(
+        new Error(
+          '[cctpBridgeProvider] CCTP V2 production execution is direct-only.',
+        ),
+      );
+    }
+
+    return runtime.execute(routeOption, onProgress);
   },
 
   resume(
-    _resumePayload: ResumePayload,
-    _signer: TransactionSigner,
-    _onProgress: (trace: ActivityTrace) => void,
-  ): Promise<ExecutionResult> {
-    return Promise.reject(
-      new Error(
-        '[cctpBridgeProvider] Resume requires the production bridge recovery runtime. Route adapters never bypass persisted checkpoint reconciliation.',
-      ),
-    );
+    resumePayload: ResumePayload,
+    runtime: BridgeProviderExecutionRuntime,
+    onProgress: (trace: ActivityTrace) => void,
+  ): Promise<void> {
+    if (
+      runtime.providerId !== this.providerId ||
+      resumePayload.provider !== this.providerId ||
+      resumePayload.version !== 1
+    ) {
+      return Promise.reject(
+        new Error(
+          '[cctpBridgeProvider] Resume payload/runtime is not bound to CCTP V2.',
+        ),
+      );
+    }
+
+    return runtime.resume(resumePayload, onProgress);
   },
 };
