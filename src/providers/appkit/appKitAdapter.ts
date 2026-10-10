@@ -416,7 +416,7 @@ export async function readUnifiedUsdcBalance(input: {
   return appKit.unifiedBalance.getBalances(params);
 }
 
-export async function depositUnifiedUsdc(_input: {
+export function depositUnifiedUsdc(_input: {
   provider: EIP1193Provider;
   sourceChain: string;
   amount: string;
@@ -426,8 +426,10 @@ export async function depositUnifiedUsdc(_input: {
   // Fail closed until Veyra has a canonical deterministic action schema that
   // can bind a Unified deposit to its exact provider-controlled destination.
   // A raw App Kit deposit call must never bypass assertExecutionReady().
-  throw new Error(
-    '[appKit] Unified deposit is blocked until a canonical Veyra Unified-deposit action is implemented and execution-bound.',
+  return Promise.reject(
+    new Error(
+      '[appKit] Unified deposit is blocked until a canonical Veyra Unified-deposit action is implemented and execution-bound.',
+    ),
   );
 }
 
