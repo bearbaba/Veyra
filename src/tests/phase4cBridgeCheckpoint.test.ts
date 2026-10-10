@@ -4,6 +4,7 @@ import {
   getBridgeCheckpoint,
   loadResumableBridgeCheckpoints,
   nextBridgeResumeInstruction,
+  reconcileBridgeRecoveryCandidates,
   resetBridgeCheckpointStoreForTesting,
   saveBridgeCheckpoint,
   type BridgeRecoveryCheckpoint,
