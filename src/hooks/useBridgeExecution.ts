@@ -129,17 +129,24 @@ type RemoteRelayAttempt =
 async function tryAuthenticatedRemoteRelay(
   checkpoint: BridgeRecoveryCheckpoint,
 ): Promise<RemoteRelayAttempt> {
-  const mirrored = await persistBridgeCheckpointRemote(checkpoint);
-  if (!mirrored) return { mode: 'UNAVAILABLE' };
+  try {
+    const mirrored = await persistBridgeCheckpointRemote(checkpoint);
+    if (!mirrored) return { mode: 'UNAVAILABLE' };
 
-  const result = await relayBridgeReceiveRemote(checkpoint.planId);
-  if (result.mode === 'UNAVAILABLE') return result;
-  if (result.mode === 'ALREADY_RECEIVED') return result;
+    const result = await relayBridgeReceiveRemote(checkpoint.planId);
+    if (result.mode === 'UNAVAILABLE') return result;
+    if (result.mode === 'ALREADY_RECEIVED') return result;
 
-  return {
-    mode: 'TX_HASH',
-    txHash: result.txHash as Hash,
-  };
+    return {
+      mode: 'TX_HASH',
+      txHash: result.txHash as Hash,
+    };
+  } catch {
+    // Remote durability/relay is an optimization for the user experience.
+    // The locally checkpointed user-signed recovery path remains authoritative
+    // and safe, so transient BFF/DB/network failures fall back to self-relay.
+    return { mode: 'UNAVAILABLE' };
+  }
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
