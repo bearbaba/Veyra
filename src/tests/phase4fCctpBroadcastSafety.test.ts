@@ -6,6 +6,7 @@ import {
   broadcastReceiveMessage,
   depositForBurn,
   receiveMessage,
+  verifyDestinationBalance,
 } from '../providers/cctp/cctpV2Adapter';
 import { MANIFEST_CONSTANTS } from '../providers/registry/providerManifest';
 
@@ -106,6 +107,42 @@ describe('Phase 4F CCTP broadcast safety', () => {
     ).rejects.toThrow(/No CCTP domain/i);
 
     expect(writeContract).not.toHaveBeenCalled();
+  });
+
+  it('requires the destination balance delta to equal the reviewed CCTP amount exactly', async () => {
+    const exactClient = {
+      readContract: vi.fn().mockResolvedValue(11_000_000n),
+    } as unknown as PublicClient;
+
+    await expect(
+      verifyDestinationBalance(
+        exactClient,
+        RECIPIENT,
+        MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC,
+        1_000_000n,
+        10_000_000n,
+      ),
+    ).resolves.toMatchObject({
+      verified: true,
+      actualDelta: 1_000_000n,
+    });
+
+    const unrelatedExtraTransfer = {
+      readContract: vi.fn().mockResolvedValue(11_000_001n),
+    } as unknown as PublicClient;
+
+    await expect(
+      verifyDestinationBalance(
+        unrelatedExtraTransfer,
+        RECIPIENT,
+        MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC,
+        1_000_000n,
+        10_000_000n,
+      ),
+    ).resolves.toMatchObject({
+      verified: false,
+      actualDelta: 1_000_001n,
+    });
   });
 
   it('keeps the legacy receive helper broadcast-then-confirm ordered', async () => {
