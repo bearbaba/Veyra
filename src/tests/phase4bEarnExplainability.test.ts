@@ -67,6 +67,24 @@ describe('Phase 4B Earn explainability gate', () => {
     expect(result.answers.whatCanGoWrong).toBeNull();
   });
 
+  it('blocks when withdrawal delay is missing', () => {
+    const result = evaluateEarnExplainability({
+      ...completeEvidence,
+      withdrawalDelay: null,
+    });
+    expect(result.executable).toBe(false);
+    expect(result.missing).toContain('withdrawalDelay');
+  });
+
+  it('blocks when withdrawal limits are missing', () => {
+    const result = evaluateEarnExplainability({
+      ...completeEvidence,
+      withdrawalLimits: null,
+    });
+    expect(result.executable).toBe(false);
+    expect(result.missing).toContain('withdrawalLimits');
+  });
+
   it('throws before execution when evidence is incomplete', () => {
     expect(() =>
       assertEarnExplainabilityComplete({
