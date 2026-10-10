@@ -19,7 +19,7 @@ import { useWriteContract, usePublicClient, useAccount, useSwitchChain } from 'w
 import { formatUnits } from 'viem';
 import type { TransferAction } from '@/core/actions/actionSchema';
 import { generateExecutionReceiptId } from '@/core/receipt/receiptId';
-import { saveReceipt } from '@/core/receipt/receiptStore';
+import { saveReceiptWithRemoteSync } from '@/core/receipt/receiptSync';
 import type { VeyraReceipt } from '@/core/receipt/receiptTypes';
 import { buildTxExplorerUrl } from '@/onchain-facts';
 import { verifyPaymentRecipient } from '@/lib/api/identityApi';
@@ -178,6 +178,8 @@ export function useTransferExecution() {
         planId: action.actionId,
         actionType: action.actionType,
         status: 'PENDING',
+        syncRevision: 1,
+        syncPending: true,
         chainId: action.chainId,
         executionTxHash: hash,
         createdAt: action.createdAt,
@@ -196,12 +198,26 @@ export function useTransferExecution() {
           amountRaw: action.amount.toString(),
           balanceBeforeRaw: balanceBefore.toString(),
         },
+        executionContext: {
+          surface: 'PAY',
+          providerId: 'arc-erc20-transfer',
+          routeId:
+            `transfer:arc-erc20-transfer:${action.chainId}:${action.tokenAddress.toLowerCase()}`,
+          environment: VEYRA_ENV === 'mainnet' ? 'mainnet' : 'testnet',
+          senderAddress: action.from,
+          recipientSnapshotId: recipientGuard?.snapshotId ?? null,
+          recipientAddress: action.to,
+          recipientChainId: action.chainId,
+          assetId: 'usdc',
+          tokenAddress: action.tokenAddress,
+          tokenDecimals: action.tokenDecimals,
+        },
       };
 
       // Persist the deterministic tx hash and all verification context before
       // waiting. A tab/browser crash can now resume verification without ever
       // submitting the transfer again.
-      await saveReceipt(pendingReceipt);
+      pendingReceipt = await saveReceiptWithRemoteSync(pendingReceipt);
       setState((s) => ({
         ...s,
         step: 'CONFIRMING',
@@ -222,22 +238,22 @@ export function useTransferExecution() {
       );
 
       if (recovery.status === 'PENDING') {
-        await saveReceipt(recovery.receipt);
+        const persisted = await saveReceiptWithRemoteSync(recovery.receipt);
         setState((s) => ({
           ...s,
           step: 'FAILED',
           error: recovery.detail,
-          receipt: recovery.receipt,
+          receipt: persisted,
         }));
         return;
       }
 
-      await saveReceipt(recovery.receipt);
+      const persisted = await saveReceiptWithRemoteSync(recovery.receipt);
       setState((s) => ({
         ...s,
         step: recovery.status === 'VERIFIED' ? 'DONE' : 'FAILED',
         error: recovery.status === 'FAILED' ? recovery.detail : null,
-        receipt: recovery.receipt,
+        receipt: persisted,
       }));
     } catch (err) {
       if (actionReservationHeld && !submissionStarted) {
@@ -254,7 +270,7 @@ export function useTransferExecution() {
         // Once a tx hash exists, a timeout/network/browser verification error is
         // not proof that the transfer failed. Preserve the pending receipt for
         // Activity/reload reconciliation instead of inventing a FAILED outcome.
-        await saveReceipt(pendingReceipt);
+        pendingReceipt = await saveReceiptWithRemoteSync(pendingReceipt);
         setState((s) => ({
           ...s,
           step: 'FAILED',
