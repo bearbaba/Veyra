@@ -1,6 +1,11 @@
 import { AppKit } from '@circle-fin/app-kit';
 import { createViemAdapterFromProvider } from '@circle-fin/adapter-viem-v2';
-import type { EIP1193Provider } from 'viem';
+import { parseUnits, type EIP1193Provider } from 'viem';
+import type { BridgeAction } from '../../core/actions/actionSchema';
+import {
+  assertExecutionReady,
+  type ExecutionRuntimeEnvironment,
+} from '../../core/execution/executionReadiness';
 import { assertRetryBridgeAllowed } from '../../core/router/bridgeRecovery';
 import { quoteVeyraFee, type VeyraFeeQuote } from '../../core/fees/feeEngine';
 import { configuredVeyraTreasuryAddress } from '../../core/fees/treasuryConfig';
@@ -12,6 +17,7 @@ import {
   assertCircleAppKitChain,
   type CircleAppKitChain,
 } from './appKitChains';
+import { MANIFEST_CONSTANTS } from '../registry/providerManifest';
 
 const appKit = new AppKit();
 
@@ -93,6 +99,109 @@ export interface ReviewedAppKitBridge {
   estimate: BridgeEstimate;
 }
 
+
+function appKitTestnetChainId(chain: CircleAppKitChain): number | null {
+  switch (chain) {
+    case 'Arc_Testnet':
+      return MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID;
+    case 'Ethereum_Sepolia':
+      return MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID;
+    case 'Base_Sepolia':
+      return MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID;
+    default:
+      return null;
+  }
+}
+
+function expectedTestnetUsdc(chainId: number): string | null {
+  switch (chainId) {
+    case MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID:
+      return MANIFEST_CONSTANTS.ARC_TESTNET_USDC;
+    case MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID:
+      return MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC;
+    case MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID:
+      return MANIFEST_CONSTANTS.BASE_SEPOLIA_USDC;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Bind an App Kit bridge review to the exact deterministic BridgeAction that
+ * passed Veyra review. This runs again at execution time before any wallet
+ * account read, network switch, signature, allowance or bridge call.
+ */
+export function assertReviewedAppKitBridgeMatchesAction(
+  reviewed: ReviewedAppKitBridge,
+  action: BridgeAction,
+): void {
+  if (action.providerId !== 'circle-appkit-bridge') {
+    throw new Error('[appKit] Bridge action provider does not match circle-appkit-bridge.');
+  }
+
+  if (
+    action.provenance.providerId !== undefined &&
+    action.provenance.providerId !== 'circle-appkit-bridge'
+  ) {
+    throw new Error('[appKit] Bridge action provenance provider does not match circle-appkit-bridge.');
+  }
+
+  const sourceChainId = appKitTestnetChainId(reviewed.request.sourceChain);
+  const destinationChainId = appKitTestnetChainId(reviewed.request.destinationChain);
+  if (sourceChainId === null || destinationChainId === null) {
+    throw new Error('[appKit] Reviewed bridge chain is outside the verified App Kit testnet execution scope.');
+  }
+
+  if (action.chainId !== action.sourceChainId || action.sourceChainId !== sourceChainId) {
+    throw new Error('[appKit] Reviewed bridge source chain does not match the deterministic action.');
+  }
+  if (action.destinationChainId !== destinationChainId) {
+    throw new Error('[appKit] Reviewed bridge destination chain does not match the deterministic action.');
+  }
+
+  if (action.to.toLowerCase() !== reviewed.request.recipientAddress.toLowerCase()) {
+    throw new Error('[appKit] Reviewed bridge recipient does not match the deterministic action.');
+  }
+
+  const reviewedAmount = parseUnits(reviewed.request.amount, action.tokenDecimals);
+  if (reviewedAmount !== action.amount) {
+    throw new Error('[appKit] Reviewed bridge amount does not match the deterministic action.');
+  }
+
+  const expectedUsdc = expectedTestnetUsdc(sourceChainId);
+  if (!expectedUsdc || action.tokenAddress.toLowerCase() !== expectedUsdc.toLowerCase()) {
+    throw new Error('[appKit] Bridge action asset does not match the verified source-chain USDC deployment.');
+  }
+
+  if (reviewed.request.token) {
+    const reviewedToken = reviewed.request.token.trim();
+    const tokenMatches =
+      reviewedToken.toUpperCase() === 'USDC' ||
+      reviewedToken.toLowerCase() === expectedUsdc.toLowerCase();
+    if (!tokenMatches) {
+      throw new Error('[appKit] Reviewed bridge token does not match the deterministic action asset.');
+    }
+  }
+}
+
+async function assertWalletAccountMatchesBridgeAction(
+  provider: EIP1193Provider,
+  action: BridgeAction,
+): Promise<void> {
+  const accounts = await provider.request({ method: 'eth_accounts' });
+  if (!Array.isArray(accounts)) {
+    throw new Error('[appKit] Wallet account response is invalid.');
+  }
+
+  const normalizedFrom = action.from.toLowerCase();
+  const matches = accounts.some(
+    (account) => typeof account === 'string' && account.toLowerCase() === normalizedFrom,
+  );
+  if (!matches) {
+    throw new Error('[appKit] Connected wallet does not match the reviewed bridge sender.');
+  }
+}
+
 /** Quote-only bridge review. Never moves funds. */
 export async function reviewAppKitBridge(input: {
   provider: EIP1193Provider;
@@ -148,8 +257,26 @@ export async function reviewAppKitBridge(input: {
 export async function executeReviewedAppKitBridge(input: {
   provider: EIP1193Provider;
   reviewed: ReviewedAppKitBridge;
+  action: BridgeAction;
+  runtimeEnvironment: ExecutionRuntimeEnvironment;
+  degradedProviderConfirmed?: boolean;
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<BridgeResult> {
+  assertReviewedAppKitBridgeMatchesAction(input.reviewed, input.action);
+
+  // Final canonical Veyra boundary. The App Kit provider is currently disabled,
+  // so this fails closed today. If it is later promoted to ENABLED, the same
+  // guard continues to re-check schema/provenance/quote/provider health here.
+  assertExecutionReady({
+    action: input.action,
+    providerId: 'circle-appkit-bridge',
+    providerCapability: 'BRIDGE',
+    assetAddress: input.action.tokenAddress,
+    runtimeEnvironment: input.runtimeEnvironment,
+    degradedProviderConfirmed: input.degradedProviderConfirmed,
+  });
+
+  await assertWalletAccountMatchesBridgeAction(input.provider, input.action);
   await input.ensureSourceChain?.();
   const adapter = await adapterFromProvider(input.provider);
   const request = input.reviewed.request;
