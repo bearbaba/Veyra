@@ -391,18 +391,7 @@ export function verifyCctpSourceReceiptEvidence(
       });
       if (decoded.eventName !== 'DepositForBurn') continue;
 
-      const args = decoded.args as {
-        burnToken: Address;
-        amount: bigint;
-        depositor: Address;
-        mintRecipient: `0x${string}`;
-        destinationDomain: number;
-        destinationTokenMessenger: `0x${string}`;
-        destinationCaller: `0x${string}`;
-        maxFee: bigint;
-        minFinalityThreshold: number;
-        hookData: `0x${string}`;
-      };
+      const args = decoded.args;
 
       if (
         args.burnToken.toLowerCase() ===
