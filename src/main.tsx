@@ -22,8 +22,15 @@ import { Toaster } from 'sonner'
 import { config } from './config'
 import App from './App'
 import './index.css'
+import { initializeSecurityRuntime } from './lib/securityBootstrap'
 
 const queryClient = new QueryClient()
+
+// Hydrate security-critical browser state immediately. The UI may render while
+// this is pending, but fund-moving paths remain fail-closed until READY.
+void initializeSecurityRuntime().catch((error) => {
+  console.error('[securityBootstrap] Initialization failed', error)
+})
 
 // Studio logo SVG
 const StudioLogo = () => (
