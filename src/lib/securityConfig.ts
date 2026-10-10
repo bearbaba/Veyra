@@ -53,6 +53,14 @@ export const SECURITY_CONFIG = {
    */
   QUOTE_REPLAY_RETENTION_MS: 600_000, // 10 minutes
 
+  /**
+   * Maximum age (ms) of a pre-submission action reservation.
+   * Only RESERVED entries may be released by reconciliation. Once provider
+   * submission starts, the action remains locked until explicit reconciliation
+   * so a crash cannot cause a duplicate money movement.
+   */
+  ACTION_EXECUTION_RESERVATION_TIMEOUT_MS: 120_000, // 2 minutes
+
   // ── Slippage ──────────────────────────────────────────────────────────────
 
   /**

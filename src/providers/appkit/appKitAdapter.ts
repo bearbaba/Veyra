@@ -1,6 +1,18 @@
 import { AppKit } from '@circle-fin/app-kit';
 import { createViemAdapterFromProvider } from '@circle-fin/adapter-viem-v2';
-import type { EIP1193Provider } from 'viem';
+import { parseUnits, type EIP1193Provider } from 'viem';
+import type {
+  BridgeAction,
+  ConvertAction,
+  SupplyAction,
+  WithdrawAction,
+} from '../../core/actions/actionSchema';
+import {
+  assertExecutionReady,
+  type ExecutionRuntimeEnvironment,
+} from '../../core/execution/executionReadiness';
+import { SECURITY_CONFIG } from '../../lib/securityConfig';
+import { assertSecurityGateReady } from '../../lib/securityGate';
 import { assertRetryBridgeAllowed } from '../../core/router/bridgeRecovery';
 import { quoteVeyraFee, type VeyraFeeQuote } from '../../core/fees/feeEngine';
 import { configuredVeyraTreasuryAddress } from '../../core/fees/treasuryConfig';
@@ -12,6 +24,14 @@ import {
   assertCircleAppKitChain,
   type CircleAppKitChain,
 } from './appKitChains';
+import { MANIFEST_CONSTANTS } from '../registry/providerManifest';
+import { checkProviderRecoveryEligibility } from '../registry/providerRegistry';
+import {
+  lockActionExecution,
+  markActionExecutionSubmissionStarted,
+  releaseActionExecutionReservation,
+  reserveActionExecution,
+} from '../../core/execution/actionExecutionReplayStore';
 
 const appKit = new AppKit();
 
@@ -27,7 +47,6 @@ type UnifiedBalancesParams = Parameters<UnifiedBalanceApi['getBalances']>[0];
 type UnifiedBalancesResult = Awaited<ReturnType<UnifiedBalanceApi['getBalances']>>;
 type UnifiedSpendParams = Parameters<UnifiedBalanceApi['spend']>[0];
 type UnifiedSpendResult = Awaited<ReturnType<UnifiedBalanceApi['spend']>>;
-type UnifiedDepositParams = Parameters<UnifiedBalanceApi['deposit']>[0];
 type UnifiedDepositResult = Awaited<ReturnType<UnifiedBalanceApi['deposit']>>;
 type EarnApi = AppKit['earn'];
 type EarnExploreParams = Parameters<EarnApi['exploreVaults']>[0];
@@ -78,6 +97,18 @@ function assertAddress(address: string): string {
   return value;
 }
 
+
+function feeEnvironmentForRuntime(
+  runtimeEnvironment: ExecutionRuntimeEnvironment,
+): 'testnet' | 'mainnet' {
+  return runtimeEnvironment === 'mainnet' ? 'mainnet' : 'testnet';
+}
+
+function sameOptionalAddress(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.toLowerCase() === b.toLowerCase();
+}
+
 export interface AppKitBridgeReviewRequest {
   sourceChain: CircleAppKitChain;
   destinationChain: CircleAppKitChain;
@@ -91,6 +122,186 @@ export interface AppKitBridgeReviewRequest {
 export interface ReviewedAppKitBridge {
   request: AppKitBridgeReviewRequest;
   estimate: BridgeEstimate;
+}
+
+
+function appKitTestnetChainId(chain: CircleAppKitChain): number | null {
+  switch (chain) {
+    case 'Arc_Testnet':
+      return MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID;
+    case 'Ethereum_Sepolia':
+      return MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID;
+    case 'Base_Sepolia':
+      return MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID;
+    default:
+      return null;
+  }
+}
+
+function expectedTestnetUsdc(chainId: number): string | null {
+  switch (chainId) {
+    case MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID:
+      return MANIFEST_CONSTANTS.ARC_TESTNET_USDC;
+    case MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID:
+      return MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC;
+    case MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID:
+      return MANIFEST_CONSTANTS.BASE_SEPOLIA_USDC;
+    default:
+      return null;
+  }
+}
+
+
+function arcTestnetAssetAddress(asset: string): string | null {
+  const normalized = asset.trim().toLowerCase();
+  if (
+    normalized === 'usdc' ||
+    normalized === MANIFEST_CONSTANTS.ARC_TESTNET_USDC.toLowerCase()
+  ) {
+    return MANIFEST_CONSTANTS.ARC_TESTNET_USDC;
+  }
+  if (
+    normalized === 'eurc' ||
+    normalized === MANIFEST_CONSTANTS.ARC_TESTNET_EURC.toLowerCase()
+  ) {
+    return MANIFEST_CONSTANTS.ARC_TESTNET_EURC;
+  }
+  return null;
+}
+
+async function assertWalletAccountMatchesAddress(
+  provider: EIP1193Provider,
+  expectedAddress: string,
+  context: string,
+): Promise<void> {
+  const accounts = await provider.request({ method: 'eth_accounts' });
+  if (!Array.isArray(accounts)) {
+    throw new Error('[appKit] Wallet account response is invalid.');
+  }
+
+  const normalizedExpected = expectedAddress.toLowerCase();
+  const matches = accounts.some(
+    (account) =>
+      typeof account === 'string' &&
+      account.toLowerCase() === normalizedExpected,
+  );
+  if (!matches) {
+    throw new Error(`[appKit] Connected wallet does not match the reviewed ${context} account.`);
+  }
+}
+
+
+async function executeWithActionReplayLock<T>(input: {
+  actionId: string;
+  providerId: string;
+  operation: string;
+  submit: () => Promise<T>;
+}): Promise<T> {
+  const reservation = await reserveActionExecution({
+    actionId: input.actionId,
+    providerId: input.providerId,
+    operation: input.operation,
+  });
+
+  if (!reservation.success) {
+    throw new Error(
+      `[appKit] Action "${input.actionId}" cannot execute again: ${reservation.reason}.`,
+    );
+  }
+
+  let submissionStarted = false;
+
+  try {
+    await markActionExecutionSubmissionStarted(input.actionId);
+    submissionStarted = true;
+
+    const result = await input.submit();
+
+    // LOCKED means the initial provider submission path is permanently closed
+    // for this actionId. Receipt verification/recovery may continue separately.
+    await lockActionExecution(input.actionId);
+    return result;
+  } catch (error) {
+    if (!submissionStarted) {
+      try {
+        await releaseActionExecutionReservation(input.actionId);
+      } catch {
+        // Preserve the original error. A failed release remains fail-closed.
+      }
+    }
+    // Once submission has started, uncertainty stays locked. The caller must
+    // reconcile provider/chain state or use the dedicated recovery path.
+    throw error;
+  }
+}
+
+/**
+ * Bind an App Kit bridge review to the exact deterministic BridgeAction that
+ * passed Veyra review. This runs again at execution time before any wallet
+ * account read, network switch, signature, allowance or bridge call.
+ */
+export function assertReviewedAppKitBridgeMatchesAction(
+  reviewed: ReviewedAppKitBridge,
+  action: BridgeAction,
+): void {
+  assertAddress(action.from);
+  assertAddress(action.to);
+  assertAddress(reviewed.request.recipientAddress);
+
+  if (action.providerId !== 'circle-appkit-bridge') {
+    throw new Error('[appKit] Bridge action provider does not match circle-appkit-bridge.');
+  }
+
+  if (
+    action.provenance.providerId !== undefined &&
+    action.provenance.providerId !== 'circle-appkit-bridge'
+  ) {
+    throw new Error('[appKit] Bridge action provenance provider does not match circle-appkit-bridge.');
+  }
+
+  const sourceChainId = appKitTestnetChainId(reviewed.request.sourceChain);
+  const destinationChainId = appKitTestnetChainId(reviewed.request.destinationChain);
+  if (sourceChainId === null || destinationChainId === null) {
+    throw new Error('[appKit] Reviewed bridge chain is outside the verified App Kit testnet execution scope.');
+  }
+
+  if (action.chainId !== action.sourceChainId || action.sourceChainId !== sourceChainId) {
+    throw new Error('[appKit] Reviewed bridge source chain does not match the deterministic action.');
+  }
+  if (action.destinationChainId !== destinationChainId) {
+    throw new Error('[appKit] Reviewed bridge destination chain does not match the deterministic action.');
+  }
+
+  if (action.to.toLowerCase() !== reviewed.request.recipientAddress.toLowerCase()) {
+    throw new Error('[appKit] Reviewed bridge recipient does not match the deterministic action.');
+  }
+
+  const reviewedAmount = parseUnits(reviewed.request.amount, action.tokenDecimals);
+  if (reviewedAmount !== action.amount) {
+    throw new Error('[appKit] Reviewed bridge amount does not match the deterministic action.');
+  }
+
+  const expectedUsdc = expectedTestnetUsdc(sourceChainId);
+  if (!expectedUsdc || action.tokenAddress.toLowerCase() !== expectedUsdc.toLowerCase()) {
+    throw new Error('[appKit] Bridge action asset does not match the verified source-chain USDC deployment.');
+  }
+
+  if (reviewed.request.token) {
+    const reviewedToken = reviewed.request.token.trim();
+    const tokenMatches =
+      reviewedToken.toUpperCase() === 'USDC' ||
+      reviewedToken.toLowerCase() === expectedUsdc.toLowerCase();
+    if (!tokenMatches) {
+      throw new Error('[appKit] Reviewed bridge token does not match the deterministic action asset.');
+    }
+  }
+}
+
+async function assertWalletAccountMatchesBridgeAction(
+  provider: EIP1193Provider,
+  action: BridgeAction,
+): Promise<void> {
+  await assertWalletAccountMatchesAddress(provider, action.from, 'bridge sender');
 }
 
 /** Quote-only bridge review. Never moves funds. */
@@ -148,8 +359,26 @@ export async function reviewAppKitBridge(input: {
 export async function executeReviewedAppKitBridge(input: {
   provider: EIP1193Provider;
   reviewed: ReviewedAppKitBridge;
+  action: BridgeAction;
+  runtimeEnvironment: ExecutionRuntimeEnvironment;
+  degradedProviderConfirmed?: boolean;
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<BridgeResult> {
+  assertReviewedAppKitBridgeMatchesAction(input.reviewed, input.action);
+
+  // Final canonical Veyra boundary. The App Kit provider is currently disabled,
+  // so this fails closed today. If it is later promoted to ENABLED, the same
+  // guard continues to re-check schema/provenance/quote/provider health here.
+  assertExecutionReady({
+    action: input.action,
+    providerId: 'circle-appkit-bridge',
+    providerCapability: 'BRIDGE',
+    assetAddress: input.action.tokenAddress,
+    runtimeEnvironment: input.runtimeEnvironment,
+    degradedProviderConfirmed: input.degradedProviderConfirmed,
+  });
+
+  await assertWalletAccountMatchesBridgeAction(input.provider, input.action);
   await input.ensureSourceChain?.();
   const adapter = await adapterFromProvider(input.provider);
   const request = input.reviewed.request;
@@ -178,20 +407,125 @@ export async function executeReviewedAppKitBridge(input: {
     ...(quote ? { quote } : {}),
   } as unknown as BridgeParams;
 
-  return appKit.bridge(params);
+  return executeWithActionReplayLock({
+    actionId: input.action.actionId,
+    providerId: 'circle-appkit-bridge',
+    operation: 'BRIDGE',
+    submit: () => appKit.bridge(params),
+  });
+}
+
+export function assertAppKitBridgeRetryReady(input: {
+  reviewed: ReviewedAppKitBridge;
+  action: BridgeAction;
+  result: BridgeResult;
+  runtimeEnvironment: ExecutionRuntimeEnvironment;
+  recoveryConfirmed?: boolean;
+}): void {
+  assertSecurityGateReady();
+  assertReviewedAppKitBridgeMatchesAction(input.reviewed, input.action);
+  assertAddress(input.action.from);
+  assertAddress(input.action.to);
+
+  if (input.action.amount <= 0n) {
+    throw new Error('[appKit] Recovery action amount must be greater than zero.');
+  }
+  if (input.action.sourceChainId === input.action.destinationChainId) {
+    throw new Error('[appKit] Recovery action source and destination chains must differ.');
+  }
+
+  // Recovery proves that a source transfer was already submitted. It must not
+  // reuse the new-execution quote-freshness gate because that could strand
+  // in-flight funds after the original quote expires.
+  assertRetryBridgeAllowed(input.result);
+
+  const eligibility = checkProviderRecoveryEligibility(
+    'circle-appkit-bridge',
+    'BRIDGE',
+    input.action.sourceChainId,
+    input.action.tokenAddress,
+    input.runtimeEnvironment,
+  );
+
+  if (!eligibility.eligible || eligibility.status !== 'ELIGIBLE') {
+    throw new Error(
+      `[appKit] App Kit bridge recovery is not ready: ${eligibility.status}. ${eligibility.detail}`,
+    );
+  }
+
+  if (eligibility.requiresConfirmation && !input.recoveryConfirmed) {
+    throw new Error(
+      '[appKit] App Kit bridge recovery requires explicit confirmation because provider health is not fully OK.',
+    );
+  }
 }
 
 export async function retryAppKitBridge(input: {
   provider: EIP1193Provider;
   result: BridgeResult;
-  useForwarder: boolean;
+  reviewed: ReviewedAppKitBridge;
+  action: BridgeAction;
+  runtimeEnvironment: ExecutionRuntimeEnvironment;
+  recoveryConfirmed?: boolean;
+  ensureSourceChain?: EnsureSourceChain;
 }): Promise<BridgeResult> {
-  assertRetryBridgeAllowed(input.result);
+  assertAppKitBridgeRetryReady(input);
+
+  await assertWalletAccountMatchesBridgeAction(input.provider, input.action);
+  await input.ensureSourceChain?.();
+
   const adapter = await adapterFromProvider(input.provider);
   return appKit.retryBridge(input.result, {
     from: adapter,
-    to: input.useForwarder ? undefined : adapter,
+    to: input.reviewed.request.useForwarder ? undefined : adapter,
   });
+}
+
+export function assertUnifiedSpendMatchesAction(input: {
+  sourceChain: CircleAppKitChain;
+  destinationChain: CircleAppKitChain;
+  recipientAddress: string;
+  amount: string;
+  action: BridgeAction;
+}): void {
+  const sourceChainId = appKitTestnetChainId(input.sourceChain);
+  const destinationChainId = appKitTestnetChainId(input.destinationChain);
+
+  if (input.action.providerId !== 'circle-appkit-unified-balance') {
+    throw new Error('[appKit] Unified spend action provider does not match circle-appkit-unified-balance.');
+  }
+  if (
+    input.action.provenance.providerId !== undefined &&
+    input.action.provenance.providerId !== 'circle-appkit-unified-balance'
+  ) {
+    throw new Error('[appKit] Unified spend provenance provider does not match circle-appkit-unified-balance.');
+  }
+  if (sourceChainId === null || destinationChainId === null) {
+    throw new Error('[appKit] Unified spend chain is outside the verified App Kit testnet scope.');
+  }
+  if (
+    input.action.chainId !== input.action.sourceChainId ||
+    input.action.sourceChainId !== sourceChainId ||
+    input.action.destinationChainId !== destinationChainId
+  ) {
+    throw new Error('[appKit] Unified spend chains do not match the deterministic action.');
+  }
+  if (input.action.to.toLowerCase() !== input.recipientAddress.toLowerCase()) {
+    throw new Error('[appKit] Unified spend recipient does not match the deterministic action.');
+  }
+
+  const reviewedAmount = parseUnits(input.amount, input.action.tokenDecimals);
+  if (reviewedAmount !== input.action.amount) {
+    throw new Error('[appKit] Unified spend amount does not match the deterministic action.');
+  }
+
+  const expectedUsdc = expectedTestnetUsdc(sourceChainId);
+  if (
+    !expectedUsdc ||
+    input.action.tokenAddress.toLowerCase() !== expectedUsdc.toLowerCase()
+  ) {
+    throw new Error('[appKit] Unified spend asset does not match the verified source-chain USDC deployment.');
+  }
 }
 
 /** Read-only unified balance. No wallet network switch is required. */
@@ -209,26 +543,21 @@ export async function readUnifiedUsdcBalance(input: {
   return appKit.unifiedBalance.getBalances(params);
 }
 
-export async function depositUnifiedUsdc(input: {
+export function depositUnifiedUsdc(_input: {
   provider: EIP1193Provider;
   sourceChain: string;
   amount: string;
   allowanceStrategy?: 'authorize' | 'permit' | 'approve';
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<UnifiedDepositResult> {
-  const chain = assertCircleAppKitChain(input.sourceChain);
-  const amount = normalizeAmount(input.amount);
-  await input.ensureSourceChain?.();
-  const adapter = await adapterFromProvider(input.provider);
-  const params = {
-    from: { adapter, chain },
-    amount,
-    token: 'USDC',
-    ...(input.allowanceStrategy
-      ? { allowanceStrategy: input.allowanceStrategy }
-      : {}),
-  } as unknown as UnifiedDepositParams;
-  return appKit.unifiedBalance.deposit(params);
+  // Fail closed until Veyra has a canonical deterministic action schema that
+  // can bind a Unified deposit to its exact provider-controlled destination.
+  // A raw App Kit deposit call must never bypass assertExecutionReady().
+  return Promise.reject(
+    new Error(
+      '[appKit] Unified deposit is blocked until a canonical Veyra Unified-deposit action is implemented and execution-bound.',
+    ),
+  );
 }
 
 /**
@@ -241,12 +570,38 @@ export async function spendUnifiedUsdcForwarded(input: {
   destinationChain: string;
   recipientAddress: string;
   amount: string;
+  action: BridgeAction;
+  runtimeEnvironment: ExecutionRuntimeEnvironment;
+  degradedProviderConfirmed?: boolean;
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<UnifiedSpendResult> {
   const sourceChain = assertCircleAppKitChain(input.sourceChain);
   const destinationChain = assertCircleAppKitChain(input.destinationChain);
   const recipientAddress = assertAddress(input.recipientAddress);
   const amount = normalizeAmount(input.amount);
+
+  assertUnifiedSpendMatchesAction({
+    sourceChain,
+    destinationChain,
+    recipientAddress,
+    amount,
+    action: input.action,
+  });
+
+  assertExecutionReady({
+    action: input.action,
+    providerId: 'circle-appkit-unified-balance',
+    providerCapability: 'UNIFIED_BALANCE',
+    assetAddress: input.action.tokenAddress,
+    runtimeEnvironment: input.runtimeEnvironment,
+    degradedProviderConfirmed: input.degradedProviderConfirmed,
+  });
+
+  await assertWalletAccountMatchesAddress(
+    input.provider,
+    input.action.from,
+    'Unified spend sender',
+  );
   await input.ensureSourceChain?.();
   const adapter = await adapterFromProvider(input.provider);
   const params = {
@@ -262,7 +617,13 @@ export async function spendUnifiedUsdcForwarded(input: {
     amount,
     token: 'USDC',
   } as unknown as UnifiedSpendParams;
-  return appKit.unifiedBalance.spend(params);
+
+  return executeWithActionReplayLock({
+    actionId: input.action.actionId,
+    providerId: 'circle-appkit-unified-balance',
+    operation: 'UNIFIED_SPEND',
+    submit: () => appKit.unifiedBalance.spend(params),
+  });
 }
 
 export interface AppKitSwapReviewRequest {
@@ -279,6 +640,82 @@ export interface ReviewedAppKitSwap {
   estimate: SwapEstimate;
 }
 
+
+export function assertReviewedAppKitSwapMatchesAction(
+  reviewed: ReviewedAppKitSwap,
+  action: ConvertAction,
+): void {
+  if (action.providerId !== 'circle-appkit-swap') {
+    throw new Error('[appKit] Swap action provider does not match circle-appkit-swap.');
+  }
+
+  if (
+    action.provenance.providerId !== undefined &&
+    action.provenance.providerId !== 'circle-appkit-swap'
+  ) {
+    throw new Error('[appKit] Swap action provenance provider does not match circle-appkit-swap.');
+  }
+
+  const chainId = appKitTestnetChainId(reviewed.request.chain);
+  if (
+    chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID ||
+    action.chainId !== chainId
+  ) {
+    throw new Error('[appKit] Reviewed swap chain does not match the deterministic action.');
+  }
+
+  const tokenIn = arcTestnetAssetAddress(reviewed.request.tokenIn);
+  const tokenOut = arcTestnetAssetAddress(reviewed.request.tokenOut);
+  if (!tokenIn || !tokenOut) {
+    throw new Error('[appKit] Reviewed swap asset is outside the verified Arc testnet scope.');
+  }
+  if (action.fromTokenAddress.toLowerCase() !== tokenIn.toLowerCase()) {
+    throw new Error('[appKit] Reviewed swap input asset does not match the deterministic action.');
+  }
+  if (action.toTokenAddress.toLowerCase() !== tokenOut.toLowerCase()) {
+    throw new Error('[appKit] Reviewed swap output asset does not match the deterministic action.');
+  }
+
+  const reviewedAmount = parseUnits(reviewed.request.amountIn, action.fromTokenDecimals);
+  if (reviewedAmount !== action.amountIn) {
+    throw new Error('[appKit] Reviewed swap amount does not match the deterministic action.');
+  }
+
+  if (reviewed.request.slippageBps !== action.slippageBps) {
+    throw new Error('[appKit] Reviewed swap slippage does not match the deterministic action.');
+  }
+}
+
+
+export function assertReviewedSwapFeeMatchesCurrentPolicy(
+  reviewed: ReviewedAppKitSwap,
+  runtimeEnvironment: ExecutionRuntimeEnvironment,
+): void {
+  const environment = feeEnvironmentForRuntime(runtimeEnvironment);
+  const current = quoteVeyraFee({
+    capability: 'SWAP',
+    providerId: 'circle-appkit-swap',
+    environment,
+    treasuryAddress: configuredVeyraTreasuryAddress(environment),
+  });
+  const reviewedFee = reviewed.request.veyraFee;
+
+  const matches =
+    reviewedFee.capability === current.capability &&
+    reviewedFee.providerId === current.providerId &&
+    reviewedFee.status === current.status &&
+    reviewedFee.collectionMode === current.collectionMode &&
+    reviewedFee.percentageBps === current.percentageBps &&
+    reviewedFee.veyraAddedSignatures === 0 &&
+    sameOptionalAddress(reviewedFee.treasuryAddress, current.treasuryAddress);
+
+  if (!matches) {
+    throw new Error(
+      '[appKit] Reviewed swap fee no longer matches current Veyra fee policy/Treasury. Obtain a fresh review.',
+    );
+  }
+}
+
 /** Estimate-only. Execution requires a later explicit user action. */
 export async function reviewAppKitSwap(input: {
   provider: EIP1193Provider;
@@ -293,6 +730,10 @@ export async function reviewAppKitSwap(input: {
 }): Promise<ReviewedAppKitSwap> {
   const chain = assertCircleAppKitChain(input.chain);
   const amountIn = normalizeAmount(input.amountIn);
+  const slippageBps = input.slippageBps ?? SECURITY_CONFIG.DEFAULT_MAX_SLIPPAGE_BPS;
+  if (slippageBps < 0 || slippageBps > SECURITY_CONFIG.HARD_MAX_SLIPPAGE_BPS) {
+    throw new Error('Swap slippage is outside Veyra safety bounds');
+  }
   if (!input.tokenIn.trim() || !input.tokenOut.trim()) throw new Error('Swap tokens are required');
   if (input.tokenIn.toUpperCase() === input.tokenOut.toUpperCase()) {
     throw new Error('Swap input and output assets must be different');
@@ -315,7 +756,7 @@ export async function reviewAppKitSwap(input: {
     treasuryAddress,
   });
   const config = {
-    ...(input.slippageBps !== undefined ? { slippageBps: input.slippageBps } : {}),
+    slippageBps,
     ...(veyraFee.status === 'COLLECTIBLE' && veyraFee.treasuryAddress
       ? {
           customFee: {
@@ -339,7 +780,7 @@ export async function reviewAppKitSwap(input: {
       tokenIn: input.tokenIn,
       tokenOut: input.tokenOut,
       amountIn,
-      ...(input.slippageBps !== undefined ? { slippageBps: input.slippageBps } : {}),
+      slippageBps,
       veyraFee,
     },
     estimate,
@@ -349,8 +790,32 @@ export async function reviewAppKitSwap(input: {
 export async function executeReviewedAppKitSwap(input: {
   provider: EIP1193Provider;
   reviewed: ReviewedAppKitSwap;
+  action: ConvertAction;
+  walletAddress: string;
+  runtimeEnvironment: ExecutionRuntimeEnvironment;
+  degradedProviderConfirmed?: boolean;
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<SwapResult> {
+  assertReviewedAppKitSwapMatchesAction(input.reviewed, input.action);
+  assertReviewedSwapFeeMatchesCurrentPolicy(
+    input.reviewed,
+    input.runtimeEnvironment,
+  );
+
+  assertExecutionReady({
+    action: input.action,
+    providerId: 'circle-appkit-swap',
+    providerCapability: 'SWAP',
+    assetAddress: input.action.fromTokenAddress,
+    runtimeEnvironment: input.runtimeEnvironment,
+    degradedProviderConfirmed: input.degradedProviderConfirmed,
+  });
+
+  await assertWalletAccountMatchesAddress(
+    input.provider,
+    assertAddress(input.walletAddress),
+    'swap sender',
+  );
   await input.ensureSourceChain?.();
   const adapter = await adapterFromProvider(input.provider);
   const request = input.reviewed.request;
@@ -372,7 +837,13 @@ export async function executeReviewedAppKitSwap(input: {
     amountIn: request.amountIn,
     ...(Object.keys(config).length > 0 ? { config } : {}),
   } as unknown as SwapParams;
-  return appKit.swap(params);
+
+  return executeWithActionReplayLock({
+    actionId: input.action.actionId,
+    providerId: 'circle-appkit-swap',
+    operation: 'SWAP',
+    submit: () => appKit.swap(params),
+  });
 }
 
 /** Discover is read-only; returned metadata must be surfaced with provenance. */
@@ -385,13 +856,160 @@ export async function exploreAppKitEarnVaults(input: {
   return appKit.earn.exploreVaults(params);
 }
 
+export interface AppKitEarnReviewRequest {
+  chain: CircleAppKitChain;
+  vaultAddress: string;
+  amount: string;
+}
+
+export interface ReviewedAppKitEarnDeposit {
+  request: AppKitEarnReviewRequest;
+  quote: EarnDepositQuote;
+}
+
+export interface ReviewedAppKitEarnWithdrawal {
+  request: AppKitEarnReviewRequest;
+  quote: EarnWithdrawalQuote;
+}
+
+function assertEarnExplainabilityMatchesAction(
+  explainability: EarnExplainabilityInput,
+  request: AppKitEarnReviewRequest,
+  tokenDecimals: number,
+  expectedAmount: bigint,
+): void {
+  assertEarnExplainabilityComplete(explainability);
+
+  const providerId = explainability.providerId?.trim() ?? '';
+  const chain = explainability.chain?.trim() ?? '';
+  const vaultAddress = explainability.vaultAddress?.trim() ?? '';
+  const asset = explainability.asset?.trim() ?? '';
+  const amount = explainability.amount?.trim() ?? '';
+
+  if (providerId !== 'circle-appkit-earn') {
+    throw new Error('[appKit] Earn explainability provider does not match circle-appkit-earn.');
+  }
+  if (chain !== request.chain) {
+    throw new Error('[appKit] Earn explainability chain does not match the reviewed request.');
+  }
+  if (vaultAddress.toLowerCase() !== request.vaultAddress.toLowerCase()) {
+    throw new Error('[appKit] Earn explainability vault does not match the reviewed request.');
+  }
+  if (asset.toUpperCase() !== 'USDC') {
+    throw new Error('[appKit] Earn explainability asset must be USDC for the current verified scope.');
+  }
+  if (parseUnits(amount, tokenDecimals) !== expectedAmount) {
+    throw new Error('[appKit] Earn explainability amount does not match the deterministic action.');
+  }
+}
+
+export function assertReviewedEarnDepositMatchesAction(
+  reviewed: ReviewedAppKitEarnDeposit,
+  action: SupplyAction,
+  explainability: EarnExplainabilityInput,
+): void {
+  if (action.providerId !== 'circle-appkit-earn') {
+    throw new Error('[appKit] Earn deposit action provider does not match circle-appkit-earn.');
+  }
+  if (
+    action.provenance.providerId !== undefined &&
+    action.provenance.providerId !== 'circle-appkit-earn'
+  ) {
+    throw new Error('[appKit] Earn deposit provenance provider does not match circle-appkit-earn.');
+  }
+
+  const chainId = appKitTestnetChainId(reviewed.request.chain);
+  if (
+    chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID ||
+    action.chainId !== chainId
+  ) {
+    throw new Error('[appKit] Reviewed Earn deposit chain does not match the deterministic action.');
+  }
+
+  if (
+    action.protocolAddress.toLowerCase() !==
+    reviewed.request.vaultAddress.toLowerCase()
+  ) {
+    throw new Error('[appKit] Reviewed Earn deposit vault does not match the deterministic action.');
+  }
+
+  if (
+    action.tokenAddress.toLowerCase() !==
+    MANIFEST_CONSTANTS.ARC_TESTNET_USDC.toLowerCase()
+  ) {
+    throw new Error('[appKit] Earn deposit asset must be Arc Testnet USDC.');
+  }
+
+  const reviewedAmount = parseUnits(reviewed.request.amount, action.tokenDecimals);
+  if (reviewedAmount !== action.amount) {
+    throw new Error('[appKit] Reviewed Earn deposit amount does not match the deterministic action.');
+  }
+
+  assertEarnExplainabilityMatchesAction(
+    explainability,
+    reviewed.request,
+    action.tokenDecimals,
+    action.amount,
+  );
+}
+
+export function assertReviewedEarnWithdrawalMatchesAction(
+  reviewed: ReviewedAppKitEarnWithdrawal,
+  action: WithdrawAction,
+  explainability: EarnExplainabilityInput,
+): void {
+  if (action.providerId !== 'circle-appkit-earn') {
+    throw new Error('[appKit] Earn withdrawal action provider does not match circle-appkit-earn.');
+  }
+  if (
+    action.provenance.providerId !== undefined &&
+    action.provenance.providerId !== 'circle-appkit-earn'
+  ) {
+    throw new Error('[appKit] Earn withdrawal provenance provider does not match circle-appkit-earn.');
+  }
+
+  const chainId = appKitTestnetChainId(reviewed.request.chain);
+  if (
+    chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID ||
+    action.chainId !== chainId
+  ) {
+    throw new Error('[appKit] Reviewed Earn withdrawal chain does not match the deterministic action.');
+  }
+
+  if (
+    action.protocolAddress.toLowerCase() !==
+    reviewed.request.vaultAddress.toLowerCase()
+  ) {
+    throw new Error('[appKit] Reviewed Earn withdrawal vault does not match the deterministic action.');
+  }
+
+  if (
+    action.tokenAddress.toLowerCase() !==
+    MANIFEST_CONSTANTS.ARC_TESTNET_USDC.toLowerCase()
+  ) {
+    throw new Error('[appKit] Earn withdrawal asset must be Arc Testnet USDC.');
+  }
+
+  const reviewedAmount = parseUnits(reviewed.request.amount, action.tokenDecimals);
+  if (reviewedAmount !== action.amount) {
+    throw new Error('[appKit] Reviewed Earn withdrawal amount does not match the deterministic action.');
+  }
+
+  assertEarnExplainabilityMatchesAction(
+    explainability,
+    reviewed.request,
+    action.tokenDecimals,
+    action.amount,
+  );
+}
+
 export async function reviewEarnDeposit(input: {
   provider: EIP1193Provider;
   chain: string;
   vaultAddress: string;
   amount: string;
   ensureSourceChain?: EnsureSourceChain;
-}): Promise<EarnDepositQuote> {
+}): Promise<ReviewedAppKitEarnDeposit> {
   const chain = assertCircleAppKitChain(input.chain);
   const amount = normalizeAmount(input.amount);
   const vaultAddress = assertAddress(input.vaultAddress);
@@ -402,29 +1020,57 @@ export async function reviewEarnDeposit(input: {
     vaultAddress,
     amount,
   } as unknown as EarnDepositQuoteParams;
-  return appKit.earn.getDepositQuote(params);
+  const quote = await appKit.earn.getDepositQuote(params);
+  return {
+    request: { chain, vaultAddress, amount },
+    quote,
+  };
 }
 
 export async function executeEarnDeposit(input: {
   provider: EIP1193Provider;
-  chain: string;
-  vaultAddress: string;
-  amount: string;
+  reviewed: ReviewedAppKitEarnDeposit;
+  action: SupplyAction;
   explainability: EarnExplainabilityInput;
+  runtimeEnvironment: ExecutionRuntimeEnvironment;
+  degradedProviderConfirmed?: boolean;
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<EarnDepositResult> {
-  assertEarnExplainabilityComplete(input.explainability);
-  const chain = assertCircleAppKitChain(input.chain);
-  const amount = normalizeAmount(input.amount);
-  const vaultAddress = assertAddress(input.vaultAddress);
+  assertReviewedEarnDepositMatchesAction(
+    input.reviewed,
+    input.action,
+    input.explainability,
+  );
+
+  assertExecutionReady({
+    action: input.action,
+    providerId: 'circle-appkit-earn',
+    providerCapability: 'EARN_DEPOSIT',
+    assetAddress: input.action.tokenAddress,
+    runtimeEnvironment: input.runtimeEnvironment,
+    degradedProviderConfirmed: input.degradedProviderConfirmed,
+  });
+
+  await assertWalletAccountMatchesAddress(
+    input.provider,
+    input.action.from,
+    'Earn deposit sender',
+  );
   await input.ensureSourceChain?.();
+
   const adapter = await adapterFromProvider(input.provider);
   const params = {
-    from: { adapter, chain },
-    vaultAddress,
-    amount,
+    from: { adapter, chain: input.reviewed.request.chain },
+    vaultAddress: input.reviewed.request.vaultAddress,
+    amount: input.reviewed.request.amount,
   } as unknown as EarnDepositParams;
-  return appKit.earn.deposit(params);
+
+  return executeWithActionReplayLock({
+    actionId: input.action.actionId,
+    providerId: 'circle-appkit-earn',
+    operation: 'EARN_DEPOSIT',
+    submit: () => appKit.earn.deposit(params),
+  });
 }
 
 export async function readEarnPosition(input: {
@@ -448,7 +1094,7 @@ export async function reviewEarnWithdrawal(input: {
   vaultAddress: string;
   amount: string;
   ensureSourceChain?: EnsureSourceChain;
-}): Promise<EarnWithdrawalQuote> {
+}): Promise<ReviewedAppKitEarnWithdrawal> {
   const chain = assertCircleAppKitChain(input.chain);
   const amount = normalizeAmount(input.amount);
   const vaultAddress = assertAddress(input.vaultAddress);
@@ -459,27 +1105,56 @@ export async function reviewEarnWithdrawal(input: {
     vaultAddress,
     amount,
   } as unknown as EarnWithdrawalQuoteParams;
-  return appKit.earn.getWithdrawalQuote(params);
+  const quote = await appKit.earn.getWithdrawalQuote(params);
+  return {
+    request: { chain, vaultAddress, amount },
+    quote,
+  };
 }
 
 export async function executeEarnWithdrawal(input: {
   provider: EIP1193Provider;
-  chain: string;
-  vaultAddress: string;
-  amount: string;
+  reviewed: ReviewedAppKitEarnWithdrawal;
+  action: WithdrawAction;
+  explainability: EarnExplainabilityInput;
+  runtimeEnvironment: ExecutionRuntimeEnvironment;
+  degradedProviderConfirmed?: boolean;
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<EarnWithdrawResult> {
-  const chain = assertCircleAppKitChain(input.chain);
-  const amount = normalizeAmount(input.amount);
-  const vaultAddress = assertAddress(input.vaultAddress);
+  assertReviewedEarnWithdrawalMatchesAction(
+    input.reviewed,
+    input.action,
+    input.explainability,
+  );
+
+  assertExecutionReady({
+    action: input.action,
+    providerId: 'circle-appkit-earn',
+    providerCapability: 'EARN_WITHDRAW',
+    assetAddress: input.action.tokenAddress,
+    runtimeEnvironment: input.runtimeEnvironment,
+    degradedProviderConfirmed: input.degradedProviderConfirmed,
+  });
+
+  await assertWalletAccountMatchesAddress(
+    input.provider,
+    input.action.to,
+    'Earn withdrawal recipient',
+  );
   await input.ensureSourceChain?.();
+
   const adapter = await adapterFromProvider(input.provider);
   const params = {
-    from: { adapter, chain },
-    vaultAddress,
-    amount,
+    from: { adapter, chain: input.reviewed.request.chain },
+    vaultAddress: input.reviewed.request.vaultAddress,
+    amount: input.reviewed.request.amount,
   } as unknown as EarnWithdrawParams;
-  return appKit.earn.withdraw(params);
+
+  return executeWithActionReplayLock({
+    actionId: input.action.actionId,
+    providerId: 'circle-appkit-earn',
+    operation: 'EARN_WITHDRAW',
+    submit: () => appKit.earn.withdraw(params),
+  });
 }
 
-export { appKit };

@@ -54,6 +54,31 @@ describe('Phase 4D provider activation evidence', () => {
     expect(result.missing).toContain('explicitPromotionToTESTED');
   });
 
+  it('requires duplicate-prevention evidence for non-bridge fund-moving providers too', () => {
+    const entry = findManifestEntry('circle-appkit-swap')!;
+    const base: ProviderActivationEvidence = {
+      providerId: 'circle-appkit-swap',
+      capability: 'SWAP',
+      environment: 'testnet',
+      executedAt: '2026-10-10T06:00:00.000Z',
+      adapterVersion: '1.15.2',
+      realExecution: true,
+      finalStateVerified: true,
+      receiptVerified: true,
+      signatureBudgetVerified: true,
+      evidenceRefs: ['tx:0xabc', 'receipt:verified'],
+    };
+
+    const missingReplay = evaluateProviderActivationReadiness(entry, [base]);
+    expect(missingReplay.readyForTested).toBe(false);
+    expect(missingReplay.missing).toContain('verifiedE2E:SWAP');
+
+    const replayVerified = evaluateProviderActivationReadiness(entry, [
+      { ...base, duplicatePreventionVerified: true },
+    ]);
+    expect(replayVerified.readyForTested).toBe(true);
+  });
+
   it('requires Earn explainability evidence for fund-moving Earn capabilities', () => {
     const entry = findManifestEntry('circle-appkit-earn')!;
     const base = {

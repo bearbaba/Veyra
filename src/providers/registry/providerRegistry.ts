@@ -354,6 +354,122 @@ export function checkProviderEligibility(
 }
 
 /**
+ * Recovery-only provider gate for an already-submitted money movement.
+ *
+ * This deliberately does NOT require enabled=true or lifecycleStage=ENABLED:
+ * an in-flight recovery may outlive an execution-time disable/downgrade.
+ * It still requires a registered, implemented, trusted provider whose
+ * environment/capability/chain/asset metadata match the immutable action.
+ *
+ * DOWN blocks. DEGRADED/UNKNOWN require explicit recovery confirmation.
+ * New executions must continue to use checkProviderEligibility().
+ */
+export function checkProviderRecoveryEligibility(
+  providerId: string,
+  capability: ProviderCapability,
+  chainId: number,
+  assetAddress?: string,
+  runtimeEnvironment: 'local' | 'testnet' | 'mainnet' = 'testnet',
+): ProviderEligibilityResult {
+  const result = getProvider(providerId);
+
+  if (!result.found) {
+    return {
+      eligible: false,
+      status: 'NOT_FOUND',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" is not registered. Recovery cannot proceed.`,
+    };
+  }
+
+  const { entry, effectiveHealth: health } = result;
+
+  if (!environmentMatches(entry.environment, runtimeEnvironment)) {
+    return {
+      eligible: false,
+      status: 'ENVIRONMENT_NOT_SUPPORTED',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" is registered for ${entry.environment}, not ${runtimeEnvironment}.`,
+    };
+  }
+
+  if (entry.trustStatus === 'UNVERIFIED' || entry.trustStatus === 'DISABLED') {
+    return {
+      eligible: false,
+      status: entry.trustStatus === 'UNVERIFIED' ? 'UNVERIFIED' : 'DISABLED',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" trust status ${entry.trustStatus} blocks recovery.`,
+    };
+  }
+
+  if (entry.lifecycleStage === 'DISCOVERED' || entry.lifecycleStage === 'VERIFIED') {
+    return {
+      eligible: false,
+      status: 'NOT_LIFECYCLE_READY',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" has no implemented recovery adapter.`,
+    };
+  }
+
+  if (!entry.capabilities.includes(capability)) {
+    return {
+      eligible: false,
+      status: 'CAPABILITY_NOT_SUPPORTED',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" does not support capability "${capability}".`,
+    };
+  }
+
+  if (!entry.supportedChainIds.includes(chainId)) {
+    return {
+      eligible: false,
+      status: 'CHAIN_NOT_SUPPORTED',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" does not support recovery source chain ${chainId}.`,
+    };
+  }
+
+  if (
+    assetAddress !== undefined &&
+    !assetSupportedOnChain(entry, chainId, assetAddress)
+  ) {
+    return {
+      eligible: false,
+      status: 'ASSET_NOT_SUPPORTED',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" does not support recovery asset "${assetAddress}" on chain ${chainId}.`,
+    };
+  }
+
+  if (health === 'DOWN') {
+    return {
+      eligible: false,
+      status: 'HEALTH_DOWN',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" health is DOWN. Recovery is paused.`,
+    };
+  }
+
+  if (health === 'DEGRADED' || health === 'UNKNOWN') {
+    return {
+      eligible: true,
+      status: 'ELIGIBLE',
+      requiresConfirmation: true,
+      detail:
+        `Provider "${providerId}" recovery health is ${health}. ` +
+        'Funds are already in flight; retry requires explicit recovery confirmation.',
+    };
+  }
+
+  return {
+    eligible: true,
+    status: 'ELIGIBLE',
+    requiresConfirmation: false,
+    detail: `Provider "${providerId}" is eligible to recover the existing in-flight operation.`,
+  };
+}
+
+/**
  * Find the best eligible provider for a capability on a chain with an asset.
  * Returns the first fully eligible provider (OK health preferred over DEGRADED).
  */

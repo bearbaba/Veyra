@@ -29,6 +29,10 @@ describe('SECURITY_CONFIG', () => {
     expect(SECURITY_CONFIG.QUOTE_REPLAY_RETENTION_MS).toBeGreaterThan(0);
   });
 
+  it('has a positive ACTION_EXECUTION_RESERVATION_TIMEOUT_MS', () => {
+    expect(SECURITY_CONFIG.ACTION_EXECUTION_RESERVATION_TIMEOUT_MS).toBeGreaterThan(0);
+  });
+
   it('DEFAULT_MAX_SLIPPAGE_BPS is within 0–500', () => {
     expect(SECURITY_CONFIG.DEFAULT_MAX_SLIPPAGE_BPS).toBeGreaterThan(0);
     expect(SECURITY_CONFIG.DEFAULT_MAX_SLIPPAGE_BPS).toBeLessThanOrEqual(500);

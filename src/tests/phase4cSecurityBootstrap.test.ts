@@ -13,6 +13,11 @@ import {
   isQuoteReplayStoreHydrated,
   resetQuoteReplayStore,
 } from '../core/receipt/quoteReplayStore';
+import {
+  forceActionExecutionReplayUnhydratedForTesting,
+  isActionExecutionReplayStoreHydrated,
+  resetActionExecutionReplayStore,
+} from '../core/execution/actionExecutionReplayStore';
 
 beforeEach(async () => {
   // Keep real timers here. fake-indexeddb dispatches asynchronous IDB events;
@@ -22,6 +27,9 @@ beforeEach(async () => {
   forceUnhydratedForTesting();
   await resetQuoteReplayStore();
   forceUnhydratedForTesting();
+  forceActionExecutionReplayUnhydratedForTesting();
+  await resetActionExecutionReplayStore();
+  forceActionExecutionReplayUnhydratedForTesting();
   resetSecurityGate();
 });
 
@@ -31,6 +39,7 @@ describe('Phase 4C security bootstrap', () => {
     await promise;
 
     expect(isQuoteReplayStoreHydrated()).toBe(true);
+    expect(isActionExecutionReplayStoreHydrated()).toBe(true);
     expect(getSecurityGateStatus().state).toBe('READY');
   });
 
