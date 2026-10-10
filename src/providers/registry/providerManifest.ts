@@ -288,7 +288,7 @@ const TESTNET_PROVIDER_MANIFEST: ProviderManifestEntry[] = [
         'Official Circle App Kit example verified for unifiedBalance.deposit(), spend(), and getBalances(). ' +
         'Forwarding Service can complete the destination mint without a destination wallet switch. ' +
         'Browser adapters use @circle-fin/adapter-viem-v2. ' +
-        'IMPLEMENTED in Phase 4B but disabled until Veyra completes real testnet E2E and receipt verification.',
+        'LIFECYCLE GATE: IMPLEMENTED in Phase 4B but disabled until Veyra completes real testnet E2E and receipt verification.',
     },
   },
 
@@ -315,7 +315,7 @@ const TESTNET_PROVIDER_MANIFEST: ProviderManifestEntry[] = [
       notes:
         'Official Circle App Kit bridge() and retryBridge() flow verified. ' +
         'Veyra defaults browser-wallet bridge reviews to Forwarding Service where supported to avoid destination-chain switching. ' +
-        'The existing cctp-v2-bridge remains the ENABLED testnet route until this adapter completes its own E2E.',
+        'LIFECYCLE GATE: the existing cctp-v2-bridge remains the ENABLED testnet route until this adapter completes its own E2E.',
     },
   },
 
@@ -342,7 +342,7 @@ const TESTNET_PROVIDER_MANIFEST: ProviderManifestEntry[] = [
       notes:
         'Official Circle App Kit swap() example verified for Arc Testnet. ' +
         'Veyra implements estimate-before-execute and never exposes a browser kit key. ' +
-        'Disabled until real testnet E2E validates quote, execution, amount delta, and receipt.',
+        'LIFECYCLE GATE: disabled until real testnet E2E validates quote, execution, amount delta, and receipt.',
     },
   },
 
@@ -369,7 +369,7 @@ const TESTNET_PROVIDER_MANIFEST: ProviderManifestEntry[] = [
       notes:
         'Official Circle App Kit Earn example verified for exploreVaults(), deposit quote, deposit, position, withdrawal quote, and withdraw on Arc Testnet. ' +
         'Veyra must surface vault provenance, APY timestamp/source, fees, liquidity, withdrawal terms, and risk before enabling deposit. ' +
-        'Disabled until real testnet E2E and explainability requirements are satisfied.',
+        'LIFECYCLE GATE: disabled until real testnet E2E and explainability requirements are satisfied.',
     },
   },
 ];
