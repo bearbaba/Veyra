@@ -71,6 +71,10 @@ export function evaluateProviderActivationReadiness(
       if (!item.receiptVerified) return false;
       if (!item.signatureBudgetVerified) return false;
       if (!item.adapterVersion.trim()) return false;
+      if (
+        entry.packageVersion &&
+        item.adapterVersion.trim() !== entry.packageVersion.trim()
+      ) return false;
       if (!Number.isFinite(Date.parse(item.executedAt))) return false;
       if (item.evidenceRefs.filter((ref) => ref.trim()).length === 0) return false;
 
