@@ -45,7 +45,10 @@ import { assertServerRuntimeConfig } from './config/runtimeConfig.js';
 import { getRateLimitPolicy } from './config/rateLimits.js';
 import { requestObservability } from './middleware/observability.js';
 import { PROVIDER_MANIFEST } from '../src/providers/registry/providerManifest.js';
-import { verifyCctpSourceReceiptEvidence } from '../src/providers/cctp/cctpV2Adapter.js';
+import {
+  verifyCctpSourceReceiptEvidence,
+  verifyCctpSourceTransactionBinding,
+} from '../src/providers/cctp/cctpV2Adapter.js';
 import { evaluateMainnetReadiness } from './readiness/mainnetReadiness.js';
 import { probeSignerReadiness } from './readiness/signerReadiness.js';
 import { probeDatabaseReadiness } from './readiness/databaseReadiness.js';
@@ -1377,13 +1380,22 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
       }),
     ]);
 
-    if (
-      sourceTransaction.from.toLowerCase() !==
-      checkpoint.walletAddress.toLowerCase()
-    ) {
-      throw new BridgeRecoveryConflictError(
-        'Persisted CCTP source burn was not sent by the owned recovery wallet',
-      );
+    const sourceBinding = verifyCctpSourceTransactionBinding(
+      {
+        from: sourceTransaction.from,
+        to: sourceTransaction.to,
+        input: sourceTransaction.input,
+      },
+      {
+        sender: checkpoint.walletAddress as `0x${string}`,
+        recipient: checkpoint.recipientAddress as `0x${string}`,
+        tokenAddress: checkpoint.tokenAddress as `0x${string}`,
+        amount: BigInt(checkpoint.amount),
+        destinationChainId: checkpoint.destinationChainId,
+      },
+    );
+    if (!sourceBinding.verified) {
+      throw new BridgeRecoveryConflictError(sourceBinding.detail);
     }
 
     const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt);
