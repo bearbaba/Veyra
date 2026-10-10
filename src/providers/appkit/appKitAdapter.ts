@@ -1,11 +1,17 @@
 import { AppKit } from '@circle-fin/app-kit';
 import { createViemAdapterFromProvider } from '@circle-fin/adapter-viem-v2';
 import { parseUnits, type EIP1193Provider } from 'viem';
-import type { BridgeAction } from '../../core/actions/actionSchema';
+import type {
+  BridgeAction,
+  ConvertAction,
+  SupplyAction,
+  WithdrawAction,
+} from '../../core/actions/actionSchema';
 import {
   assertExecutionReady,
   type ExecutionRuntimeEnvironment,
 } from '../../core/execution/executionReadiness';
+import { SECURITY_CONFIG } from '../../lib/securityConfig';
 import { assertRetryBridgeAllowed } from '../../core/router/bridgeRecovery';
 import { quoteVeyraFee, type VeyraFeeQuote } from '../../core/fees/feeEngine';
 import { configuredVeyraTreasuryAddress } from '../../core/fees/treasuryConfig';
@@ -126,6 +132,45 @@ function expectedTestnetUsdc(chainId: number): string | null {
   }
 }
 
+
+function arcTestnetAssetAddress(asset: string): string | null {
+  const normalized = asset.trim().toLowerCase();
+  if (
+    normalized === 'usdc' ||
+    normalized === MANIFEST_CONSTANTS.ARC_TESTNET_USDC.toLowerCase()
+  ) {
+    return MANIFEST_CONSTANTS.ARC_TESTNET_USDC;
+  }
+  if (
+    normalized === 'eurc' ||
+    normalized === MANIFEST_CONSTANTS.ARC_TESTNET_EURC.toLowerCase()
+  ) {
+    return MANIFEST_CONSTANTS.ARC_TESTNET_EURC;
+  }
+  return null;
+}
+
+async function assertWalletAccountMatchesAddress(
+  provider: EIP1193Provider,
+  expectedAddress: string,
+  context: string,
+): Promise<void> {
+  const accounts = await provider.request({ method: 'eth_accounts' });
+  if (!Array.isArray(accounts)) {
+    throw new Error('[appKit] Wallet account response is invalid.');
+  }
+
+  const normalizedExpected = expectedAddress.toLowerCase();
+  const matches = accounts.some(
+    (account) =>
+      typeof account === 'string' &&
+      account.toLowerCase() === normalizedExpected,
+  );
+  if (!matches) {
+    throw new Error(`[appKit] Connected wallet does not match the reviewed ${context} account.`);
+  }
+}
+
 /**
  * Bind an App Kit bridge review to the exact deterministic BridgeAction that
  * passed Veyra review. This runs again at execution time before any wallet
@@ -188,18 +233,7 @@ async function assertWalletAccountMatchesBridgeAction(
   provider: EIP1193Provider,
   action: BridgeAction,
 ): Promise<void> {
-  const accounts = await provider.request({ method: 'eth_accounts' });
-  if (!Array.isArray(accounts)) {
-    throw new Error('[appKit] Wallet account response is invalid.');
-  }
-
-  const normalizedFrom = action.from.toLowerCase();
-  const matches = accounts.some(
-    (account) => typeof account === 'string' && account.toLowerCase() === normalizedFrom,
-  );
-  if (!matches) {
-    throw new Error('[appKit] Connected wallet does not match the reviewed bridge sender.');
-  }
+  await assertWalletAccountMatchesAddress(provider, action.from, 'bridge sender');
 }
 
 /** Quote-only bridge review. Never moves funds. */
@@ -406,6 +440,52 @@ export interface ReviewedAppKitSwap {
   estimate: SwapEstimate;
 }
 
+
+export function assertReviewedAppKitSwapMatchesAction(
+  reviewed: ReviewedAppKitSwap,
+  action: ConvertAction,
+): void {
+  if (action.providerId !== 'circle-appkit-swap') {
+    throw new Error('[appKit] Swap action provider does not match circle-appkit-swap.');
+  }
+
+  if (
+    action.provenance.providerId !== undefined &&
+    action.provenance.providerId !== 'circle-appkit-swap'
+  ) {
+    throw new Error('[appKit] Swap action provenance provider does not match circle-appkit-swap.');
+  }
+
+  const chainId = appKitTestnetChainId(reviewed.request.chain);
+  if (
+    chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID ||
+    action.chainId !== chainId
+  ) {
+    throw new Error('[appKit] Reviewed swap chain does not match the deterministic action.');
+  }
+
+  const tokenIn = arcTestnetAssetAddress(reviewed.request.tokenIn);
+  const tokenOut = arcTestnetAssetAddress(reviewed.request.tokenOut);
+  if (!tokenIn || !tokenOut) {
+    throw new Error('[appKit] Reviewed swap asset is outside the verified Arc testnet scope.');
+  }
+  if (action.fromTokenAddress.toLowerCase() !== tokenIn.toLowerCase()) {
+    throw new Error('[appKit] Reviewed swap input asset does not match the deterministic action.');
+  }
+  if (action.toTokenAddress.toLowerCase() !== tokenOut.toLowerCase()) {
+    throw new Error('[appKit] Reviewed swap output asset does not match the deterministic action.');
+  }
+
+  const reviewedAmount = parseUnits(reviewed.request.amountIn, action.fromTokenDecimals);
+  if (reviewedAmount !== action.amountIn) {
+    throw new Error('[appKit] Reviewed swap amount does not match the deterministic action.');
+  }
+
+  if (reviewed.request.slippageBps !== action.slippageBps) {
+    throw new Error('[appKit] Reviewed swap slippage does not match the deterministic action.');
+  }
+}
+
 /** Estimate-only. Execution requires a later explicit user action. */
 export async function reviewAppKitSwap(input: {
   provider: EIP1193Provider;
@@ -420,6 +500,10 @@ export async function reviewAppKitSwap(input: {
 }): Promise<ReviewedAppKitSwap> {
   const chain = assertCircleAppKitChain(input.chain);
   const amountIn = normalizeAmount(input.amountIn);
+  const slippageBps = input.slippageBps ?? SECURITY_CONFIG.DEFAULT_MAX_SLIPPAGE_BPS;
+  if (slippageBps < 0 || slippageBps > SECURITY_CONFIG.HARD_MAX_SLIPPAGE_BPS) {
+    throw new Error('Swap slippage is outside Veyra safety bounds');
+  }
   if (!input.tokenIn.trim() || !input.tokenOut.trim()) throw new Error('Swap tokens are required');
   if (input.tokenIn.toUpperCase() === input.tokenOut.toUpperCase()) {
     throw new Error('Swap input and output assets must be different');
@@ -442,7 +526,7 @@ export async function reviewAppKitSwap(input: {
     treasuryAddress,
   });
   const config = {
-    ...(input.slippageBps !== undefined ? { slippageBps: input.slippageBps } : {}),
+    slippageBps,
     ...(veyraFee.status === 'COLLECTIBLE' && veyraFee.treasuryAddress
       ? {
           customFee: {
@@ -466,7 +550,7 @@ export async function reviewAppKitSwap(input: {
       tokenIn: input.tokenIn,
       tokenOut: input.tokenOut,
       amountIn,
-      ...(input.slippageBps !== undefined ? { slippageBps: input.slippageBps } : {}),
+      slippageBps,
       veyraFee,
     },
     estimate,
@@ -476,8 +560,28 @@ export async function reviewAppKitSwap(input: {
 export async function executeReviewedAppKitSwap(input: {
   provider: EIP1193Provider;
   reviewed: ReviewedAppKitSwap;
+  action: ConvertAction;
+  walletAddress: string;
+  runtimeEnvironment: ExecutionRuntimeEnvironment;
+  degradedProviderConfirmed?: boolean;
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<SwapResult> {
+  assertReviewedAppKitSwapMatchesAction(input.reviewed, input.action);
+
+  assertExecutionReady({
+    action: input.action,
+    providerId: 'circle-appkit-swap',
+    providerCapability: 'SWAP',
+    assetAddress: input.action.fromTokenAddress,
+    runtimeEnvironment: input.runtimeEnvironment,
+    degradedProviderConfirmed: input.degradedProviderConfirmed,
+  });
+
+  await assertWalletAccountMatchesAddress(
+    input.provider,
+    assertAddress(input.walletAddress),
+    'swap sender',
+  );
   await input.ensureSourceChain?.();
   const adapter = await adapterFromProvider(input.provider);
   const request = input.reviewed.request;
