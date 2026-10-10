@@ -36,6 +36,8 @@ import {
   type WalletClient,
   type Hash,
   type TransactionReceipt,
+  type Hex,
+  decodeFunctionData,
   getAddress,
 } from 'viem';
 import { MANIFEST_CONSTANTS } from '../registry/providerManifest';
@@ -298,6 +300,101 @@ export async function receiveMessage(
 
 function addressToTopic(address: Address): string {
   return `0x${'0'.repeat(24)}${address.slice(2).toLowerCase()}`;
+}
+
+export interface CctpSourceTransactionLike {
+  from: Address;
+  to: Address | null;
+  input: Hex;
+}
+
+export interface CctpSourceBindingExpectation {
+  sender: Address;
+  recipient: Address;
+  tokenAddress: Address;
+  amount: bigint;
+  destinationChainId: number;
+}
+
+export function verifyCctpSourceTransactionBinding(
+  transaction: CctpSourceTransactionLike,
+  expected: CctpSourceBindingExpectation,
+): { verified: boolean; detail: string } {
+  const messenger = getAddress(
+    MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER,
+  ).toLowerCase();
+  const sender = getAddress(expected.sender).toLowerCase();
+  const recipient = addressToBytes32(getAddress(expected.recipient)).toLowerCase();
+  const token = getAddress(expected.tokenAddress).toLowerCase();
+  const destinationDomain = chainIdToCctpDomain(expected.destinationChainId);
+  const zeroBytes32 = `0x${'00'.repeat(32)}`.toLowerCase();
+
+  if (expected.amount <= 0n) {
+    return { verified: false, detail: 'CCTP source amount must be positive.' };
+  }
+  if (transaction.from.toLowerCase() !== sender) {
+    return {
+      verified: false,
+      detail: 'CCTP source transaction sender does not match the reviewed wallet.',
+    };
+  }
+  if (!transaction.to || transaction.to.toLowerCase() !== messenger) {
+    return {
+      verified: false,
+      detail:
+        'CCTP source transaction was not sent to the configured TokenMessengerV2.',
+    };
+  }
+
+  try {
+    const decoded = decodeFunctionData({
+      abi: TOKEN_MESSENGER_V2_ABI,
+      data: transaction.input,
+    });
+    if (decoded.functionName !== 'depositForBurn') {
+      return {
+        verified: false,
+        detail: 'CCTP source transaction is not depositForBurn.',
+      };
+    }
+
+    const [
+      amount,
+      decodedDestinationDomain,
+      mintRecipient,
+      burnToken,
+      destinationCaller,
+      maxFee,
+      minFinalityThreshold,
+    ] = decoded.args;
+
+    if (
+      amount !== expected.amount ||
+      decodedDestinationDomain !== destinationDomain ||
+      mintRecipient.toLowerCase() !== recipient ||
+      burnToken.toLowerCase() !== token ||
+      destinationCaller.toLowerCase() !== zeroBytes32 ||
+      maxFee !== 0n ||
+      minFinalityThreshold !== MANIFEST_CONSTANTS.CCTP_STANDARD_FINALITY
+    ) {
+      return {
+        verified: false,
+        detail:
+          'CCTP source transaction calldata does not match the reviewed burn route.',
+      };
+    }
+  } catch {
+    return {
+      verified: false,
+      detail: 'CCTP source transaction calldata could not be decoded safely.',
+    };
+  }
+
+  return {
+    verified: true,
+    detail:
+      'CCTP source transaction exactly matches the reviewed depositForBurn route.',
+  };
 }
 
 export function verifyCctpSourceReceiptEvidence(
