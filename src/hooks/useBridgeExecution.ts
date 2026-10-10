@@ -60,6 +60,13 @@ import {
   type ActivityReceiptHandle,
   type ActivityReceiptStatus,
 } from '../lib/api/activityReceiptApi';
+import type {
+  ActivityTrace,
+  BridgeProviderAdapter,
+  BridgeProviderExecutionRuntime,
+  ResumePayload,
+  RouteOption,
+} from '../providers/bridge/bridgeProviderTypes';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -952,6 +959,60 @@ export function useBridgeExecution() {
     }
   }, [walletClient, sourcePublicClient, switchChainAsync]);
 
+  const executeProviderRoute = useCallback(async (
+    adapter: BridgeProviderAdapter,
+    route: RouteOption,
+    action: BridgeAction,
+    walletAddress: Address,
+    activityReceipt: ActivityReceiptHandle,
+  ) => {
+    if (
+      action.actionId !== route.routeId ||
+      action.providerId !== route.provider ||
+      action.sourceChainId !== route.sourceChainId ||
+      action.destinationChainId !== route.destinationChainId ||
+      action.tokenAddress.toLowerCase() !==
+        route.sourceTokenAddress.toLowerCase() ||
+      action.amount !== route.amountIn ||
+      action.to.toLowerCase() !== route.destinationAddress.toLowerCase()
+    ) {
+      throw new Error(
+        '[bridgeExecution] Provider route is not bound to the deterministic BridgeAction.',
+      );
+    }
+
+    const runtime: BridgeProviderExecutionRuntime = {
+      providerId: adapter.providerId,
+      execute: async (
+        runtimeRoute: RouteOption,
+        onProgress: (trace: ActivityTrace) => void,
+      ) => {
+        if (runtimeRoute.routeId !== route.routeId) {
+          throw new Error(
+            '[bridgeExecution] Provider runtime route changed after review.',
+          );
+        }
+        onProgress({
+          step: 'EXECUTION_BOUNDARY',
+          timestamp: Date.now(),
+          data: { routeId: route.routeId },
+        });
+        await executeBridge(action, walletAddress, activityReceipt);
+      },
+      resume: (
+        _resumePayload: ResumePayload,
+        _onProgress: (trace: ActivityTrace) => void,
+      ) =>
+        Promise.reject(
+          new Error(
+            '[bridgeExecution] Fresh execution runtime cannot resume a bridge.',
+          ),
+        ),
+    };
+
+    await adapter.execute(route, runtime, () => undefined);
+  }, [executeBridge]);
+
   const resumeBridge = useCallback(async (
     checkpoint: BridgeRecoveryCheckpoint,
   ) => {
@@ -1453,6 +1514,48 @@ export function useBridgeExecution() {
     }
   }, [walletClient, sourcePublicClient, switchChainAsync]);
 
+  const resumeProviderCheckpoint = useCallback(async (
+    adapter: BridgeProviderAdapter,
+    checkpoint: BridgeRecoveryCheckpoint,
+  ) => {
+    const payload: ResumePayload = {
+      provider: adapter.providerId,
+      version: 1,
+      payload: { planId: checkpoint.planId },
+    };
+
+    const runtime: BridgeProviderExecutionRuntime = {
+      providerId: adapter.providerId,
+      execute: (
+        _routeOption: RouteOption,
+        _onProgress: (trace: ActivityTrace) => void,
+      ) =>
+        Promise.reject(
+          new Error(
+            '[bridgeExecution] Recovery runtime cannot start a fresh bridge.',
+          ),
+        ),
+      resume: async (
+        runtimePayload: ResumePayload,
+        onProgress: (trace: ActivityTrace) => void,
+      ) => {
+        if (runtimePayload.payload.planId !== checkpoint.planId) {
+          throw new Error(
+            '[bridgeExecution] Resume payload does not match the persisted checkpoint.',
+          );
+        }
+        onProgress({
+          step: 'RESUME_BOUNDARY',
+          timestamp: Date.now(),
+          data: { planId: checkpoint.planId },
+        });
+        await resumeBridge(checkpoint);
+      },
+    };
+
+    await adapter.resume(payload, runtime, () => undefined);
+  }, [resumeBridge]);
+
   const loadRecoveryCandidates = useCallback(async () => {
     const local = await loadResumableBridgeCheckpoints();
     let remote: BridgeRecoveryCheckpoint[] = [];
@@ -1483,7 +1586,9 @@ export function useBridgeExecution() {
   return {
     state,
     executeBridge,
+    executeProviderRoute,
     resumeBridge,
+    resumeProviderCheckpoint,
     loadRecoveryCandidates,
     reset,
   };
