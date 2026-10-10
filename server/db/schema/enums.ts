@@ -107,6 +107,7 @@ export const executionEventTypeEnum = pgEnum('execution_event_type', [
   'DUPLICATE_REJECTED',
   'RESUMED',
   'CANCELLED',
+  'STATUS_TRANSITION',
 ]);
 
 export const quoteStatusEnum = pgEnum('quote_status', [
