@@ -78,11 +78,15 @@ describe('checkProviderEligibility', () => {
     expect(result.status).toBe('NOT_FOUND');
   });
 
-  it('not eligible for disabled/unverified provider (circle-unified-balance)', () => {
-    // circle-unified-balance is UNVERIFIED and disabled — disabled check fires before lifecycle check
-    const result = checkProviderEligibility('circle-unified-balance', 'BRIDGE', ARC_TESTNET_CHAIN_ID, ARC_TESTNET_USDC);
+  it('not eligible for retired provider ID (circle-unified-balance)', () => {
+    const result = checkProviderEligibility(
+      'circle-unified-balance',
+      'UNIFIED_BALANCE',
+      ARC_TESTNET_CHAIN_ID,
+      ARC_TESTNET_USDC,
+    );
     expect(result.eligible).toBe(false);
-    expect(result.status).toBe('UNVERIFIED');
+    expect(result.status).toBe('NOT_FOUND');
   });
 
   it('not eligible for IMPLEMENTED provider (circle-stablefx) — lifecycle gate fires', () => {
