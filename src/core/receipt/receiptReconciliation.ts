@@ -61,7 +61,9 @@ export function reconcileVeyraReceipts(
     ...base,
     status: mergedStatus,
     syncRevision: Math.max(localRevision, remoteRevision),
-    syncPending: localRevision > remoteRevision && local.syncPending === true,
+    syncPending:
+      local.syncPending === true &&
+      (localRevision > remoteRevision || mergedStatus !== remote.status),
     planId: base.planId ?? other.planId,
     executionTxHash: base.executionTxHash ?? other.executionTxHash,
     executionBlock: base.executionBlock ?? other.executionBlock,
