@@ -45,6 +45,7 @@ import { assertServerRuntimeConfig } from './config/runtimeConfig.js';
 import { getRateLimitPolicy } from './config/rateLimits.js';
 import { requestObservability } from './middleware/observability.js';
 import { PROVIDER_MANIFEST } from '../src/providers/registry/providerManifest.js';
+import { verifyCctpSourceReceiptEvidence } from '../src/providers/cctp/cctpV2Adapter.js';
 import { evaluateMainnetReadiness } from './readiness/mainnetReadiness.js';
 import { probeSignerReadiness } from './readiness/signerReadiness.js';
 import { probeDatabaseReadiness } from './readiness/databaseReadiness.js';
@@ -52,6 +53,7 @@ import { refreshMainnetProviderHealth } from './services/providerHealthService.j
 import { getAllProviderHealthRecords } from '../src/providers/registry/providerRegistry.js';
 import {
   BridgeRecoveryConflictError,
+  assertBridgeRecoveryWalletOwnership,
   evaluateBridgeRelayDecision,
   getBridgeRecoveryCheckpointForOwner,
   loadPendingBridgeRecoveryCheckpoints,
@@ -1258,7 +1260,21 @@ app.post('/api/bridge/persist', IDENTITY_RATE, async (req: Request, res: Respons
     }
 
     const input = parseBridgeRecoveryInput(req.body as Record<string, unknown>);
+
+    if (
+      input.sourceChainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID ||
+      input.tokenAddress.toLowerCase() !==
+        MANIFEST_CONSTANTS.ARC_TESTNET_USDC.toLowerCase() ||
+      (input.destinationChainId !== MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID &&
+        input.destinationChainId !== MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID)
+    ) {
+      throw new BridgeRecoveryConflictError(
+        'Bridge recovery checkpoint is outside the enabled CCTP testnet route scope',
+      );
+    }
+
     const { db } = await import('./db/client.js');
+    await assertBridgeRecoveryWalletOwnership(db, userId, input);
     const checkpoint = await persistBridgeRecoveryCheckpoint(db, userId, input);
     res.json({ ok: true, checkpoint });
   } catch (err) {
@@ -1331,6 +1347,82 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
       return;
     }
 
+    await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+
+    const {
+      createWalletClient,
+      createPublicClient,
+      http: viemHttp,
+      parseAbi,
+    } = await import('viem');
+
+    const arcRpc =
+      process.env.ARC_TESTNET_RPC_URL ?? 'https://rpc.testnet.arc.io';
+    const sourceClient = createPublicClient({
+      chain: {
+        id: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
+        name: 'Arc Testnet',
+        nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+        rpcUrls: { default: { http: [arcRpc] } },
+      },
+      transport: viemHttp(arcRpc),
+    });
+
+    const [sourceReceipt, sourceTransaction] = await Promise.all([
+      sourceClient.getTransactionReceipt({
+        hash: checkpoint.burnTxHash as `0x${string}`,
+      }),
+      sourceClient.getTransaction({
+        hash: checkpoint.burnTxHash as `0x${string}`,
+      }),
+    ]);
+
+    if (
+      sourceTransaction.from.toLowerCase() !==
+      checkpoint.walletAddress.toLowerCase()
+    ) {
+      throw new BridgeRecoveryConflictError(
+        'Persisted CCTP source burn was not sent by the owned recovery wallet',
+      );
+    }
+
+    const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt);
+    if (!sourceEvidence.verified) {
+      throw new BridgeRecoveryConflictError(sourceEvidence.detail);
+    }
+
+    const sourceDomain = MANIFEST_CONSTANTS.ARC_TESTNET_CCTP_DOMAIN;
+    const attestationResponse = await fetch(
+      `https://iris-api-sandbox.circle.com/v2/messages/${sourceDomain}?transactionHash=${checkpoint.burnTxHash}`,
+    );
+    if (!attestationResponse.ok) {
+      res.status(503).json({
+        ok: false,
+        error: 'ATTESTATION_REVALIDATION_UNAVAILABLE',
+      });
+      return;
+    }
+
+    const attestationPayload = await attestationResponse.json() as {
+      messages?: Array<{
+        status?: string;
+        message?: string;
+        attestation?: string;
+      }>;
+    };
+    const authoritativeAttestation = attestationPayload.messages?.[0];
+    if (
+      authoritativeAttestation?.status !== 'complete' ||
+      !authoritativeAttestation.message ||
+      !authoritativeAttestation.attestation ||
+      authoritativeAttestation.message !== checkpoint.attestationMessage ||
+      authoritativeAttestation.attestation !== checkpoint.attestationSignature
+    ) {
+      throw new BridgeRecoveryConflictError(
+        'Persisted CCTP attestation does not match Circle for the owned source burn',
+      );
+    }
+
     const relay = evaluateBridgeRelayDecision(checkpoint);
 
     if (relay.mode === 'ALREADY_SUBMITTED') {
@@ -1368,12 +1460,6 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
       return;
     }
 
-    const {
-      createWalletClient,
-      createPublicClient,
-      http: viemHttp,
-      parseAbi,
-    } = await import('viem');
     const { privateKeyToAccount } = await import('viem/accounts');
     const {
       sepolia: sepoliaChain,
