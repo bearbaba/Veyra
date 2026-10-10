@@ -349,10 +349,7 @@ async function catchUpRecoveryActivity(
     });
   }
 
-  if (
-    target === 'COMPLETE' &&
-    current.status !== 'COMPLETE'
-  ) {
+  if (target === 'COMPLETE') {
     await advance('COMPLETE', {
       resumable: false,
       resumePayload: null,
