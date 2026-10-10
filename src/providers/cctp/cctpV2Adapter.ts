@@ -214,7 +214,10 @@ export async function approveTokenMessenger(
     chain: null,
   });
 
-  await publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') {
+    throw new Error(`[cctpV2] approve transaction reverted: ${hash}`);
+  }
   return hash;
 }
 
@@ -266,7 +269,10 @@ export async function depositForBurn(
   action: BridgeAction,
 ): Promise<Hash> {
   const hash = await broadcastDepositForBurn(walletClient, action);
-  await publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') {
+    throw new Error(`[cctpV2] depositForBurn transaction reverted: ${hash}`);
+  }
   return hash;
 }
 
@@ -316,7 +322,10 @@ export async function receiveMessage(
     messageHex,
     attestationHex,
   );
-  await publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') {
+    throw new Error(`[cctpV2] receiveMessage transaction reverted: ${hash}`);
+  }
   return hash;
 }
 
