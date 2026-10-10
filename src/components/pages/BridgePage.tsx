@@ -25,6 +25,9 @@ import {
 import { selectBridgeRoutes } from '../../core/router/routeEngine';
 import { cctpV2BridgeProvider } from '../../providers/cctp/cctpBridgeProvider';
 import type { PreflightResult } from '../../providers/bridge/bridgeProviderTypes';
+import {
+  createBridgeActivityReceiptRemote,
+} from '../../lib/api/activityReceiptApi';
 import { MANIFEST_CONSTANTS, findManifestEntry } from '../../providers/registry/providerManifest';
 import { useBridgeExecution, type BridgeExecutionState } from '../../hooks/useBridgeExecution';
 import {
@@ -44,6 +47,7 @@ type BridgeState =
       phase: 'REVIEW';
       evaluation: ReturnType<typeof evaluateBridgeAction>;
       providerPreflight: PreflightResult[];
+      clientIntentId: string;
     }
   | { phase: 'APPROVING' }
   | { phase: 'BURNING' }
@@ -159,6 +163,7 @@ export function BridgePage() {
         phase: 'REVIEW',
         evaluation,
         providerPreflight,
+        clientIntentId,
       });
     } catch (err) {
       setBridgeState({
@@ -169,11 +174,48 @@ export function BridgePage() {
   }
 
   async function handleConfirmBridge(
-    evaluation: ReturnType<typeof evaluateBridgeAction>,
+    review: Extract<BridgeState, { phase: 'REVIEW' }>,
   ) {
     if (!address) return;
-    await bridgeExecution.executeBridge(evaluation.action, address);
-    setRecoveryCandidates(await bridgeExecution.loadRecoveryCandidates());
+
+    setBridgeState({ phase: 'EVALUATING' });
+
+    try {
+      const activityReceipt = await createBridgeActivityReceiptRemote({
+        clientIntentId: review.clientIntentId,
+        routeId: review.evaluation.action.actionId,
+        senderAddress: address,
+        sourceChainId: review.evaluation.action.sourceChainId,
+        destinationAddress: review.evaluation.action.to,
+        destinationChainId: review.evaluation.action.destinationChainId,
+        amountRaw: review.evaluation.action.amount.toString(),
+        tokenAddress: review.evaluation.action.tokenAddress,
+        policyResult: {
+          decision: review.evaluation.policyResult.decision,
+          blockedBy: review.evaluation.policyResult.blockedBy,
+          confirmationRequired:
+            review.evaluation.policyResult.confirmationRequired,
+        },
+        preflightResults: review.providerPreflight,
+      });
+
+      await bridgeExecution.executeBridge(
+        review.evaluation.action,
+        address,
+        activityReceipt,
+      );
+      setRecoveryCandidates(
+        await bridgeExecution.loadRecoveryCandidates(),
+      );
+    } catch (error) {
+      setBridgeState({
+        phase: 'FAILED',
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Could not create the durable Veyra activity receipt.',
+      });
+    }
   }
 
   async function handleResumeBridge(checkpoint: BridgeRecoveryCheckpoint) {
@@ -316,7 +358,7 @@ export function BridgePage() {
           providerPreflight={bridgeState.providerPreflight}
           amount={amount}
           destName={selectedDest.name}
-          onConfirm={() => void handleConfirmBridge(bridgeState.evaluation)}
+          onConfirm={() => void handleConfirmBridge(bridgeState)}
           onCancel={() => setBridgeState({ phase: 'INPUT' })}
         />
       ) : bridgeState.phase === 'BRIDGE_PENDING' || bridgeState.phase === 'BRIDGE_UNCONFIRMED' ? (
