@@ -52,6 +52,8 @@ import { refreshMainnetProviderHealth } from './services/providerHealthService.j
 import { getAllProviderHealthRecords } from '../src/providers/registry/providerRegistry.js';
 import {
   BridgeRecoveryConflictError,
+  evaluateBridgeRelayDecision,
+  getBridgeRecoveryCheckpointForOwner,
   loadPendingBridgeRecoveryCheckpoints,
   persistBridgeRecoveryCheckpoint,
   type BridgeRecoveryInput,
@@ -1305,45 +1307,73 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
     }
 
     const body = req.body as Record<string, unknown>;
-    const { message, attestation, destinationChainId } = body;
-
-    if (
-      typeof message !== 'string' ||
-      typeof attestation !== 'string' ||
-      typeof destinationChainId !== 'number'
-    ) {
-      res.status(400).json({ error: 'message (hex string), attestation (hex string), destinationChainId (number) required' });
-      return;
-    }
-
-    // Validate hex format
-    if (!/^0x[0-9a-fA-F]+$/.test(message) || !/^0x[0-9a-fA-F]+$/.test(attestation)) {
-      res.status(400).json({ error: 'message and attestation must be valid hex strings' });
-      return;
-    }
-
-    if (
-      destinationChainId !== MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID &&
-      destinationChainId !== MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID
-    ) {
-      res.status(400).json({ error: 'Unsupported CCTP relay destination chain' });
-      return;
-    }
-
-    // Check relay wallet is configured
-    const relayKey = process.env.RELAY_PRIVATE_KEY;
-    if (!relayKey) {
-      // No relay wallet — caller must sign themselves
-      res.status(503).json({
+    const planId = typeof body.planId === 'string' ? body.planId.trim() : '';
+    if (!planId) {
+      res.status(400).json({
         ok: false,
-        selfRelay: true,
-        reason: 'RELAY_PRIVATE_KEY not configured on BFF. User must sign receiveMessage themselves.',
+        error: 'PLAN_ID_REQUIRED',
+        message: 'planId is required for an owned bridge recovery relay',
       });
       return;
     }
 
-    // Dynamic import of viem (available in node_modules)
-    const { createWalletClient, createPublicClient, http: viemHttp, parseAbi } = await import('viem');
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(
+      db,
+      userId,
+      planId,
+    );
+    if (!checkpoint) {
+      res.status(404).json({
+        ok: false,
+        error: 'BRIDGE_RECOVERY_NOT_FOUND',
+      });
+      return;
+    }
+
+    const relay = evaluateBridgeRelayDecision(checkpoint);
+
+    if (relay.mode === 'ALREADY_SUBMITTED') {
+      res.json({
+        ok: true,
+        alreadySubmitted: true,
+        alreadyReceived: false,
+        txHash: relay.receiveTxHash,
+      });
+      return;
+    }
+
+    const { destinationChainId, message, attestation } = relay;
+    if (
+      destinationChainId !== MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID &&
+      destinationChainId !== MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID
+    ) {
+      res.status(400).json({
+        ok: false,
+        error: 'UNSUPPORTED_CCTP_RELAY_DESTINATION',
+      });
+      return;
+    }
+
+    // A raw relay key is permitted only outside mainnet. Mainnet startup already
+    // rejects RELAY_PRIVATE_KEY and requires the separate KMS/HSM signer boundary.
+    const relayKey = process.env.RELAY_PRIVATE_KEY;
+    if (!relayKey) {
+      res.status(503).json({
+        ok: false,
+        selfRelay: true,
+        reason:
+          'Server relay signer is not configured. The user must complete the destination receive flow.',
+      });
+      return;
+    }
+
+    const {
+      createWalletClient,
+      createPublicClient,
+      http: viemHttp,
+      parseAbi,
+    } = await import('viem');
     const { privateKeyToAccount } = await import('viem/accounts');
     const {
       sepolia: sepoliaChain,
@@ -1371,7 +1401,6 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
       transport: viemHttp(),
     });
 
-    // Simulate first to detect nonce-already-used
     try {
       await publicClient.simulateContract({
         address: transmitter,
@@ -1383,15 +1412,22 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
     } catch (simErr) {
       const errMsg = simErr instanceof Error ? simErr.message : String(simErr);
       if (errMsg.toLowerCase().includes('nonce already used')) {
-        // Message was already received — this is success
-        res.json({ ok: true, alreadyReceived: true, txHash: null });
+        res.json({
+          ok: true,
+          alreadyReceived: true,
+          alreadySubmitted: false,
+          txHash: null,
+        });
         return;
       }
-      res.status(422).json({ ok: false, error: `receiveMessage simulation failed: ${errMsg}` });
+      res.status(422).json({
+        ok: false,
+        error: 'RELAY_SIMULATION_FAILED',
+        message: errMsg,
+      });
       return;
     }
 
-    // Execute relay
     const txHash = await walletClient.writeContract({
       address: transmitter,
       abi: RECEIVE_ABI,
@@ -1399,10 +1435,33 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
       args: [message as `0x${string}`, attestation as `0x${string}`],
     });
 
-    res.json({ ok: true, alreadyReceived: false, txHash });
+    // Persist immediately after broadcast and before responding. Repeating the
+    // same planId then returns this exact destination tx rather than submitting
+    // receiveMessage again.
+    await persistBridgeRecoveryCheckpoint(db, userId, {
+      ...checkpoint,
+      stage: 'DESTINATION_BROADCAST',
+      receiveTxHash: txHash,
+      updatedAt: Date.now(),
+    });
+
+    res.json({
+      ok: true,
+      alreadyReceived: false,
+      alreadySubmitted: false,
+      txHash,
+    });
   } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'BRIDGE_RELAY_CONFLICT',
+        message: err.message,
+      });
+      return;
+    }
     console.error('[BFF] /api/bridge/relay-receive error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
   }
 });
 
