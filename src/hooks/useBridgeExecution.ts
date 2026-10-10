@@ -34,6 +34,11 @@ import { generatePlanReceiptId, generateExecutionReceiptId } from '../core/recei
 import type { VeyraReceipt } from '../core/receipt/receiptTypes';
 import { VEYRA_ENV } from '../lib/env';
 import { assertExecutionReady } from '../core/execution/executionReadiness';
+import { saveReceipt } from '../core/receipt/receiptStore';
+import {
+  saveBridgeCheckpoint,
+  type BridgeRecoveryCheckpoint,
+} from '../core/execution/bridgeCheckpointStore';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -191,8 +196,30 @@ export function useBridgeExecution() {
       const burnTxHash = await depositForBurn(walletClient, sourcePublicClient, action);
       setState({ phase: 'BRIDGE_PENDING', approveTxHash, burnTxHash });
 
-      // Persist to BFF so reload can resume
+      // Persist a local recovery checkpoint immediately after the source burn.
+      // From this point forward recovery must continue from burnTxHash and can
+      // never submit a second source burn.
       const planId = generatePlanReceiptId();
+      const checkpointBase: Omit<BridgeRecoveryCheckpoint, 'stage' | 'updatedAt'> = {
+        planId,
+        burnTxHash,
+        sourceChainId: action.sourceChainId,
+        destinationChainId: action.destinationChainId,
+        walletAddress,
+        recipientAddress,
+        amount: action.amount.toString(),
+        tokenAddress: action.tokenAddress,
+        balanceBefore: balanceBefore.toString(),
+        createdAt: Date.now(),
+      };
+      await saveBridgeCheckpoint({
+        ...checkpointBase,
+        stage: 'SOURCE_BROADCAST',
+        updatedAt: Date.now(),
+      });
+
+      // Best-effort BFF mirror. Local IndexedDB checkpoint is the immediate
+      // reload-recovery path; server persistence will be upgraded separately.
       void fetch('/api/bridge/persist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -222,6 +249,11 @@ export function useBridgeExecution() {
         return;
       }
       setState({ phase: 'BRIDGE_UNCONFIRMED', approveTxHash, burnTxHash });
+      await saveBridgeCheckpoint({
+        ...checkpointBase,
+        stage: 'SOURCE_CONFIRMED',
+        updatedAt: Date.now(),
+      });
 
       if (abortRef.current) return;
 
@@ -248,12 +280,20 @@ export function useBridgeExecution() {
 
       if (!attestation) {
         setState({
-          phase: 'FAILED',
+          phase: 'BRIDGE_UNCONFIRMED',
           burnTxHash,
-          error: `Attestation did not complete after ${ATTESTATION_MAX_ATTEMPTS} attempts. Bridge is pending — reload to resume.`,
+          error: `Attestation did not complete after ${ATTESTATION_MAX_ATTEMPTS} attempts. Bridge remains resumable from the persisted source burn.`,
         });
         return;
       }
+
+      await saveBridgeCheckpoint({
+        ...checkpointBase,
+        stage: 'ATTESTATION_READY',
+        attestationMessage: attestation.message,
+        attestationSignature: attestation.attestation,
+        updatedAt: Date.now(),
+      });
 
       if (abortRef.current) return;
 
@@ -279,6 +319,15 @@ export function useBridgeExecution() {
         attestation.message,
         attestation.attestation,
       );
+
+      await saveBridgeCheckpoint({
+        ...checkpointBase,
+        stage: 'DESTINATION_BROADCAST',
+        attestationMessage: attestation.message,
+        attestationSignature: attestation.attestation,
+        receiveTxHash,
+        updatedAt: Date.now(),
+      });
 
       if (abortRef.current) return;
 
@@ -316,10 +365,11 @@ export function useBridgeExecution() {
         chainId:              action.sourceChainId,
         executionTxHash:      burnTxHash,
         executionBlock:       Number(sourceReceiptObj.blockNumber),
-        createdAt:            Date.now(),
+        createdAt:            action.createdAt,
         completedAt:          Date.now(),
         actualAmountDelta:    verification.actualDelta,
         expectedAmountDelta:  action.amount,
+        verifiedBalanceAfter: balanceBefore + verification.actualDelta,
         riskScore:            null,
         policyDecision:       'PASS',
         bridgeTrace: {
@@ -335,6 +385,16 @@ export function useBridgeExecution() {
         },
       };
 
+      await saveReceipt(veyraReceipt);
+      await saveBridgeCheckpoint({
+        ...checkpointBase,
+        stage: 'VERIFIED',
+        attestationMessage: attestation.message,
+        attestationSignature: attestation.attestation,
+        receiveTxHash,
+        updatedAt: Date.now(),
+      });
+
       setState({
         phase: 'VERIFIED',
         approveTxHash,
@@ -343,7 +403,7 @@ export function useBridgeExecution() {
         receipt: veyraReceipt,
       });
 
-      // Persist final receipt
+      // Best-effort BFF mirror of the final receipt
       void fetch('/api/bridge/persist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
