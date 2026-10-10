@@ -76,4 +76,37 @@ describe('Phase 4C bridge recovery checkpoints', () => {
     expect(resumable).toHaveLength(1);
     expect(resumable[0].stage).toBe('SOURCE_CONFIRMED');
   });
+
+  it('imports a remote-only checkpoint for cross-device recovery', () => {
+    const remote = {
+      ...checkpoint('SOURCE_CONFIRMED'),
+      updatedAt: 2,
+    };
+    expect(reconcileBridgeRecoveryCandidates([], [remote])).toEqual([remote]);
+  });
+
+  it('takes the more advanced matching checkpoint', () => {
+    const local = checkpoint('SOURCE_BROADCAST');
+    const remote = {
+      ...checkpoint('SOURCE_CONFIRMED'),
+      updatedAt: 2,
+    };
+    expect(reconcileBridgeRecoveryCandidates([local], [remote])[0].stage)
+      .toBe('SOURCE_CONFIRMED');
+  });
+
+  it('keeps local immutable source execution when a remote row conflicts', () => {
+    const local = checkpoint('SOURCE_CONFIRMED');
+    const remote = {
+      ...checkpoint('ATTESTATION_READY'),
+      burnTxHash: '0x' + '22'.repeat(32),
+      attestationMessage: '0x1234',
+      attestationSignature: '0xabcd',
+      updatedAt: 2,
+    };
+    const merged = reconcileBridgeRecoveryCandidates([local], [remote]);
+    expect(merged[0].burnTxHash).toBe(local.burnTxHash);
+    expect(merged[0].stage).toBe('SOURCE_CONFIRMED');
+  });
+
 });
