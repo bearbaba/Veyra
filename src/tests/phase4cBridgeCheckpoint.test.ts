@@ -70,6 +70,9 @@ describe('Phase 4C bridge recovery checkpoints', () => {
     await saveBridgeCheckpoint({
       ...checkpoint('VERIFIED'),
       planId: 'veyra-plan-done',
+      attestationMessage: '0x1234',
+      attestationSignature: '0xabcd',
+      receiveTxHash: '0x' + '33'.repeat(32),
       updatedAt: 2,
     });
 
