@@ -46,6 +46,7 @@ import {
 import {
   loadRemoteBridgeCheckpoints,
   persistBridgeCheckpointRemote,
+  relayBridgeReceiveRemote,
 } from '../lib/api/bridgeRecoveryApi';
 import {
   lockActionExecution,
@@ -116,6 +117,28 @@ async function persistRecoveryCheckpoint(
   // Postgres mirror is best-effort and must never block a valid chain recovery.
   await saveBridgeCheckpoint(checkpoint);
   void persistBridgeCheckpointRemote(checkpoint).catch(() => undefined);
+}
+
+
+type RemoteRelayAttempt =
+  | { mode: 'UNAVAILABLE' }
+  | { mode: 'TX_HASH'; txHash: Hash }
+  | { mode: 'ALREADY_RECEIVED' };
+
+async function tryAuthenticatedRemoteRelay(
+  checkpoint: BridgeRecoveryCheckpoint,
+): Promise<RemoteRelayAttempt> {
+  const mirrored = await persistBridgeCheckpointRemote(checkpoint);
+  if (!mirrored) return { mode: 'UNAVAILABLE' };
+
+  const result = await relayBridgeReceiveRemote(checkpoint.planId);
+  if (result.mode === 'UNAVAILABLE') return result;
+  if (result.mode === 'ALREADY_RECEIVED') return result;
+
+  return {
+    mode: 'TX_HASH',
+    txHash: result.txHash as Hash,
+  };
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
@@ -364,37 +387,78 @@ export function useBridgeExecution() {
         return;
       }
 
-      await persistRecoveryCheckpoint({
+      const attestationCheckpoint: BridgeRecoveryCheckpoint = {
         ...checkpointBase,
         stage: 'ATTESTATION_READY',
         attestationMessage: attestation.message,
         attestationSignature: attestation.attestation,
         updatedAt: Date.now(),
-      });
+      };
+      await persistRecoveryCheckpoint(attestationCheckpoint);
 
       if (abortRef.current) return;
 
-      // ── Step 5: Switch to destination chain + receiveMessage ─────────────
-      setState({ phase: 'SWITCHING_CHAIN', approveTxHash, burnTxHash });
-      try {
-        await switchChainAsync({ chainId: action.destinationChainId });
-      } catch {
+      let receiveTxHash: Hash;
+      let destinationReceipt;
+
+      const remoteRelay = await tryAuthenticatedRemoteRelay(attestationCheckpoint);
+      if (remoteRelay.mode === 'ALREADY_RECEIVED') {
         setState({
-          phase: 'FAILED',
+          phase: 'BRIDGE_UNCONFIRMED',
           burnTxHash,
-          error: `Could not switch to destination chain ${action.destinationChainId}. Switch manually and retry.`,
+          error:
+            'CCTP destination message is already consumed, but the destination transaction hash is not yet reconciled. No new burn or receive will be submitted.',
         });
         return;
       }
 
-      setState({ phase: 'RECEIVING', approveTxHash, burnTxHash });
-      const receiveTxHash = await broadcastReceiveMessage(
-        walletClient,
-        action.destinationChainId,
-        recipientAddress,
-        attestation.message,
-        attestation.attestation,
-      );
+      if (remoteRelay.mode === 'TX_HASH') {
+        receiveTxHash = remoteRelay.txHash;
+        setState({
+          phase: 'RECEIVING',
+          approveTxHash,
+          burnTxHash,
+          receiveTxHash,
+        });
+      } else {
+        // Relay is unavailable (for example no authenticated session or no
+        // testnet relay signer). Fall back to the user's destination wallet.
+        setState({ phase: 'SWITCHING_CHAIN', approveTxHash, burnTxHash });
+        try {
+          await switchChainAsync({ chainId: action.destinationChainId });
+        } catch {
+          setState({
+            phase: 'FAILED',
+            burnTxHash,
+            error:
+              `Could not switch to destination chain ${action.destinationChainId}. Bridge remains resumable from the persisted source burn.`,
+          });
+          return;
+        }
+
+        const connected = walletClient.account?.address;
+        if (
+          !connected ||
+          connected.toLowerCase() !== recipientAddress.toLowerCase()
+        ) {
+          setState({
+            phase: 'FAILED',
+            burnTxHash,
+            error:
+              `Connect the destination recipient wallet ${recipientAddress} to complete receiveMessage safely.`,
+          });
+          return;
+        }
+
+        setState({ phase: 'RECEIVING', approveTxHash, burnTxHash });
+        receiveTxHash = await broadcastReceiveMessage(
+          walletClient,
+          action.destinationChainId,
+          recipientAddress,
+          attestation.message,
+          attestation.attestation,
+        );
+      }
 
       // Persist the destination tx hash before waiting for confirmation. This
       // prevents a reload from submitting receiveMessage again just because the
@@ -410,7 +474,7 @@ export function useBridgeExecution() {
 
       if (abortRef.current) return;
 
-      const destinationReceipt = await destPublicClient.waitForTransactionReceipt({
+      destinationReceipt = await destPublicClient.waitForTransactionReceipt({
         hash: receiveTxHash,
         timeout: 60_000,
       });
@@ -710,27 +774,53 @@ export function useBridgeExecution() {
       }
 
       if (current.stage === 'ATTESTATION_READY') {
-        const connected = walletClient.account?.address;
-        if (!connected || connected.toLowerCase() !== recipientAddress.toLowerCase()) {
+        let receiveTxHash: Hash;
+        const remoteRelay = await tryAuthenticatedRemoteRelay(current);
+
+        if (remoteRelay.mode === 'ALREADY_RECEIVED') {
           setState({
-            phase: 'FAILED',
+            phase: 'VERIFYING',
             burnTxHash,
-            error: `Connect the destination recipient wallet ${recipientAddress} to resume receiveMessage safely.`,
+            error:
+              'CCTP destination message is already consumed, but its transaction hash still needs reconciliation. No duplicate receive will be submitted.',
           });
           return;
         }
 
-        setState({ phase: 'SWITCHING_CHAIN', burnTxHash });
-        await switchChainAsync({ chainId: current.destinationChainId });
+        if (remoteRelay.mode === 'TX_HASH') {
+          receiveTxHash = remoteRelay.txHash;
+          setState({
+            phase: 'RECEIVING',
+            burnTxHash,
+            receiveTxHash,
+          });
+        } else {
+          const connected = walletClient.account?.address;
+          if (
+            !connected ||
+            connected.toLowerCase() !== recipientAddress.toLowerCase()
+          ) {
+            setState({
+              phase: 'FAILED',
+              burnTxHash,
+              error:
+                `Connect the destination recipient wallet ${recipientAddress} to resume receiveMessage safely.`,
+            });
+            return;
+          }
 
-        setState({ phase: 'RECEIVING', burnTxHash });
-        const receiveTxHash = await broadcastReceiveMessage(
-          walletClient,
-          current.destinationChainId,
-          recipientAddress,
-          current.attestationMessage!,
-          current.attestationSignature!,
-        );
+          setState({ phase: 'SWITCHING_CHAIN', burnTxHash });
+          await switchChainAsync({ chainId: current.destinationChainId });
+
+          setState({ phase: 'RECEIVING', burnTxHash });
+          receiveTxHash = await broadcastReceiveMessage(
+            walletClient,
+            current.destinationChainId,
+            recipientAddress,
+            current.attestationMessage!,
+            current.attestationSignature!,
+          );
+        }
 
         // Persist before any confirmation/read. If the page disappears now,
         // recovery resumes by verifying this exact destination tx.
