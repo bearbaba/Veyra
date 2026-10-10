@@ -192,6 +192,192 @@ function transitionDates(status: ReceiptStatus, now: Date) {
   };
 }
 
+function assertOptionalPositiveInteger(
+  value: number | null | undefined,
+  field: string,
+): void {
+  if (
+    value !== undefined &&
+    value !== null &&
+    (!Number.isSafeInteger(value) || value < 0)
+  ) {
+    throw new ReceiptTransitionError(`${field} must be a non-negative safe integer.`);
+  }
+}
+
+function assertOptionalTxHash(
+  value: string | null | undefined,
+  field: string,
+): void {
+  if (
+    value !== undefined &&
+    value !== null &&
+    !/^0x[0-9a-fA-F]{64}$/.test(value)
+  ) {
+    throw new ReceiptTransitionError(`${field} must be a 32-byte EVM transaction hash.`);
+  }
+}
+
+function assertUnchangedEvidence<T>(
+  current: T | null,
+  incoming: T | null | undefined,
+  field: string,
+  normalize: (value: T) => unknown = (value) => value,
+): void {
+  if (
+    current !== null &&
+    incoming !== undefined &&
+    incoming !== null &&
+    normalize(current) !== normalize(incoming)
+  ) {
+    throw new ReceiptTransitionError(
+      `${field} is immutable once recorded for an ActivityReceipt.`,
+    );
+  }
+}
+
+function assertImmutableExecutionEvidence(
+  current: typeof activityReceipts.$inferSelect,
+  input: ReceiptSyncInput,
+): void {
+  assertOptionalTxHash(input.burnTxHash, 'burnTxHash');
+  assertOptionalTxHash(input.receiveTxHash, 'receiveTxHash');
+  assertOptionalPositiveInteger(input.burnChainId, 'burnChainId');
+  assertOptionalPositiveInteger(input.burnBlockNumber, 'burnBlockNumber');
+  assertOptionalPositiveInteger(input.receiveChainId, 'receiveChainId');
+  assertOptionalPositiveInteger(input.receiveBlockNumber, 'receiveBlockNumber');
+
+  assertUnchangedEvidence(
+    current.burnTxHash,
+    input.burnTxHash,
+    'burnTxHash',
+    (value) => value.toLowerCase(),
+  );
+  assertUnchangedEvidence(current.burnChainId, input.burnChainId, 'burnChainId');
+  assertUnchangedEvidence(
+    current.burnBlockNumber,
+    input.burnBlockNumber,
+    'burnBlockNumber',
+  );
+  assertUnchangedEvidence(
+    current.receiveTxHash,
+    input.receiveTxHash,
+    'receiveTxHash',
+    (value) => value.toLowerCase(),
+  );
+  assertUnchangedEvidence(
+    current.receiveChainId,
+    input.receiveChainId,
+    'receiveChainId',
+  );
+  assertUnchangedEvidence(
+    current.receiveBlockNumber,
+    input.receiveBlockNumber,
+    'receiveBlockNumber',
+  );
+
+  if (current.providerId !== 'cctp-v2-bridge' || current.action !== 'BRIDGE') {
+    return;
+  }
+
+  const burnTxHash = input.burnTxHash ?? current.burnTxHash;
+  const burnChainId = input.burnChainId ?? current.burnChainId;
+  const burnBlockNumber =
+    input.burnBlockNumber ?? current.burnBlockNumber;
+  const receiveTxHash = input.receiveTxHash ?? current.receiveTxHash;
+  const receiveChainId = input.receiveChainId ?? current.receiveChainId;
+  const receiveBlockNumber =
+    input.receiveBlockNumber ?? current.receiveBlockNumber;
+
+  const requiresBurn = new Set<ReceiptStatus>([
+    'BROADCAST',
+    'SOURCE_CONFIRMED',
+    'ATTESTATION_PENDING',
+    'RECEIVE_PENDING',
+    'RECEIVE_FAILED_RETRYABLE',
+    'CONFIRMED',
+    'COMPLETE',
+  ]);
+  if (requiresBurn.has(input.status)) {
+    if (!burnTxHash || burnChainId !== current.senderChainId) {
+      throw new ReceiptTransitionError(
+        'CCTP receipt status requires the immutable source burn hash and source chain.',
+      );
+    }
+  }
+
+  if (
+    new Set<ReceiptStatus>([
+      'SOURCE_CONFIRMED',
+      'ATTESTATION_PENDING',
+      'RECEIVE_PENDING',
+      'RECEIVE_FAILED_RETRYABLE',
+      'CONFIRMED',
+      'COMPLETE',
+    ]).has(input.status) &&
+    burnBlockNumber === null
+  ) {
+    throw new ReceiptTransitionError(
+      'CCTP source-confirmed lifecycle requires burnBlockNumber.',
+    );
+  }
+
+  if (
+    new Set<ReceiptStatus>(['RECEIVE_PENDING', 'CONFIRMED', 'COMPLETE']).has(
+      input.status,
+    )
+  ) {
+    if (!receiveTxHash || receiveChainId !== current.recipientChainId) {
+      throw new ReceiptTransitionError(
+        'CCTP receive lifecycle requires the immutable destination transaction hash and destination chain.',
+      );
+    }
+  }
+
+  if (
+    new Set<ReceiptStatus>(['CONFIRMED', 'COMPLETE']).has(input.status) &&
+    receiveBlockNumber === null
+  ) {
+    throw new ReceiptTransitionError(
+      'CCTP confirmed lifecycle requires receiveBlockNumber.',
+    );
+  }
+
+  if (input.resumable === true && !burnTxHash) {
+    throw new ReceiptTransitionError(
+      'A CCTP ActivityReceipt cannot be resumable before a source burn hash exists.',
+    );
+  }
+
+  if (input.resumePayload !== undefined && input.resumePayload !== null) {
+    const payload = input.resumePayload as Record<string, unknown>;
+    const inner =
+      payload.payload &&
+      typeof payload.payload === 'object' &&
+      !Array.isArray(payload.payload)
+        ? (payload.payload as Record<string, unknown>)
+        : null;
+    if (
+      payload.provider !== 'cctp-v2-bridge' ||
+      payload.version !== 1 ||
+      inner?.planId !== current.routeId
+    ) {
+      throw new ReceiptTransitionError(
+        'CCTP resumePayload is not bound to this ActivityReceipt route.',
+      );
+    }
+  }
+
+  if (
+    input.status === 'COMPLETE' &&
+    (input.resumable === true || input.resumePayload)
+  ) {
+    throw new ReceiptTransitionError(
+      'A COMPLETE ActivityReceipt cannot remain resumable.',
+    );
+  }
+}
+
 function transitionValues(
   status: ReceiptStatus,
   extra: ReceiptTransitionExtra | undefined,
@@ -417,11 +603,12 @@ export async function syncReceiptRevision(
       throw new ReceiptTransitionError('Receipt not found for authenticated user.');
     }
 
-    if (current.revision >= input.revision) {
+    if (input.revision !== current.revision + 1) {
       return { conflict: true as const, serverRecord: current };
     }
 
     assertTransitionAllowed(current.status, input.status);
+    assertImmutableExecutionEvidence(current, input);
 
     const now = new Date();
     const [updated] = await tx
