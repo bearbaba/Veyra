@@ -230,21 +230,32 @@ export async function releaseReservation(quoteId: string): Promise<void> {
   assertQuoteReplayStoreHydrated();
 
   const db = await openDb();
-  const existing = await getEntry(db, quoteId);
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const getReq = store.get(quoteId);
 
-  if (!existing || existing.state !== 'RESERVED') {
-    // Cannot release a non-reserved quote (including BROADCAST — stays locked)
-    return;
-  }
+    getReq.onerror = () => reject(new Error('[quoteReplayStore] release get failed'));
+    getReq.onsuccess = () => {
+      const existing = getReq.result as QuoteEntry | undefined;
 
-  const entry: QuoteEntry = {
-    ...existing,
-    state: 'AVAILABLE',
-    reservedAt: undefined,
-    updatedAt: Date.now(),
-  };
+      // Missing or already advanced entries are intentionally a no-op. Most
+      // importantly, BROADCAST/USED can never be rolled back to AVAILABLE.
+      if (!existing || existing.state !== 'RESERVED') return;
 
-  await putEntry(db, entry);
+      store.put({
+        ...existing,
+        state: 'AVAILABLE',
+        reservedAt: undefined,
+        updatedAt: Date.now(),
+      } satisfies QuoteEntry);
+    };
+
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(new Error(
+      `[quoteReplayStore] release transaction failed: ${tx.error?.message ?? 'unknown'}`,
+    ));
+  });
 }
 
 /** Mark a quote as broadcast (RESERVED → BROADCAST). */
@@ -369,21 +380,52 @@ export async function reconcileStaleReservations(): Promise<number> {
   const now = Date.now();
   let released = 0;
 
-  for (const entry of all) {
+  for (const snapshot of all) {
     if (
-      entry.state === 'RESERVED' &&
-      entry.reservedAt !== undefined &&
-      now - entry.reservedAt > SECURITY_CONFIG.QUOTE_RESERVATION_TIMEOUT_MS
+      snapshot.state !== 'RESERVED' ||
+      snapshot.reservedAt === undefined ||
+      now - snapshot.reservedAt <= SECURITY_CONFIG.QUOTE_RESERVATION_TIMEOUT_MS
     ) {
-      const updated: QuoteEntry = {
-        ...entry,
-        state: 'AVAILABLE',
-        reservedAt: undefined,
-        updatedAt: now,
-      };
-      await putEntry(db, updated);
-      released++;
+      continue;
     }
+
+    // Re-read inside a write transaction so startup reconciliation can never
+    // overwrite a quote that another tab advanced to BROADCAST/USED after the
+    // initial snapshot was read.
+    const didRelease = await new Promise<boolean>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const getReq = store.get(snapshot.quoteId);
+      let changed = false;
+
+      getReq.onerror = () => reject(new Error('[quoteReplayStore] reconcile get failed'));
+      getReq.onsuccess = () => {
+        const current = getReq.result as QuoteEntry | undefined;
+        if (
+          !current ||
+          current.state !== 'RESERVED' ||
+          current.reservedAt === undefined ||
+          now - current.reservedAt <= SECURITY_CONFIG.QUOTE_RESERVATION_TIMEOUT_MS
+        ) {
+          return;
+        }
+
+        store.put({
+          ...current,
+          state: 'AVAILABLE',
+          reservedAt: undefined,
+          updatedAt: now,
+        } satisfies QuoteEntry);
+        changed = true;
+      };
+
+      tx.oncomplete = () => resolve(changed);
+      tx.onerror = () => reject(new Error(
+        `[quoteReplayStore] reconcile transaction failed: ${tx.error?.message ?? 'unknown'}`,
+      ));
+    });
+
+    if (didRelease) released++;
   }
 
   return released;
@@ -401,20 +443,42 @@ export async function cleanupExpired(): Promise<number> {
   const cutoff = Date.now() - SECURITY_CONFIG.QUOTE_REPLAY_RETENTION_MS;
   let pruned = 0;
 
-  for (const entry of all) {
+  for (const snapshot of all) {
     if (
-      (entry.state === 'USED' || entry.state === 'AVAILABLE') &&
-      entry.updatedAt < cutoff
+      (snapshot.state !== 'USED' && snapshot.state !== 'AVAILABLE') ||
+      snapshot.updatedAt >= cutoff
     ) {
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        const store = tx.objectStore(STORE_NAME);
-        const req = store.delete(entry.quoteId);
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(new Error('[quoteReplayStore] delete failed'));
-      });
-      pruned++;
+      continue;
     }
+
+    const didDelete = await new Promise<boolean>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const getReq = store.get(snapshot.quoteId);
+      let deleted = false;
+
+      getReq.onerror = () => reject(new Error('[quoteReplayStore] cleanup get failed'));
+      getReq.onsuccess = () => {
+        const current = getReq.result as QuoteEntry | undefined;
+        if (
+          !current ||
+          (current.state !== 'USED' && current.state !== 'AVAILABLE') ||
+          current.updatedAt >= cutoff
+        ) {
+          return;
+        }
+
+        store.delete(current.quoteId);
+        deleted = true;
+      };
+
+      tx.oncomplete = () => resolve(deleted);
+      tx.onerror = () => reject(new Error(
+        `[quoteReplayStore] cleanup transaction failed: ${tx.error?.message ?? 'unknown'}`,
+      ));
+    });
+
+    if (didDelete) pruned++;
   }
 
   return pruned;
