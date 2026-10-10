@@ -1169,17 +1169,28 @@ app.get('/api/stablefx/trade/:tradeId', STABLEFX_RATE, async (req: Request, res:
 app.get('/api/cctp/attestation', async (req: Request, res: Response): Promise<void> => {
   try {
     const { sourceDomain, txHash } = req.query;
+    const sourceDomainText =
+      typeof sourceDomain === 'string' ? sourceDomain : '';
+    const txHashText = typeof txHash === 'string' ? txHash : '';
+    const parsedSourceDomain = /^\d+$/.test(sourceDomainText)
+      ? Number(sourceDomainText)
+      : Number.NaN;
+
     if (
-      !isNonEmptyString(sourceDomain as string) ||
-      !isNonEmptyString(txHash as string) ||
-      !/^0x[0-9a-fA-F]{64}$/.test(txHash as string)
+      parsedSourceDomain !== MANIFEST_CONSTANTS.ARC_TESTNET_CCTP_DOMAIN ||
+      !/^0x[0-9a-fA-F]{64}$/.test(txHashText)
     ) {
-      res.status(400).json({ error: 'sourceDomain and txHash (0x + 64 hex) required' });
+      res.status(400).json({
+        error:
+          'Only Arc Testnet CCTP source domain and a 0x + 64 hex txHash are accepted',
+      });
       return;
     }
 
-    // CCTP V2 attestation endpoint
-    const url = `https://iris-api-sandbox.circle.com/v2/messages/${sourceDomain}?transactionHash=${txHash as string}`;
+    // CCTP V2 attestation endpoint. Domain and hash are allow-listed above.
+    const url =
+      `https://iris-api-sandbox.circle.com/v2/messages/${parsedSourceDomain}` +
+      `?transactionHash=${txHashText}`;
     const attestRes = await fetch(url);
 
     if (!attestRes.ok) {
@@ -1285,8 +1296,14 @@ app.get('/api/bridge/pending', IDENTITY_RATE, async (req: Request, res: Response
 // The BFF never signs for the user's primary wallet — only the relay wallet.
 // The relay wallet holds only enough gas for relay calls (not user funds).
 
-app.post('/api/bridge/relay-receive', async (req: Request, res: Response): Promise<void> => {
+app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
   try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+
     const body = req.body as Record<string, unknown>;
     const { message, attestation, destinationChainId } = body;
 
@@ -1305,6 +1322,14 @@ app.post('/api/bridge/relay-receive', async (req: Request, res: Response): Promi
       return;
     }
 
+    if (
+      destinationChainId !== MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID &&
+      destinationChainId !== MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID
+    ) {
+      res.status(400).json({ error: 'Unsupported CCTP relay destination chain' });
+      return;
+    }
+
     // Check relay wallet is configured
     const relayKey = process.env.RELAY_PRIVATE_KEY;
     if (!relayKey) {
@@ -1320,21 +1345,36 @@ app.post('/api/bridge/relay-receive', async (req: Request, res: Response): Promi
     // Dynamic import of viem (available in node_modules)
     const { createWalletClient, createPublicClient, http: viemHttp, parseAbi } = await import('viem');
     const { privateKeyToAccount } = await import('viem/accounts');
-    const { sepolia: sepoliaChain } = await import('viem/chains');
+    const {
+      sepolia: sepoliaChain,
+      baseSepolia: baseSepoliaChain,
+    } = await import('viem/chains');
 
-    const TRANSMITTER_SEPOLIA = MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER as `0x${string}`;
+    const relayChain =
+      destinationChainId === MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID
+        ? sepoliaChain
+        : baseSepoliaChain;
+    const transmitter =
+      MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER as `0x${string}`;
     const RECEIVE_ABI = parseAbi([
       'function receiveMessage(bytes message, bytes attestation) returns (bool success)',
     ]);
 
     const relayAccount = privateKeyToAccount(relayKey as `0x${string}`);
-    const publicClient = createPublicClient({ chain: sepoliaChain, transport: viemHttp() });
-    const walletClient = createWalletClient({ account: relayAccount, chain: sepoliaChain, transport: viemHttp() });
+    const publicClient = createPublicClient({
+      chain: relayChain,
+      transport: viemHttp(),
+    });
+    const walletClient = createWalletClient({
+      account: relayAccount,
+      chain: relayChain,
+      transport: viemHttp(),
+    });
 
     // Simulate first to detect nonce-already-used
     try {
       await publicClient.simulateContract({
-        address: TRANSMITTER_SEPOLIA,
+        address: transmitter,
         abi: RECEIVE_ABI,
         functionName: 'receiveMessage',
         args: [message as `0x${string}`, attestation as `0x${string}`],
@@ -1353,7 +1393,7 @@ app.post('/api/bridge/relay-receive', async (req: Request, res: Response): Promi
 
     // Execute relay
     const txHash = await walletClient.writeContract({
-      address: TRANSMITTER_SEPOLIA,
+      address: transmitter,
       abi: RECEIVE_ABI,
       functionName: 'receiveMessage',
       args: [message as `0x${string}`, attestation as `0x${string}`],
