@@ -117,7 +117,7 @@ export function collectAppKitResultTxHashes(result: unknown): string[] {
       continue;
     }
 
-    const object = current.value as object;
+    const object = current.value;
     if (seen.has(object)) continue;
     seen.add(object);
 
