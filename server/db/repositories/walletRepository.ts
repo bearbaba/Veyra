@@ -131,3 +131,35 @@ export async function getActiveWallets(db: DbClient, veyraUserId: string) {
       ),
     );
 }
+
+
+export async function findActiveWalletBinding(
+  db: DbClient,
+  veyraUserId: string,
+  walletAddress: string,
+  chainId: number,
+) {
+  const normalizedAddress = walletAddress.trim().toLowerCase();
+  if (
+    !/^0x[0-9a-f]{40}$/.test(normalizedAddress) ||
+    !Number.isSafeInteger(chainId) ||
+    chainId <= 0
+  ) {
+    return null;
+  }
+
+  const [wallet] = await db
+    .select()
+    .from(walletBindings)
+    .where(
+      and(
+        eq(walletBindings.veyraUserId, veyraUserId),
+        eq(walletBindings.chainId, chainId),
+        eq(walletBindings.status, 'ACTIVE'),
+        isNull(walletBindings.revokedAt),
+      ),
+    );
+
+  if (!wallet) return null;
+  return wallet.walletAddress.toLowerCase() === normalizedAddress ? wallet : null;
+}
