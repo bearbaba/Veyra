@@ -304,13 +304,17 @@ export async function verifyDestinationBalance(
   });
 
   const delta = balanceAfter - balanceBefore;
-  if (delta >= expectedMinAmount) {
-    return { verified: true, actualDelta: delta, detail: `Balance increased by ${delta} (expected >= ${expectedMinAmount})` };
+  if (delta === expectedMinAmount) {
+    return {
+      verified: true,
+      actualDelta: delta,
+      detail: `Balance increased by exactly ${delta} as expected`,
+    };
   }
   return {
     verified: false,
     actualDelta: delta,
-    detail: `Balance delta ${delta} < expected ${expectedMinAmount}`,
+    detail: `Balance delta ${delta} does not equal expected ${expectedMinAmount}`,
   };
 }
 
