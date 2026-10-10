@@ -173,6 +173,33 @@ function assetSupportedOnNetwork(
   );
 }
 
+function networkIdMatchesChainMetadata(
+  entry: ProviderManifestEntry,
+  network: { networkId: string; chainId: number },
+): boolean {
+  const normalizedNetworkId = network.networkId.trim().toLowerCase();
+  const explicitIds = entry.supportedNetworkIds ?? [];
+
+  if (explicitIds.length > 0) {
+    return explicitIds.some((id) => id.trim().toLowerCase() === normalizedNetworkId);
+  }
+
+  // If exact network↔asset rows name the network for this chain, use them as
+  // authoritative network identity metadata. This prevents a contradictory
+  // NetworkRef such as { networkId: 'solana-devnet', chainId: 5042002 } from
+  // passing an EVM provider merely because the numeric chainId is valid.
+  const namedRows = (entry.networkAssetSupport ?? []).filter(
+    (row) => row.chainId === network.chainId && row.networkId !== undefined,
+  );
+
+  if (namedRows.length === 0) return true;
+
+  return namedRows.some(
+    (row) => row.networkId!.trim().toLowerCase() === normalizedNetworkId,
+  );
+}
+
+
 
 /**
  * Check whether a provider may execute a given action on a given chain
@@ -406,15 +433,16 @@ export function checkProviderNetworkEligibility(
     );
     if (!chainResult.eligible) return chainResult;
 
-    if (
-      supportedNetworkIds.length > 0 &&
-      !supportedNetworkIds.some((id) => id.toLowerCase() === normalizedNetworkId)
-    ) {
+    if (!networkIdMatchesChainMetadata(result.entry, {
+      networkId: network.networkId,
+      chainId: network.chainId,
+    })) {
       return {
         eligible: false,
         status: 'CHAIN_NOT_SUPPORTED',
         requiresConfirmation: false,
-        detail: `Provider "${providerId}" does not support network "${network.networkId}".`,
+        detail:
+          `Provider "${providerId}" network metadata does not match "${network.networkId}" for chain ${network.chainId}.`,
       };
     }
     return chainResult;
