@@ -1,6 +1,7 @@
 import { AppKit } from '@circle-fin/app-kit';
 import { createViemAdapterFromProvider } from '@circle-fin/adapter-viem-v2';
 import type { EIP1193Provider } from 'viem';
+import { assertRetryBridgeAllowed } from '../../core/router/bridgeRecovery';
 import {
   assertCircleAppKitChain,
   type CircleAppKitChain,
@@ -178,6 +179,7 @@ export async function retryAppKitBridge(input: {
   provider: EIP1193Provider;
   result: BridgeResult;
 }): Promise<BridgeResult> {
+  assertRetryBridgeAllowed(input.result);
   const adapter = await adapterFromProvider(input.provider);
   return appKit.retryBridge(input.result, { from: adapter, to: adapter });
 }
