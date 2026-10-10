@@ -47,6 +47,16 @@ export interface BridgeTrace {
   destinationTimestamp?: number;
 }
 
+export interface TransferRecoveryTrace {
+  providerId: string;
+  tokenAddress: string;
+  tokenDecimals: number;
+  fromAddress: string;
+  recipientAddress: string;
+  amountRaw: string;
+  balanceBeforeRaw: string;
+}
+
 // ── VeyraReceipt ──────────────────────────────────────────────────────────────
 
 export interface VeyraReceipt {
@@ -97,6 +107,12 @@ export interface VeyraReceipt {
 
   /** Bridge trace. Present only for BRIDGE actions. */
   bridgeTrace?: BridgeTrace;
+
+  /**
+   * Durable same-chain transfer verification context. All numeric values are
+   * strings so the record remains safe to persist and hydrate across devices.
+   */
+  transferTrace?: TransferRecoveryTrace;
 }
 
 // ── Plan Receipt ──────────────────────────────────────────────────────────────
