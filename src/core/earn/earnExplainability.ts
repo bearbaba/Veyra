@@ -65,6 +65,8 @@ export function evaluateEarnExplainability(
     'withdrawalAvailability',
     input.withdrawalAvailability,
   );
+  const withdrawalDelay = requireText('withdrawalDelay', input.withdrawalDelay);
+  const withdrawalLimits = requireText('withdrawalLimits', input.withdrawalLimits);
   const fees = requireText('fees', input.fees);
   const liquidity = requireText('liquidity', input.liquidity);
   const riskSummary = requireText('riskSummary', input.riskSummary);
@@ -104,8 +106,8 @@ export function evaluateEarnExplainability(
 
   const withdrawalParts = [
     withdrawalAvailability,
-    input.withdrawalDelay?.trim() || null,
-    input.withdrawalLimits?.trim() || null,
+    withdrawalDelay,
+    withdrawalLimits,
   ].filter(Boolean);
   const howDoIGetMyMoneyBack =
     withdrawalParts.length > 0 ? withdrawalParts.join(' ') : null;
