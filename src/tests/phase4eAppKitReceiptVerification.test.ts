@@ -100,6 +100,26 @@ describe('Phase 4E App Kit receipt verification', () => {
     expect(result.detail).toMatch(/below reviewed minimum/i);
   });
 
+  it('rejects a ConvertAction outside the verified Arc USDC/EURC pair', () => {
+    const action = reviewedAction();
+    action.toTokenAddress = '0x4444444444444444444444444444444444444444';
+
+    const result = verifyAppKitSwapExecution({
+      result: sdkResult(),
+      action,
+      expectedRecipientAddress: WALLET,
+      receipt: {
+        txHash: TX_HASH,
+        status: 'success',
+        blockNumber: 123,
+        outputAmount: 995_000n,
+      },
+    });
+
+    expect(result.verified).toBe(false);
+    expect(result.detail).toMatch(/verified Arc Testnet USDC\/EURC/i);
+  });
+
   it('builds VERIFIED receipt only from successful authoritative evidence', () => {
     const receipt = buildVerifiedAppKitSwapReceipt({
       result: sdkResult(),
@@ -116,5 +136,6 @@ describe('Phase 4E App Kit receipt verification', () => {
     expect(receipt.status).toBe('VERIFIED');
     expect(receipt.executionTxHash).toBe(TX_HASH);
     expect(receipt.actualAmountDelta).toBe(995_000n);
+    expect(receipt.policyDecision).toBeNull();
   });
 });
