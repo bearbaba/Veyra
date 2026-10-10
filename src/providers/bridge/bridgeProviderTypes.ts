@@ -123,6 +123,20 @@ export interface TransactionSigner {
   chainId: number;
 }
 
+export interface BridgeProviderExecutionRuntime {
+  readonly providerId: string;
+
+  execute(
+    routeOption: RouteOption,
+    onProgress: (trace: ActivityTrace) => void,
+  ): Promise<void>;
+
+  resume(
+    resumePayload: ResumePayload,
+    onProgress: (trace: ActivityTrace) => void,
+  ): Promise<void>;
+}
+
 export interface BridgeProviderAdapter {
   readonly providerId: string;
   readonly version: string;
@@ -140,13 +154,13 @@ export interface BridgeProviderAdapter {
 
   execute(
     routeOption: RouteOption,
-    signer: TransactionSigner,
+    runtime: BridgeProviderExecutionRuntime,
     onProgress: (trace: ActivityTrace) => void,
-  ): Promise<ExecutionResult>;
+  ): Promise<void>;
 
   resume(
     resumePayload: ResumePayload,
-    signer: TransactionSigner,
+    runtime: BridgeProviderExecutionRuntime,
     onProgress: (trace: ActivityTrace) => void,
-  ): Promise<ExecutionResult>;
+  ): Promise<void>;
 }
