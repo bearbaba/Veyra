@@ -88,11 +88,11 @@ describe('Phase 4C bridge recovery checkpoints', () => {
   });
 
   it('drops malformed remote checkpoints during reconciliation', () => {
-    const malformedRemote = {
+    const malformedRemote: BridgeRecoveryCheckpoint = {
       ...checkpoint('SOURCE_CONFIRMED'),
       planId: 'remote-malformed',
       recipientAddress: 'not-an-address',
-    } as unknown as BridgeRecoveryCheckpoint;
+    };
 
     expect(
       reconcileBridgeRecoveryCandidates([], [malformedRemote]),
