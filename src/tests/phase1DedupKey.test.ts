@@ -84,6 +84,44 @@ describe('buildDedupKey', () => {
     expect(k1).not.toBe(k2);
   });
 
+  it('supports deterministic direct-address recipients without an identity snapshot', () => {
+    const direct = {
+      ...BASE_PARAMS,
+      recipientSnapshotId: null,
+      recipientAddress: '0x2222222222222222222222222222222222222222',
+    };
+    const sameDifferentCase = {
+      ...direct,
+      recipientAddress: '0x2222222222222222222222222222222222222222'.toUpperCase(),
+    };
+
+    expect(buildDedupKey(direct)).toBe(buildDedupKey(sameDifferentCase));
+  });
+
+  it('separates different direct-address recipients', () => {
+    const first = buildDedupKey({
+      ...BASE_PARAMS,
+      recipientSnapshotId: null,
+      recipientAddress: '0x2222222222222222222222222222222222222222',
+    });
+    const second = buildDedupKey({
+      ...BASE_PARAMS,
+      recipientSnapshotId: null,
+      recipientAddress: '0x3333333333333333333333333333333333333333',
+    });
+
+    expect(first).not.toBe(second);
+  });
+
+  it('requires either a recipient snapshot or direct recipient address', () => {
+    expect(() =>
+      buildDedupKey({
+        ...BASE_PARAMS,
+        recipientSnapshotId: null,
+      }),
+    ).toThrow(/recipientSnapshotId or recipientAddress is required/i);
+  });
+
   it('is insensitive to key ordering in params object', () => {
     // Different key insertion order should produce the same key (sorted JSON)
     const reordered: DedupParams = {
