@@ -19,6 +19,9 @@ import {
 import type { VeyraReceipt } from '../core/receipt/receiptTypes';
 import { generatePlanReceiptId } from '../core/receipt/receiptId';
 import type { Address } from 'viem';
+import { checkProviderEligibility } from '../providers/registry/providerRegistry';
+import { VEYRA_ENV } from '../lib/env';
+import { assertExecutionReady } from '../core/execution/executionReadiness';
 
 interface ConvertState {
   status: ConvertPipelineStatus;
@@ -45,6 +48,24 @@ export function useConvertExecution() {
       const quote = await fetchStableFxQuote({ fromCurrency, toCurrency, fromAmount, recipientAddress: walletAddress });
       const action = buildConvertActionFromQuote(quote, fromCurrency, toCurrency, walletAddress);
       const evaluation = evaluateConvertAction(action);
+      const providerEligibility = checkProviderEligibility(
+        action.providerId,
+        'CONVERT',
+        action.chainId,
+        action.fromTokenAddress,
+        VEYRA_ENV,
+      );
+
+      if (!providerEligibility.eligible || providerEligibility.status !== 'ELIGIBLE') {
+        setState({
+          status: 'POLICY_BLOCKED',
+          quote,
+          evaluation,
+          walletAddress,
+          error: `Provider ${action.providerId} is not execution-ready: ${providerEligibility.status}. ${providerEligibility.detail}`,
+        });
+        return;
+      }
 
       if (!evaluation.canProceed) {
         setState({ status: 'POLICY_BLOCKED', quote, evaluation, walletAddress, error: evaluation.blockedReason });
@@ -65,6 +86,14 @@ export function useConvertExecution() {
   ) => {
     setState((prev) => ({ ...prev, status: 'SIGNING' }));
     try {
+      assertExecutionReady({
+        action,
+        providerId: action.providerId,
+        providerCapability: 'CONVERT',
+        assetAddress: action.fromTokenAddress,
+        runtimeEnvironment: VEYRA_ENV,
+      });
+
       const signature = await signTypedData(quote.typedData);
 
       setState((prev) => ({ ...prev, status: 'BROADCASTING' }));
