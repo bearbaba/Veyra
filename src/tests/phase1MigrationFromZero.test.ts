@@ -2,7 +2,7 @@
  * Phase 1 — migration-from-zero integration test.
  *
  * Creates a clean `veyra_migration_test` database, applies all migration
- * files in journal order (0000 through 0006), then verifies:
+ * files in journal order (0000 through 0007), then verifies:
  *   - all 21 expected tables exist
  *   - critical UNIQUE constraints are enforced
  *   - CHECK constraints reject invalid data
@@ -92,6 +92,8 @@ beforeAll(async () => {
     await execMigration(client, loadMigration('0005_phase2d_social_contacts.sql'));
     // 0006: Phase 4C durable bridge recovery
     await execMigration(client, loadMigration('0006_phase4c_bridge_recovery.sql'));
+    // 0007: Phase 5 durable activity receipt metadata
+    await execMigration(client, loadMigration('0007_phase5_activity_receipts.sql'));
   } finally {
     client.release();
   }
@@ -213,6 +215,33 @@ describe('migration-from-zero: critical constraints', () => {
            'dedup_unique_key_001','testnet','INTENT_CAPTURED')
       `),
     ).rejects.toThrow(/unique/i);
+  });
+
+  pgTest('direct-address activity receipts do not require an identity snapshot', async () => {
+    await testPool.query(`
+      INSERT INTO activity_receipts
+        (receipt_id, client_intent_id, sender_user_id, sender_wallet_id,
+         sender_address, sender_chain_id, recipient_snapshot_id,
+         recipient_address, recipient_chain_id, amount_raw, amount_decimals,
+         asset_id, token_address, provider_id, route_id, dedup_key, environment, status,
+         action_type, plan_id, execution_tx_hash)
+      VALUES
+        ('rec_direct','intent-direct','usr_migtest','wlt_migtest',
+         '0xmig',5042002,NULL,
+         '0x0000000000000000000000000000000000000009',5042002,1000000,6,
+         'usdc','0x3600000000000000000000000000000000000000','arc-erc20-transfer','route-direct',
+         'dedup_direct_key_001','testnet','BROADCAST',
+         'TRANSFER','550e8400-e29b-41d4-a716-446655440000',
+         '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+    `);
+
+    const res = await testPool.query<{ recipient_snapshot_id: string | null; action_type: string }>(
+      `SELECT recipient_snapshot_id, action_type FROM activity_receipts WHERE receipt_id = 'rec_direct'`,
+    );
+    expect(res.rows[0]).toEqual({
+      recipient_snapshot_id: null,
+      action_type: 'TRANSFER',
+    });
   });
 
   pgTest('social_follows self-follow CHECK constraint fires', async () => {
