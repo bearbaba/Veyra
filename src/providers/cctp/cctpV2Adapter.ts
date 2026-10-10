@@ -35,7 +35,6 @@ import {
   type PublicClient,
   type WalletClient,
   type Hash,
-  type TransactionReceipt,
   type Hex,
   decodeFunctionData,
   getAddress,
@@ -397,8 +396,17 @@ export function verifyCctpSourceTransactionBinding(
   };
 }
 
+export interface CctpReceiptEvidence {
+  status: 'success' | 'reverted';
+  logs: ReadonlyArray<{
+    address: Address;
+    topics: readonly Hex[];
+    data: Hex;
+  }>;
+}
+
 export function verifyCctpSourceReceiptEvidence(
-  receipt: Pick<TransactionReceipt, 'status' | 'logs'>,
+  receipt: CctpReceiptEvidence,
 ): { verified: boolean; detail: string } {
   if (receipt.status !== 'success') {
     return { verified: false, detail: 'Source CCTP transaction did not succeed.' };
@@ -428,7 +436,7 @@ export function verifyCctpSourceReceiptEvidence(
 }
 
 export function verifyCctpDestinationReceiptEvidence(
-  receipt: Pick<TransactionReceipt, 'status' | 'logs'>,
+  receipt: CctpReceiptEvidence,
   recipientAddress: Address,
   tokenAddress: Address,
   expectedAmount: bigint,
