@@ -119,7 +119,7 @@ export function BridgePage() {
     evaluation: ReturnType<typeof evaluateBridgeAction>,
   ) {
     if (!address) return;
-    await bridgeExecution.executeBridge(evaluation.action, address as Address);
+    await bridgeExecution.executeBridge(evaluation.action, address);
     setRecoveryCandidates(await bridgeExecution.loadRecoveryCandidates());
   }
 
