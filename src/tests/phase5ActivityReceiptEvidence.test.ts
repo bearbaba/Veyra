@@ -106,7 +106,7 @@ function sourceReceipt(
       amount,
       bytes32Address(RECIPIENT),
       MANIFEST_CONSTANTS.ETH_SEPOLIA_CCTP_DOMAIN,
-      `0x${'11'.repeat(32)}`,
+      bytes32Address(MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER),
       `0x${'00'.repeat(32)}`,
       0n,
       '0x',
