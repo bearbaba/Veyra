@@ -148,7 +148,7 @@ export async function findActiveWalletBinding(
     return null;
   }
 
-  const [wallet] = await db
+  const wallets = await db
     .select()
     .from(walletBindings)
     .where(
@@ -160,6 +160,9 @@ export async function findActiveWalletBinding(
       ),
     );
 
-  if (!wallet) return null;
-  return wallet.walletAddress.toLowerCase() === normalizedAddress ? wallet : null;
+  return (
+    wallets.find(
+      (wallet) => wallet.walletAddress.toLowerCase() === normalizedAddress,
+    ) ?? null
+  );
 }
