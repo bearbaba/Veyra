@@ -25,10 +25,7 @@ import { buildTxExplorerUrl } from '@/onchain-facts';
 import { verifyPaymentRecipient } from '@/lib/api/identityApi';
 import { assertExecutionReady } from '@/core/execution/executionReadiness';
 import { VEYRA_ENV } from '@/lib/env';
-import {
-  verifyErc20TransferReceiptEvidence,
-  verifyExactTokenDelta,
-} from '@/core/execution/receiptVerification';
+import { recoverPendingTransferReceipt } from '@/core/execution/transferRecovery';
 import {
   lockActionExecution,
   markActionExecutionSubmissionStarted,
@@ -101,6 +98,7 @@ export function useTransferExecution() {
     let actionReservationHeld = false;
     let submissionStarted = false;
     let broadcastHash: `0x${string}` | null = null;
+    let pendingReceipt: VeyraReceipt | null = null;
 
     try {
       // Canonical final execution boundary. Re-check schema/provenance/provider
@@ -174,65 +172,73 @@ export function useTransferExecution() {
       await lockActionExecution(action.actionId);
 
       const explorerUrl = buildTxExplorerUrl(action.chainId, hash);
-      setState((s) => ({ ...s, step: 'CONFIRMING', txHash: hash, explorerUrl }));
-
-      // ── Step 2: Wait for receipt ───────────────────────────────────────────
-      const txReceipt = await publicClient.waitForTransactionReceipt({ hash });
-
-      const transferEvidence = verifyErc20TransferReceiptEvidence({
-        receipt: txReceipt,
-        tokenAddress: action.tokenAddress,
-        from: action.from,
-        to: action.to,
-        amount: action.amount,
-      });
-      if (!transferEvidence.verified) {
-        throw new Error(
-          `Transaction receipt verification failed: ${transferEvidence.detail}`,
-        );
-      }
-
-      setState((s) => ({ ...s, step: 'VERIFYING' }));
-
-      // ── Step 3: Verify final state — read actual balance delta ─────────────
-      const balanceAfter = await publicClient.readContract({
-        address: action.tokenAddress as `0x${string}`,
-        abi: ERC20_TRANSFER_ABI,
-        functionName: 'balanceOf',
-        args: [action.to as `0x${string}`],
-      });
-
-      const verification = verifyExactTokenDelta(
-        balanceBefore,
-        balanceAfter,
-        action.amount,
-      );
-      if (!verification.verified) {
-        throw new Error(`Final-state verification failed: ${verification.detail}`);
-      }
-
-      // Build receipt
       const receiptId = generateExecutionReceiptId(action.chainId, hash);
-      const veyraReceipt: VeyraReceipt = {
+      pendingReceipt = {
         receiptId,
         planId: action.actionId,
         actionType: action.actionType,
-        status: 'VERIFIED',
+        status: 'PENDING',
         chainId: action.chainId,
         executionTxHash: hash,
-        executionBlock: Number(txReceipt.blockNumber),
         createdAt: action.createdAt,
-        completedAt: Date.now(),
-        actualAmountDelta: verification.actualDelta,
+        actualAmountDelta: null,
         expectedAmountDelta: action.amount,
         riskScore: null,
         policyDecision: null,
-        displaySummary: `Sent ${formatUnits(action.amount, action.tokenDecimals)} USDC to ${action.to.slice(0, 6)}...${action.to.slice(-4)}`,
-        verifiedBalanceAfter: balanceAfter,
+        displaySummary:
+          `Sent ${formatUnits(action.amount, action.tokenDecimals)} USDC to ${action.to.slice(0, 6)}...${action.to.slice(-4)} — verification pending`,
+        transferTrace: {
+          providerId: 'arc-erc20-transfer',
+          tokenAddress: action.tokenAddress,
+          tokenDecimals: action.tokenDecimals,
+          fromAddress: action.from,
+          recipientAddress: action.to,
+          amountRaw: action.amount.toString(),
+          balanceBeforeRaw: balanceBefore.toString(),
+        },
       };
 
-      await saveReceipt(veyraReceipt);
-      setState((s) => ({ ...s, step: 'DONE', receipt: veyraReceipt }));
+      // Persist the deterministic tx hash and all verification context before
+      // waiting. A tab/browser crash can now resume verification without ever
+      // submitting the transfer again.
+      await saveReceipt(pendingReceipt);
+      setState((s) => ({
+        ...s,
+        step: 'CONFIRMING',
+        txHash: hash,
+        explorerUrl,
+        receipt: pendingReceipt,
+      }));
+
+      // ── Step 2: Wait for receipt ───────────────────────────────────────────
+      await publicClient.waitForTransactionReceipt({ hash });
+
+      setState((s) => ({ ...s, step: 'VERIFYING' }));
+
+      // ── Step 3: Reconcile from authoritative chain receipt evidence ────────
+      const recovery = await recoverPendingTransferReceipt(
+        publicClient,
+        pendingReceipt,
+      );
+
+      if (recovery.status === 'PENDING') {
+        await saveReceipt(recovery.receipt);
+        setState((s) => ({
+          ...s,
+          step: 'FAILED',
+          error: recovery.detail,
+          receipt: recovery.receipt,
+        }));
+        return;
+      }
+
+      await saveReceipt(recovery.receipt);
+      setState((s) => ({
+        ...s,
+        step: recovery.status === 'VERIFIED' ? 'DONE' : 'FAILED',
+        error: recovery.status === 'FAILED' ? recovery.detail : null,
+        receipt: recovery.receipt,
+      }));
     } catch (err) {
       if (actionReservationHeld && !submissionStarted) {
         try {
@@ -243,24 +249,27 @@ export function useTransferExecution() {
       }
 
       const msg = err instanceof Error ? err.message : String(err);
-      const failedReceipt: VeyraReceipt = {
-        receiptId: `veyra-fail-${Date.now()}`,
-        planId: action.actionId,
-        actionType: action.actionType,
-        status: 'FAILED',
-        chainId: action.chainId,
-        executionTxHash: broadcastHash ?? undefined,
-        createdAt: action.createdAt,
-        completedAt: Date.now(),
-        actualAmountDelta: null,
-        expectedAmountDelta: action.amount,
-        riskScore: null,
-        policyDecision: null,
-        displaySummary: `Transfer failed: ${msg}`,
-        verifiedBalanceAfter: undefined,
-      };
-      await saveReceipt(failedReceipt);
-      setState((s) => ({ ...s, step: 'FAILED', error: msg, receipt: failedReceipt }));
+
+      if (broadcastHash && pendingReceipt) {
+        // Once a tx hash exists, a timeout/network/browser verification error is
+        // not proof that the transfer failed. Preserve the pending receipt for
+        // Activity/reload reconciliation instead of inventing a FAILED outcome.
+        await saveReceipt(pendingReceipt);
+        setState((s) => ({
+          ...s,
+          step: 'FAILED',
+          error: `${msg} The submitted transfer remains pending verification.`,
+          receipt: pendingReceipt,
+        }));
+        return;
+      }
+
+      setState((s) => ({
+        ...s,
+        step: 'FAILED',
+        error: msg,
+        receipt: null,
+      }));
     }
   }, [
     address,
