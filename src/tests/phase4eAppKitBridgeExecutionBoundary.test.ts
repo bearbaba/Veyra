@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EIP1193Provider } from 'viem';
+import * as appKitAdapterModule from '../providers/appkit/appKitAdapter';
 import {
+  assertAppKitBridgeRetryReady,
   assertReviewedAppKitBridgeMatchesAction,
   executeReviewedAppKitBridge,
   type ReviewedAppKitBridge,
@@ -94,6 +96,68 @@ describe('Phase 4E App Kit bridge execution boundary', () => {
         }),
       ),
     ).toThrow(/source-chain USDC/i);
+  });
+
+  it('does not export the raw App Kit instance', () => {
+    expect('appKit' in appKitAdapterModule).toBe(false);
+  });
+
+  it('allows recovery review after quote expiry when funds are already in flight', () => {
+    markSecurityGateReady();
+    const expired = action({
+      provenance: {
+        source: 'PROVIDER_QUOTE',
+        fetchedAt: Date.now() - 600_000,
+        providerId: 'circle-appkit-bridge',
+      },
+      quoteExpiresAt: Date.now() - 60_000,
+    });
+    const result = {
+      state: 'error',
+      steps: [
+        {
+          name: 'burn',
+          state: 'success',
+          txHash:
+            '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        },
+        { name: 'fetchAttestation', state: 'error', error: 'timeout' },
+      ],
+    } as Parameters<typeof assertAppKitBridgeRetryReady>[0]['result'];
+
+    expect(() =>
+      assertAppKitBridgeRetryReady({
+        reviewed: reviewed(),
+        action: expired,
+        result,
+        runtimeEnvironment: 'testnet',
+        recoveryConfirmed: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it('requires explicit confirmation when recovery provider health is UNKNOWN', () => {
+    markSecurityGateReady();
+    const result = {
+      state: 'error',
+      steps: [
+        {
+          name: 'burn',
+          state: 'success',
+          txHash:
+            '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        },
+      ],
+    } as Parameters<typeof assertAppKitBridgeRetryReady>[0]['result'];
+
+    expect(() =>
+      assertAppKitBridgeRetryReady({
+        reviewed: reviewed(),
+        action: action(),
+        result,
+        runtimeEnvironment: 'testnet',
+      }),
+    ).toThrow(/explicit confirmation/i);
   });
 
   it('blocks the disabled App Kit bridge before wallet reads or switching', async () => {
