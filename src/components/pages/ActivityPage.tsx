@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import type { VeyraReceipt } from '@/core/receipt/receiptTypes';
 import { recoverPendingTransferReceipt } from '@/core/execution/transferRecovery';
-import { saveReceipt } from '@/core/receipt/receiptStore';
+import { saveReceiptWithRemoteSync } from '@/core/receipt/receiptSync';
 import { MANIFEST_CONSTANTS } from '@/providers/registry/providerManifest';
 import {
   nextBridgeResumeInstruction,
@@ -61,7 +61,7 @@ export function ActivityPage() {
             transferRecoveryAttempted.current.delete(receipt.receiptId);
             return;
           }
-          await saveReceipt(result.receipt);
+          await saveReceiptWithRemoteSync(result.receipt);
           if (active) await reload();
         })
         .catch(() => {
