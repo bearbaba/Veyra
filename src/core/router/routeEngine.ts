@@ -137,7 +137,6 @@ export async function selectBridgeRoutes(input: {
   now?: number;
 }): Promise<RouteSelectionResult> {
   const runtimeEnvironment = input.runtimeEnvironment ?? 'testnet';
-  const now = input.now ?? Date.now();
   const checkedProviders: string[] = [];
   const excludedProviders: Array<{ providerId: string; reason: string }> = [];
 
@@ -182,6 +181,7 @@ export async function selectBridgeRoutes(input: {
   );
 
   const routes: RouteOption[] = [];
+  const verificationNow = input.now ?? Date.now();
   for (const { adapter, route } of quoted) {
     if (!route) {
       excludedProviders.push({
@@ -191,7 +191,7 @@ export async function selectBridgeRoutes(input: {
       continue;
     }
 
-    if (!isRouteStructurallySafe(route, adapter, now)) {
+    if (!isRouteStructurallySafe(route, adapter, verificationNow)) {
       excludedProviders.push({
         providerId: adapter.providerId,
         reason: 'UNSAFE_OR_EXPIRED_ROUTE',
