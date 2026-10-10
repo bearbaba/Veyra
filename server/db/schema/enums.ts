@@ -102,6 +102,7 @@ export const executionEventTypeEnum = pgEnum('execution_event_type', [
   'RECEIPT_COMPLETE',
   'RECEIPT_FAILED',
   'DUPLICATE_REJECTED',
+  'RECEIPT_SYNCED',
 ]);
 
 export const quoteStatusEnum = pgEnum('quote_status', [
