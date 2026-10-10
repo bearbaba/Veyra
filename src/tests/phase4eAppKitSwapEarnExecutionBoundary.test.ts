@@ -7,6 +7,7 @@ import type {
 } from '../core/actions/actionSchema';
 import {
   assertReviewedAppKitSwapMatchesAction,
+  assertReviewedSwapFeeMatchesCurrentPolicy,
   assertReviewedEarnDepositMatchesAction,
   assertReviewedEarnWithdrawalMatchesAction,
   executeEarnDeposit,
@@ -22,6 +23,8 @@ import {
   resetSecurityGate,
 } from '../lib/securityGate';
 import type { EarnExplainabilityInput } from '../core/earn/earnExplainability';
+import { quoteVeyraFee } from '../core/fees/feeEngine';
+import { VEYRA_TESTNET_TREASURY_ADDRESS } from '../core/fees/treasuryConfig';
 
 const WALLET = '0x1111111111111111111111111111111111111111';
 const VAULT = '0x4444444444444444444444444444444444444444';
@@ -62,13 +65,12 @@ function reviewedSwap(
       tokenOut: 'EURC',
       amountIn: '1',
       slippageBps: 100,
-      veyraFee: {
+      veyraFee: quoteVeyraFee({
         capability: 'SWAP',
         providerId: 'circle-appkit-swap',
-        percentageBps: 10,
-        status: 'COLLECTIBLE',
-        treasuryAddress: '0x5555555555555555555555555555555555555555',
-      } as ReviewedAppKitSwap['request']['veyraFee'],
+        environment: 'testnet',
+        treasuryAddress: VEYRA_TESTNET_TREASURY_ADDRESS,
+      }),
       ...overrides,
     },
     estimate: {} as ReviewedAppKitSwap['estimate'],
@@ -193,6 +195,20 @@ describe('Phase 4E App Kit swap execution boundary', () => {
         swapAction(),
       ),
     ).toThrow(/amount does not match/i);
+  });
+
+  it('rejects a tampered reviewed fee recipient before execution', () => {
+    const base = reviewedSwap();
+    const tampered = reviewedSwap({
+      veyraFee: {
+        ...base.request.veyraFee,
+        treasuryAddress: '0x5555555555555555555555555555555555555555',
+      },
+    });
+
+    expect(() =>
+      assertReviewedSwapFeeMatchesCurrentPolicy(tampered, 'testnet'),
+    ).toThrow(/fee.*policy|fresh review/i);
   });
 
   it('blocks disabled App Kit swap before wallet reads or switching', async () => {
