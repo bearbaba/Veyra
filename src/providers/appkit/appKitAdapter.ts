@@ -616,13 +616,154 @@ export async function exploreAppKitEarnVaults(input: {
   return appKit.earn.exploreVaults(params);
 }
 
+export interface AppKitEarnReviewRequest {
+  chain: CircleAppKitChain;
+  vaultAddress: string;
+  amount: string;
+}
+
+export interface ReviewedAppKitEarnDeposit {
+  request: AppKitEarnReviewRequest;
+  quote: EarnDepositQuote;
+}
+
+export interface ReviewedAppKitEarnWithdrawal {
+  request: AppKitEarnReviewRequest;
+  quote: EarnWithdrawalQuote;
+}
+
+function assertEarnExplainabilityMatchesAction(
+  explainability: EarnExplainabilityInput,
+  request: AppKitEarnReviewRequest,
+  tokenDecimals: number,
+  expectedAmount: bigint,
+): void {
+  assertEarnExplainabilityComplete(explainability);
+
+  if (explainability.providerId !== 'circle-appkit-earn') {
+    throw new Error('[appKit] Earn explainability provider does not match circle-appkit-earn.');
+  }
+  if (explainability.chain.trim() !== request.chain) {
+    throw new Error('[appKit] Earn explainability chain does not match the reviewed request.');
+  }
+  if (explainability.vaultAddress.toLowerCase() !== request.vaultAddress.toLowerCase()) {
+    throw new Error('[appKit] Earn explainability vault does not match the reviewed request.');
+  }
+  if (explainability.asset.trim().toUpperCase() !== 'USDC') {
+    throw new Error('[appKit] Earn explainability asset must be USDC for the current verified scope.');
+  }
+  if (parseUnits(explainability.amount, tokenDecimals) !== expectedAmount) {
+    throw new Error('[appKit] Earn explainability amount does not match the deterministic action.');
+  }
+}
+
+export function assertReviewedEarnDepositMatchesAction(
+  reviewed: ReviewedAppKitEarnDeposit,
+  action: SupplyAction,
+  explainability: EarnExplainabilityInput,
+): void {
+  if (action.providerId !== 'circle-appkit-earn') {
+    throw new Error('[appKit] Earn deposit action provider does not match circle-appkit-earn.');
+  }
+  if (
+    action.provenance.providerId !== undefined &&
+    action.provenance.providerId !== 'circle-appkit-earn'
+  ) {
+    throw new Error('[appKit] Earn deposit provenance provider does not match circle-appkit-earn.');
+  }
+
+  const chainId = appKitTestnetChainId(reviewed.request.chain);
+  if (
+    chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID ||
+    action.chainId !== chainId
+  ) {
+    throw new Error('[appKit] Reviewed Earn deposit chain does not match the deterministic action.');
+  }
+
+  if (
+    action.protocolAddress.toLowerCase() !==
+    reviewed.request.vaultAddress.toLowerCase()
+  ) {
+    throw new Error('[appKit] Reviewed Earn deposit vault does not match the deterministic action.');
+  }
+
+  if (
+    action.tokenAddress.toLowerCase() !==
+    MANIFEST_CONSTANTS.ARC_TESTNET_USDC.toLowerCase()
+  ) {
+    throw new Error('[appKit] Earn deposit asset must be Arc Testnet USDC.');
+  }
+
+  const reviewedAmount = parseUnits(reviewed.request.amount, action.tokenDecimals);
+  if (reviewedAmount !== action.amount) {
+    throw new Error('[appKit] Reviewed Earn deposit amount does not match the deterministic action.');
+  }
+
+  assertEarnExplainabilityMatchesAction(
+    explainability,
+    reviewed.request,
+    action.tokenDecimals,
+    action.amount,
+  );
+}
+
+export function assertReviewedEarnWithdrawalMatchesAction(
+  reviewed: ReviewedAppKitEarnWithdrawal,
+  action: WithdrawAction,
+  explainability: EarnExplainabilityInput,
+): void {
+  if (action.providerId !== 'circle-appkit-earn') {
+    throw new Error('[appKit] Earn withdrawal action provider does not match circle-appkit-earn.');
+  }
+  if (
+    action.provenance.providerId !== undefined &&
+    action.provenance.providerId !== 'circle-appkit-earn'
+  ) {
+    throw new Error('[appKit] Earn withdrawal provenance provider does not match circle-appkit-earn.');
+  }
+
+  const chainId = appKitTestnetChainId(reviewed.request.chain);
+  if (
+    chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID ||
+    action.chainId !== chainId
+  ) {
+    throw new Error('[appKit] Reviewed Earn withdrawal chain does not match the deterministic action.');
+  }
+
+  if (
+    action.protocolAddress.toLowerCase() !==
+    reviewed.request.vaultAddress.toLowerCase()
+  ) {
+    throw new Error('[appKit] Reviewed Earn withdrawal vault does not match the deterministic action.');
+  }
+
+  if (
+    action.tokenAddress.toLowerCase() !==
+    MANIFEST_CONSTANTS.ARC_TESTNET_USDC.toLowerCase()
+  ) {
+    throw new Error('[appKit] Earn withdrawal asset must be Arc Testnet USDC.');
+  }
+
+  const reviewedAmount = parseUnits(reviewed.request.amount, action.tokenDecimals);
+  if (reviewedAmount !== action.amount) {
+    throw new Error('[appKit] Reviewed Earn withdrawal amount does not match the deterministic action.');
+  }
+
+  assertEarnExplainabilityMatchesAction(
+    explainability,
+    reviewed.request,
+    action.tokenDecimals,
+    action.amount,
+  );
+}
+
 export async function reviewEarnDeposit(input: {
   provider: EIP1193Provider;
   chain: string;
   vaultAddress: string;
   amount: string;
   ensureSourceChain?: EnsureSourceChain;
-}): Promise<EarnDepositQuote> {
+}): Promise<ReviewedAppKitEarnDeposit> {
   const chain = assertCircleAppKitChain(input.chain);
   const amount = normalizeAmount(input.amount);
   const vaultAddress = assertAddress(input.vaultAddress);
@@ -633,27 +774,49 @@ export async function reviewEarnDeposit(input: {
     vaultAddress,
     amount,
   } as unknown as EarnDepositQuoteParams;
-  return appKit.earn.getDepositQuote(params);
+  const quote = await appKit.earn.getDepositQuote(params);
+  return {
+    request: { chain, vaultAddress, amount },
+    quote,
+  };
 }
 
 export async function executeEarnDeposit(input: {
   provider: EIP1193Provider;
-  chain: string;
-  vaultAddress: string;
-  amount: string;
+  reviewed: ReviewedAppKitEarnDeposit;
+  action: SupplyAction;
   explainability: EarnExplainabilityInput;
+  runtimeEnvironment: ExecutionRuntimeEnvironment;
+  degradedProviderConfirmed?: boolean;
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<EarnDepositResult> {
-  assertEarnExplainabilityComplete(input.explainability);
-  const chain = assertCircleAppKitChain(input.chain);
-  const amount = normalizeAmount(input.amount);
-  const vaultAddress = assertAddress(input.vaultAddress);
+  assertReviewedEarnDepositMatchesAction(
+    input.reviewed,
+    input.action,
+    input.explainability,
+  );
+
+  assertExecutionReady({
+    action: input.action,
+    providerId: 'circle-appkit-earn',
+    providerCapability: 'EARN_DEPOSIT',
+    assetAddress: input.action.tokenAddress,
+    runtimeEnvironment: input.runtimeEnvironment,
+    degradedProviderConfirmed: input.degradedProviderConfirmed,
+  });
+
+  await assertWalletAccountMatchesAddress(
+    input.provider,
+    input.action.from,
+    'Earn deposit sender',
+  );
   await input.ensureSourceChain?.();
+
   const adapter = await adapterFromProvider(input.provider);
   const params = {
-    from: { adapter, chain },
-    vaultAddress,
-    amount,
+    from: { adapter, chain: input.reviewed.request.chain },
+    vaultAddress: input.reviewed.request.vaultAddress,
+    amount: input.reviewed.request.amount,
   } as unknown as EarnDepositParams;
   return appKit.earn.deposit(params);
 }
@@ -679,7 +842,7 @@ export async function reviewEarnWithdrawal(input: {
   vaultAddress: string;
   amount: string;
   ensureSourceChain?: EnsureSourceChain;
-}): Promise<EarnWithdrawalQuote> {
+}): Promise<ReviewedAppKitEarnWithdrawal> {
   const chain = assertCircleAppKitChain(input.chain);
   const amount = normalizeAmount(input.amount);
   const vaultAddress = assertAddress(input.vaultAddress);
@@ -690,25 +853,49 @@ export async function reviewEarnWithdrawal(input: {
     vaultAddress,
     amount,
   } as unknown as EarnWithdrawalQuoteParams;
-  return appKit.earn.getWithdrawalQuote(params);
+  const quote = await appKit.earn.getWithdrawalQuote(params);
+  return {
+    request: { chain, vaultAddress, amount },
+    quote,
+  };
 }
 
 export async function executeEarnWithdrawal(input: {
   provider: EIP1193Provider;
-  chain: string;
-  vaultAddress: string;
-  amount: string;
+  reviewed: ReviewedAppKitEarnWithdrawal;
+  action: WithdrawAction;
+  explainability: EarnExplainabilityInput;
+  runtimeEnvironment: ExecutionRuntimeEnvironment;
+  degradedProviderConfirmed?: boolean;
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<EarnWithdrawResult> {
-  const chain = assertCircleAppKitChain(input.chain);
-  const amount = normalizeAmount(input.amount);
-  const vaultAddress = assertAddress(input.vaultAddress);
+  assertReviewedEarnWithdrawalMatchesAction(
+    input.reviewed,
+    input.action,
+    input.explainability,
+  );
+
+  assertExecutionReady({
+    action: input.action,
+    providerId: 'circle-appkit-earn',
+    providerCapability: 'EARN_WITHDRAW',
+    assetAddress: input.action.tokenAddress,
+    runtimeEnvironment: input.runtimeEnvironment,
+    degradedProviderConfirmed: input.degradedProviderConfirmed,
+  });
+
+  await assertWalletAccountMatchesAddress(
+    input.provider,
+    input.action.to,
+    'Earn withdrawal recipient',
+  );
   await input.ensureSourceChain?.();
+
   const adapter = await adapterFromProvider(input.provider);
   const params = {
-    from: { adapter, chain },
-    vaultAddress,
-    amount,
+    from: { adapter, chain: input.reviewed.request.chain },
+    vaultAddress: input.reviewed.request.vaultAddress,
+    amount: input.reviewed.request.amount,
   } as unknown as EarnWithdrawParams;
   return appKit.earn.withdraw(params);
 }
