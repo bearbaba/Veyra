@@ -705,19 +705,25 @@ function assertEarnExplainabilityMatchesAction(
 ): void {
   assertEarnExplainabilityComplete(explainability);
 
-  if (explainability.providerId !== 'circle-appkit-earn') {
+  const providerId = explainability.providerId?.trim() ?? '';
+  const chain = explainability.chain?.trim() ?? '';
+  const vaultAddress = explainability.vaultAddress?.trim() ?? '';
+  const asset = explainability.asset?.trim() ?? '';
+  const amount = explainability.amount?.trim() ?? '';
+
+  if (providerId !== 'circle-appkit-earn') {
     throw new Error('[appKit] Earn explainability provider does not match circle-appkit-earn.');
   }
-  if (explainability.chain.trim() !== request.chain) {
+  if (chain !== request.chain) {
     throw new Error('[appKit] Earn explainability chain does not match the reviewed request.');
   }
-  if (explainability.vaultAddress.toLowerCase() !== request.vaultAddress.toLowerCase()) {
+  if (vaultAddress.toLowerCase() !== request.vaultAddress.toLowerCase()) {
     throw new Error('[appKit] Earn explainability vault does not match the reviewed request.');
   }
-  if (explainability.asset.trim().toUpperCase() !== 'USDC') {
+  if (asset.toUpperCase() !== 'USDC') {
     throw new Error('[appKit] Earn explainability asset must be USDC for the current verified scope.');
   }
-  if (parseUnits(explainability.amount, tokenDecimals) !== expectedAmount) {
+  if (parseUnits(amount, tokenDecimals) !== expectedAmount) {
     throw new Error('[appKit] Earn explainability amount does not match the deterministic action.');
   }
 }
