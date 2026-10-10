@@ -260,16 +260,6 @@ const TESTNET_PROVIDER_MANIFEST: ProviderManifestEntry[] = [
       'arc-testnet',
       'ethereum-sepolia',
       'base-sepolia',
-      'avalanche-fuji',
-      'optimism-sepolia',
-      'arbitrum-sepolia',
-      'polygon-amoy',
-      'unichain-sepolia',
-      'sonic-testnet',
-      'world-chain-sepolia',
-      'sei-testnet',
-      'hyperevm-testnet',
-      'solana-devnet',
     ],
     supportedAssets: [ARC_TESTNET_USDC, ETH_SEPOLIA_USDC, BASE_SEPOLIA_USDC],
     environment: 'testnet',
@@ -287,7 +277,8 @@ const TESTNET_PROVIDER_MANIFEST: ProviderManifestEntry[] = [
       notes:
         'Official Circle App Kit example verified for unifiedBalance.deposit(), spend(), and getBalances(). ' +
         'Forwarding Service can complete the destination mint without a destination wallet switch. ' +
-        'Browser adapters use @circle-fin/adapter-viem-v2. ' +
+        'Browser adapters currently use @circle-fin/adapter-viem-v2 for Arc/Ethereum/Base testnets only. ' +
+        'Circle supports additional networks including Solana, but Veyra keeps them non-executable until their matching adapter path is implemented and tested. ' +
         'LIFECYCLE GATE: IMPLEMENTED in Phase 4B but disabled until Veyra completes real testnet E2E and receipt verification.',
     },
   },
@@ -298,7 +289,7 @@ const TESTNET_PROVIDER_MANIFEST: ProviderManifestEntry[] = [
     displayName: 'Circle App Kit Bridge',
     capabilities: ['BRIDGE'],
     supportedChainIds: [ARC_TESTNET_CHAIN_ID, ETH_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID],
-    supportedNetworkIds: ['arc-testnet', 'ethereum-sepolia', 'base-sepolia', 'solana-devnet'],
+    supportedNetworkIds: ['arc-testnet', 'ethereum-sepolia', 'base-sepolia'],
     supportedAssets: [ARC_TESTNET_USDC, ETH_SEPOLIA_USDC, BASE_SEPOLIA_USDC],
     environment: 'testnet',
     trustStatus: 'OFFICIAL',
@@ -315,6 +306,7 @@ const TESTNET_PROVIDER_MANIFEST: ProviderManifestEntry[] = [
       notes:
         'Official Circle App Kit bridge() and retryBridge() flow verified. ' +
         'Veyra defaults browser-wallet bridge reviews to Forwarding Service where supported to avoid destination-chain switching. ' +
+        'Current Veyra source-adapter scope is Arc/Ethereum/Base testnets; Solana remains recognized but non-executable until a Solana adapter path is implemented and tested. ' +
         'LIFECYCLE GATE: the existing cctp-v2-bridge remains the ENABLED testnet route until this adapter completes its own E2E.',
     },
   },
