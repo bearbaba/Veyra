@@ -254,7 +254,7 @@ const TESTNET_PROVIDER_MANIFEST: ProviderManifestEntry[] = [
   {
     providerId: 'circle-unified-balance',
     displayName: 'Circle Unified Balance / Gateway',
-    capabilities: ['BRIDGE', 'TRANSFER'],
+    capabilities: ['UNIFIED_BALANCE'],
     supportedChainIds: [],
     supportedAssets: [],
     environment: 'testnet',

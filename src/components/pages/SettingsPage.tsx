@@ -1,45 +1,52 @@
 /**
- * Veyra Settings / Policies Page
+ * Veyra Settings — secondary account / identity / safety surface.
  *
- * Shows active policy rules and lets the user view their address.
- * Policy values come from the deterministic Policy Engine — not editable via LLM.
+ * The primary product stays Home / Pay / Agent / Activity. Settings exposes
+ * identity state and deterministic safety without turning the app into a
+ * developer dashboard.
  */
 
+import { useState } from 'react';
 import { useAccount } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
-import { Shield, Copy, Check, Info, Link2, Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Check, Copy, Link2, Loader2, ShieldCheck, SlidersHorizontal, Wallet } from 'lucide-react';
 import { DEFAULT_VEYRA_POLICY } from '@/core/policy/policyEngine';
-import { SECURITY_CONFIG } from '@/lib/securityConfig';
 import { VEYRA_ENV } from '@/lib/env';
-import { beginXLink, getMyProfile, type MyProfile } from '@/lib/api/identityApi';
+import { beginXLink, type MyProfile } from '@/lib/api/identityApi';
+import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
+import { PRODUCT_ASSETS, PRODUCT_NETWORKS } from '@/config/productRegistry';
+import { RuntimeStatusCard } from '../system/RuntimeStatusCard';
+import { BrandLogo } from '../brand/BrandLogo';
+import { CreateVeyraIdModal } from '../identity/CreateVeyraIdModal';
 
 export function SettingsPage() {
   const { address, isConnected } = useAccount();
+  const identity = useVeyraIdentity();
   const [copied, setCopied] = useState(false);
-  const [profile, setProfile] = useState<MyProfile | null>(null);
+  const [identityOpen, setIdentityOpen] = useState(false);
   const [xLoading, setXLoading] = useState(false);
   const [xError, setXError] = useState<string | null>(null);
 
-
-  useEffect(() => {
-    let cancelled = false;
-    void getMyProfile().then((next) => {
-      if (!cancelled) setProfile(next);
-    }).catch(() => {
-      // A wallet-only user may not have a Veyra session yet. Keep Settings usable.
-    });
-    return () => { cancelled = true; };
-  }, []);
+  const profile = identity.profile;
 
   async function linkX() {
-    setXLoading(true);
     setXError(null);
+    if (!profile) {
+      setIdentityOpen(true);
+      setXError('Create your Veyra ID first, then link X to the same identity.');
+      return;
+    }
+    if (identity.preview) {
+      setXError('X linking requires a real signed Veyra session. Local preview IDs are UI-only.');
+      return;
+    }
+    if (profile.x) return;
+    setXLoading(true);
     try {
       const authorizeUrl = await beginXLink('/settings');
       window.location.assign(authorizeUrl);
-    } catch (err) {
-      setXError(err instanceof Error ? err.message : 'Unable to start X linking');
+    } catch (error) {
+      setXError(error instanceof Error ? error.message : 'Unable to start X linking');
       setXLoading(false);
     }
   }
@@ -52,169 +59,136 @@ export function SettingsPage() {
     });
   }
 
+  function onIdentityCreated(_profile: MyProfile) {
+    void identity.refresh();
+    setXError(null);
+  }
+
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+    <div className="mx-auto max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
       <div>
-        <h1 className="display text-2xl font-bold" style={{ color: 'var(--ink)', letterSpacing: '-0.02em' }}>
-          Settings
-        </h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>Policies and configuration</p>
+        <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--accent)' }}>
+          <SlidersHorizontal className="size-4" /> Account
+        </div>
+        <h1 className="display mt-2 text-3xl font-black" style={{ color: 'var(--ink)', letterSpacing: '-0.04em' }}>Identity & settings</h1>
+        <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>Your Veyra identity, linked endpoints, and the safety state underneath every action.</p>
       </div>
 
-      {/* Wallet */}
-      <Section title="Wallet">
-        {!isConnected ? (
-          <div className="flex items-center justify-between">
-            <p className="text-sm" style={{ color: 'var(--muted)' }}>No wallet connected</p>
-            <ConnectKitButton />
-          </div>
-        ) : (
-          <div className="flex items-center justify-between">
-            <span className="mono text-sm" style={{ color: 'var(--ink-2)' }}>
-              {address}
-            </span>
-            <button
-              onClick={copyAddress}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
-              style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--muted)' }}
-            >
-              {copied ? <Check className="size-3.5" style={{ color: 'var(--success)' }} /> : <Copy className="size-3.5" />}
-              {copied ? 'Copied' : 'Copy'}
-            </button>
-          </div>
-        )}
-      </Section>
-
-      {/* Linked identity */}
-      <Section title="Linked Identity" icon={<Link2 className="size-4" />}>
-        {profile?.x ? (
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium" style={{ color: 'var(--ink)' }}>
-                @{profile.x.xHandle ?? 'X account'}
-              </p>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-                X account ID {profile.x.xAccountId} · immutable binding
-              </p>
+      <section className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+        <div className="rounded-3xl p-5 md:p-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border-strong)' }}>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex size-12 items-center justify-center rounded-2xl" style={{ background: 'linear-gradient(135deg,#7c3aed,#ec4899)', color: 'white' }}>
+                <ShieldCheck className="size-5" />
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--subtle)' }}>Veyra identity</div>
+                <div className="mt-1 text-xl font-bold" style={{ color: 'var(--ink)' }}>{profile ? `@${profile.veyraHandle}` : 'Not created'}</div>
+                <div className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>{identity.preview ? 'Local preview ID · not reserved' : profile ? 'Canonical identity' : 'Create once, link verified endpoints'}</div>
+              </div>
             </div>
-            <span className="text-xs px-2 py-1 rounded-full"
-              style={{ background: 'var(--success-muted)', color: 'var(--success)' }}>
-              Linked
-            </span>
+            {!profile && (
+              <button onClick={() => setIdentityOpen(true)} className="rounded-xl px-3.5 py-2.5 text-xs font-bold" style={{ background: 'linear-gradient(135deg,#c8ff65,#91e9b5)', color: '#0b1b25' }}>
+                Create Veyra ID
+              </button>
+            )}
           </div>
-        ) : (
-          <div className="space-y-3">
-            <p className="text-sm" style={{ color: 'var(--muted)' }}>
-              Link X to let people resolve your current X handle to your Veyra identity. Your numeric X account ID is the binding key.
-            </p>
-            <button
-              onClick={() => void linkX()}
-              disabled={xLoading}
-              className="flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold disabled:opacity-50"
-              style={{ background: 'var(--surface)', border: '1px solid var(--border-strong)', color: 'var(--ink)' }}
-            >
-              {xLoading ? <Loader2 className="size-4 animate-spin" /> : <Link2 className="size-4" />}
-              Link X account
+
+          <div className="mt-5 grid gap-2 sm:grid-cols-3">
+            <AccountEndpoint label="Wallet" value={isConnected && address ? shortAddress(address) : 'Not connected'} ready={isConnected} icon={<Wallet className="size-4" />} />
+            <AccountEndpoint label="Veyra ID" value={profile ? `@${profile.veyraHandle}` : 'Not created'} ready={Boolean(profile)} icon={<ShieldCheck className="size-4" />} />
+            <AccountEndpoint label="X" value={profile?.x?.xHandle ? `@${profile.x.xHandle}` : 'Not linked'} ready={Boolean(profile?.x)} icon={<span className="text-xs font-black">X</span>} />
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {!isConnected && <ConnectKitButton />}
+            {isConnected && address && (
+              <button onClick={copyAddress} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--muted)' }}>
+                {copied ? <Check className="size-3.5" style={{ color: 'var(--success)' }} /> : <Copy className="size-3.5" />}
+                {copied ? 'Copied wallet' : 'Copy wallet'}
+              </button>
+            )}
+            <button onClick={() => void linkX()} disabled={Boolean(profile?.x) || xLoading} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
+              {xLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
+              {profile?.x ? 'X linked' : 'Connect X'}
             </button>
-            {xError && <p className="text-xs" style={{ color: 'var(--danger)' }}>{xError}</p>}
           </div>
-        )}
-      </Section>
-
-      {/* Environment */}
-      <Section title="Environment">
-        <div className="flex items-center gap-2">
-          <span
-            className="text-xs px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider"
-            style={{
-              background: VEYRA_ENV === 'mainnet' ? 'var(--danger-muted)' : 'var(--success-muted)',
-              color: VEYRA_ENV === 'mainnet' ? 'var(--danger)' : 'var(--success)',
-            }}
-          >
-            {VEYRA_ENV}
-          </span>
-          {VEYRA_ENV !== 'mainnet' && (
-            <span className="text-xs" style={{ color: 'var(--muted)' }}>
-              Testnet — no real funds
-            </span>
-          )}
+          {xError && <p className="mt-3 text-xs" style={{ color: 'var(--warning)' }}>{xError}</p>}
         </div>
-      </Section>
 
-      {/* Active policy */}
-      <Section title="Active Policy" icon={<Shield className="size-4" />}>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-sm font-medium" style={{ color: 'var(--ink)' }}>
-              {DEFAULT_VEYRA_POLICY.displayName}
-            </span>
-            <span className="text-xs px-1.5 py-0.5 rounded-full"
-              style={{ background: 'var(--success-muted)', color: 'var(--success)' }}>
-              Active
-            </span>
-          </div>
-          <div className="flex items-start gap-2 rounded-xl p-3"
-            style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-            <Info className="size-3.5 mt-0.5 shrink-0" style={{ color: 'var(--accent)' }} />
-            <p className="text-xs" style={{ color: 'var(--muted)' }}>
-              Policy rules are deterministic and cannot be overridden by the Agent.
-              All financial actions must pass policy evaluation before execution.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-2 mt-3">
-            {DEFAULT_VEYRA_POLICY.rules.slice(0, 6).map((rule) => (
-              <PolicyRuleChip key={rule.ruleId} rule={rule} />
+        <RuntimeStatusCard />
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <CapabilityCard title="Networks" subtitle="Recognized by the product registry. Execution is a separate gate.">
+          <div className="grid grid-cols-4 gap-3 sm:grid-cols-7">
+            {PRODUCT_NETWORKS.map((network) => (
+              <CapabilityItem key={network.id} logoKey={network.logoKey} name={network.shortName} active={network.executionEnabled} />
             ))}
           </div>
-        </div>
-      </Section>
+        </CapabilityCard>
+        <CapabilityCard title="Assets" subtitle="Registry recognition never implies that signing is enabled.">
+          <div className="grid grid-cols-4 gap-3 sm:grid-cols-5">
+            {PRODUCT_ASSETS.slice(0, 5).map((asset) => (
+              <CapabilityItem key={asset.id} logoKey={asset.logoKey} name={asset.symbol} active={asset.executionEnabled} />
+            ))}
+          </div>
+          {PRODUCT_ASSETS.length > 5 && <p className="mt-3 text-[11px]" style={{ color: 'var(--subtle)' }}>Also recognized: {PRODUCT_ASSETS.slice(5).map((asset) => asset.symbol).join(', ')}.</p>}
+        </CapabilityCard>
+      </section>
 
-      {/* Security constants */}
-      <Section title="Security Constants">
-        <div className="space-y-2">
-          <SecurityRow label="Max provenance age" value={`${SECURITY_CONFIG.MAX_PROVENANCE_AGE_MS / 1000}s`} />
-          <SecurityRow label="Max balance age" value={`${SECURITY_CONFIG.MAX_BALANCE_AGE_MS / 1000}s`} />
-          <SecurityRow label="Provider health TTL" value={`${SECURITY_CONFIG.MAX_PROVIDER_HEALTH_AGE_MS / 1000}s`} />
-          <SecurityRow label="Quote expiry buffer" value={`${SECURITY_CONFIG.QUOTE_EXPIRY_BUFFER_MS / 1000}s`} />
-          <SecurityRow label="Default max slippage" value={`${SECURITY_CONFIG.DEFAULT_MAX_SLIPPAGE_BPS} bps`} />
-          <SecurityRow label="Quote reservation TTL" value={`${SECURITY_CONFIG.QUOTE_RESERVATION_TIMEOUT_MS / 1000}s`} />
+      <section className="rounded-3xl p-5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-bold" style={{ color: 'var(--ink)' }}><ShieldCheck className="size-4" style={{ color: 'var(--accent)' }} /> Safety policy</div>
+            <p className="mt-1 max-w-2xl text-xs leading-5" style={{ color: 'var(--muted)' }}>Agent conversation cannot override deterministic policy. Every financial action is re-verified before the wallet is allowed to sign.</p>
+          </div>
+          <span className="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ background: 'var(--success-muted)', color: 'var(--success)' }}>{DEFAULT_VEYRA_POLICY.displayName}</span>
         </div>
-      </Section>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {DEFAULT_VEYRA_POLICY.rules.slice(0, 6).map((rule) => (
+            <span key={rule.ruleId} className="rounded-xl px-2.5 py-1.5 font-mono text-[10px]" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--subtle)' }}>{rule.ruleId}</span>
+          ))}
+        </div>
+        <div className="mt-4 text-[11px]" style={{ color: 'var(--subtle)' }}>Environment: <span className="font-semibold uppercase" style={{ color: VEYRA_ENV === 'mainnet' ? 'var(--danger)' : 'var(--success)' }}>{VEYRA_ENV}</span></div>
+      </section>
+
+      <CreateVeyraIdModal open={identityOpen} onClose={() => setIdentityOpen(false)} onCreated={onIdentityCreated} />
     </div>
   );
 }
 
-function Section({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
+function AccountEndpoint({ label, value, ready, icon }: { label: string; value: string; ready: boolean; icon: React.ReactNode }) {
   return (
-    <div className="rounded-2xl p-5 space-y-3"
-      style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
-      <div className="flex items-center gap-2">
-        {icon && <span style={{ color: 'var(--accent)' }}>{icon}</span>}
-        <h2 className="text-sm font-semibold uppercase tracking-wider" style={{ color: 'var(--muted)' }}>{title}</h2>
+    <div className="rounded-2xl p-3" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+      <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: ready ? 'var(--success)' : 'var(--subtle)' }}>{icon}{label}</div>
+      <div className="mt-2 truncate text-xs font-semibold" style={{ color: ready ? 'var(--ink-2)' : 'var(--subtle)' }}>{value}</div>
+    </div>
+  );
+}
+
+function CapabilityCard({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-3xl p-5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
+      <h2 className="text-sm font-bold" style={{ color: 'var(--ink)' }}>{title}</h2>
+      <p className="mt-0.5 text-xs leading-5" style={{ color: 'var(--subtle)' }}>{subtitle}</p>
+      <div className="mt-4">{children}</div>
+    </div>
+  );
+}
+
+function CapabilityItem({ logoKey, name, active }: { logoKey: string; name: string; active: boolean }) {
+  return (
+    <div className="min-w-0 text-center">
+      <div className="relative mx-auto w-fit">
+        <BrandLogo logoKey={logoKey} size={36} />
+        {active && <span className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2" style={{ background: 'var(--success)', borderColor: '#13243a' }} />}
       </div>
-      {children}
+      <div className="mt-2 truncate text-[10px] font-semibold" style={{ color: 'var(--ink-2)' }}>{name}</div>
     </div>
   );
 }
 
-function PolicyRuleChip({ rule }: { rule: { ruleId: string } }) {
-  return (
-    <div
-      className="rounded-xl px-3 py-2"
-      style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
-    >
-      <span className="text-xs font-mono" style={{ color: 'var(--ink-2)' }}>
-        {rule.ruleId}
-      </span>
-    </div>
-  );
-}
-
-function SecurityRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between text-sm">
-      <span style={{ color: 'var(--muted)' }}>{label}</span>
-      <span className="mono text-xs" style={{ color: 'var(--ink-2)' }}>{value}</span>
-    </div>
-  );
+function shortAddress(address: string): string {
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }

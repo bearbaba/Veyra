@@ -169,4 +169,15 @@ describe('validateIntentResponse — raw values wrapped as UntrustedString', () 
     });
     expect(isUntrusted(result.candidates[0].amountRaw)).toBe(true);
   });
+
+
+  it('keeps conversion target token as an untrusted field', () => {
+    const result = validateIntentResponse({
+      status: 'RESOLVED',
+      candidates: [{ actionType: 'CONVERT', confidence: 0.9, amountRaw: '10', tokenRaw: 'USDC', targetTokenRaw: 'EURC' }],
+    });
+    expect(result.status).toBe('RESOLVED');
+    expect(result.candidates[0].targetTokenRaw?.raw).toBe('EURC');
+    expect(isUntrusted(result.candidates[0].targetTokenRaw)).toBe(true);
+  });
 });

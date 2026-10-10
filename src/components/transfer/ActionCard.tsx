@@ -1,15 +1,4 @@
-/**
- * Veyra Action Card
- *
- * Rendered by the Agent page when the BFF returns a validated IntentResult
- * with candidates. Shows the proposed action in a structured format and
- * routes the user to the Pay page if the action is TRANSFER.
- *
- * The card does NOT execute anything — it navigates the user to the
- * appropriate form where the full pipeline runs.
- */
-
-import { ArrowRight, AlertTriangle, Info } from 'lucide-react';
+import { ArrowRight, CheckCircle2, HelpCircle, ShieldCheck } from 'lucide-react';
 import type { IntentResult, IntentCandidate } from '@/core/intent/intentSchema';
 import type { VeyraPage } from '../layout/AppShell';
 
@@ -26,96 +15,56 @@ export function ActionCard({ intent, onNavigate }: ActionCardProps) {
   const isConvert = best.actionType === 'CONVERT';
   const isBridge = best.actionType === 'BRIDGE';
   const isUnsupported = intent.status === 'UNSUPPORTED';
-  const isActionable = isTransfer || isConvert || isBridge;
+  const needsClarification = intent.status === 'NEEDS_CLARIFICATION' || intent.status === 'AMBIGUOUS';
+  const isActionable = (isTransfer || isConvert || isBridge) && !isUnsupported && !needsClarification;
 
   function handleProceed() {
+    if (!isActionable) return;
     sessionStorage.setItem('veyra:agent-intent', JSON.stringify(best));
     if (isTransfer) onNavigate('pay');
     else if (isConvert) onNavigate('convert');
     else if (isBridge) onNavigate('bridge');
   }
 
+  const title = isTransfer ? 'Payment intent' : isConvert ? 'Conversion intent' : isBridge ? 'Cross-chain intent' : best.actionType;
+
   return (
-    <div
-      className="rounded-2xl overflow-hidden"
-      style={{ border: '1px solid var(--border-strong)' }}
-    >
-      {/* Action header */}
-      <div
-        className="flex items-center justify-between px-4 py-3 border-b"
-        style={{ background: 'var(--surface-elevated)', borderColor: 'var(--border)' }}
-      >
-        <div className="flex items-center gap-2">
-          <span
-            className="text-xs px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider"
-            style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}
-          >
-            {best.actionType}
+    <div className="overflow-hidden rounded-3xl" style={{ background: 'linear-gradient(145deg,rgba(23,43,67,0.98),rgba(16,31,51,0.98))', border: '1px solid var(--border-strong)' }}>
+      <div className="flex items-center justify-between gap-3 border-b px-4 py-3.5" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex items-center gap-2.5">
+          <span className="flex size-8 items-center justify-center rounded-xl" style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}>
+            {needsClarification ? <HelpCircle className="size-4" /> : <CheckCircle2 className="size-4" />}
           </span>
-          <span className="text-xs" style={{ color: 'var(--muted)' }}>
-            {(best.confidence * 100).toFixed(0)}% confidence
-          </span>
+          <div>
+            <div className="text-sm font-bold" style={{ color: 'var(--ink)' }}>{title}</div>
+            <div className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--subtle)' }}>Agent proposal · {(best.confidence * 100).toFixed(0)}% confidence</div>
+          </div>
         </div>
-        <span className="text-xs" style={{ color: 'var(--subtle)' }}>Agent proposal</span>
+        <span className="rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ background: needsClarification ? 'var(--warning-muted)' : 'var(--success-muted)', color: needsClarification ? 'var(--warning)' : 'var(--success)' }}>
+          {needsClarification ? 'Needs input' : 'Ready to review'}
+        </span>
       </div>
 
-      {/* Candidate details */}
-      <div className="px-4 py-3 space-y-2" style={{ background: 'var(--surface)' }}>
-        {best.amountRaw && (
-          <CandidateRow label="Amount" value={best.amountRaw.raw} untrusted />
-        )}
-        {best.tokenRaw && (
-          <CandidateRow label="Token" value={best.tokenRaw.raw} untrusted />
-        )}
-        {best.recipientRaw && (
-          <CandidateRow label="To" value={best.recipientRaw.raw} untrusted />
-        )}
-        {best.sourceChainRaw && (
-          <CandidateRow label="From chain" value={best.sourceChainRaw.raw} untrusted />
-        )}
-        {best.destinationChainRaw && (
-          <CandidateRow label="To chain" value={best.destinationChainRaw.raw} untrusted />
-        )}
-        {best.providerRaw && (
-          <CandidateRow label="Provider" value={best.providerRaw.raw} untrusted />
-        )}
+      <div className="grid gap-2 p-4 sm:grid-cols-2">
+        {best.amountRaw && <Detail label="Amount" value={best.amountRaw.raw} />}
+        {best.tokenRaw && <Detail label={isConvert ? 'From asset' : 'Asset'} value={best.tokenRaw.raw} />}
+        {best.targetTokenRaw && <Detail label="To asset" value={best.targetTokenRaw.raw} />}
+        {best.recipientRaw && <Detail label="Recipient" value={best.recipientRaw.raw} />}
+        {best.sourceChainRaw && <Detail label="From network" value={best.sourceChainRaw.raw} />}
+        {best.destinationChainRaw && <Detail label="Destination" value={best.destinationChainRaw.raw} />}
       </div>
 
-      {/* Warning: untrusted values */}
-      <div
-        className="flex items-start gap-2 px-4 py-2.5 border-t"
-        style={{ background: 'var(--warning-muted)', borderColor: 'var(--border)' }}
-      >
-        <Info className="size-3.5 mt-0.5 shrink-0" style={{ color: 'var(--warning)' }} />
-        <p className="text-xs" style={{ color: 'var(--muted)' }}>
-          Values above are Agent-provided and unverified. They will be resolved against
-          onchain state before execution. Review carefully.
+      <div className="flex items-start gap-2 border-t px-4 py-3" style={{ borderColor: 'var(--border)', background: 'rgba(255,255,255,0.018)' }}>
+        <ShieldCheck className="mt-0.5 size-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
+        <p className="text-[11px] leading-5" style={{ color: 'var(--subtle)' }}>
+          This is an interpretation, not an executable transaction. Veyra resolves identity and verifies route, policy, amounts and onchain state again before your wallet can sign.
         </p>
       </div>
 
-      {/* Unsupported / blocked */}
-      {isUnsupported && (
-        <div
-          className="flex items-start gap-2 px-4 py-2.5 border-t"
-          style={{ background: 'var(--danger-muted)', borderColor: 'var(--border)' }}
-        >
-          <AlertTriangle className="size-3.5 mt-0.5 shrink-0" style={{ color: 'var(--danger)' }} />
-          <p className="text-xs" style={{ color: 'var(--danger)' }}>
-            This action type is not yet supported or its provider is not verified.
-          </p>
-        </div>
-      )}
-
-      {/* CTA */}
-      {!isUnsupported && isActionable && (
-        <div className="px-4 py-3 border-t" style={{ borderColor: 'var(--border)' }}>
-          <button
-            onClick={handleProceed}
-            className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all hover:scale-[1.01] active:scale-[0.99]"
-            style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}
-          >
-            {isTransfer ? 'Proceed to Pay' : isConvert ? 'Proceed to Convert' : 'Proceed to Bridge'}
-            <ArrowRight className="size-4" />
+      {isActionable && (
+        <div className="border-t p-3" style={{ borderColor: 'var(--border)' }}>
+          <button onClick={handleProceed} className="flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-sm font-bold transition-transform hover:scale-[1.01]" style={{ background: 'linear-gradient(135deg,#c8ff65,#91e9b5)', color: '#0b1b25' }}>
+            Review {isTransfer ? 'payment' : isConvert ? 'conversion' : 'route'} <ArrowRight className="size-4" />
           </button>
         </div>
       )}
@@ -123,22 +72,13 @@ export function ActionCard({ intent, onNavigate }: ActionCardProps) {
   );
 }
 
-function CandidateRow({ label, value, untrusted }: { label: string; value: string; untrusted?: boolean }) {
+function Detail({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between text-sm">
-      <span style={{ color: 'var(--muted)' }}>{label}</span>
-      <span
-        className="text-xs font-mono px-1.5 py-0.5 rounded"
-        style={{
-          background: untrusted ? 'var(--warning-muted)' : 'var(--surface)',
-          color: untrusted ? 'var(--warning)' : 'var(--ink-2)',
-        }}
-      >
-        {value}
-      </span>
+    <div className="rounded-2xl px-3.5 py-3" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+      <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--subtle)' }}>{label}</div>
+      <div className="mono mt-1 truncate text-xs font-semibold" style={{ color: 'var(--ink-2)' }}>{value}</div>
     </div>
   );
 }
 
-// Need to export IntentCandidate usage for the component
 export type { IntentCandidate };

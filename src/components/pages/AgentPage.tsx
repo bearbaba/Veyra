@@ -1,20 +1,24 @@
-/**
- * Veyra Agent Page
- *
- * Natural language interface. User types intent → BFF parses → structured
- * Action Card displayed → same TRANSFER pipeline as Pay page.
- *
- * Safety model:
- * - LLM never executes, never supplies trusted financial data
- * - BFF response validated against IntentResult schema before display
- * - All execution goes through Policy → Risk → Simulation → Review
- */
-
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Bot, SendHorizontal, Loader2, AlertTriangle, Info } from 'lucide-react';
-import { validateIntentResponse } from '@/core/intent/intentSchema';
+import {
+  Bot,
+  CheckCircle2,
+  Globe2,
+  Loader2,
+  LockKeyhole,
+  SendHorizontal,
+  Sparkles,
+  WifiOff,
+} from 'lucide-react';
+import {
+  createFallbackAgentResponse,
+  validateAgentChatResponse,
+  type AgentCapabilities,
+  type AgentChatResponse,
+  type AgentHistoryMessage,
+} from '@/core/agent/agentV2';
 import type { IntentResult } from '@/core/intent/intentSchema';
+import { buildCapabilityIntentGraph, type CapabilityIntentGraph } from '@/core/agent/intentGraph';
 import { ActionCard } from '../transfer/ActionCard';
 import type { VeyraPage } from '../layout/AppShell';
 
@@ -27,256 +31,306 @@ interface Message {
   role: 'user' | 'agent';
   text: string;
   intent?: IntentResult;
+  degraded?: boolean;
+  locale?: string;
+  capabilityGraph?: CapabilityIntentGraph;
   ts: number;
 }
 
+const DEFAULT_CAPABILITIES: AgentCapabilities = {
+  conversation: 'FALLBACK',
+  planning: 'FALLBACK',
+  execution: 'LOCKED',
+  provider: 'local-fallback',
+};
+
 export function AgentPage({ onNavigate }: AgentPageProps) {
   const [messages, setMessages] = useState<Message[]>([]);
-  // Initialise with any pending query forwarded from the command bar
   const [input, setInput] = useState<string>(() => {
     const pending = sessionStorage.getItem('veyra:pending-query');
     if (pending) sessionStorage.removeItem('veyra:pending-query');
     return pending ?? '';
   });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [capabilities, setCapabilities] = useState<AgentCapabilities>(DEFAULT_CAPABILITIES);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Focus input on mount when a pending query was forwarded
   useEffect(() => {
-    if (input) inputRef.current?.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only on mount
+    try {
+      const stored = sessionStorage.getItem('veyra:agent-history');
+      if (stored) {
+        const parsed = JSON.parse(stored) as Message[];
+        if (Array.isArray(parsed)) setMessages(parsed.slice(-30));
+      }
+    } catch {
+      // Corrupt preview history is non-authoritative; start clean.
+    }
   }, []);
 
   useEffect(() => {
+    if (messages.length > 0) sessionStorage.setItem('veyra:agent-history', JSON.stringify(messages.slice(-30)));
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/agent/status')
+      .then(async (response) => response.ok ? response.json() as Promise<Record<string, unknown>> : Promise.reject(new Error('offline')))
+      .then((raw) => {
+        if (cancelled) return;
+        setCapabilities({
+          conversation: raw.conversation === 'ONLINE' ? 'ONLINE' : 'FALLBACK',
+          planning: raw.planning === 'ONLINE' ? 'ONLINE' : 'FALLBACK',
+          execution: raw.execution === 'AVAILABLE' ? 'AVAILABLE' : 'LOCKED',
+          provider: typeof raw.provider === 'string' ? raw.provider : 'local-fallback',
+        });
+      })
+      .catch(() => { if (!cancelled) setCapabilities(DEFAULT_CAPABILITIES); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (input) inputRef.current?.focus();
+  }, [input]);
+
+  const history = useMemo<AgentHistoryMessage[]>(() => messages.slice(-10).map((message) => ({ role: message.role, text: message.text })), [messages]);
 
   async function sendMessage() {
     const text = input.trim();
     if (!text || loading) return;
 
-    const userMsg: Message = { id: crypto.randomUUID(), role: 'user', text, ts: Date.now() };
-    setMessages((prev) => [...prev, userMsg]);
+    const priorHistory = history;
+    const userMessage: Message = { id: crypto.randomUUID(), role: 'user', text, ts: Date.now() };
+    setMessages((current) => [...current, userMessage]);
     setInput('');
     setLoading(true);
-    setError(null);
 
+    let response: AgentChatResponse;
     try {
-      const res = await fetch('/api/agent/parse', {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 25_000);
+      const request = await fetch('/api/agent/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, history: priorHistory }),
+        signal: controller.signal,
       });
-
-      if (!res.ok) {
-        throw new Error(`BFF returned ${res.status}`);
-      }
-
-      const raw: unknown = await res.json();
-
-      // Validate BFF response — this is untrusted input
-      const rawObj: Record<string, unknown> = (raw !== null && typeof raw === 'object' && !Array.isArray(raw))
-        ? (raw as Record<string, unknown>)
-        : {};
-      const intent = validateIntentResponse(rawObj);
-
-      const agentMsg: Message = {
-        id: crypto.randomUUID(),
-        role: 'agent',
-        text: intent.displaySummary,
-        intent,
-        ts: Date.now(),
-      };
-      setMessages((prev) => [...prev, agentMsg]);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      setError(`Agent unavailable: ${msg}`);
-      // Still add a message so the user knows
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: 'agent',
-          text: 'The agent is currently unavailable. You can use the Pay page directly to send USDC.',
-          ts: Date.now(),
-        },
-      ]);
-    } finally {
-      setLoading(false);
+      window.clearTimeout(timeout);
+      if (!request.ok) throw new Error(`Agent service returned ${request.status}`);
+      const raw: unknown = await request.json();
+      response = validateAgentChatResponse(raw, text, capabilities);
+    } catch {
+      // Browser-side safety net: chat never collapses just because the BFF or
+      // configured model is unavailable. Execution remains locked.
+      response = createFallbackAgentResponse(text, { provider: 'browser-fallback', executionAvailable: false, history: priorHistory });
     }
+
+    setCapabilities(response.capabilities);
+    const capabilityGraph = buildCapabilityIntentGraph(text);
+    const agentMessage: Message = {
+      id: crypto.randomUUID(),
+      role: 'agent',
+      text: response.reply,
+      ...(response.intent ? { intent: response.intent } : {}),
+      ...(capabilityGraph.nodes.length > 0 ? { capabilityGraph } : {}),
+      degraded: response.degraded,
+      locale: response.locale,
+      ts: Date.now(),
+    };
+    setMessages((current) => [...current, agentMessage]);
+    setLoading(false);
+  }
+
+  function clearConversation() {
+    setMessages([]);
+    sessionStorage.removeItem('veyra:agent-history');
+    inputRef.current?.focus();
   }
 
   return (
-    <div className="flex flex-col h-full max-w-2xl mx-auto" style={{ minHeight: 'calc(100dvh - 120px)' }}>
-      {/* Header */}
-      <div className="px-4 pt-6 pb-4 border-b" style={{ borderColor: 'var(--border)' }}>
-        <div className="flex items-center gap-2.5">
-          <div className="flex size-8 items-center justify-center rounded-xl"
-            style={{ background: 'var(--accent-muted)', border: '1px solid var(--border-strong)' }}>
-            <Bot className="size-4.5" style={{ color: 'var(--accent)' }} />
+    <div className="mx-auto flex min-h-[calc(100dvh-44px)] max-w-5xl flex-col px-4 py-5 md:px-7 md:py-7">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-5" style={{ borderColor: 'var(--border)' }}>
+        <div>
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--accent)' }}>
+            <Sparkles className="size-4" /> Agent V2
           </div>
-          <div>
-            <h1 className="display text-lg font-bold" style={{ color: 'var(--ink)' }}>Veyra Agent</h1>
-            <p className="text-xs" style={{ color: 'var(--muted)' }}>
-              Tell me what you want to do with your money
-            </p>
-          </div>
-        </div>
-
-        {/* Safety notice */}
-        <div className="flex items-start gap-2 mt-3 rounded-xl p-3"
-          style={{ background: 'var(--accent-muted)', border: '1px solid var(--border)' }}>
-          <Info className="size-3.5 mt-0.5 shrink-0" style={{ color: 'var(--accent)' }} />
-          <p className="text-xs" style={{ color: 'var(--muted)' }}>
-            The Agent plans actions for your review — it never signs transactions or accesses your wallet directly.
+          <h1 className="display mt-2 text-3xl font-black" style={{ color: 'var(--ink)', letterSpacing: '-0.04em' }}>Ask Veyra anything.</h1>
+          <p className="mt-1 max-w-2xl text-sm leading-6" style={{ color: 'var(--muted)' }}>
+            Speak naturally in your own language. Veyra chats first, then turns financial intent into a reviewable action — never an automatic signature.
           </p>
         </div>
+        {messages.length > 0 && (
+          <button onClick={clearConversation} className="rounded-xl px-3 py-2 text-xs font-semibold" style={{ border: '1px solid var(--border)', color: 'var(--subtle)' }}>
+            New conversation
+          </button>
+        )}
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {messages.length === 0 && (
-          <AgentSuggestions onSelect={(q) => { setInput(q); inputRef.current?.focus(); }} />
-        )}
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <CapabilityPill label="Chat" online={capabilities.conversation === 'ONLINE'} icon={<Globe2 className="size-3.5" />} fallbackLabel="Fallback ready" />
+        <CapabilityPill label="Planner" online={capabilities.planning === 'ONLINE'} icon={<Bot className="size-3.5" />} fallbackLabel="Local planner" />
+        <CapabilityPill label="Execution" online={capabilities.execution === 'AVAILABLE'} icon={<LockKeyhole className="size-3.5" />} fallbackLabel="Review locked" />
+      </div>
 
-        <AnimatePresence initial={false}>
-          {messages.map((msg) => (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              {msg.role === 'user' ? (
-                <div
-                  className="max-w-sm rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm"
-                  style={{ background: 'var(--accent-muted)', border: '1px solid var(--border-strong)', color: 'var(--ink)' }}
+      <div className="flex-1 overflow-y-auto py-6">
+        {messages.length === 0 ? (
+          <AgentWelcome onSelect={(query) => { setInput(query); inputRef.current?.focus(); }} />
+        ) : (
+          <div className="mx-auto max-w-3xl space-y-5">
+            <AnimatePresence initial={false}>
+              {messages.map((message) => (
+                <motion.div
+                  key={message.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.18 }}
+                  className={message.role === 'user' ? 'flex justify-end' : 'flex justify-start'}
                 >
-                  {msg.text}
-                </div>
-              ) : (
-                <div className="max-w-lg w-full space-y-2">
-                  {/* Display summary — display only, not trusted for execution */}
-                  {msg.text && (
-                    <div
-                      className="rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm"
-                      style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink-2)' }}
-                    >
-                      {msg.text}
+                  {message.role === 'user' ? (
+                    <div className="max-w-[82%] rounded-2xl rounded-tr-md px-4 py-3 text-sm leading-6" style={{ background: 'linear-gradient(135deg,rgba(126,92,255,0.22),rgba(68,178,255,0.12))', border: '1px solid var(--border-strong)', color: 'var(--ink)' }}>
+                      {message.text}
+                    </div>
+                  ) : (
+                    <div className="w-full max-w-2xl">
+                      <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--subtle)' }}>
+                        <span className="flex size-6 items-center justify-center rounded-lg" style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}><Bot className="size-3.5" /></span>
+                        Veyra
+                        {message.locale && <span>· {message.locale}</span>}
+                        {message.degraded && <span className="flex items-center gap-1" style={{ color: 'var(--warning)' }}><WifiOff className="size-3" /> fallback</span>}
+                      </div>
+                      <div className="rounded-2xl rounded-tl-md px-4 py-3 text-sm leading-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)', color: 'var(--ink-2)' }}>
+                        {message.text}
+                      </div>
+                      {message.capabilityGraph && message.capabilityGraph.nodes.length > 1 && (
+                        <IntentGraphPreview graph={message.capabilityGraph} />
+                      )}
+                      {message.intent && message.intent.candidates.length > 0 && (
+                        <div className="mt-3"><ActionCard intent={message.intent} onNavigate={onNavigate} /></div>
+                      )}
                     </div>
                   )}
-                  {/* Action card when intent has a valid candidate */}
-                  {msg.intent && msg.intent.candidates.length > 0 && (
-                    <ActionCard
-                      intent={msg.intent}
-                      onNavigate={onNavigate}
-                    />
-                  )}
-                  {/* Clarification question */}
-                  {msg.intent?.status === 'NEEDS_CLARIFICATION' && msg.intent.clarificationQuestion && (
-                    <div
-                      className="rounded-xl px-3.5 py-2.5 text-sm"
-                      style={{ background: 'var(--warning-muted)', border: '1px solid var(--border)', color: 'var(--warning)' }}
-                    >
-                      {msg.intent.clarificationQuestion}
-                    </div>
-                  )}
-                </div>
-              )}
-            </motion.div>
-          ))}
-        </AnimatePresence>
+                </motion.div>
+              ))}
+            </AnimatePresence>
 
-        {loading && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex items-center gap-2 text-sm"
-            style={{ color: 'var(--muted)' }}
-          >
-            <Loader2 className="size-4 animate-spin" />
-            Agent is thinking...
-          </motion.div>
-        )}
-
-        {error && (
-          <div className="flex items-start gap-2 rounded-xl p-3 text-sm"
-            style={{ background: 'var(--danger-muted)', border: '1px solid var(--border)', color: 'var(--danger)' }}>
-            <AlertTriangle className="size-4 mt-0.5 shrink-0" />
-            {error}
+            {loading && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-sm" style={{ color: 'var(--muted)' }}>
+                <span className="flex size-8 items-center justify-center rounded-xl" style={{ background: 'var(--accent-muted)' }}><Loader2 className="size-4 animate-spin" style={{ color: 'var(--accent)' }} /></span>
+                Thinking and checking intent…
+              </motion.div>
+            )}
+            <div ref={bottomRef} />
           </div>
         )}
-
-        <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
-      <div className="px-4 pb-4 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-        <div
-          className="flex items-end gap-2 rounded-2xl p-2"
-          style={{ background: 'var(--surface-strong)', border: '1px solid var(--border-strong)' }}
-        >
+      <div className="sticky bottom-0 mx-auto w-full max-w-3xl pb-2 pt-3" style={{ background: 'linear-gradient(180deg, transparent, var(--bg) 24%)' }}>
+        <div className="rounded-3xl p-2 shadow-2xl" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border-strong)' }}>
           <textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
                 void sendMessage();
               }
             }}
-            placeholder="Send 10 USDC to 0x..."
-            rows={1}
-            className="flex-1 bg-transparent text-sm outline-none resize-none py-1.5 px-2"
-            style={{ color: 'var(--ink)', minHeight: '36px', maxHeight: '120px' }}
+            placeholder="Message Veyra in any language…"
+            rows={2}
+            maxLength={2000}
+            className="w-full resize-none bg-transparent px-3 pt-2 text-sm leading-6 outline-none"
+            style={{ color: 'var(--ink)', minHeight: 60, maxHeight: 150 }}
           />
-          <button
-            onClick={() => void sendMessage()}
-            disabled={!input.trim() || loading}
-            className="flex size-9 items-center justify-center rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-            style={{ background: 'var(--accent)', color: '#0d1b2f' }}
-          >
-            {loading ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <SendHorizontal className="size-4" />
-            )}
-          </button>
+          <div className="flex items-center justify-between gap-3 px-2 pb-1">
+            <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--subtle)' }}>
+              <CheckCircle2 className="size-3.5" style={{ color: 'var(--success)' }} /> Same-language replies · Review before signing
+            </div>
+            <button
+              onClick={() => void sendMessage()}
+              disabled={!input.trim() || loading}
+              className="flex size-10 items-center justify-center rounded-2xl transition-all disabled:cursor-not-allowed disabled:opacity-35"
+              style={{ background: 'linear-gradient(135deg,#c8ff65,#91e9b5)', color: '#0b1b25' }}
+              aria-label="Send message"
+            >
+              {loading ? <Loader2 className="size-4 animate-spin" /> : <SendHorizontal className="size-4" />}
+            </button>
+          </div>
         </div>
-        <p className="text-xs mt-2 text-center" style={{ color: 'var(--subtle)' }}>
-          Enter to send · Shift+Enter for new line
+        <p className="mt-2 text-center text-[10px]" style={{ color: 'var(--subtle)' }}>
+          Agent conversation is not execution. Identity, amounts, routes and policy are verified by deterministic Veyra services.
         </p>
       </div>
     </div>
   );
 }
 
-function AgentSuggestions({ onSelect }: { onSelect: (q: string) => void }) {
-  const suggestions = [
-    'Send 5 USDC to 0x742d35Cc6634C0532925a3b8D4C9F5B8a1B6e5f2',
-    'Convert 100 USDC to EURC',
-    'Bridge 50 USDC from Arc to Ethereum Sepolia',
-    'What can you help me do?',
+
+function IntentGraphPreview({ graph }: { graph: CapabilityIntentGraph }) {
+  return (
+    <div className="mt-3 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--accent)' }}>Plan draft</div>
+          <div className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>Veyra split your goal into {graph.nodes.length} ordered capabilities. Values remain untrusted until deterministic resolution.</div>
+        </div>
+        <span className="rounded-lg px-2 py-1 text-[10px] font-semibold" style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}>0 Veyra signatures</span>
+      </div>
+      <div className="mt-3 space-y-2">
+        {graph.nodes.map((node, index) => (
+          <div key={node.nodeId} className="flex items-start gap-3 rounded-xl px-3 py-2.5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-lg text-[10px] font-black" style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}>{index + 1}</span>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-bold" style={{ color: 'var(--ink)' }}>{node.capability}</div>
+              <div className="mt-0.5 truncate text-[11px]" style={{ color: 'var(--muted)' }}>{node.sourceText}</div>
+            </div>
+            {node.destinationNetworkRaw && <span className="text-[10px]" style={{ color: 'var(--subtle)' }}>→ {node.destinationNetworkRaw}</span>}
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 text-[10px]" style={{ color: 'var(--subtle)' }}>Route, provider, exact amounts, policy, risk and required protocol signatures are calculated after context resolution.</div>
+    </div>
+  );
+}
+
+function AgentWelcome({ onSelect }: { onSelect: (query: string) => void }) {
+  const prompts = [
+    { title: 'Pay someone', text: 'Send 20 USDC to @bearcrypto2021', icon: <SendHorizontal className="size-4" /> },
+    { title: 'Ask naturally', text: 'What can Veyra do for me?', icon: <Bot className="size-4" /> },
+    { title: 'Vietnamese', text: 'Gửi 20 USDC cho @bearcrypto2021', icon: <Globe2 className="size-4" /> },
+    { title: 'Multi-step goal', text: 'Keep 300 USDC on Arc, send @bearcrypto2021 50 USDC, bridge 200 USDC to Arbitrum, then earn the rest', icon: <Sparkles className="size-4" /> },
   ];
   return (
-    <div className="space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--subtle)' }}>
-        Try asking
+    <div className="mx-auto max-w-3xl py-6 md:py-12">
+      <div className="mx-auto flex size-14 items-center justify-center rounded-2xl" style={{ background: 'linear-gradient(135deg,rgba(124,58,237,0.35),rgba(200,255,101,0.14))', border: '1px solid var(--border-strong)' }}>
+        <Bot className="size-6" style={{ color: 'var(--accent)' }} />
+      </div>
+      <h2 className="display mt-4 text-center text-2xl font-black" style={{ color: 'var(--ink)', letterSpacing: '-0.03em' }}>How can I help?</h2>
+      <p className="mx-auto mt-2 max-w-lg text-center text-sm leading-6" style={{ color: 'var(--muted)' }}>
+        English is the product default. If you write in another language, Veyra follows your language automatically.
       </p>
-      {suggestions.map((s) => (
-        <button
-          key={s}
-          onClick={() => onSelect(s)}
-          className="w-full text-left text-sm rounded-xl px-4 py-2.5 transition-colors hover:bg-white/5"
-          style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink-2)' }}
-        >
-          {s}
-        </button>
-      ))}
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        {prompts.map((prompt) => (
+          <button key={prompt.text} onClick={() => onSelect(prompt.text)} className="rounded-2xl p-4 text-left transition-all hover:-translate-y-0.5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
+            <span className="flex size-8 items-center justify-center rounded-xl" style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}>{prompt.icon}</span>
+            <div className="mt-3 text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--subtle)' }}>{prompt.title}</div>
+            <div className="mt-1 text-sm font-semibold" style={{ color: 'var(--ink-2)' }}>{prompt.text}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CapabilityPill({ label, online, icon, fallbackLabel }: { label: string; online: boolean; icon: React.ReactNode; fallbackLabel: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+      <span style={{ color: online ? 'var(--success)' : 'var(--warning)' }}>{icon}</span>
+      <div className="min-w-0">
+        <div className="truncate text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--muted)' }}>{label}</div>
+        <div className="truncate text-[10px]" style={{ color: online ? 'var(--success)' : 'var(--subtle)' }}>{online ? 'Online' : fallbackLabel}</div>
+      </div>
     </div>
   );
 }

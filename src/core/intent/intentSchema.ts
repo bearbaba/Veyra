@@ -66,6 +66,9 @@ export interface IntentCandidate {
   /** Untrusted token symbol or address (e.g. "USDC", "0x36..."). */
   tokenRaw?: UntrustedString;
 
+  /** Untrusted target token for a conversion. */
+  targetTokenRaw?: UntrustedString;
+
   /** Untrusted source chain name or ID. */
   sourceChainRaw?: UntrustedString;
 
@@ -168,6 +171,7 @@ function sanitizeCandidate(raw: unknown): IntentCandidate | null {
     recipientRaw,
     amountRaw: sanitizeUntrustedString(obj.amountRaw ?? obj.amount ?? obj.fromAmount),
     tokenRaw: sanitizeUntrustedString(obj.tokenRaw ?? obj.token ?? obj.asset ?? obj.fromCurrency),
+    targetTokenRaw: sanitizeUntrustedString(obj.targetTokenRaw ?? obj.targetToken ?? obj.toCurrency),
     sourceChainRaw: sanitizeUntrustedString(obj.sourceChainRaw ?? obj.sourceChain ?? obj.fromChain),
     destinationChainRaw: sanitizeUntrustedString(obj.destinationChainRaw ?? obj.destinationChain ?? obj.toChain),
     providerRaw: sanitizeUntrustedString(obj.providerRaw ?? obj.provider ?? obj.protocol),
@@ -193,7 +197,7 @@ function sanitizeStatus(raw: unknown): IntentStatus {
 
 const REQUIRED_PARAMS_BY_ACTION: Record<ActionType, string[]> = {
   TRANSFER: ['recipientRaw', 'amountRaw', 'tokenRaw'],
-  CONVERT: ['amountRaw', 'tokenRaw'],
+  CONVERT: ['amountRaw', 'tokenRaw', 'targetTokenRaw'],
   BRIDGE: ['amountRaw', 'tokenRaw', 'destinationChainRaw'],
   APPROVE: ['recipientRaw', 'amountRaw', 'tokenRaw'],
   SUPPLY: ['amountRaw', 'tokenRaw', 'providerRaw'],
