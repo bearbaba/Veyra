@@ -187,9 +187,8 @@ export async function approveTokenMessenger(
 
 // ── Step 2: depositForBurn ────────────────────────────────────────────────────
 
-export async function depositForBurn(
+export async function broadcastDepositForBurn(
   walletClient: WalletClient,
-  publicClient: PublicClient,
   action: BridgeAction,
 ): Promise<Hash> {
   const destinationDomain = chainIdToCctpDomain(action.destinationChainId);
@@ -205,7 +204,7 @@ export async function depositForBurn(
   // minFinalityThreshold = 2000 for standard (safe) transfer
   const minFinalityThreshold = MANIFEST_CONSTANTS.CCTP_STANDARD_FINALITY;
 
-  const hash = await walletClient.writeContract({
+  return walletClient.writeContract({
     address: messengerAddress,
     abi: TOKEN_MESSENGER_V2_ABI,
     functionName: 'depositForBurn',
@@ -221,13 +220,54 @@ export async function depositForBurn(
     account: from,
     chain: null,
   });
+}
 
+/**
+ * Compatibility helper for callers that need a confirmed source burn.
+ * Crash-safe product flows should use broadcastDepositForBurn(), persist the
+ * returned hash immediately, then wait for the receipt separately.
+ */
+export async function depositForBurn(
+  walletClient: WalletClient,
+  publicClient: PublicClient,
+  action: BridgeAction,
+): Promise<Hash> {
+  const hash = await broadcastDepositForBurn(walletClient, action);
   await publicClient.waitForTransactionReceipt({ hash });
   return hash;
 }
 
 // ── Step 5: receiveMessage ────────────────────────────────────────────────────
 
+export async function broadcastReceiveMessage(
+  walletClient: WalletClient,
+  destinationChainId: number,
+  to: Address,
+  messageHex: string,
+  attestationHex: string,
+): Promise<Hash> {
+  // destinationChainId is intentionally retained in the boundary even though
+  // the current wallet adapter selects the chain externally. Validate that
+  // Veyra only broadcasts to a known CCTP destination.
+  chainIdToCctpDomain(destinationChainId);
+
+  const transmitter = getAddress(MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER);
+
+  return walletClient.writeContract({
+    address: transmitter,
+    abi: MESSAGE_TRANSMITTER_V2_ABI,
+    functionName: 'receiveMessage',
+    args: [messageHex as `0x${string}`, attestationHex as `0x${string}`],
+    account: to,
+    chain: null,
+  });
+}
+
+/**
+ * Compatibility helper for callers that need a confirmed destination receive.
+ * Crash-safe product flows should use broadcastReceiveMessage(), persist the
+ * returned hash immediately, then wait for the receipt separately.
+ */
 export async function receiveMessage(
   walletClient: WalletClient,
   publicClient: PublicClient,
@@ -236,17 +276,13 @@ export async function receiveMessage(
   messageHex: string,
   attestationHex: string,
 ): Promise<Hash> {
-  const transmitter = getAddress(MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER);
-
-  const hash = await walletClient.writeContract({
-    address: transmitter,
-    abi: MESSAGE_TRANSMITTER_V2_ABI,
-    functionName: 'receiveMessage',
-    args: [messageHex as `0x${string}`, attestationHex as `0x${string}`],
-    account: to,
-    chain: null,
-  });
-
+  const hash = await broadcastReceiveMessage(
+    walletClient,
+    destinationChainId,
+    to,
+    messageHex,
+    attestationHex,
+  );
   await publicClient.waitForTransactionReceipt({ hash });
   return hash;
 }
