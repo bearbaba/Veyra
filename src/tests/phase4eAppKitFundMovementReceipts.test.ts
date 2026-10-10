@@ -113,7 +113,10 @@ function withdrawAction(): WithdrawAction {
   };
 }
 
-function earnEvidence(positionVerified = true) {
+function earnEvidence(
+  kind: 'deposit' | 'withdrawal',
+  positionVerified = true,
+) {
   return {
     receipt: {
       txHash: EARN_TX,
@@ -122,6 +125,9 @@ function earnEvidence(positionVerified = true) {
     },
     tokenAddress: MANIFEST_CONSTANTS.ARC_TESTNET_USDC.toLowerCase(),
     vaultAddress: VAULT,
+    accountAddress: WALLET,
+    assetTransferFrom: kind === 'deposit' ? WALLET : VAULT,
+    assetTransferTo: kind === 'deposit' ? VAULT : WALLET,
     assetTransferAmount: 1_000_000n,
     positionVerified,
   };
@@ -168,6 +174,26 @@ describe('Phase 4E App Kit bridge receipt verification', () => {
     expect(verification.detail).toMatch(/delta mismatch/i);
   });
 
+  it('rejects a bridge receipt when the reviewed source asset is not source-chain USDC', () => {
+    const action = bridgeAction('circle-appkit-bridge');
+    action.tokenAddress = MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC.toLowerCase();
+
+    const verification = verifyAppKitBridgeExecution({
+      result: {
+        state: 'success',
+        steps: [
+          { name: 'burn', state: 'success', txHash: SOURCE_TX },
+          { name: 'mint', state: 'success', txHash: DEST_TX },
+        ],
+      },
+      action,
+      evidence: crossChainEvidence(),
+    });
+
+    expect(verification.verified).toBe(false);
+    expect(verification.detail).toMatch(/source-chain USDC/i);
+  });
+
   it('builds a VERIFIED bridge receipt with source and destination trace', () => {
     const receipt = buildVerifiedAppKitBridgeReceipt({
       result: {
@@ -184,6 +210,9 @@ describe('Phase 4E App Kit bridge receipt verification', () => {
     expect(receipt.status).toBe('VERIFIED');
     expect(receipt.bridgeTrace?.sourceTxHash).toBe(SOURCE_TX);
     expect(receipt.bridgeTrace?.destinationTxHash).toBe(DEST_TX);
+    expect(receipt.bridgeTrace?.sourceTimestamp).toBeUndefined();
+    expect(receipt.bridgeTrace?.destinationTimestamp).toBeUndefined();
+    expect(receipt.policyDecision).toBeNull();
   });
 });
 
@@ -219,7 +248,7 @@ describe('Phase 4E App Kit Earn receipt verification', () => {
     const verification = verifyAppKitEarnDepositExecution({
       result: { txHash: EARN_TX },
       action: supplyAction(),
-      evidence: earnEvidence(),
+      evidence: earnEvidence('deposit'),
     });
 
     expect(verification.verified).toBe(true);
@@ -227,17 +256,33 @@ describe('Phase 4E App Kit Earn receipt verification', () => {
     const receipt = buildVerifiedAppKitEarnDepositReceipt({
       result: { txHash: EARN_TX },
       action: supplyAction(),
-      evidence: earnEvidence(),
+      evidence: earnEvidence('deposit'),
     });
     expect(receipt.status).toBe('VERIFIED');
     expect(receipt.actionType).toBe('SUPPLY');
+    expect(receipt.policyDecision).toBeNull();
+  });
+
+  it('rejects Earn deposit evidence with the wrong transfer direction', () => {
+    const evidence = earnEvidence('deposit');
+    evidence.assetTransferFrom = VAULT;
+    evidence.assetTransferTo = WALLET;
+
+    const verification = verifyAppKitEarnDepositExecution({
+      result: { txHash: EARN_TX },
+      action: supplyAction(),
+      evidence,
+    });
+
+    expect(verification.verified).toBe(false);
+    expect(verification.detail).toMatch(/transfer direction/i);
   });
 
   it('blocks Earn deposit receipt when post-transaction position is unverified', () => {
     const verification = verifyAppKitEarnDepositExecution({
       result: { txHash: EARN_TX },
       action: supplyAction(),
-      evidence: earnEvidence(false),
+      evidence: earnEvidence('deposit', false),
     });
 
     expect(verification.verified).toBe(false);
@@ -248,7 +293,7 @@ describe('Phase 4E App Kit Earn receipt verification', () => {
     const verification = verifyAppKitEarnWithdrawalExecution({
       result: { execution: { hash: EARN_TX } },
       action: withdrawAction(),
-      evidence: earnEvidence(),
+      evidence: earnEvidence('withdrawal'),
     });
 
     expect(verification.verified).toBe(true);
@@ -256,7 +301,7 @@ describe('Phase 4E App Kit Earn receipt verification', () => {
     const receipt = buildVerifiedAppKitEarnWithdrawalReceipt({
       result: { execution: { hash: EARN_TX } },
       action: withdrawAction(),
-      evidence: earnEvidence(),
+      evidence: earnEvidence('withdrawal'),
     });
     expect(receipt.status).toBe('VERIFIED');
     expect(receipt.actionType).toBe('WITHDRAW');
