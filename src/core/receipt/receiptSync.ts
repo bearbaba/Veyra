@@ -34,7 +34,8 @@ export async function saveReceiptWithRemoteSync(
     const latestLocal = (await getReceipt(local.receiptId)) ?? local;
     const merged = reconcileVeyraReceipts(latestLocal, remoteReceipt);
     const acknowledged =
-      (remoteReceipt.syncRevision ?? 1) >= (latestLocal.syncRevision ?? 1);
+      (remoteReceipt.syncRevision ?? 1) >= (latestLocal.syncRevision ?? 1) &&
+      remoteReceipt.status === merged.status;
 
     const settled: VeyraReceipt = {
       ...merged,
