@@ -20,9 +20,11 @@ import { usePublicClient, useWalletClient, useSwitchChain } from 'wagmi';
 import { getAddress, createPublicClient, http, type Hash, type Address } from 'viem';
 import {
   approveTokenMessenger,
-  depositForBurn,
+  broadcastDepositForBurn,
   fetchCctpAttestation,
-  receiveMessage,
+  broadcastReceiveMessage,
+  verifyCctpDestinationReceiptEvidence,
+  verifyCctpSourceReceiptEvidence,
   verifyDestinationBalance,
   readBalance,
   chainIdToCctpDomain,
@@ -30,7 +32,7 @@ import {
 import { findManifestEntry, MANIFEST_CONSTANTS } from '../providers/registry/providerManifest';
 import { checkProviderEligibility } from '../providers/registry/providerRegistry';
 import type { BridgeAction } from '../core/actions/actionSchema';
-import { generatePlanReceiptId, generateExecutionReceiptId } from '../core/receipt/receiptId';
+import { generateExecutionReceiptId } from '../core/receipt/receiptId';
 import type { VeyraReceipt } from '../core/receipt/receiptTypes';
 import { VEYRA_ENV } from '../lib/env';
 import { assertExecutionReady } from '../core/execution/executionReadiness';
@@ -44,7 +46,14 @@ import {
 import {
   loadRemoteBridgeCheckpoints,
   persistBridgeCheckpointRemote,
+  relayBridgeReceiveRemote,
 } from '../lib/api/bridgeRecoveryApi';
+import {
+  lockActionExecution,
+  markActionExecutionSubmissionStarted,
+  releaseActionExecutionReservation,
+  reserveActionExecution,
+} from '../core/execution/actionExecutionReplayStore';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -110,6 +119,28 @@ async function persistRecoveryCheckpoint(
   void persistBridgeCheckpointRemote(checkpoint).catch(() => undefined);
 }
 
+
+type RemoteRelayAttempt =
+  | { mode: 'UNAVAILABLE' }
+  | { mode: 'TX_HASH'; txHash: Hash }
+  | { mode: 'ALREADY_RECEIVED' };
+
+async function tryAuthenticatedRemoteRelay(
+  checkpoint: BridgeRecoveryCheckpoint,
+): Promise<RemoteRelayAttempt> {
+  const mirrored = await persistBridgeCheckpointRemote(checkpoint);
+  if (!mirrored) return { mode: 'UNAVAILABLE' };
+
+  const result = await relayBridgeReceiveRemote(checkpoint.planId);
+  if (result.mode === 'UNAVAILABLE') return result;
+  if (result.mode === 'ALREADY_RECEIVED') return result;
+
+  return {
+    mode: 'TX_HASH',
+    txHash: result.txHash as Hash,
+  };
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useBridgeExecution() {
@@ -165,6 +196,24 @@ export function useBridgeExecution() {
       return;
     }
 
+    const actionFrom = getAddress(action.from);
+    const requestedWallet = getAddress(walletAddress);
+    const connectedWallet = walletClient.account?.address
+      ? getAddress(walletClient.account.address)
+      : null;
+    if (
+      requestedWallet !== actionFrom ||
+      !connectedWallet ||
+      connectedWallet !== actionFrom
+    ) {
+      setState({
+        phase: 'FAILED',
+        error:
+          'Connected wallet does not match the deterministic bridge sender.',
+      });
+      return;
+    }
+
     const destRpc        = DEST_CHAIN_RPC[action.destinationChainId];
     const destUsdcAddress = DEST_CHAIN_USDC[action.destinationChainId];
     if (!destRpc || !destUsdcAddress) {
@@ -172,18 +221,37 @@ export function useBridgeExecution() {
       return;
     }
 
-    // Read-only public client for the destination chain
-    const destPublicClient = createPublicClient({
-      transport: http(destRpc),
-      chain: {
-        id: action.destinationChainId,
-        name: `chain-${action.destinationChainId}`,
-        nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-        rpcUrls: { default: { http: [destRpc] } },
-      },
-    });
+    let sourceSubmissionStarted = false;
+    let actionReservationHeld = false;
 
     try {
+      const actionReservation = await reserveActionExecution({
+        actionId: action.actionId,
+        providerId: 'cctp-v2-bridge',
+        operation: 'BRIDGE',
+      });
+      if (!actionReservation.success) {
+        setState({
+          phase: 'FAILED',
+          error:
+            `Bridge action "${action.actionId}" cannot execute again: ` +
+            `${actionReservation.reason}. Resume/reconcile the existing execution instead.`,
+        });
+        return;
+      }
+      actionReservationHeld = true;
+
+      // Read-only public client for the destination chain
+      const destPublicClient = createPublicClient({
+        transport: http(destRpc),
+        chain: {
+          id: action.destinationChainId,
+          name: `chain-${action.destinationChainId}`,
+          nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+          rpcUrls: { default: { http: [destRpc] } },
+        },
+      });
+
       // ── Snapshot destination balance BEFORE bridge ────────────────────────
       const recipientAddress = getAddress(action.to);
       const balanceBefore    = await readBalance(destPublicClient, destUsdcAddress, recipientAddress);
@@ -205,20 +273,23 @@ export function useBridgeExecution() {
         setState({ phase: 'APPROVE_CONFIRMED', approveTxHash });
       }
 
-      if (abortRef.current) return;
+      if (abortRef.current) {
+        await releaseActionExecutionReservation(action.actionId);
+        actionReservationHeld = false;
+        return;
+      }
 
       // ── Step 2: depositForBurn ────────────────────────────────────────────
-      setState({ phase: 'BURNING', approveTxHash });
-      const burnTxHash = await depositForBurn(walletClient, sourcePublicClient, action);
-      setState({ phase: 'BRIDGE_PENDING', approveTxHash, burnTxHash });
-
-      // Persist a local recovery checkpoint immediately after the source burn.
-      // From this point forward recovery must continue from burnTxHash and can
-      // never submit a second source burn.
-      const planId = generatePlanReceiptId();
-      const checkpointBase: Omit<BridgeRecoveryCheckpoint, 'stage' | 'updatedAt'> = {
+      // Generate immutable recovery metadata BEFORE asking the wallet to burn.
+      // The adapter returns the tx hash immediately after broadcast; Veyra then
+      // persists SOURCE_BROADCAST before waiting for confirmation.
+      const planId = action.actionId;
+      const checkpointCreatedAt = Date.now();
+      const checkpointMetadata: Omit<
+        BridgeRecoveryCheckpoint,
+        'stage' | 'updatedAt' | 'burnTxHash'
+      > = {
         planId,
-        burnTxHash,
         sourceChainId: action.sourceChainId,
         destinationChainId: action.destinationChainId,
         walletAddress,
@@ -226,13 +297,40 @@ export function useBridgeExecution() {
         amount: action.amount.toString(),
         tokenAddress: action.tokenAddress,
         balanceBefore: balanceBefore.toString(),
-        createdAt: Date.now(),
+        createdAt: checkpointCreatedAt,
       };
+
+      setState({ phase: 'BURNING', approveTxHash });
+
+      // Lock the deterministic action against a second fresh execution before
+      // opening the irreversible source-burn wallet request. If the browser
+      // disappears around submission, SUBMISSION_STARTED itself is fail-closed.
+      await markActionExecutionSubmissionStarted(action.actionId);
+      sourceSubmissionStarted = true;
+
+      const burnTxHash = await broadcastDepositForBurn(walletClient, action);
+      setState({ phase: 'BRIDGE_PENDING', approveTxHash, burnTxHash });
+
+      const checkpointBase: Omit<
+        BridgeRecoveryCheckpoint,
+        'stage' | 'updatedAt'
+      > = {
+        ...checkpointMetadata,
+        burnTxHash,
+      };
+
+      // Critical crash-safety boundary: persist the broadcast hash before any
+      // receipt wait. A reload while the burn is pending can now recover from
+      // the exact source tx instead of offering a second burn.
       await persistRecoveryCheckpoint({
         ...checkpointBase,
         stage: 'SOURCE_BROADCAST',
         updatedAt: Date.now(),
       });
+
+      // The original fresh-execution path is now permanently closed for this
+      // actionId. All later progress uses the persisted bridge checkpoint.
+      await lockActionExecution(action.actionId);
 
       if (abortRef.current) return;
 
@@ -241,8 +339,13 @@ export function useBridgeExecution() {
         hash: burnTxHash,
         timeout: 60_000,
       });
-      if (sourceReceipt.status !== 'success') {
-        setState({ phase: 'FAILED', burnTxHash, error: `Source tx reverted: ${burnTxHash}` });
+      const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt);
+      if (!sourceEvidence.verified) {
+        setState({
+          phase: 'FAILED',
+          burnTxHash,
+          error: `Source CCTP verification failed: ${sourceEvidence.detail}`,
+        });
         return;
       }
       setState({ phase: 'BRIDGE_UNCONFIRMED', approveTxHash, burnTxHash });
@@ -284,39 +387,82 @@ export function useBridgeExecution() {
         return;
       }
 
-      await persistRecoveryCheckpoint({
+      const attestationCheckpoint: BridgeRecoveryCheckpoint = {
         ...checkpointBase,
         stage: 'ATTESTATION_READY',
         attestationMessage: attestation.message,
         attestationSignature: attestation.attestation,
         updatedAt: Date.now(),
-      });
+      };
+      await persistRecoveryCheckpoint(attestationCheckpoint);
 
       if (abortRef.current) return;
 
-      // ── Step 5: Switch to destination chain + receiveMessage ─────────────
-      setState({ phase: 'SWITCHING_CHAIN', approveTxHash, burnTxHash });
-      try {
-        await switchChainAsync({ chainId: action.destinationChainId });
-      } catch {
+      let receiveTxHash: Hash;
+      let destinationReceipt;
+
+      const remoteRelay = await tryAuthenticatedRemoteRelay(attestationCheckpoint);
+      if (remoteRelay.mode === 'ALREADY_RECEIVED') {
         setState({
-          phase: 'FAILED',
+          phase: 'BRIDGE_UNCONFIRMED',
           burnTxHash,
-          error: `Could not switch to destination chain ${action.destinationChainId}. Switch manually and retry.`,
+          error:
+            'CCTP destination message is already consumed, but the destination transaction hash is not yet reconciled. No new burn or receive will be submitted.',
         });
         return;
       }
 
-      setState({ phase: 'RECEIVING', approveTxHash, burnTxHash });
-      const receiveTxHash = await receiveMessage(
-        walletClient,
-        destPublicClient,
-        action.destinationChainId,
-        recipientAddress,
-        attestation.message,
-        attestation.attestation,
-      );
+      if (remoteRelay.mode === 'TX_HASH') {
+        receiveTxHash = remoteRelay.txHash;
+        setState({
+          phase: 'RECEIVING',
+          approveTxHash,
+          burnTxHash,
+          receiveTxHash,
+        });
+      } else {
+        // Relay is unavailable (for example no authenticated session or no
+        // testnet relay signer). Fall back to the user's destination wallet.
+        setState({ phase: 'SWITCHING_CHAIN', approveTxHash, burnTxHash });
+        try {
+          await switchChainAsync({ chainId: action.destinationChainId });
+        } catch {
+          setState({
+            phase: 'FAILED',
+            burnTxHash,
+            error:
+              `Could not switch to destination chain ${action.destinationChainId}. Bridge remains resumable from the persisted source burn.`,
+          });
+          return;
+        }
 
+        const connected = walletClient.account?.address;
+        if (
+          !connected ||
+          connected.toLowerCase() !== recipientAddress.toLowerCase()
+        ) {
+          setState({
+            phase: 'FAILED',
+            burnTxHash,
+            error:
+              `Connect the destination recipient wallet ${recipientAddress} to complete receiveMessage safely.`,
+          });
+          return;
+        }
+
+        setState({ phase: 'RECEIVING', approveTxHash, burnTxHash });
+        receiveTxHash = await broadcastReceiveMessage(
+          walletClient,
+          action.destinationChainId,
+          recipientAddress,
+          attestation.message,
+          attestation.attestation,
+        );
+      }
+
+      // Persist the destination tx hash before waiting for confirmation. This
+      // prevents a reload from submitting receiveMessage again just because the
+      // original destination transaction was still pending.
       await persistRecoveryCheckpoint({
         ...checkpointBase,
         stage: 'DESTINATION_BROADCAST',
@@ -327,6 +473,27 @@ export function useBridgeExecution() {
       });
 
       if (abortRef.current) return;
+
+      destinationReceipt = await destPublicClient.waitForTransactionReceipt({
+        hash: receiveTxHash,
+        timeout: 60_000,
+      });
+      const destinationEvidence = verifyCctpDestinationReceiptEvidence(
+        destinationReceipt,
+        recipientAddress,
+        destUsdcAddress,
+        action.amount,
+      );
+      if (!destinationEvidence.verified) {
+        setState({
+          phase: 'FAILED',
+          burnTxHash,
+          receiveTxHash,
+          error:
+            `Destination CCTP receipt verification failed: ${destinationEvidence.detail}`,
+        });
+        return;
+      }
 
       // ── Step 6: Verify destination balance delta ──────────────────────────
       setState({ phase: 'VERIFYING', approveTxHash, burnTxHash, receiveTxHash });
@@ -350,9 +517,9 @@ export function useBridgeExecution() {
       }
 
       // ── Step 7: Generate VeyraReceipt ─────────────────────────────────────
-      const sourceReceiptObj  = await sourcePublicClient.getTransactionReceipt({ hash: burnTxHash });
-      const destReceiptObj    = await destPublicClient.getTransactionReceipt({ hash: receiveTxHash });
-      const receiptId         = generateExecutionReceiptId(action.sourceChainId, burnTxHash);
+      const sourceReceiptObj = await sourcePublicClient.getTransactionReceipt({ hash: burnTxHash });
+      const destReceiptObj = destinationReceipt;
+      const receiptId = generateExecutionReceiptId(action.sourceChainId, burnTxHash);
 
       const veyraReceipt: VeyraReceipt = {
         receiptId,
@@ -368,7 +535,7 @@ export function useBridgeExecution() {
         expectedAmountDelta:  action.amount,
         verifiedBalanceAfter: balanceBefore + verification.actualDelta,
         riskScore:            null,
-        policyDecision:       'PASS',
+        policyDecision:       null,
         bridgeTrace: {
           sourceChainId:        action.sourceChainId,
           destinationChainId:   action.destinationChainId,
@@ -377,8 +544,6 @@ export function useBridgeExecution() {
           sourceBlock:          Number(sourceReceiptObj.blockNumber),
           destinationBlock:     Number(destReceiptObj.blockNumber),
           bridgeStatus:         'VERIFIED',
-          sourceTimestamp:      Date.now(),
-          destinationTimestamp: Date.now(),
         },
       };
 
@@ -403,6 +568,14 @@ export function useBridgeExecution() {
 
 
     } catch (err) {
+      if (actionReservationHeld && !sourceSubmissionStarted) {
+        try {
+          await releaseActionExecutionReservation(action.actionId);
+        } catch {
+          // Preserve the original error. A failed release remains fail-closed.
+        }
+      }
+
       setState((prev) => ({
         ...prev,
         phase: 'FAILED',
@@ -496,11 +669,13 @@ export function useBridgeExecution() {
         return;
       }
 
-      if (sourceReceipt.status !== 'success') {
+      const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt);
+      if (!sourceEvidence.verified) {
         setState({
           phase: 'FAILED',
           burnTxHash,
-          error: `Persisted source burn reverted: ${burnTxHash}`,
+          error:
+            `Persisted source burn failed CCTP verification: ${sourceEvidence.detail}`,
         });
         return;
       }
@@ -599,29 +774,56 @@ export function useBridgeExecution() {
       }
 
       if (current.stage === 'ATTESTATION_READY') {
-        const connected = walletClient.account?.address;
-        if (!connected || connected.toLowerCase() !== recipientAddress.toLowerCase()) {
+        let receiveTxHash: Hash;
+        const remoteRelay = await tryAuthenticatedRemoteRelay(current);
+
+        if (remoteRelay.mode === 'ALREADY_RECEIVED') {
           setState({
-            phase: 'FAILED',
+            phase: 'VERIFYING',
             burnTxHash,
-            error: `Connect the destination recipient wallet ${recipientAddress} to resume receiveMessage safely.`,
+            error:
+              'CCTP destination message is already consumed, but its transaction hash still needs reconciliation. No duplicate receive will be submitted.',
           });
           return;
         }
 
-        setState({ phase: 'SWITCHING_CHAIN', burnTxHash });
-        await switchChainAsync({ chainId: current.destinationChainId });
+        if (remoteRelay.mode === 'TX_HASH') {
+          receiveTxHash = remoteRelay.txHash;
+          setState({
+            phase: 'RECEIVING',
+            burnTxHash,
+            receiveTxHash,
+          });
+        } else {
+          const connected = walletClient.account?.address;
+          if (
+            !connected ||
+            connected.toLowerCase() !== recipientAddress.toLowerCase()
+          ) {
+            setState({
+              phase: 'FAILED',
+              burnTxHash,
+              error:
+                `Connect the destination recipient wallet ${recipientAddress} to resume receiveMessage safely.`,
+            });
+            return;
+          }
 
-        setState({ phase: 'RECEIVING', burnTxHash });
-        const receiveTxHash = await receiveMessage(
-          walletClient,
-          destPublicClient,
-          current.destinationChainId,
-          recipientAddress,
-          current.attestationMessage!,
-          current.attestationSignature!,
-        );
+          setState({ phase: 'SWITCHING_CHAIN', burnTxHash });
+          await switchChainAsync({ chainId: current.destinationChainId });
 
+          setState({ phase: 'RECEIVING', burnTxHash });
+          receiveTxHash = await broadcastReceiveMessage(
+            walletClient,
+            current.destinationChainId,
+            recipientAddress,
+            current.attestationMessage!,
+            current.attestationSignature!,
+          );
+        }
+
+        // Persist before any confirmation/read. If the page disappears now,
+        // recovery resumes by verifying this exact destination tx.
         current = {
           ...current,
           stage: 'DESTINATION_BROADCAST',
@@ -652,12 +854,19 @@ export function useBridgeExecution() {
           return;
         }
 
-        if (destReceiptObj.status !== 'success') {
+        const destinationEvidence = verifyCctpDestinationReceiptEvidence(
+          destReceiptObj,
+          recipientAddress,
+          destUsdcAddress,
+          amount,
+        );
+        if (!destinationEvidence.verified) {
           setState({
             phase: 'FAILED',
             burnTxHash,
             receiveTxHash,
-            error: 'Persisted destination receive transaction reverted.',
+            error:
+              `Persisted destination transaction failed CCTP verification: ${destinationEvidence.detail}`,
           });
           return;
         }
@@ -714,8 +923,6 @@ export function useBridgeExecution() {
             sourceBlock: Number(sourceReceipt.blockNumber),
             destinationBlock: Number(destReceiptObj.blockNumber),
             bridgeStatus: 'VERIFIED',
-            sourceTimestamp: current.createdAt,
-            destinationTimestamp: Date.now(),
           },
         };
 

@@ -35,6 +35,7 @@ import {
   type PublicClient,
   type WalletClient,
   type Hash,
+  type TransactionReceipt,
   getAddress,
 } from 'viem';
 import { MANIFEST_CONSTANTS } from '../registry/providerManifest';
@@ -82,6 +83,12 @@ const TOKEN_MESSENGER_V2_ABI = [
     outputs: [],
   },
 ] as const;
+
+const MESSAGE_SENT_TOPIC =
+  '0x8c5261668696ce22758910d05bab8f186d6eb247ceac2af2e82c7dc17669b036';
+const ERC20_TRANSFER_TOPIC =
+  '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+const ZERO_ADDRESS_TOPIC = `0x${'0'.repeat(64)}`;
 
 const MESSAGE_TRANSMITTER_V2_ABI = [
   {
@@ -151,7 +158,7 @@ export async function fetchCctpAttestation(sourceDomain: number, txHash: Hash): 
     return { status: 'pending' };
   }
   const msg = messages[0];
-  if (msg.status === 'complete' && msg.attestation) {
+  if (msg.status === 'complete' && msg.message && msg.attestation) {
     return {
       status: 'complete',
       message: msg.message,
@@ -187,9 +194,8 @@ export async function approveTokenMessenger(
 
 // ── Step 2: depositForBurn ────────────────────────────────────────────────────
 
-export async function depositForBurn(
+export async function broadcastDepositForBurn(
   walletClient: WalletClient,
-  publicClient: PublicClient,
   action: BridgeAction,
 ): Promise<Hash> {
   const destinationDomain = chainIdToCctpDomain(action.destinationChainId);
@@ -205,7 +211,7 @@ export async function depositForBurn(
   // minFinalityThreshold = 2000 for standard (safe) transfer
   const minFinalityThreshold = MANIFEST_CONSTANTS.CCTP_STANDARD_FINALITY;
 
-  const hash = await walletClient.writeContract({
+  return walletClient.writeContract({
     address: messengerAddress,
     abi: TOKEN_MESSENGER_V2_ABI,
     functionName: 'depositForBurn',
@@ -221,13 +227,54 @@ export async function depositForBurn(
     account: from,
     chain: null,
   });
+}
 
+/**
+ * Compatibility helper for callers that need a confirmed source burn.
+ * Crash-safe product flows should use broadcastDepositForBurn(), persist the
+ * returned hash immediately, then wait for the receipt separately.
+ */
+export async function depositForBurn(
+  walletClient: WalletClient,
+  publicClient: PublicClient,
+  action: BridgeAction,
+): Promise<Hash> {
+  const hash = await broadcastDepositForBurn(walletClient, action);
   await publicClient.waitForTransactionReceipt({ hash });
   return hash;
 }
 
 // ── Step 5: receiveMessage ────────────────────────────────────────────────────
 
+export async function broadcastReceiveMessage(
+  walletClient: WalletClient,
+  destinationChainId: number,
+  to: Address,
+  messageHex: string,
+  attestationHex: string,
+): Promise<Hash> {
+  // destinationChainId is intentionally retained in the boundary even though
+  // the current wallet adapter selects the chain externally. Validate that
+  // Veyra only broadcasts to a known CCTP destination.
+  chainIdToCctpDomain(destinationChainId);
+
+  const transmitter = getAddress(MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER);
+
+  return walletClient.writeContract({
+    address: transmitter,
+    abi: MESSAGE_TRANSMITTER_V2_ABI,
+    functionName: 'receiveMessage',
+    args: [messageHex as `0x${string}`, attestationHex as `0x${string}`],
+    account: to,
+    chain: null,
+  });
+}
+
+/**
+ * Compatibility helper for callers that need a confirmed destination receive.
+ * Crash-safe product flows should use broadcastReceiveMessage(), persist the
+ * returned hash immediately, then wait for the receipt separately.
+ */
 export async function receiveMessage(
   walletClient: WalletClient,
   publicClient: PublicClient,
@@ -236,19 +283,98 @@ export async function receiveMessage(
   messageHex: string,
   attestationHex: string,
 ): Promise<Hash> {
-  const transmitter = getAddress(MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER);
-
-  const hash = await walletClient.writeContract({
-    address: transmitter,
-    abi: MESSAGE_TRANSMITTER_V2_ABI,
-    functionName: 'receiveMessage',
-    args: [messageHex as `0x${string}`, attestationHex as `0x${string}`],
-    account: to,
-    chain: null,
-  });
-
+  const hash = await broadcastReceiveMessage(
+    walletClient,
+    destinationChainId,
+    to,
+    messageHex,
+    attestationHex,
+  );
   await publicClient.waitForTransactionReceipt({ hash });
   return hash;
+}
+
+// ── Receipt evidence verification ────────────────────────────────────────────
+
+function addressToTopic(address: Address): string {
+  return `0x${'0'.repeat(24)}${address.slice(2).toLowerCase()}`;
+}
+
+export function verifyCctpSourceReceiptEvidence(
+  receipt: Pick<TransactionReceipt, 'status' | 'logs'>,
+): { verified: boolean; detail: string } {
+  if (receipt.status !== 'success') {
+    return { verified: false, detail: 'Source CCTP transaction did not succeed.' };
+  }
+
+  const transmitter =
+    MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER.toLowerCase();
+  const hasMessageSent = receipt.logs.some(
+    (log) =>
+      log.address.toLowerCase() === transmitter &&
+      log.topics[0]?.toLowerCase() === MESSAGE_SENT_TOPIC,
+  );
+
+  if (!hasMessageSent) {
+    return {
+      verified: false,
+      detail:
+        'Source CCTP receipt is missing MessageSent from MessageTransmitterV2.',
+    };
+  }
+
+  return {
+    verified: true,
+    detail:
+      'Source CCTP receipt succeeded and contains MessageSent from MessageTransmitterV2.',
+  };
+}
+
+export function verifyCctpDestinationReceiptEvidence(
+  receipt: Pick<TransactionReceipt, 'status' | 'logs'>,
+  recipientAddress: Address,
+  tokenAddress: Address,
+  expectedAmount: bigint,
+): { verified: boolean; detail: string; transferAmount: bigint | null } {
+  if (receipt.status !== 'success') {
+    return {
+      verified: false,
+      detail: 'Destination CCTP receive transaction did not succeed.',
+      transferAmount: null,
+    };
+  }
+
+  const token = getAddress(tokenAddress).toLowerCase();
+  const recipientTopic = addressToTopic(getAddress(recipientAddress));
+
+  for (const log of receipt.logs) {
+    if (
+      log.address.toLowerCase() !== token ||
+      log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC ||
+      log.topics[1]?.toLowerCase() !== ZERO_ADDRESS_TOPIC ||
+      log.topics[2]?.toLowerCase() !== recipientTopic ||
+      !/^0x[0-9a-fA-F]{64}$/.test(log.data)
+    ) {
+      continue;
+    }
+
+    const transferAmount = BigInt(log.data);
+    if (transferAmount === expectedAmount) {
+      return {
+        verified: true,
+        detail:
+          'Destination receipt contains the exact USDC mint to the reviewed recipient.',
+        transferAmount,
+      };
+    }
+  }
+
+  return {
+    verified: false,
+    detail:
+      'Destination receipt does not contain the exact expected USDC mint to the reviewed recipient.',
+    transferAmount: null,
+  };
 }
 
 // ── Step 6: Post-receive balance verification ────────────────────────────────
@@ -268,13 +394,17 @@ export async function verifyDestinationBalance(
   });
 
   const delta = balanceAfter - balanceBefore;
-  if (delta >= expectedMinAmount) {
-    return { verified: true, actualDelta: delta, detail: `Balance increased by ${delta} (expected >= ${expectedMinAmount})` };
+  if (delta === expectedMinAmount) {
+    return {
+      verified: true,
+      actualDelta: delta,
+      detail: `Balance increased by exactly ${delta} as expected`,
+    };
   }
   return {
     verified: false,
     actualDelta: delta,
-    detail: `Balance delta ${delta} < expected ${expectedMinAmount}`,
+    detail: `Balance delta ${delta} does not equal expected ${expectedMinAmount}`,
   };
 }
 

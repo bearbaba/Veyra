@@ -4,6 +4,7 @@ import {
   getBridgeCheckpoint,
   loadResumableBridgeCheckpoints,
   nextBridgeResumeInstruction,
+  parseBridgeRecoveryCheckpoint,
   reconcileBridgeRecoveryCandidates,
   resetBridgeCheckpointStoreForTesting,
   saveBridgeCheckpoint,
@@ -69,12 +70,36 @@ describe('Phase 4C bridge recovery checkpoints', () => {
     await saveBridgeCheckpoint({
       ...checkpoint('VERIFIED'),
       planId: 'veyra-plan-done',
+      attestationMessage: '0x1234',
+      attestationSignature: '0xabcd',
+      receiveTxHash: '0x' + '33'.repeat(32),
       updatedAt: 2,
     });
 
     const resumable = await loadResumableBridgeCheckpoints();
     expect(resumable).toHaveLength(1);
     expect(resumable[0].stage).toBe('SOURCE_CONFIRMED');
+  });
+
+  it('rejects malformed or incomplete runtime checkpoints', () => {
+    const malformed = {
+      ...checkpoint('SOURCE_CONFIRMED'),
+      burnTxHash: '0x1234',
+    };
+
+    expect(parseBridgeRecoveryCheckpoint(malformed)).toBeNull();
+  });
+
+  it('drops malformed remote checkpoints during reconciliation', () => {
+    const malformedRemote: BridgeRecoveryCheckpoint = {
+      ...checkpoint('SOURCE_CONFIRMED'),
+      planId: 'remote-malformed',
+      recipientAddress: 'not-an-address',
+    };
+
+    expect(
+      reconcileBridgeRecoveryCandidates([], [malformedRemote]),
+    ).toEqual([]);
   });
 
   it('imports a remote-only checkpoint for cross-device recovery', () => {

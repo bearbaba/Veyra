@@ -12,7 +12,7 @@
     "deploy:self": "bun run ./scripts/self-deploy.ts",
     "compass:deploy": "bun run ./scripts/compass-deploy.ts",
     "fetch:abi": "bun run ./scripts/fetch-abi.ts",
-    "lint": "oxlint --type-aware --quiet src scripts --fix && oxlint --quiet --fix .",
+    "lint": "oxlint --type-aware --quiet src scripts && oxlint --quiet .",
     "typecheck": "tsc --noEmit",
     "check": "bash scripts/check.sh",
     "test": "vitest run",
@@ -26,7 +26,10 @@
     "providers:health": "bun run scripts/provider-health.ts",
     "signer:health": "bun run scripts/signer-health.ts",
     "db:activate:mainnet": "bun run scripts/production-db-activate.ts",
-    "production:preflight": "bun run scripts/production-preflight.ts"
+    "production:preflight": "bun run scripts/production-preflight.ts",
+    "check:dev-isolation": "bun run scripts/check-dev-isolation.ts",
+    "check:prod-bundle": "bun run scripts/check-prod-bundle-isolation.ts",
+    "lint:fix": "oxlint --type-aware --quiet src scripts --fix && oxlint --quiet --fix ."
   },
   "dependencies": {
     "@circle-fin/adapter-viem-v2": "^1.18.0",

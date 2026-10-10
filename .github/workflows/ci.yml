@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - develop
+      - 'phase*'
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: DEV source isolation
+        run: bun run check:dev-isolation
+
+      - name: Lint
+        run: |
+          bunx oxlint --type-aware --quiet src scripts
+          bunx oxlint --quiet .
+
+      - name: Test
+        run: bun run test -- --run
+
+      - name: Build
+        run: bun run build
+
+      - name: Production bundle isolation
+        run: bun run check:prod-bundle

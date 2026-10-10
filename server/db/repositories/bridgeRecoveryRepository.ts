@@ -1,6 +1,7 @@
-import { and, desc, eq, ne } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import type { DbClient } from '../client.js';
 import { bridgeRecoveryCheckpoints } from '../schema/bridgeRecovery.js';
+import { walletBindings } from '../schema/wallets.js';
 
 export type BridgeRecoveryStage =
   | 'SOURCE_BROADCAST'
@@ -45,6 +46,58 @@ export class BridgeRecoveryConflictError extends Error {
     super(message);
     this.name = 'BridgeRecoveryConflictError';
   }
+}
+
+
+export type BridgeRelayDecision =
+  | {
+      mode: 'SUBMIT';
+      destinationChainId: number;
+      message: string;
+      attestation: string;
+    }
+  | {
+      mode: 'ALREADY_SUBMITTED';
+      destinationChainId: number;
+      receiveTxHash: string;
+    };
+
+export function evaluateBridgeRelayDecision(
+  checkpoint: BridgeRecoveryInput,
+): BridgeRelayDecision {
+  assertBaseInput(checkpoint);
+
+  if (checkpoint.stage === 'DESTINATION_BROADCAST') {
+    if (!checkpoint.receiveTxHash) {
+      throw new BridgeRecoveryConflictError(
+        'Destination broadcast checkpoint is missing receiveTxHash',
+      );
+    }
+    return {
+      mode: 'ALREADY_SUBMITTED',
+      destinationChainId: checkpoint.destinationChainId,
+      receiveTxHash: checkpoint.receiveTxHash,
+    };
+  }
+
+  if (checkpoint.stage !== 'ATTESTATION_READY') {
+    throw new BridgeRecoveryConflictError(
+      `Bridge relay is not allowed from stage ${checkpoint.stage}`,
+    );
+  }
+
+  if (!checkpoint.attestationMessage || !checkpoint.attestationSignature) {
+    throw new BridgeRecoveryConflictError(
+      'Bridge relay requires persisted attestation evidence',
+    );
+  }
+
+  return {
+    mode: 'SUBMIT',
+    destinationChainId: checkpoint.destinationChainId,
+    message: checkpoint.attestationMessage,
+    attestation: checkpoint.attestationSignature,
+  };
 }
 
 function assertBaseInput(input: BridgeRecoveryInput): void {
@@ -297,6 +350,57 @@ export async function persistBridgeRecoveryCheckpoint(
     }
     throw error;
   }
+}
+
+export async function assertBridgeRecoveryWalletOwnership(
+  db: DbClient,
+  ownerUserId: string,
+  checkpoint: BridgeRecoveryInput,
+): Promise<void> {
+  assertBaseInput(checkpoint);
+
+  const [wallet] = await db
+    .select({ walletId: walletBindings.walletId })
+    .from(walletBindings)
+    .where(
+      and(
+        eq(walletBindings.veyraUserId, ownerUserId),
+        eq(walletBindings.chainId, checkpoint.sourceChainId),
+        eq(walletBindings.status, 'ACTIVE'),
+        isNull(walletBindings.revokedAt),
+        sql`lower(${walletBindings.walletAddress}) = lower(${checkpoint.walletAddress})`,
+      ),
+    )
+    .limit(1);
+
+  if (!wallet) {
+    throw new BridgeRecoveryConflictError(
+      'Bridge recovery source wallet is not an active verified wallet for this Veyra user',
+    );
+  }
+}
+
+export async function getBridgeRecoveryCheckpointForOwner(
+  db: DbClient,
+  ownerUserId: string,
+  planId: string,
+): Promise<BridgeRecoveryInput | null> {
+  if (!planId || planId.length > 160) {
+    throw new BridgeRecoveryConflictError('Invalid bridge recovery planId');
+  }
+
+  const [row] = await db
+    .select()
+    .from(bridgeRecoveryCheckpoints)
+    .where(
+      and(
+        eq(bridgeRecoveryCheckpoints.planId, planId),
+        eq(bridgeRecoveryCheckpoints.ownerUserId, ownerUserId),
+      ),
+    )
+    .limit(1);
+
+  return row ? rowToInput(row) : null;
 }
 
 export async function loadPendingBridgeRecoveryCheckpoints(

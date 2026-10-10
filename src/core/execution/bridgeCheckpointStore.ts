@@ -48,7 +48,132 @@ const DB_NAME = 'veyra-bridge-recovery';
 const DB_VERSION = 1;
 const STORE_NAME = 'checkpoints';
 
+const TX_HASH_RE = /^0x[0-9a-fA-F]{64}$/;
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+const HEX_RE = /^0x[0-9a-fA-F]+$/;
+const UINT_RE = /^(0|[1-9][0-9]*)$/;
+const STAGES = new Set<BridgeCheckpointStage>([
+  'SOURCE_BROADCAST',
+  'SOURCE_CONFIRMED',
+  'ATTESTATION_READY',
+  'DESTINATION_BROADCAST',
+  'VERIFIED',
+]);
+
 let _db: IDBDatabase | null = null;
+
+export function parseBridgeRecoveryCheckpoint(
+  value: unknown,
+): BridgeRecoveryCheckpoint | null {
+  if (!value || typeof value !== 'object') return null;
+  const row = value as Record<string, unknown>;
+
+  const stage =
+    typeof row.stage === 'string' && STAGES.has(row.stage as BridgeCheckpointStage)
+      ? (row.stage as BridgeCheckpointStage)
+      : null;
+
+  const checkpoint: BridgeRecoveryCheckpoint = {
+    planId: typeof row.planId === 'string' ? row.planId : '',
+    stage: stage ?? 'SOURCE_BROADCAST',
+    burnTxHash: typeof row.burnTxHash === 'string' ? row.burnTxHash : '',
+    sourceChainId:
+      typeof row.sourceChainId === 'number' ? row.sourceChainId : Number.NaN,
+    destinationChainId:
+      typeof row.destinationChainId === 'number'
+        ? row.destinationChainId
+        : Number.NaN,
+    walletAddress:
+      typeof row.walletAddress === 'string' ? row.walletAddress : '',
+    recipientAddress:
+      typeof row.recipientAddress === 'string' ? row.recipientAddress : '',
+    amount: typeof row.amount === 'string' ? row.amount : '',
+    tokenAddress:
+      typeof row.tokenAddress === 'string' ? row.tokenAddress : '',
+    balanceBefore:
+      typeof row.balanceBefore === 'string' ? row.balanceBefore : '',
+    createdAt:
+      typeof row.createdAt === 'number' ? row.createdAt : Number.NaN,
+    updatedAt:
+      typeof row.updatedAt === 'number' ? row.updatedAt : Number.NaN,
+  };
+
+  if (typeof row.attestationMessage === 'string') {
+    checkpoint.attestationMessage = row.attestationMessage;
+  }
+  if (typeof row.attestationSignature === 'string') {
+    checkpoint.attestationSignature = row.attestationSignature;
+  }
+  if (typeof row.receiveTxHash === 'string') {
+    checkpoint.receiveTxHash = row.receiveTxHash;
+  }
+
+  if (!stage) return null;
+  if (!checkpoint.planId || checkpoint.planId.length > 160) return null;
+  if (!TX_HASH_RE.test(checkpoint.burnTxHash)) return null;
+  if (
+    !Number.isSafeInteger(checkpoint.sourceChainId) ||
+    checkpoint.sourceChainId <= 0 ||
+    !Number.isSafeInteger(checkpoint.destinationChainId) ||
+    checkpoint.destinationChainId <= 0 ||
+    checkpoint.sourceChainId === checkpoint.destinationChainId
+  ) {
+    return null;
+  }
+  if (
+    !ADDRESS_RE.test(checkpoint.walletAddress) ||
+    !ADDRESS_RE.test(checkpoint.recipientAddress) ||
+    !ADDRESS_RE.test(checkpoint.tokenAddress)
+  ) {
+    return null;
+  }
+  if (!UINT_RE.test(checkpoint.amount) || BigInt(checkpoint.amount) <= 0n) {
+    return null;
+  }
+  if (!UINT_RE.test(checkpoint.balanceBefore)) return null;
+  if (
+    !Number.isSafeInteger(checkpoint.createdAt) ||
+    !Number.isSafeInteger(checkpoint.updatedAt) ||
+    checkpoint.createdAt <= 0 ||
+    checkpoint.updatedAt < checkpoint.createdAt
+  ) {
+    return null;
+  }
+  if (
+    checkpoint.attestationMessage !== undefined &&
+    !HEX_RE.test(checkpoint.attestationMessage)
+  ) {
+    return null;
+  }
+  if (
+    checkpoint.attestationSignature !== undefined &&
+    !HEX_RE.test(checkpoint.attestationSignature)
+  ) {
+    return null;
+  }
+  if (
+    checkpoint.receiveTxHash !== undefined &&
+    !TX_HASH_RE.test(checkpoint.receiveTxHash)
+  ) {
+    return null;
+  }
+  if (
+    BRIDGE_STAGE_ORDER[checkpoint.stage] >=
+      BRIDGE_STAGE_ORDER.ATTESTATION_READY &&
+    (!checkpoint.attestationMessage || !checkpoint.attestationSignature)
+  ) {
+    return null;
+  }
+  if (
+    BRIDGE_STAGE_ORDER[checkpoint.stage] >=
+      BRIDGE_STAGE_ORDER.DESTINATION_BROADCAST &&
+    !checkpoint.receiveTxHash
+  ) {
+    return null;
+  }
+
+  return checkpoint;
+}
 
 function openDb(): Promise<IDBDatabase> {
   if (_db) return Promise.resolve(_db);
@@ -80,10 +205,15 @@ function openDb(): Promise<IDBDatabase> {
 export async function saveBridgeCheckpoint(
   checkpoint: BridgeRecoveryCheckpoint,
 ): Promise<void> {
+  const validated = parseBridgeRecoveryCheckpoint(checkpoint);
+  if (!validated) {
+    throw new Error('[bridgeCheckpointStore] invalid checkpoint');
+  }
+
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
-    const request = tx.objectStore(STORE_NAME).put(checkpoint);
+    const request = tx.objectStore(STORE_NAME).put(validated);
     request.onerror = () => reject(new Error('[bridgeCheckpointStore] save failed'));
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(new Error(
@@ -99,9 +229,8 @@ export async function getBridgeCheckpoint(
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const request = tx.objectStore(STORE_NAME).get(planId);
-    request.onsuccess = () => resolve(
-      (request.result as BridgeRecoveryCheckpoint | undefined) ?? null,
-    );
+    request.onsuccess = () =>
+      resolve(parseBridgeRecoveryCheckpoint(request.result));
     request.onerror = () => reject(new Error('[bridgeCheckpointStore] get failed'));
   });
 }
@@ -112,8 +241,12 @@ export async function loadResumableBridgeCheckpoints(): Promise<BridgeRecoveryCh
     const tx = db.transaction(STORE_NAME, 'readonly');
     const request = tx.objectStore(STORE_NAME).getAll();
     request.onsuccess = () => {
-      const rows = (request.result as BridgeRecoveryCheckpoint[])
-        .filter((row) => row.stage !== 'VERIFIED')
+      const rows = (request.result as unknown[])
+        .map(parseBridgeRecoveryCheckpoint)
+        .filter(
+          (row): row is BridgeRecoveryCheckpoint =>
+            row !== null && row.stage !== 'VERIFIED',
+        )
         .sort((a, b) => b.updatedAt - a.updatedAt);
       resolve(rows);
     };
@@ -175,11 +308,15 @@ export function reconcileBridgeRecoveryCandidates(
 ): BridgeRecoveryCheckpoint[] {
   const merged = new Map<string, BridgeRecoveryCheckpoint>();
 
-  for (const checkpoint of local) {
+  for (const candidate of local) {
+    const checkpoint = parseBridgeRecoveryCheckpoint(candidate);
+    if (!checkpoint) continue;
     merged.set(checkpoint.planId, checkpoint);
   }
 
-  for (const checkpoint of remote) {
+  for (const candidate of remote) {
+    const checkpoint = parseBridgeRecoveryCheckpoint(candidate);
+    if (!checkpoint) continue;
     const existing = merged.get(checkpoint.planId);
     if (!existing) {
       merged.set(checkpoint.planId, checkpoint);

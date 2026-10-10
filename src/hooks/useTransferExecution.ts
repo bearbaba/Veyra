@@ -25,7 +25,17 @@ import { buildTxExplorerUrl } from '@/onchain-facts';
 import { verifyPaymentRecipient } from '@/lib/api/identityApi';
 import { assertExecutionReady } from '@/core/execution/executionReadiness';
 import { VEYRA_ENV } from '@/lib/env';
-import { verifyExactTokenDelta } from '@/core/execution/receiptVerification';
+import {
+  verifyErc20TransferReceiptEvidence,
+  verifyExactTokenDelta,
+} from '@/core/execution/receiptVerification';
+import {
+  lockActionExecution,
+  markActionExecutionSubmissionStarted,
+  releaseActionExecutionReservation,
+  reserveActionExecution,
+} from '@/core/execution/actionExecutionReplayStore';
+import { MANIFEST_CONSTANTS } from '@/providers/registry/providerManifest';
 
 export type TransferStep =
   | 'IDLE'
@@ -74,8 +84,10 @@ export function useTransferExecution() {
   });
 
   const { writeContractAsync } = useWriteContract();
-  const publicClient = usePublicClient();
-  const { chainId } = useAccount();
+  const publicClient = usePublicClient({
+    chainId: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
+  });
+  const { address, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
 
   const execute = useCallback(async (action: TransferAction, recipientGuard?: { snapshotId: string; expectedWalletAddress: string; expectedChainId: number }) => {
@@ -85,6 +97,10 @@ export function useTransferExecution() {
     }
 
     setState({ step: 'SIGNING', txHash: null, receipt: null, explorerUrl: null, error: null });
+
+    let actionReservationHeld = false;
+    let submissionStarted = false;
+    let broadcastHash: `0x${string}` | null = null;
 
     try {
       // Canonical final execution boundary. Re-check schema/provenance/provider
@@ -96,6 +112,27 @@ export function useTransferExecution() {
         assetAddress: action.tokenAddress,
         runtimeEnvironment: VEYRA_ENV,
       });
+
+      if (
+        !address ||
+        address.toLowerCase() !== action.from.toLowerCase()
+      ) {
+        throw new Error(
+          'Connected wallet does not match the deterministic transfer sender.',
+        );
+      }
+
+      const reservation = await reserveActionExecution({
+        actionId: action.actionId,
+        providerId: 'arc-erc20-transfer',
+        operation: 'TRANSFER',
+      });
+      if (!reservation.success) {
+        throw new Error(
+          `Transfer action "${action.actionId}" cannot execute again: ${reservation.reason}.`,
+        );
+      }
+      actionReservationHeld = true;
 
       // Revalidate a frozen Veyra identity immediately before wallet signature.
       // If profile/wallet/revision changed since review, execution fails closed.
@@ -117,6 +154,12 @@ export function useTransferExecution() {
       });
 
       // ── Step 1: Sign + broadcast ───────────────────────────────────────────
+      // Fail closed before opening the wallet request. A browser disappearance
+      // around submission must never make the same deterministic action
+      // executable again.
+      await markActionExecutionSubmissionStarted(action.actionId);
+      submissionStarted = true;
+
       const hash = await writeContractAsync({
         address: action.tokenAddress as `0x${string}`,
         abi: ERC20_TRANSFER_ABI,
@@ -124,6 +167,11 @@ export function useTransferExecution() {
         args: [action.to as `0x${string}`, action.amount],
         chainId: action.chainId,
       });
+      broadcastHash = hash;
+
+      // Once the wallet returns a hash, permanently close fresh execution for
+      // this actionId before waiting for confirmation.
+      await lockActionExecution(action.actionId);
 
       const explorerUrl = buildTxExplorerUrl(action.chainId, hash);
       setState((s) => ({ ...s, step: 'CONFIRMING', txHash: hash, explorerUrl }));
@@ -131,8 +179,17 @@ export function useTransferExecution() {
       // ── Step 2: Wait for receipt ───────────────────────────────────────────
       const txReceipt = await publicClient.waitForTransactionReceipt({ hash });
 
-      if (txReceipt.status !== 'success') {
-        throw new Error(`Transaction reverted (status: ${txReceipt.status})`);
+      const transferEvidence = verifyErc20TransferReceiptEvidence({
+        receipt: txReceipt,
+        tokenAddress: action.tokenAddress,
+        from: action.from,
+        to: action.to,
+        amount: action.amount,
+      });
+      if (!transferEvidence.verified) {
+        throw new Error(
+          `Transaction receipt verification failed: ${transferEvidence.detail}`,
+        );
       }
 
       setState((s) => ({ ...s, step: 'VERIFYING' }));
@@ -169,7 +226,7 @@ export function useTransferExecution() {
         actualAmountDelta: verification.actualDelta,
         expectedAmountDelta: action.amount,
         riskScore: null,
-        policyDecision: 'PASS',
+        policyDecision: null,
         displaySummary: `Sent ${formatUnits(action.amount, action.tokenDecimals)} USDC to ${action.to.slice(0, 6)}...${action.to.slice(-4)}`,
         verifiedBalanceAfter: balanceAfter,
       };
@@ -177,6 +234,14 @@ export function useTransferExecution() {
       await saveReceipt(veyraReceipt);
       setState((s) => ({ ...s, step: 'DONE', receipt: veyraReceipt }));
     } catch (err) {
+      if (actionReservationHeld && !submissionStarted) {
+        try {
+          await releaseActionExecutionReservation(action.actionId);
+        } catch {
+          // Preserve the original failure; inability to release is fail-closed.
+        }
+      }
+
       const msg = err instanceof Error ? err.message : String(err);
       const failedReceipt: VeyraReceipt = {
         receiptId: `veyra-fail-${Date.now()}`,
@@ -184,7 +249,7 @@ export function useTransferExecution() {
         actionType: action.actionType,
         status: 'FAILED',
         chainId: action.chainId,
-        executionTxHash: state.txHash ?? undefined,
+        executionTxHash: broadcastHash ?? undefined,
         createdAt: action.createdAt,
         completedAt: Date.now(),
         actualAmountDelta: null,
@@ -197,7 +262,13 @@ export function useTransferExecution() {
       await saveReceipt(failedReceipt);
       setState((s) => ({ ...s, step: 'FAILED', error: msg, receipt: failedReceipt }));
     }
-  }, [writeContractAsync, publicClient, state.txHash, chainId, switchChainAsync]);
+  }, [
+    address,
+    chainId,
+    publicClient,
+    switchChainAsync,
+    writeContractAsync,
+  ]);
 
   function reset() {
     setState({ step: 'IDLE', txHash: null, receipt: null, explorerUrl: null, error: null });

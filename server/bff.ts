@@ -45,6 +45,7 @@ import { assertServerRuntimeConfig } from './config/runtimeConfig.js';
 import { getRateLimitPolicy } from './config/rateLimits.js';
 import { requestObservability } from './middleware/observability.js';
 import { PROVIDER_MANIFEST } from '../src/providers/registry/providerManifest.js';
+import { verifyCctpSourceReceiptEvidence } from '../src/providers/cctp/cctpV2Adapter.js';
 import { evaluateMainnetReadiness } from './readiness/mainnetReadiness.js';
 import { probeSignerReadiness } from './readiness/signerReadiness.js';
 import { probeDatabaseReadiness } from './readiness/databaseReadiness.js';
@@ -52,6 +53,9 @@ import { refreshMainnetProviderHealth } from './services/providerHealthService.j
 import { getAllProviderHealthRecords } from '../src/providers/registry/providerRegistry.js';
 import {
   BridgeRecoveryConflictError,
+  assertBridgeRecoveryWalletOwnership,
+  evaluateBridgeRelayDecision,
+  getBridgeRecoveryCheckpointForOwner,
   loadPendingBridgeRecoveryCheckpoints,
   persistBridgeRecoveryCheckpoint,
   type BridgeRecoveryInput,
@@ -1169,17 +1173,28 @@ app.get('/api/stablefx/trade/:tradeId', STABLEFX_RATE, async (req: Request, res:
 app.get('/api/cctp/attestation', async (req: Request, res: Response): Promise<void> => {
   try {
     const { sourceDomain, txHash } = req.query;
+    const sourceDomainText =
+      typeof sourceDomain === 'string' ? sourceDomain : '';
+    const txHashText = typeof txHash === 'string' ? txHash : '';
+    const parsedSourceDomain = /^\d+$/.test(sourceDomainText)
+      ? Number(sourceDomainText)
+      : Number.NaN;
+
     if (
-      !isNonEmptyString(sourceDomain as string) ||
-      !isNonEmptyString(txHash as string) ||
-      !/^0x[0-9a-fA-F]{64}$/.test(txHash as string)
+      parsedSourceDomain !== MANIFEST_CONSTANTS.ARC_TESTNET_CCTP_DOMAIN ||
+      !/^0x[0-9a-fA-F]{64}$/.test(txHashText)
     ) {
-      res.status(400).json({ error: 'sourceDomain and txHash (0x + 64 hex) required' });
+      res.status(400).json({
+        error:
+          'Only Arc Testnet CCTP source domain and a 0x + 64 hex txHash are accepted',
+      });
       return;
     }
 
-    // CCTP V2 attestation endpoint
-    const url = `https://iris-api-sandbox.circle.com/v2/messages/${sourceDomain}?transactionHash=${txHash as string}`;
+    // CCTP V2 attestation endpoint. Domain and hash are allow-listed above.
+    const url =
+      `https://iris-api-sandbox.circle.com/v2/messages/${parsedSourceDomain}` +
+      `?transactionHash=${txHashText}`;
     const attestRes = await fetch(url);
 
     if (!attestRes.ok) {
@@ -1245,7 +1260,21 @@ app.post('/api/bridge/persist', IDENTITY_RATE, async (req: Request, res: Respons
     }
 
     const input = parseBridgeRecoveryInput(req.body as Record<string, unknown>);
+
+    if (
+      input.sourceChainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID ||
+      input.tokenAddress.toLowerCase() !==
+        MANIFEST_CONSTANTS.ARC_TESTNET_USDC.toLowerCase() ||
+      (input.destinationChainId !== MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID &&
+        input.destinationChainId !== MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID)
+    ) {
+      throw new BridgeRecoveryConflictError(
+        'Bridge recovery checkpoint is outside the enabled CCTP testnet route scope',
+      );
+    }
+
     const { db } = await import('./db/client.js');
+    await assertBridgeRecoveryWalletOwnership(db, userId, input);
     const checkpoint = await persistBridgeRecoveryCheckpoint(db, userId, input);
     res.json({ ok: true, checkpoint });
   } catch (err) {
@@ -1285,56 +1314,182 @@ app.get('/api/bridge/pending', IDENTITY_RATE, async (req: Request, res: Response
 // The BFF never signs for the user's primary wallet — only the relay wallet.
 // The relay wallet holds only enough gas for relay calls (not user funds).
 
-app.post('/api/bridge/relay-receive', async (req: Request, res: Response): Promise<void> => {
+app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
   try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+
     const body = req.body as Record<string, unknown>;
-    const { message, attestation, destinationChainId } = body;
-
-    if (
-      typeof message !== 'string' ||
-      typeof attestation !== 'string' ||
-      typeof destinationChainId !== 'number'
-    ) {
-      res.status(400).json({ error: 'message (hex string), attestation (hex string), destinationChainId (number) required' });
-      return;
-    }
-
-    // Validate hex format
-    if (!/^0x[0-9a-fA-F]+$/.test(message) || !/^0x[0-9a-fA-F]+$/.test(attestation)) {
-      res.status(400).json({ error: 'message and attestation must be valid hex strings' });
-      return;
-    }
-
-    // Check relay wallet is configured
-    const relayKey = process.env.RELAY_PRIVATE_KEY;
-    if (!relayKey) {
-      // No relay wallet — caller must sign themselves
-      res.status(503).json({
+    const planId = typeof body.planId === 'string' ? body.planId.trim() : '';
+    if (!planId) {
+      res.status(400).json({
         ok: false,
-        selfRelay: true,
-        reason: 'RELAY_PRIVATE_KEY not configured on BFF. User must sign receiveMessage themselves.',
+        error: 'PLAN_ID_REQUIRED',
+        message: 'planId is required for an owned bridge recovery relay',
       });
       return;
     }
 
-    // Dynamic import of viem (available in node_modules)
-    const { createWalletClient, createPublicClient, http: viemHttp, parseAbi } = await import('viem');
-    const { privateKeyToAccount } = await import('viem/accounts');
-    const { sepolia: sepoliaChain } = await import('viem/chains');
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(
+      db,
+      userId,
+      planId,
+    );
+    if (!checkpoint) {
+      res.status(404).json({
+        ok: false,
+        error: 'BRIDGE_RECOVERY_NOT_FOUND',
+      });
+      return;
+    }
 
-    const TRANSMITTER_SEPOLIA = MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER as `0x${string}`;
+    await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+
+    const {
+      createWalletClient,
+      createPublicClient,
+      http: viemHttp,
+      parseAbi,
+    } = await import('viem');
+
+    const arcRpc =
+      process.env.ARC_TESTNET_RPC_URL ?? 'https://rpc.testnet.arc.io';
+    const sourceClient = createPublicClient({
+      chain: {
+        id: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
+        name: 'Arc Testnet',
+        nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+        rpcUrls: { default: { http: [arcRpc] } },
+      },
+      transport: viemHttp(arcRpc),
+    });
+
+    const [sourceReceipt, sourceTransaction] = await Promise.all([
+      sourceClient.getTransactionReceipt({
+        hash: checkpoint.burnTxHash as `0x${string}`,
+      }),
+      sourceClient.getTransaction({
+        hash: checkpoint.burnTxHash as `0x${string}`,
+      }),
+    ]);
+
+    if (
+      sourceTransaction.from.toLowerCase() !==
+      checkpoint.walletAddress.toLowerCase()
+    ) {
+      throw new BridgeRecoveryConflictError(
+        'Persisted CCTP source burn was not sent by the owned recovery wallet',
+      );
+    }
+
+    const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt);
+    if (!sourceEvidence.verified) {
+      throw new BridgeRecoveryConflictError(sourceEvidence.detail);
+    }
+
+    const sourceDomain = MANIFEST_CONSTANTS.ARC_TESTNET_CCTP_DOMAIN;
+    const attestationResponse = await fetch(
+      `https://iris-api-sandbox.circle.com/v2/messages/${sourceDomain}?transactionHash=${checkpoint.burnTxHash}`,
+    );
+    if (!attestationResponse.ok) {
+      res.status(503).json({
+        ok: false,
+        error: 'ATTESTATION_REVALIDATION_UNAVAILABLE',
+      });
+      return;
+    }
+
+    const attestationPayload = await attestationResponse.json() as {
+      messages?: Array<{
+        status?: string;
+        message?: string;
+        attestation?: string;
+      }>;
+    };
+    const authoritativeAttestation = attestationPayload.messages?.[0];
+    if (
+      authoritativeAttestation?.status !== 'complete' ||
+      !authoritativeAttestation.message ||
+      !authoritativeAttestation.attestation ||
+      authoritativeAttestation.message !== checkpoint.attestationMessage ||
+      authoritativeAttestation.attestation !== checkpoint.attestationSignature
+    ) {
+      throw new BridgeRecoveryConflictError(
+        'Persisted CCTP attestation does not match Circle for the owned source burn',
+      );
+    }
+
+    const relay = evaluateBridgeRelayDecision(checkpoint);
+
+    if (relay.mode === 'ALREADY_SUBMITTED') {
+      res.json({
+        ok: true,
+        alreadySubmitted: true,
+        alreadyReceived: false,
+        txHash: relay.receiveTxHash,
+      });
+      return;
+    }
+
+    const { destinationChainId, message, attestation } = relay;
+    if (
+      destinationChainId !== MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID &&
+      destinationChainId !== MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID
+    ) {
+      res.status(400).json({
+        ok: false,
+        error: 'UNSUPPORTED_CCTP_RELAY_DESTINATION',
+      });
+      return;
+    }
+
+    // A raw relay key is permitted only outside mainnet. Mainnet startup already
+    // rejects RELAY_PRIVATE_KEY and requires the separate KMS/HSM signer boundary.
+    const relayKey = process.env.RELAY_PRIVATE_KEY;
+    if (!relayKey) {
+      res.status(503).json({
+        ok: false,
+        selfRelay: true,
+        reason:
+          'Server relay signer is not configured. The user must complete the destination receive flow.',
+      });
+      return;
+    }
+
+    const { privateKeyToAccount } = await import('viem/accounts');
+    const {
+      sepolia: sepoliaChain,
+      baseSepolia: baseSepoliaChain,
+    } = await import('viem/chains');
+
+    const relayChain =
+      destinationChainId === MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID
+        ? sepoliaChain
+        : baseSepoliaChain;
+    const transmitter =
+      MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER as `0x${string}`;
     const RECEIVE_ABI = parseAbi([
       'function receiveMessage(bytes message, bytes attestation) returns (bool success)',
     ]);
 
     const relayAccount = privateKeyToAccount(relayKey as `0x${string}`);
-    const publicClient = createPublicClient({ chain: sepoliaChain, transport: viemHttp() });
-    const walletClient = createWalletClient({ account: relayAccount, chain: sepoliaChain, transport: viemHttp() });
+    const publicClient = createPublicClient({
+      chain: relayChain,
+      transport: viemHttp(),
+    });
+    const walletClient = createWalletClient({
+      account: relayAccount,
+      chain: relayChain,
+      transport: viemHttp(),
+    });
 
-    // Simulate first to detect nonce-already-used
     try {
       await publicClient.simulateContract({
-        address: TRANSMITTER_SEPOLIA,
+        address: transmitter,
         abi: RECEIVE_ABI,
         functionName: 'receiveMessage',
         args: [message as `0x${string}`, attestation as `0x${string}`],
@@ -1343,26 +1498,56 @@ app.post('/api/bridge/relay-receive', async (req: Request, res: Response): Promi
     } catch (simErr) {
       const errMsg = simErr instanceof Error ? simErr.message : String(simErr);
       if (errMsg.toLowerCase().includes('nonce already used')) {
-        // Message was already received — this is success
-        res.json({ ok: true, alreadyReceived: true, txHash: null });
+        res.json({
+          ok: true,
+          alreadyReceived: true,
+          alreadySubmitted: false,
+          txHash: null,
+        });
         return;
       }
-      res.status(422).json({ ok: false, error: `receiveMessage simulation failed: ${errMsg}` });
+      res.status(422).json({
+        ok: false,
+        error: 'RELAY_SIMULATION_FAILED',
+        message: errMsg,
+      });
       return;
     }
 
-    // Execute relay
     const txHash = await walletClient.writeContract({
-      address: TRANSMITTER_SEPOLIA,
+      address: transmitter,
       abi: RECEIVE_ABI,
       functionName: 'receiveMessage',
       args: [message as `0x${string}`, attestation as `0x${string}`],
     });
 
-    res.json({ ok: true, alreadyReceived: false, txHash });
+    // Persist immediately after broadcast and before responding. Repeating the
+    // same planId then returns this exact destination tx rather than submitting
+    // receiveMessage again.
+    await persistBridgeRecoveryCheckpoint(db, userId, {
+      ...checkpoint,
+      stage: 'DESTINATION_BROADCAST',
+      receiveTxHash: txHash,
+      updatedAt: Date.now(),
+    });
+
+    res.json({
+      ok: true,
+      alreadyReceived: false,
+      alreadySubmitted: false,
+      txHash,
+    });
   } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'BRIDGE_RELAY_CONFLICT',
+        message: err.message,
+      });
+      return;
+    }
     console.error('[BFF] /api/bridge/relay-receive error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
   }
 });
 
