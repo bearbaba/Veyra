@@ -3,6 +3,10 @@ import type { ProviderManifestEntry } from './providerTypes';
 
 const supportedChainIds = MAINNET_CHAIN_CATALOG.map((c) => c.chainId);
 const supportedAssets = MAINNET_CHAIN_CATALOG.map((c) => c.usdc.toLowerCase());
+const networkAssetSupport = MAINNET_CHAIN_CATALOG.map((chain) => ({
+  chainId: chain.chainId,
+  assets: [chain.usdc.toLowerCase()],
+}));
 
 /**
  * Mainnet candidates are deliberately VERIFIED + disabled, never ENABLED.
@@ -16,6 +20,7 @@ export const MAINNET_PROVIDER_MANIFEST: ProviderManifestEntry[] = [
     capabilities: ['TRANSFER', 'PORTFOLIO_READ', 'SIMULATION'],
     supportedChainIds,
     supportedAssets,
+    networkAssetSupport,
     environment: 'mainnet',
     trustStatus: 'OFFICIAL',
     healthStatus: 'UNKNOWN',
@@ -43,6 +48,7 @@ export const MAINNET_PROVIDER_MANIFEST: ProviderManifestEntry[] = [
     capabilities: ['BRIDGE'],
     supportedChainIds,
     supportedAssets,
+    networkAssetSupport,
     environment: 'mainnet',
     trustStatus: 'OFFICIAL',
     healthStatus: 'UNKNOWN',
