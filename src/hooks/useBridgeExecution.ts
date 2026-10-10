@@ -37,9 +37,14 @@ import { assertExecutionReady } from '../core/execution/executionReadiness';
 import { saveReceipt } from '../core/receipt/receiptStore';
 import {
   loadResumableBridgeCheckpoints,
+  reconcileBridgeRecoveryCandidates,
   saveBridgeCheckpoint,
   type BridgeRecoveryCheckpoint,
 } from '../core/execution/bridgeCheckpointStore';
+import {
+  loadRemoteBridgeCheckpoints,
+  persistBridgeCheckpointRemote,
+} from '../lib/api/bridgeRecoveryApi';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -94,6 +99,16 @@ const ERC20_ALLOWANCE_ABI = [{
   ],
   outputs: [{ name: '', type: 'uint256' }],
 }] as const;
+
+
+async function persistRecoveryCheckpoint(
+  checkpoint: BridgeRecoveryCheckpoint,
+): Promise<void> {
+  // Local persistence is required before execution advances. The authenticated
+  // Postgres mirror is best-effort and must never block a valid chain recovery.
+  await saveBridgeCheckpoint(checkpoint);
+  void persistBridgeCheckpointRemote(checkpoint).catch(() => undefined);
+}
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
@@ -213,30 +228,11 @@ export function useBridgeExecution() {
         balanceBefore: balanceBefore.toString(),
         createdAt: Date.now(),
       };
-      await saveBridgeCheckpoint({
+      await persistRecoveryCheckpoint({
         ...checkpointBase,
         stage: 'SOURCE_BROADCAST',
         updatedAt: Date.now(),
       });
-
-      // Best-effort BFF mirror. Local IndexedDB checkpoint is the immediate
-      // reload-recovery path; server persistence will be upgraded separately.
-      void fetch('/api/bridge/persist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          planId,
-          burnTxHash,
-          sourceChainId:      action.sourceChainId,
-          destinationChainId: action.destinationChainId,
-          walletAddress,
-          recipientAddress,
-          amount:             action.amount.toString(),
-          tokenAddress:       action.tokenAddress,
-          balanceBefore:      balanceBefore.toString(),
-          status:             'BRIDGE_PENDING',
-        }),
-      }).catch(() => { /* non-fatal */ });
 
       if (abortRef.current) return;
 
@@ -250,7 +246,7 @@ export function useBridgeExecution() {
         return;
       }
       setState({ phase: 'BRIDGE_UNCONFIRMED', approveTxHash, burnTxHash });
-      await saveBridgeCheckpoint({
+      await persistRecoveryCheckpoint({
         ...checkpointBase,
         stage: 'SOURCE_CONFIRMED',
         updatedAt: Date.now(),
@@ -288,7 +284,7 @@ export function useBridgeExecution() {
         return;
       }
 
-      await saveBridgeCheckpoint({
+      await persistRecoveryCheckpoint({
         ...checkpointBase,
         stage: 'ATTESTATION_READY',
         attestationMessage: attestation.message,
@@ -321,7 +317,7 @@ export function useBridgeExecution() {
         attestation.attestation,
       );
 
-      await saveBridgeCheckpoint({
+      await persistRecoveryCheckpoint({
         ...checkpointBase,
         stage: 'DESTINATION_BROADCAST',
         attestationMessage: attestation.message,
@@ -387,7 +383,7 @@ export function useBridgeExecution() {
       };
 
       await saveReceipt(veyraReceipt);
-      await saveBridgeCheckpoint({
+      await persistRecoveryCheckpoint({
         ...checkpointBase,
         stage: 'VERIFIED',
         attestationMessage: attestation.message,
@@ -404,22 +400,7 @@ export function useBridgeExecution() {
         receipt: veyraReceipt,
       });
 
-      // Best-effort BFF mirror of the final receipt
-      void fetch('/api/bridge/persist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          planId,
-          burnTxHash,
-          status:  'VERIFIED',
-          receipt: {
-            ...veyraReceipt,
-            actualAmountDelta:   veyraReceipt.actualAmountDelta?.toString(),
-            expectedAmountDelta: veyraReceipt.expectedAmountDelta?.toString(),
-            verifiedBalanceAfter: veyraReceipt.verifiedBalanceAfter?.toString(),
-          },
-        }),
-      }).catch(() => { /* non-fatal */ });
+
 
     } catch (err) {
       setState((prev) => ({
@@ -499,7 +480,7 @@ export function useBridgeExecution() {
           stage: 'SOURCE_CONFIRMED',
           updatedAt: Date.now(),
         };
-        await saveBridgeCheckpoint(current);
+        await persistRecoveryCheckpoint(current);
       }
 
       if (current.stage === 'SOURCE_CONFIRMED') {
@@ -547,7 +528,7 @@ export function useBridgeExecution() {
           attestationSignature: attestation.attestation,
           updatedAt: Date.now(),
         };
-        await saveBridgeCheckpoint(current);
+        await persistRecoveryCheckpoint(current);
       }
 
       if (current.stage === 'ATTESTATION_READY') {
@@ -584,7 +565,7 @@ export function useBridgeExecution() {
           receiveTxHash,
           updatedAt: Date.now(),
         };
-        await saveBridgeCheckpoint(current);
+        await persistRecoveryCheckpoint(current);
       }
 
       if (current.stage === 'DESTINATION_BROADCAST') {
@@ -661,7 +642,7 @@ export function useBridgeExecution() {
           stage: 'VERIFIED',
           updatedAt: Date.now(),
         };
-        await saveBridgeCheckpoint(current);
+        await persistRecoveryCheckpoint(current);
 
         setState({
           phase: 'VERIFIED',
@@ -680,7 +661,25 @@ export function useBridgeExecution() {
   }, [walletClient, sourcePublicClient, switchChainAsync]);
 
   const loadRecoveryCandidates = useCallback(async () => {
-    return loadResumableBridgeCheckpoints();
+    const local = await loadResumableBridgeCheckpoints();
+    let remote: BridgeRecoveryCheckpoint[] = [];
+
+    try {
+      remote = await loadRemoteBridgeCheckpoints();
+    } catch {
+      // Server recovery is additive. Local recovery remains available if the
+      // BFF/database is offline.
+    }
+
+    const reconciled = reconcileBridgeRecoveryCandidates(local, remote);
+
+    // Cache accepted remote-only/advanced checkpoints locally so subsequent
+    // reloads do not depend on server availability.
+    for (const checkpoint of reconciled) {
+      await saveBridgeCheckpoint(checkpoint);
+    }
+
+    return reconciled;
   }, []);
 
   const reset = useCallback(() => {
