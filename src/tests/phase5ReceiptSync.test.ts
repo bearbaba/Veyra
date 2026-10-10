@@ -226,7 +226,7 @@ describe('Phase 5 receipt sync payloads', () => {
     expect(payload).not.toBeNull();
     expect(() =>
       parseActivityReceiptSyncBody({
-        ...(payload as ReceiptSyncObject),
+        ...(payload as unknown as ReceiptSyncObject),
         environment: 'local',
       }),
     ).toThrow(/environment must be testnet or mainnet/i);
