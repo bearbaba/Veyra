@@ -4,7 +4,6 @@ import {
   type Address,
   type Hash,
   type Hex,
-  type PublicClient,
 } from 'viem';
 import { baseSepolia, sepolia } from 'viem/chains';
 import type { ActivityReceiptSyncInput } from '../db/repositories/receiptRepository.js';
@@ -34,7 +33,7 @@ function isTerminalClaim(input: ActivityReceiptSyncInput): boolean {
   return input.status === 'COMPLETE' || input.status === 'FAILED';
 }
 
-function arcClient(): PublicClient {
+function arcClient(): ReceiptVerificationClient {
   const rpc = process.env.ARC_TESTNET_RPC_URL ?? 'https://rpc.testnet.arc.io';
   return createPublicClient({
     chain: {
@@ -44,10 +43,10 @@ function arcClient(): PublicClient {
       rpcUrls: { default: { http: [rpc] } },
     },
     transport: http(rpc),
-  });
+  }) as unknown as ReceiptVerificationClient;
 }
 
-function destinationClient(chainId: number): PublicClient {
+function destinationClient(chainId: number): ReceiptVerificationClient {
   if (chainId === MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID) {
     return createPublicClient({
       chain: sepolia,
@@ -55,7 +54,7 @@ function destinationClient(chainId: number): PublicClient {
         process.env.ETH_SEPOLIA_RPC_URL ??
           'https://ethereum-sepolia-rpc.publicnode.com',
       ),
-    });
+    }) as unknown as ReceiptVerificationClient;
   }
   if (chainId === MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID) {
     return createPublicClient({
@@ -63,7 +62,7 @@ function destinationClient(chainId: number): PublicClient {
       transport: http(
         process.env.BASE_SEPOLIA_RPC_URL ?? 'https://sepolia.base.org',
       ),
-    });
+    }) as unknown as ReceiptVerificationClient;
   }
   throw new ActivityReceiptVerificationError(
     'UNSUPPORTED_RECEIPT_CHAIN',
@@ -80,7 +79,7 @@ export interface ReceiptVerificationClient {
   getTransactionReceipt(input: { hash: Hash }): Promise<{
     status: 'success' | 'reverted';
     blockNumber: bigint;
-    logs: readonly Array<{
+    logs: ReadonlyArray<{
       address: Address;
       topics: readonly Hex[];
       data: Hex;
@@ -88,9 +87,6 @@ export interface ReceiptVerificationClient {
   }>;
 }
 
-function asVerificationClient(client: PublicClient): ReceiptVerificationClient {
-  return client as unknown as ReceiptVerificationClient;
-}
 
 async function requireTransactionAndReceipt(
   client: ReceiptVerificationClient,
@@ -119,7 +115,7 @@ async function requireTransactionAndReceipt(
 
 export async function verifyTransferReceiptSync(
   input: ActivityReceiptSyncInput,
-  client: ReceiptVerificationClient = asVerificationClient(arcClient()),
+  client: ReceiptVerificationClient = arcClient(),
 ): Promise<ActivityReceiptSyncInput> {
   if (!isTerminalClaim(input)) return input;
 
@@ -191,7 +187,7 @@ export async function verifyTransferReceiptSync(
 
 export async function verifyBridgeReceiptSync(
   input: ActivityReceiptSyncInput,
-  sourceClient: ReceiptVerificationClient = asVerificationClient(arcClient()),
+  sourceClient: ReceiptVerificationClient = arcClient(),
   destinationOverride?: ReceiptVerificationClient,
 ): Promise<ActivityReceiptSyncInput> {
   if (!isTerminalClaim(input)) return input;
@@ -252,8 +248,8 @@ export async function verifyBridgeReceiptSync(
     );
   }
 
-  const destination = destinationOverride ??
-    asVerificationClient(destinationClient(input.recipientChainId));
+  const destination =
+    destinationOverride ?? destinationClient(input.recipientChainId);
 
   let destinationReceipt;
   try {
