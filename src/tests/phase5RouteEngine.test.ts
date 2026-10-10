@@ -7,6 +7,7 @@ import {
 } from '../core/router/routeEngine';
 import type {
   BridgeProviderAdapter,
+  BridgeProviderExecutionRuntime,
   RouteQuoteParams,
 } from '../providers/bridge/bridgeProviderTypes';
 
@@ -121,6 +122,68 @@ describe('Phase 5 bridge RouteEngine', () => {
     expect(result.excludedProviders[0]?.reason).toBe(
       'UNSAFE_OR_EXPIRED_ROUTE',
     );
+  });
+
+  it('executes a reviewed route only through a matching provider runtime', async () => {
+    const route = await cctpV2BridgeProvider.quoteRoute(params());
+    expect(route).not.toBeNull();
+    if (!route) throw new Error('expected CCTP route');
+
+    let executedRouteId: string | null = null;
+    const runtime: BridgeProviderExecutionRuntime = {
+      providerId: 'cctp-v2-bridge',
+      execute: (runtimeRoute) => {
+        executedRouteId = runtimeRoute.routeId;
+        return Promise.resolve();
+      },
+      resume: () => Promise.resolve(),
+    };
+
+    await cctpV2BridgeProvider.execute(route, runtime, () => undefined);
+    expect(executedRouteId).toBe(route.routeId);
+
+    await expect(
+      cctpV2BridgeProvider.execute(
+        route,
+        { ...runtime, providerId: 'wrong-provider' },
+        () => undefined,
+      ),
+    ).rejects.toThrow(/not bound/i);
+  });
+
+  it('resumes only a CCTP-bound resume payload/runtime', async () => {
+    let resumedPlanId: unknown;
+    const runtime: BridgeProviderExecutionRuntime = {
+      providerId: 'cctp-v2-bridge',
+      execute: () => Promise.resolve(),
+      resume: (payload) => {
+        resumedPlanId = payload.payload.planId;
+        return Promise.resolve();
+      },
+    };
+
+    await cctpV2BridgeProvider.resume(
+      {
+        provider: 'cctp-v2-bridge',
+        version: 1,
+        payload: { planId: 'route-123' },
+      },
+      runtime,
+      () => undefined,
+    );
+    expect(resumedPlanId).toBe('route-123');
+
+    await expect(
+      cctpV2BridgeProvider.resume(
+        {
+          provider: 'circle-gateway',
+          version: 1,
+          payload: { planId: 'route-123' },
+        },
+        runtime,
+        () => undefined,
+      ),
+    ).rejects.toThrow(/not bound/i);
   });
 
   it('drops multi-hop output from a provider that has not enabled multi-hop', async () => {
