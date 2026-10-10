@@ -2,6 +2,8 @@ import { AppKit } from '@circle-fin/app-kit';
 import { createViemAdapterFromProvider } from '@circle-fin/adapter-viem-v2';
 import type { EIP1193Provider } from 'viem';
 import { assertRetryBridgeAllowed } from '../../core/router/bridgeRecovery';
+import { quoteVeyraFee, type VeyraFeeQuote } from '../../core/fees/feeEngine';
+import { configuredVeyraTreasuryAddress } from '../../core/fees/treasuryConfig';
 import {
   assertEarnExplainabilityComplete,
   type EarnExplainabilityInput,
@@ -265,6 +267,7 @@ export interface AppKitSwapReviewRequest {
   tokenOut: string;
   amountIn: string;
   slippageBps?: number;
+  veyraFee: VeyraFeeQuote;
 }
 
 export interface ReviewedAppKitSwap {
@@ -280,6 +283,8 @@ export async function reviewAppKitSwap(input: {
   tokenOut: string;
   amountIn: string;
   slippageBps?: number;
+  environment?: 'testnet' | 'mainnet';
+  treasuryAddress?: string | null;
   ensureSourceChain?: EnsureSourceChain;
 }): Promise<ReviewedAppKitSwap> {
   const chain = assertCircleAppKitChain(input.chain);
@@ -296,14 +301,32 @@ export async function reviewAppKitSwap(input: {
   }
   await input.ensureSourceChain?.();
   const adapter = await adapterFromProvider(input.provider);
+  const environment = input.environment ?? (chain.endsWith('_Testnet') || chain.endsWith('_Sepolia') ? 'testnet' : 'mainnet');
+  const treasuryAddress =
+    input.treasuryAddress ?? configuredVeyraTreasuryAddress(environment);
+  const veyraFee = quoteVeyraFee({
+    capability: 'SWAP',
+    providerId: 'circle-appkit-swap',
+    environment,
+    treasuryAddress,
+  });
+  const config = {
+    ...(input.slippageBps !== undefined ? { slippageBps: input.slippageBps } : {}),
+    ...(veyraFee.status === 'COLLECTIBLE' && veyraFee.treasuryAddress
+      ? {
+          customFee: {
+            percentageBps: veyraFee.percentageBps,
+            recipientAddress: veyraFee.treasuryAddress,
+          },
+        }
+      : {}),
+  };
   const params = {
     from: { adapter, chain },
     tokenIn: input.tokenIn,
     tokenOut: input.tokenOut,
     amountIn,
-    ...(input.slippageBps !== undefined
-      ? { config: { slippageBps: input.slippageBps } }
-      : {}),
+    ...(Object.keys(config).length > 0 ? { config } : {}),
   } as unknown as SwapParams;
   const estimate = await appKit.estimateSwap(params);
   return {
@@ -313,6 +336,7 @@ export async function reviewAppKitSwap(input: {
       tokenOut: input.tokenOut,
       amountIn,
       ...(input.slippageBps !== undefined ? { slippageBps: input.slippageBps } : {}),
+      veyraFee,
     },
     estimate,
   };
@@ -326,14 +350,23 @@ export async function executeReviewedAppKitSwap(input: {
   await input.ensureSourceChain?.();
   const adapter = await adapterFromProvider(input.provider);
   const request = input.reviewed.request;
+  const config = {
+    ...(request.slippageBps !== undefined ? { slippageBps: request.slippageBps } : {}),
+    ...(request.veyraFee.status === 'COLLECTIBLE' && request.veyraFee.treasuryAddress
+      ? {
+          customFee: {
+            percentageBps: request.veyraFee.percentageBps,
+            recipientAddress: request.veyraFee.treasuryAddress,
+          },
+        }
+      : {}),
+  };
   const params = {
     from: { adapter, chain: request.chain },
     tokenIn: request.tokenIn,
     tokenOut: request.tokenOut,
     amountIn: request.amountIn,
-    ...(request.slippageBps !== undefined
-      ? { config: { slippageBps: request.slippageBps } }
-      : {}),
+    ...(Object.keys(config).length > 0 ? { config } : {}),
   } as unknown as SwapParams;
   return appKit.swap(params);
 }
