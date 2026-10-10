@@ -25,6 +25,7 @@ import { buildTxExplorerUrl } from '@/onchain-facts';
 import { verifyPaymentRecipient } from '@/lib/api/identityApi';
 import { assertExecutionReady } from '@/core/execution/executionReadiness';
 import { VEYRA_ENV } from '@/lib/env';
+import { verifyExactTokenDelta } from '@/core/execution/receiptVerification';
 
 export type TransferStep =
   | 'IDLE'
@@ -106,6 +107,15 @@ export function useTransferExecution() {
         await switchChainAsync({ chainId: action.chainId });
       }
 
+      // Snapshot authoritative recipient balance before signing. A successful
+      // transaction receipt alone is not sufficient for a VERIFIED Veyra receipt.
+      const balanceBefore = await publicClient.readContract({
+        address: action.tokenAddress as `0x${string}`,
+        abi: ERC20_TRANSFER_ABI,
+        functionName: 'balanceOf',
+        args: [action.to as `0x${string}`],
+      });
+
       // ── Step 1: Sign + broadcast ───────────────────────────────────────────
       const hash = await writeContractAsync({
         address: action.tokenAddress as `0x${string}`,
@@ -128,14 +138,21 @@ export function useTransferExecution() {
       setState((s) => ({ ...s, step: 'VERIFYING' }));
 
       // ── Step 3: Verify final state — read actual balance delta ─────────────
-      const [balanceAfter] = await Promise.all([
-        publicClient.readContract({
-          address: action.tokenAddress as `0x${string}`,
-          abi: ERC20_TRANSFER_ABI,
-          functionName: 'balanceOf',
-          args: [action.to as `0x${string}`],
-        }),
-      ]);
+      const balanceAfter = await publicClient.readContract({
+        address: action.tokenAddress as `0x${string}`,
+        abi: ERC20_TRANSFER_ABI,
+        functionName: 'balanceOf',
+        args: [action.to as `0x${string}`],
+      });
+
+      const verification = verifyExactTokenDelta(
+        balanceBefore,
+        balanceAfter,
+        action.amount,
+      );
+      if (!verification.verified) {
+        throw new Error(`Final-state verification failed: ${verification.detail}`);
+      }
 
       // Build receipt
       const receiptId = generateExecutionReceiptId(action.chainId, hash);
@@ -149,7 +166,7 @@ export function useTransferExecution() {
         executionBlock: Number(txReceipt.blockNumber),
         createdAt: action.createdAt,
         completedAt: Date.now(),
-        actualAmountDelta: action.amount,
+        actualAmountDelta: verification.actualDelta,
         expectedAmountDelta: action.amount,
         riskScore: null,
         policyDecision: 'PASS',
