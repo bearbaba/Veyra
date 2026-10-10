@@ -65,7 +65,7 @@ async function findOwnedSenderWallet(
   userId: string,
   senderAddress: string,
   sourceChainId: number,
-): Promise<{ receiptId: string; revision: number }> {
+): Promise<string> {
   const [wallet] = await db
     .select({ walletId: walletBindings.walletId })
     .from(walletBindings)
@@ -99,7 +99,7 @@ export async function createBridgeActivityReceipt(
   db: DbClient,
   userId: string,
   input: CreateBridgeActivityReceiptInput,
-): Promise<string> {
+): Promise<{ receiptId: string; revision: number }> {
   if (
     input.sourceChainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID ||
     input.tokenAddress.toLowerCase() !==
