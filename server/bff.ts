@@ -7,10 +7,12 @@
  * - Holds Circle API key (for StableFX quote fetching, server-side only)
  * - All LLM output is treated as untrusted text and validated before returning
  * - Browser receives only structured IntentResult — never raw LLM output
- * - BFF never signs for the user's wallet
- * - BFF never broadcasts user transactions
- * - BFF never returns trusted calldata
- * - BFF never receives or stores private keys
+ * - BFF never signs for the user's primary wallet
+ * - User-originated money actions remain wallet-authorized
+ * - The optional testnet CCTP relay may broadcast receiveMessage with a
+ *   dedicated gas-only relay key after owned checkpoint + chain evidence checks
+ * - Mainnet forbids RELAY_PRIVATE_KEY and requires the KMS/HSM signer boundary
+ * - BFF never returns LLM/provider-supplied calldata as trusted execution input
  * - All LLM-generated numbers, addresses, and amounts remain UntrustedString
  *   until deterministically resolved by the browser pipeline
  *
