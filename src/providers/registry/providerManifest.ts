@@ -250,29 +250,118 @@ const TESTNET_PROVIDER_MANIFEST: ProviderManifestEntry[] = [
     },
   },
 
-  // ── Circle Unified Balance / Gateway — DISABLED ───────────────────────────
+  // ── Circle App Kit — Unified Balance ──────────────────────────────────────
   {
-    providerId: 'circle-unified-balance',
-    displayName: 'Circle Unified Balance / Gateway',
+    providerId: 'circle-appkit-unified-balance',
+    displayName: 'Circle App Kit Unified Balance',
     capabilities: ['UNIFIED_BALANCE'],
-    supportedChainIds: [],
-    supportedAssets: [],
+    supportedChainIds: [ARC_TESTNET_CHAIN_ID, ETH_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID],
+    supportedNetworkIds: [
+      'arc-testnet',
+      'ethereum-sepolia',
+      'base-sepolia',
+    ],
+    supportedAssets: [ARC_TESTNET_USDC, ETH_SEPOLIA_USDC, BASE_SEPOLIA_USDC],
     environment: 'testnet',
-    trustStatus: 'UNVERIFIED',
+    trustStatus: 'OFFICIAL',
     healthStatus: 'UNKNOWN',
-    riskClassification: 'UNKNOWN',
+    riskClassification: 'MEDIUM',
     contractAddresses: [],
-    packageName: '@circle-fin/unified-balance-kit',
-    packageVersion: 'unverified',
-    lifecycleStage: 'DISCOVERED',
+    packageName: '@circle-fin/app-kit',
+    packageVersion: '1.15.2',
+    lifecycleStage: 'IMPLEMENTED',
     enabled: false,
     provenance: {
-      sourceUrl: 'https://developers.circle.com/w3s/gateway-overview',
-      verifiedAt: '2026-10-07',
+      sourceUrl: 'https://github.com/circlefin/docs-examples/tree/master/app-kit-unified-balance',
+      verifiedAt: '2026-10-10',
       notes:
-        'NOT enabled. Gateway testnet contract addresses and SDK API surface ' +
-        'require independent integration verification before enabling. ' +
-        'CCTP V2 bridge (cctp-v2-bridge) is enabled as the primary bridge route.',
+        'Official Circle App Kit example verified for unifiedBalance.deposit(), spend(), and getBalances(). ' +
+        'Forwarding Service can complete the destination mint without a destination wallet switch. ' +
+        'Browser adapters currently use @circle-fin/adapter-viem-v2 for Arc/Ethereum/Base testnets only. ' +
+        'Circle supports additional networks including Solana, but Veyra keeps them non-executable until their matching adapter path is implemented and tested. ' +
+        'LIFECYCLE GATE: IMPLEMENTED in Phase 4B but disabled until Veyra completes real testnet E2E and receipt verification.',
+    },
+  },
+
+  // ── Circle App Kit — Bridge orchestration ─────────────────────────────────
+  {
+    providerId: 'circle-appkit-bridge',
+    displayName: 'Circle App Kit Bridge',
+    capabilities: ['BRIDGE'],
+    supportedChainIds: [ARC_TESTNET_CHAIN_ID, ETH_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID],
+    supportedNetworkIds: ['arc-testnet', 'ethereum-sepolia', 'base-sepolia'],
+    supportedAssets: [ARC_TESTNET_USDC, ETH_SEPOLIA_USDC, BASE_SEPOLIA_USDC],
+    environment: 'testnet',
+    trustStatus: 'OFFICIAL',
+    healthStatus: 'UNKNOWN',
+    riskClassification: 'MEDIUM',
+    contractAddresses: [],
+    packageName: '@circle-fin/app-kit',
+    packageVersion: '1.15.2',
+    lifecycleStage: 'IMPLEMENTED',
+    enabled: false,
+    provenance: {
+      sourceUrl: 'https://github.com/circlefin/docs-examples/tree/master/app-kit-bridge-evm',
+      verifiedAt: '2026-10-10',
+      notes:
+        'Official Circle App Kit bridge() and retryBridge() flow verified. ' +
+        'Veyra defaults browser-wallet bridge reviews to Forwarding Service where supported to avoid destination-chain switching. ' +
+        'Current Veyra source-adapter scope is Arc/Ethereum/Base testnets; Solana remains recognized but non-executable until a Solana adapter path is implemented and tested. ' +
+        'LIFECYCLE GATE: the existing cctp-v2-bridge remains the ENABLED testnet route until this adapter completes its own E2E.',
+    },
+  },
+
+  // ── Circle App Kit — Swap ─────────────────────────────────────────────────
+  {
+    providerId: 'circle-appkit-swap',
+    displayName: 'Circle App Kit Swap',
+    capabilities: ['SWAP'],
+    supportedChainIds: [ARC_TESTNET_CHAIN_ID],
+    supportedNetworkIds: ['arc-testnet'],
+    supportedAssets: [ARC_TESTNET_USDC, ARC_TESTNET_EURC],
+    environment: 'testnet',
+    trustStatus: 'OFFICIAL',
+    healthStatus: 'UNKNOWN',
+    riskClassification: 'MEDIUM',
+    contractAddresses: [],
+    packageName: '@circle-fin/app-kit',
+    packageVersion: '1.15.2',
+    lifecycleStage: 'IMPLEMENTED',
+    enabled: false,
+    provenance: {
+      sourceUrl: 'https://github.com/circlefin/docs-examples/tree/master/app-kit-swap',
+      verifiedAt: '2026-10-10',
+      notes:
+        'Official Circle App Kit swap() example verified for Arc Testnet. ' +
+        'Veyra implements estimate-before-execute and never exposes a browser kit key. ' +
+        'LIFECYCLE GATE: disabled until real testnet E2E validates quote, execution, amount delta, and receipt.',
+    },
+  },
+
+  // ── Circle App Kit — Earn ─────────────────────────────────────────────────
+  {
+    providerId: 'circle-appkit-earn',
+    displayName: 'Circle App Kit Earn',
+    capabilities: ['EARN_DISCOVER', 'EARN_DEPOSIT', 'EARN_WITHDRAW', 'EARN_POSITION'],
+    supportedChainIds: [ARC_TESTNET_CHAIN_ID],
+    supportedNetworkIds: ['arc-testnet'],
+    supportedAssets: [ARC_TESTNET_USDC],
+    environment: 'testnet',
+    trustStatus: 'OFFICIAL',
+    healthStatus: 'UNKNOWN',
+    riskClassification: 'MEDIUM',
+    contractAddresses: [],
+    packageName: '@circle-fin/app-kit',
+    packageVersion: '1.15.2',
+    lifecycleStage: 'IMPLEMENTED',
+    enabled: false,
+    provenance: {
+      sourceUrl: 'https://github.com/circlefin/docs-examples/tree/master/app-kit-earn',
+      verifiedAt: '2026-10-10',
+      notes:
+        'Official Circle App Kit Earn example verified for exploreVaults(), deposit quote, deposit, position, withdrawal quote, and withdraw on Arc Testnet. ' +
+        'Veyra must surface vault provenance, APY timestamp/source, fees, liquidity, withdrawal terms, and risk before enabling deposit. ' +
+        'LIFECYCLE GATE: disabled until real testnet E2E and explainability requirements are satisfied.',
     },
   },
 ];

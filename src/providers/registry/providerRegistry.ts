@@ -297,3 +297,137 @@ export function findEligibleProvider(
       : `No eligible provider found for capability "${capability}" on chain ${chainId}: ${reasons}`,
   };
 }
+
+/**
+ * Network-family-aware eligibility wrapper for product-layer routing.
+ *
+ * EVM providers continue through the existing chainId gate. Non-EVM networks
+ * are checked against supportedNetworkIds so the registry never invents fake
+ * numeric chain IDs for Solana or future ecosystems.
+ */
+export function checkProviderNetworkEligibility(
+  providerId: string,
+  capability: ProviderCapability,
+  network: { networkId: string; chainId?: number },
+  assetAddress?: string,
+  runtimeEnvironment: 'local' | 'testnet' | 'mainnet' = 'testnet',
+): ProviderEligibilityResult {
+  const result = getProvider(providerId);
+  if (!result.found) {
+    return {
+      eligible: false,
+      status: 'NOT_FOUND',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" is not registered. Unregistered providers cannot execute.`,
+    };
+  }
+
+  const supportedNetworkIds = result.entry.supportedNetworkIds ?? [];
+  const normalizedNetworkId = network.networkId.trim().toLowerCase();
+
+  if (network.chainId !== undefined) {
+    const chainResult = checkProviderEligibility(
+      providerId,
+      capability,
+      network.chainId,
+      assetAddress,
+      runtimeEnvironment,
+    );
+    if (!chainResult.eligible) return chainResult;
+
+    if (
+      supportedNetworkIds.length > 0 &&
+      !supportedNetworkIds.some((id) => id.toLowerCase() === normalizedNetworkId)
+    ) {
+      return {
+        eligible: false,
+        status: 'CHAIN_NOT_SUPPORTED',
+        requiresConfirmation: false,
+        detail: `Provider "${providerId}" does not support network "${network.networkId}".`,
+      };
+    }
+    return chainResult;
+  }
+
+  if (supportedNetworkIds.length === 0) {
+    return {
+      eligible: false,
+      status: 'CHAIN_NOT_SUPPORTED',
+      requiresConfirmation: false,
+      detail:
+        `Provider "${providerId}" has no non-EVM network metadata for "${network.networkId}".`,
+    };
+  }
+
+  if (!supportedNetworkIds.some((id) => id.toLowerCase() === normalizedNetworkId)) {
+    return {
+      eligible: false,
+      status: 'CHAIN_NOT_SUPPORTED',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" does not support network "${network.networkId}".`,
+    };
+  }
+
+  const { entry, effectiveHealth: health } = result;
+
+  if (!environmentMatches(entry.environment, runtimeEnvironment)) {
+    return {
+      eligible: false,
+      status: 'ENVIRONMENT_NOT_SUPPORTED',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" is registered for ${entry.environment}, not ${runtimeEnvironment}.`,
+    };
+  }
+
+  // Mainnet parity with EVM eligibility: manifest health is never enough.
+  // A fresh runtime health record is mandatory regardless of network family.
+  if (runtimeEnvironment === 'mainnet' && !_healthStore.has(providerId)) {
+    return {
+      eligible: false,
+      status: 'HEALTH_UNKNOWN',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" has no fresh runtime health record for mainnet.`,
+    };
+  }
+
+  if (!entry.enabled) {
+    return {
+      eligible: false,
+      status: entry.trustStatus === 'UNVERIFIED' ? 'UNVERIFIED' : 'DISABLED',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" is disabled.`,
+    };
+  }
+  if (entry.lifecycleStage !== 'ENABLED') {
+    return {
+      eligible: false,
+      status: 'NOT_LIFECYCLE_READY',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" is not ENABLED.`,
+    };
+  }
+  if (!entry.capabilities.includes(capability)) {
+    return {
+      eligible: false,
+      status: 'CAPABILITY_NOT_SUPPORTED',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" does not support capability "${capability}".`,
+    };
+  }
+  if (health === 'DOWN' || health === 'UNKNOWN') {
+    return {
+      eligible: false,
+      status: health === 'DOWN' ? 'HEALTH_DOWN' : 'HEALTH_UNKNOWN',
+      requiresConfirmation: false,
+      detail: `Provider "${providerId}" health is ${health}.`,
+    };
+  }
+  return {
+    eligible: true,
+    status: 'ELIGIBLE',
+    requiresConfirmation: health === 'DEGRADED',
+    detail: health === 'DEGRADED'
+      ? `Provider "${providerId}" is DEGRADED and requires confirmation.`
+      : `Provider "${providerId}" is eligible on ${network.networkId}.`,
+  };
+}

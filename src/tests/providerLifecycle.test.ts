@@ -122,13 +122,18 @@ describe('lifecycle gate: IMPLEMENTED providers are blocked from execution', () 
   });
 });
 
-// ── DISCOVERED provider is blocked ──────────────────────────────────────────
+// ── Retired provider IDs fail closed ────────────────────────────────────────
 
-describe('lifecycle gate: DISCOVERED providers are blocked', () => {
-  it('circle-unified-balance (DISCOVERED, UNVERIFIED, disabled) is blocked', () => {
-    const result = checkProviderEligibility('circle-unified-balance', 'BRIDGE', ARC_TESTNET_CHAIN_ID, ARC_TESTNET_USDC);
+describe('lifecycle gate: retired provider IDs fail closed', () => {
+  it('legacy circle-unified-balance ID is no longer registered', () => {
+    const result = checkProviderEligibility(
+      'circle-unified-balance',
+      'UNIFIED_BALANCE',
+      ARC_TESTNET_CHAIN_ID,
+      ARC_TESTNET_USDC,
+    );
     expect(result.eligible).toBe(false);
-    expect(result.status).toBe('UNVERIFIED'); // UNVERIFIED fires first (trustStatus check before lifecycle)
+    expect(result.status).toBe('NOT_FOUND');
   });
 });
 
