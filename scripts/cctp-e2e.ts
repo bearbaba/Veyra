@@ -18,32 +18,45 @@
  *   Phase 3 (verify):     bun run scripts/cctp-e2e.ts verify <walletAddress> <receiveTxHash> <burnTxHash>
  */
 
-import { createPublicClient, http, formatUnits, type Address, type Hash } from 'viem';
+import {
+  createPublicClient,
+  http,
+  formatUnits,
+  type Address,
+  type Hash,
+} from 'viem';
 import { readFile, writeFile } from 'fs/promises';
+import { MANIFEST_CONSTANTS } from '../src/providers/registry/providerManifest.js';
+import {
+  verifyCctpDestinationReceiptEvidence,
+  verifyCctpSourceReceiptEvidence,
+} from '../src/providers/cctp/cctpV2Adapter.js';
 
 // ── Chain definitions (from manifest — no typed-from-memory values) ────────────
 
 const ARC_TESTNET = {
-  id: 5042002,
+  id: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
   name: 'Arc Testnet',
   rpcUrl: 'https://rpc.testnet.arc.io',
-  usdc: '0x3600000000000000000000000000000000000000' as Address,
-  cctpDomain: 26,
+  usdc: MANIFEST_CONSTANTS.ARC_TESTNET_USDC as Address,
+  cctpDomain: MANIFEST_CONSTANTS.ARC_TESTNET_CCTP_DOMAIN,
   explorer: 'https://explorer.testnet.arc.io',
 };
 
 const ETH_SEPOLIA = {
-  id: 11155111,
+  id: MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID,
   name: 'Ethereum Sepolia',
   rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
-  usdc: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238' as Address,
+  usdc: MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC as Address,
   cctpDomain: 0,
   explorer: 'https://sepolia.etherscan.io',
 };
 
 const CCTP_V2 = {
-  tokenMessenger: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA' as Address,
-  messageTransmitter: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275' as Address,
+  tokenMessenger:
+    MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER as Address,
+  messageTransmitter:
+    MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER as Address,
   attestationApi: 'https://iris-api-sandbox.circle.com',
 };
 
@@ -237,33 +250,17 @@ async function pollAttestation(burnTxHash: Hash) {
     process.exit(1);
   }
 
-  if (receipt.status !== 'success') {
-    console.error(`Source tx REVERTED: ${burnTxHash}`);
+  const sourceEvidence = verifyCctpSourceReceiptEvidence(receipt);
+  if (!sourceEvidence.verified) {
+    console.error(`Source CCTP verification failed: ${sourceEvidence.detail}`);
     process.exit(1);
   }
 
-  console.log(`✓ Source tx confirmed: block ${receipt.blockNumber}, status: ${receipt.status}`);
-  console.log(`  Explorer: ${ARC_TESTNET.explorer}/tx/${burnTxHash}`);
-
-  // 2. Verify MessageSent event was emitted (topic keccak256("MessageSent(bytes)") = known)
-  // Topic0 for MessageSent(bytes): 0x8c5261668696ce22758910d05bab8f186d6eb247ceac2af2e82c7dc17669b036
-  const messageSentTopic = '0x8c5261668696ce22758910d05bab8f186d6eb247ceac2af2e82c7dc17669b036';
-  const messageSentLog = receipt.logs.find(
-    (l) => l.topics[0]?.toLowerCase() === messageSentTopic && l.address.toLowerCase() === CCTP_V2.messageTransmitter.toLowerCase()
+  console.log(
+    `✓ Source tx confirmed: block ${receipt.blockNumber}, status: ${receipt.status}`,
   );
-
-  if (!messageSentLog) {
-    // Try TokenMessenger MessageSent too (V2 may emit from Messenger)
-    const anyMessageLog = receipt.logs.find((l) => l.topics[0]?.toLowerCase() === messageSentTopic);
-    if (!anyMessageLog) {
-      console.error('No MessageSent event found in source tx. Verify this is the correct burn tx.');
-      console.log('Logs found:', receipt.logs.map(l => ({ addr: l.address, topic0: l.topics[0] })));
-      process.exit(1);
-    }
-    console.log(`✓ MessageSent event found (contract: ${anyMessageLog.address})`);
-  } else {
-    console.log(`✓ MessageSent event from MessageTransmitterV2`);
-  }
+  console.log(`  Explorer: ${ARC_TESTNET.explorer}/tx/${burnTxHash}`);
+  console.log(`✓ ${sourceEvidence.detail}`);
 
   // 3. Poll attestation API
   console.log('\n[2] Polling Circle attestation API...');
@@ -326,7 +323,7 @@ async function pollAttestation(burnTxHash: Hash) {
   await writeFile('/tmp/cctp-e2e-state.json', JSON.stringify(updatedState, null, 2));
 
   console.log('\nAttestation data saved.');
-  console.log('\n══ SIGNATURE 3 of 2+1: receiveMessage (Ethereum Sepolia) ══');
+  console.log('\n══ DESTINATION RECEIVE: Ethereum Sepolia ══');
   console.log(`Contract: ${CCTP_V2.messageTransmitter}  (MessageTransmitterV2 on ETH Sepolia)`);
   console.log(`Function: receiveMessage(bytes message, bytes attestation)`);
   console.log(`  message (hex, ${attestationData.message.length / 2 - 1} bytes): ${attestationData.message.slice(0, 20)}...`);
@@ -370,12 +367,23 @@ async function verifyAndReceipt(walletAddress: Address, receiveTxHash: Hash, bur
     process.exit(1);
   }
 
-  if (receiveReceipt.status !== 'success') {
-    console.error(`receiveMessage tx REVERTED: ${receiveTxHash}`);
+  const testAmountRaw = BigInt(state.testAmountRaw);
+  const destinationEvidence = verifyCctpDestinationReceiptEvidence(
+    receiveReceipt,
+    walletAddress,
+    ETH_SEPOLIA.usdc,
+    testAmountRaw,
+  );
+  if (!destinationEvidence.verified) {
+    console.error(
+      `Destination CCTP receipt verification failed: ${destinationEvidence.detail}`,
+    );
     process.exit(1);
   }
+
   console.log(`✓ receiveMessage confirmed: block ${receiveReceipt.blockNumber}`);
   console.log(`  Explorer: ${ETH_SEPOLIA.explorer}/tx/${receiveTxHash}`);
+  console.log(`✓ ${destinationEvidence.detail}`);
 
   // 2. Read final USDC balance on Sepolia
   const ERC20_BALANCE_ABI = [{
@@ -392,7 +400,6 @@ async function verifyAndReceipt(walletAddress: Address, receiveTxHash: Hash, bur
   });
 
   const usdcBefore = BigInt(state.sepoliaUsdcBefore);
-  const testAmountRaw = BigInt(state.testAmountRaw);
   const delta = sepoliaUsdcAfter - usdcBefore;
 
   console.log(`\n[2] USDC balance delta on Ethereum Sepolia:`);
@@ -401,12 +408,16 @@ async function verifyAndReceipt(walletAddress: Address, receiveTxHash: Hash, bur
   console.log(`  Delta:    +${formatUnits(delta, 6)} USDC`);
   console.log(`  Expected: +${formatUnits(testAmountRaw, 6)} USDC`);
 
-  if (delta < testAmountRaw) {
-    console.error(`\nVERIFICATION FAILED: delta ${delta} < expected ${testAmountRaw}`);
+  if (delta !== testAmountRaw) {
+    console.error(
+      `\nVERIFICATION FAILED: exact delta mismatch; got ${delta}, expected ${testAmountRaw}`,
+    );
     process.exit(1);
   }
 
-  console.log(`\n✓ DESTINATION BALANCE VERIFIED: received ${formatUnits(delta, 6)} USDC on Ethereum Sepolia`);
+  console.log(
+    `\n✓ DESTINATION BALANCE VERIFIED: exact ${formatUnits(delta, 6)} USDC received on Ethereum Sepolia`,
+  );
 
   // 3. Generate VeyraReceipt
   const receiptId = `veyra-cctp-${burnTxHash.slice(2, 18)}-${receiveTxHash.slice(2, 10)}`;
@@ -465,7 +476,7 @@ async function verifyAndReceipt(walletAddress: Address, receiveTxHash: Hash, bur
   console.log(`Verified at:      ${new Date().toISOString()}`);
   console.log('══════════════════════════════════════════');
   console.log('\nReceipt saved to /tmp/cctp-e2e-receipt.json');
-  console.log('\nNEXT: Promote cctp-v2-bridge to TESTED then ENABLED in providerManifest.ts');
+  console.log('\nCCTP testnet route verification complete. Provider lifecycle promotion remains evidence-gated in the manifest workflow.');
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
