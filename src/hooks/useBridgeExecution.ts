@@ -439,7 +439,7 @@ export function useBridgeExecution() {
         expectedAmountDelta:  action.amount,
         verifiedBalanceAfter: balanceBefore + verification.actualDelta,
         riskScore:            null,
-        policyDecision:       'PASS',
+        policyDecision:       null,
         bridgeTrace: {
           sourceChainId:        action.sourceChainId,
           destinationChainId:   action.destinationChainId,
@@ -448,8 +448,6 @@ export function useBridgeExecution() {
           sourceBlock:          Number(sourceReceiptObj.blockNumber),
           destinationBlock:     Number(destReceiptObj.blockNumber),
           bridgeStatus:         'VERIFIED',
-          sourceTimestamp:      Date.now(),
-          destinationTimestamp: Date.now(),
         },
       };
 
@@ -794,8 +792,6 @@ export function useBridgeExecution() {
             sourceBlock: Number(sourceReceipt.blockNumber),
             destinationBlock: Number(destReceiptObj.blockNumber),
             bridgeStatus: 'VERIFIED',
-            sourceTimestamp: current.createdAt,
-            destinationTimestamp: Date.now(),
           },
         };
 
