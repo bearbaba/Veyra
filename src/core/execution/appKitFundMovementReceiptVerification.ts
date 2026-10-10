@@ -31,6 +31,11 @@ export interface AppKitEarnFinalStateEvidence {
   receipt: AppKitAuthoritativeEvmReceipt;
   tokenAddress: string;
   vaultAddress: string;
+  /** Wallet account whose position changed. */
+  accountAddress: string;
+  /** Decoded authoritative asset transfer endpoints. */
+  assetTransferFrom: string;
+  assetTransferTo: string;
   /**
    * Exact asset movement decoded from authoritative chain receipt/logs.
    * This must not be copied from the provider SDK result.
@@ -58,6 +63,11 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object'
     ? (value as Record<string, unknown>)
     : null;
+}
+
+
+function isEvmAddress(value: string): boolean {
+  return /^0x[0-9a-fA-F]{40}$/.test(value);
 }
 
 function validReceipt(
@@ -167,6 +177,24 @@ function verifyCrossChainFinalState(input: {
 
   if (input.action.chainId !== input.action.sourceChainId) {
     return fail('BridgeAction primary chain does not match source chain.');
+  }
+
+  if (input.action.sourceChainId === input.action.destinationChainId) {
+    return fail('BridgeAction source and destination chains must differ.');
+  }
+
+  const sourceUsdc = expectedTestnetUsdc(input.action.sourceChainId);
+  if (
+    !sourceUsdc ||
+    input.action.tokenAddress.toLowerCase() !== sourceUsdc.toLowerCase()
+  ) {
+    return fail(
+      'BridgeAction asset does not match the verified source-chain USDC deployment.',
+    );
+  }
+
+  if (!isEvmAddress(input.action.from) || !isEvmAddress(input.action.to)) {
+    return fail('BridgeAction sender/recipient address is invalid.');
   }
 
   if (
@@ -317,7 +345,7 @@ function buildVerifiedCrossChainReceipt(input: {
     actualAmountDelta: input.verification.actualAmount,
     expectedAmountDelta: input.verification.expectedAmount,
     riskScore: null,
-    policyDecision: 'PASS',
+    policyDecision: null,
     displaySummary: input.summary,
     bridgeTrace: {
       sourceChainId: input.action.sourceChainId,
@@ -331,8 +359,6 @@ function buildVerifiedCrossChainReceipt(input: {
         ? { destinationBlock: input.verification.destinationBlock }
         : {}),
       bridgeStatus: 'VERIFIED',
-      sourceTimestamp: input.action.createdAt,
-      destinationTimestamp: now,
     },
   };
 }
@@ -402,6 +428,34 @@ function verifyEarnMovement(input: {
     input.action.protocolAddress.toLowerCase()
   ) {
     return fail('Earn evidence vault does not match the reviewed action.');
+  }
+
+  const expectedAccount =
+    input.kind === 'deposit'
+      ? (input.action as SupplyAction).from
+      : (input.action as WithdrawAction).to;
+
+  if (
+    !isEvmAddress(expectedAccount) ||
+    input.evidence.accountAddress.toLowerCase() !== expectedAccount.toLowerCase()
+  ) {
+    return fail('Earn evidence account does not match the reviewed action.');
+  }
+
+  const expectedTransferFrom =
+    input.kind === 'deposit' ? expectedAccount : input.action.protocolAddress;
+  const expectedTransferTo =
+    input.kind === 'deposit' ? input.action.protocolAddress : expectedAccount;
+
+  if (
+    input.evidence.assetTransferFrom.toLowerCase() !==
+      expectedTransferFrom.toLowerCase() ||
+    input.evidence.assetTransferTo.toLowerCase() !==
+      expectedTransferTo.toLowerCase()
+  ) {
+    return fail(
+      `Authoritative Earn ${input.kind} transfer direction does not match the reviewed account/vault flow.`,
+    );
   }
 
   if (!validReceipt(input.evidence.receipt)) {
@@ -484,7 +538,7 @@ function buildVerifiedEarnReceipt(input: {
     actualAmountDelta: input.verification.actualAmount,
     expectedAmountDelta: input.verification.expectedAmount,
     riskScore: null,
-    policyDecision: 'PASS',
+    policyDecision: null,
     displaySummary: input.summary,
   };
 }
