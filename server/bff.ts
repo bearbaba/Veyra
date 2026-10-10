@@ -55,6 +55,13 @@ import { probeDatabaseReadiness } from './readiness/databaseReadiness.js';
 import { refreshMainnetProviderHealth } from './services/providerHealthService.js';
 import { getAllProviderHealthRecords } from '../src/providers/registry/providerRegistry.js';
 import {
+  ActivityReceiptSyncError,
+  listOwnedActivityReceipts,
+  parseActivityReceiptSyncBody,
+  serializeActivityReceipt,
+  syncOwnedActivityReceipt,
+} from './services/activityReceiptSyncService.js';
+import {
   BridgeRecoveryConflictError,
   assertBridgeRecoveryWalletOwnership,
   evaluateBridgeRelayDecision,
@@ -1303,6 +1310,63 @@ app.get('/api/bridge/pending', IDENTITY_RATE, async (req: Request, res: Response
     res.json({ ok: true, pending });
   } catch (err) {
     console.error('[BFF] /api/bridge/pending error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+// ── Durable activity receipts ────────────────────────────────────────────────
+
+app.post('/api/receipts/sync', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+
+    const input = parseActivityReceiptSyncBody(
+      req.body as Record<string, unknown>,
+    );
+    const { db } = await import('./db/client.js');
+    const result = await syncOwnedActivityReceipt(db, userId, input);
+
+    res.json({
+      ok: true,
+      conflict: result.conflict,
+      record: serializeActivityReceipt(result.record),
+    });
+  } catch (error) {
+    if (error instanceof ActivityReceiptSyncError) {
+      res.status(error.httpStatus).json({
+        ok: false,
+        error: error.code,
+        message: error.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/receipts/sync error:', error);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+app.get('/api/receipts', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+
+    const rawLimit = typeof req.query.limit === 'string'
+      ? Number.parseInt(req.query.limit, 10)
+      : 100;
+    const limit = Number.isSafeInteger(rawLimit) ? rawLimit : 100;
+
+    const { db } = await import('./db/client.js');
+    const receipts = await listOwnedActivityReceipts(db, userId, limit);
+    res.json({ ok: true, receipts });
+  } catch (error) {
+    console.error('[BFF] /api/receipts error:', error);
     res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
   }
 });
