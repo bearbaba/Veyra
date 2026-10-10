@@ -99,6 +99,27 @@ describe('Phase 4E action execution replay lock', () => {
     if (!replay.success) expect(replay.reason).toBe('LOCKED');
   });
 
+  it('can reset an open replay store without blocking the next open', async () => {
+    await reserveActionExecution({
+      actionId: 'action-before-reset',
+      providerId: 'circle-appkit-swap',
+      operation: 'SWAP',
+    });
+
+    await resetActionExecutionReplayStore();
+    forceActionExecutionReplayHydratedForTesting();
+
+    expect(await getActionExecutionReplayEntry('action-before-reset')).toBeNull();
+
+    await expect(
+      reserveActionExecution({
+        actionId: 'action-after-reset',
+        providerId: 'circle-appkit-swap',
+        operation: 'SWAP',
+      }),
+    ).resolves.toEqual({ success: true });
+  });
+
   it('must hydrate before execution reservations are allowed', async () => {
     forceActionExecutionReplayUnhydratedForTesting();
 
