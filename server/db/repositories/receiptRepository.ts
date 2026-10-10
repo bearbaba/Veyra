@@ -492,6 +492,25 @@ export async function listReceiptsForUser(
     .limit(safeLimit);
 }
 
+export async function getReceiptForUser(
+  db: DbClient,
+  senderUserId: string,
+  receiptId: string,
+) {
+  const [receipt] = await db
+    .select()
+    .from(activityReceipts)
+    .where(
+      and(
+        eq(activityReceipts.senderUserId, senderUserId),
+        eq(activityReceipts.receiptId, receiptId),
+      ),
+    )
+    .limit(1);
+
+  return receipt ?? null;
+}
+
 export async function getReceiptByRouteIdForUser(
   db: DbClient,
   senderUserId: string,
