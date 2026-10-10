@@ -11,6 +11,12 @@ import { verifyPaymentRecipient } from './paymentRecipientService.js';
 import { MANIFEST_CONSTANTS } from '../../src/providers/registry/providerManifest.js';
 import { buildRouteId } from '../../src/core/router/routeEngine.js';
 import {
+  createBridgeActionFromRoute,
+  evaluateBridgeAction,
+} from '../../src/core/pipeline/bridgePipeline.js';
+import { SECURITY_CONFIG } from '../../src/lib/securityConfig.js';
+import type { RouteOption } from '../../src/providers/bridge/bridgeProviderTypes.js';
+import {
   CCTP_V2_PROVIDER_ID,
   CCTP_V2_PROVIDER_VERSION,
 } from '../../src/providers/cctp/cctpBridgeProvider.js';
@@ -178,6 +184,56 @@ export async function createBridgeActivityReceipt(
   }
 
   const now = Date.now();
+  const routeOption: RouteOption = {
+    routeId: expectedRouteId,
+    provider: CCTP_V2_PROVIDER_ID,
+    providerVersion: CCTP_V2_PROVIDER_VERSION,
+    sourceChainId: input.sourceChainId,
+    sourceTokenAddress: getAddress(MANIFEST_CONSTANTS.ARC_TESTNET_USDC),
+    destinationChainId: input.destinationChainId,
+    destinationTokenAddress: getAddress(destUsdc),
+    destinationAddress,
+    amountIn: amount,
+    amountOut: amount,
+    fees: [],
+    estimatedTimeMs: 15 * 60 * 1000,
+    confidence: 'HIGH',
+    quotedAt: now,
+    expiresAt: now + SECURITY_CONFIG.ROUTE_STABLE_TTL_MS,
+    ttlMs: SECURITY_CONFIG.ROUTE_STABLE_TTL_MS,
+    hops: [
+      {
+        hopIndex: 0,
+        provider: CCTP_V2_PROVIDER_ID,
+        sourceChainId: input.sourceChainId,
+        destinationChainId: input.destinationChainId,
+        sourceTokenAddress: getAddress(
+          MANIFEST_CONSTANTS.ARC_TESTNET_USDC,
+        ),
+        destinationTokenAddress: getAddress(destUsdc),
+        estimatedTimeMs: 15 * 60 * 1000,
+      },
+    ],
+    multiHopEnabled: false,
+    providerMetadata: {
+      mechanism: 'CCTP_V2',
+      finality: 'STANDARD',
+    },
+  };
+
+  const action = createBridgeActionFromRoute({
+    route: routeOption,
+    from: senderAddress,
+    tokenDecimals: 6,
+  });
+  const evaluation = evaluateBridgeAction(action);
+  if (!evaluation.canProceed) {
+    throw new ActivityReceiptInputError(
+      'SERVER_PIPELINE_BLOCKED',
+      evaluation.blockedReason ?? 'Server bridge pipeline blocked execution',
+      409,
+    );
+  }
   const createParams: CreateReceiptParams = {
     clientIntentId: input.clientIntentId,
     senderUserId: userId,
@@ -199,20 +255,33 @@ export async function createBridgeActivityReceipt(
     surface: 'BRIDGE',
     action: 'BRIDGE',
     routeOption: {
-      routeId: expectedRouteId,
-      provider: CCTP_V2_PROVIDER_ID,
-      providerVersion: CCTP_V2_PROVIDER_VERSION,
-      sourceChainId: input.sourceChainId,
-      sourceTokenAddress: MANIFEST_CONSTANTS.ARC_TESTNET_USDC,
-      destinationChainId: input.destinationChainId,
-      destinationTokenAddress: destUsdc,
-      destinationAddress,
-      amountIn: amount.toString(),
-      amountOut: amount.toString(),
-      quotedAt: now,
+      ...routeOption,
+      amountIn: routeOption.amountIn.toString(),
+      amountOut: routeOption.amountOut.toString(),
+      fees: routeOption.fees.map((fee) => ({
+        ...fee,
+        amountRaw: fee.amountRaw.toString(),
+      })),
     },
-    policyResult: input.policyResult ?? {},
-    preflightResults: input.preflightResults ?? [],
+    policyResult: {
+      decision: evaluation.policyResult.decision,
+      blockedBy: evaluation.policyResult.blockedBy,
+      confirmationRequired: evaluation.policyResult.confirmationRequired,
+      riskScore: evaluation.riskResult.score,
+      riskLevel: evaluation.riskResult.level,
+      authority: 'SERVER_DETERMINISTIC_PIPELINE',
+    },
+    preflightResults: [
+      {
+        checkId: 'SERVER_PIPELINE_PREFLIGHT',
+        severity: 'HARD_BLOCK',
+        passed: evaluation.preflightResult.ok,
+        message:
+          evaluation.preflightResult.detail ??
+          'Server deterministic bridge preflight passed.',
+        authority: 'SERVER_DETERMINISTIC_PIPELINE',
+      },
+    ],
     resumable: false,
     dedupParams: {
       environment: 'testnet',
