@@ -110,8 +110,15 @@ export interface ProviderManifestEntry {
   /** What this provider can do. */
   capabilities: ProviderCapability[];
 
-  /** Chain IDs this provider is active on. Empty = no supported chains. */
+  /** EVM chain IDs this provider is active on. Empty = no EVM chain restriction metadata. */
   supportedChainIds: number[];
+
+  /**
+   * Product-layer network IDs supported by the provider. Optional for legacy
+   * entries. This allows the registry to describe non-EVM networks such as
+   * Solana without inventing a numeric EVM chain ID.
+   */
+  supportedNetworkIds?: string[];
 
   /** ERC-20 token addresses (lowercase) this provider works with. */
   supportedAssets: string[];
