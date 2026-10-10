@@ -120,16 +120,6 @@ function getEntry(db: IDBDatabase, quoteId: string): Promise<QuoteEntry | undefi
   });
 }
 
-function putEntry(db: IDBDatabase, entry: QuoteEntry): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.put(entry);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(new Error('[quoteReplayStore] put failed'));
-  });
-}
-
 function getAllEntries(db: IDBDatabase): Promise<QuoteEntry[]> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
