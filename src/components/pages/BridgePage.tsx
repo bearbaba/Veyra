@@ -14,12 +14,17 @@
  * Pending bridge receipts survive reload (stored in IndexedDB via receiptStore).
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { Globe, AlertTriangle, Info, ArrowRight, Loader2, CheckCircle, Lock } from 'lucide-react';
 import { parseUnits, type Address } from 'viem';
 import { evaluateBridgeAction, createBridgeAction, isSupportedBridgeRoute } from '../../core/pipeline/bridgePipeline';
 import { MANIFEST_CONSTANTS, findManifestEntry } from '../../providers/registry/providerManifest';
+import { useBridgeExecution, type BridgeExecutionState } from '../../hooks/useBridgeExecution';
+import {
+  nextBridgeResumeInstruction,
+  type BridgeRecoveryCheckpoint,
+} from '../../core/execution/bridgeCheckpointStore';
 
 // ── Lifecycle check ───────────────────────────────────────────────────────────
 const CCTP_ENTRY = findManifestEntry('cctp-v2-bridge');
@@ -44,11 +49,31 @@ const DESTINATION_CHAINS = [
 
 export function BridgePage() {
   const { address, isConnected } = useAccount();
+  const bridgeExecution = useBridgeExecution();
 
   const [amount, setAmount] = useState('');
   const [destChainId, setDestChainId] = useState<number>(MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID);
   const [recipientAddress, setRecipientAddress] = useState('');
   const [bridgeState, setBridgeState] = useState<BridgeState>({ phase: 'INPUT' });
+  const [recoveryCandidates, setRecoveryCandidates] = useState<BridgeRecoveryCheckpoint[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    if (!isConnected) {
+      setRecoveryCandidates([]);
+      return () => { active = false; };
+    }
+
+    void bridgeExecution.loadRecoveryCandidates()
+      .then((rows) => {
+        if (active) setRecoveryCandidates(rows);
+      })
+      .catch(() => {
+        if (active) setRecoveryCandidates([]);
+      });
+
+    return () => { active = false; };
+  }, [isConnected, bridgeExecution.loadRecoveryCandidates]);
 
   const selectedDest = DESTINATION_CHAINS.find((c) => c.id === destChainId)!;
 
@@ -90,15 +115,22 @@ export function BridgePage() {
     }
   }
 
-  // Note: actual bridge execution (approve + burn + poll + receive) requires
-  // viem WalletClient from both source and destination chains.
-  // In this MVP, the Review step presents the plan and the user can
-  // initiate execution once source-chain walletClient is wired.
-  // The execution path (useWriteContract) follows the same pattern as useTransferExecution.
-  function handleBridgeNotYetWired() {
-    // Bridge execution requires multi-chain wallet clients.
-    // This will be wired in Phase C finalization with useWalletClient per chain.
-    setBridgeState({ phase: 'FAILED', error: 'Bridge execution requires connecting both source and destination chain wallets. Use the manual Pay page for Arc Testnet transfers for now.' });
+  async function handleConfirmBridge(
+    evaluation: ReturnType<typeof evaluateBridgeAction>,
+  ) {
+    if (!address) return;
+    await bridgeExecution.executeBridge(evaluation.action, address as Address);
+    setRecoveryCandidates(await bridgeExecution.loadRecoveryCandidates());
+  }
+
+  async function handleResumeBridge(checkpoint: BridgeRecoveryCheckpoint) {
+    await bridgeExecution.resumeBridge(checkpoint);
+    setRecoveryCandidates(await bridgeExecution.loadRecoveryCandidates());
+  }
+
+  function handleBridgeAgain() {
+    bridgeExecution.reset();
+    setBridgeState({ phase: 'INPUT' });
   }
 
   if (!isConnected) {
@@ -148,7 +180,19 @@ export function BridgePage() {
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>USDC Arc Testnet → Ethereum Sepolia / Base Sepolia via CCTP V2</p>
       </div>
 
-      {bridgeState.phase === 'INPUT' || bridgeState.phase === 'EVALUATING' || bridgeState.phase === 'BLOCKED' ? (
+      {recoveryCandidates.length > 0 && bridgeExecution.state.phase === 'IDLE' && (
+        <BridgeRecoveryCard
+          checkpoint={recoveryCandidates[0]}
+          onResume={() => void handleResumeBridge(recoveryCandidates[0])}
+        />
+      )}
+
+      {bridgeExecution.state.phase !== 'IDLE' ? (
+        <BridgeExecutionCard
+          state={bridgeExecution.state}
+          onReset={handleBridgeAgain}
+        />
+      ) : bridgeState.phase === 'INPUT' || bridgeState.phase === 'EVALUATING' || bridgeState.phase === 'BLOCKED' ? (
         <>
           {/* Route */}
           <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border-strong)' }}>
@@ -218,7 +262,7 @@ export function BridgePage() {
           evaluation={bridgeState.evaluation}
           amount={amount}
           destName={selectedDest.name}
-          onConfirm={handleBridgeNotYetWired}
+          onConfirm={() => void handleConfirmBridge(bridgeState.evaluation)}
           onCancel={() => setBridgeState({ phase: 'INPUT' })}
         />
       ) : bridgeState.phase === 'BRIDGE_PENDING' || bridgeState.phase === 'BRIDGE_UNCONFIRMED' ? (
@@ -305,6 +349,107 @@ function BridgePendingCard({ phase, burnTxHash, destName }: { phase: string; bur
           : `Burn confirmed. Waiting for Circle attestation before relaying to ${destName}...`}
       </p>
       <p className="text-xs font-mono" style={{ color: 'var(--subtle)' }}>{burnTxHash.slice(0, 22)}...</p>
+    </div>
+  );
+}
+
+function BridgeRecoveryCard({
+  checkpoint,
+  onResume,
+}: {
+  checkpoint: BridgeRecoveryCheckpoint;
+  onResume: () => void;
+}) {
+  const instruction = nextBridgeResumeInstruction(checkpoint);
+
+  return (
+    <div className="rounded-2xl p-4 space-y-3" style={{ background: 'var(--surface)', border: '1px solid var(--warning)' }}>
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="size-5 mt-0.5 shrink-0" style={{ color: 'var(--warning)' }} />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>Bridge recovery available</p>
+          <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
+            A source burn already exists. Veyra will resume from that burn and will never submit another source burn for this recovery.
+          </p>
+        </div>
+      </div>
+      <div className="rounded-xl p-3 text-xs font-mono space-y-1" style={{ background: 'var(--surface-strong)', color: 'var(--muted)' }}>
+        <div>Stage: {checkpoint.stage}</div>
+        <div>Next: {instruction}</div>
+        <div>Burn: {checkpoint.burnTxHash.slice(0, 18)}...</div>
+      </div>
+      <button
+        onClick={onResume}
+        className="w-full rounded-xl py-2.5 text-sm font-semibold"
+        style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}
+      >
+        Resume safely
+      </button>
+    </div>
+  );
+}
+
+function BridgeExecutionCard({
+  state,
+  onReset,
+}: {
+  state: BridgeExecutionState;
+  onReset: () => void;
+}) {
+  const title: Record<BridgeExecutionState['phase'], string> = {
+    IDLE: 'Ready',
+    CHECKING_ALLOWANCE: 'Checking allowance',
+    APPROVING: 'Approve USDC',
+    APPROVE_CONFIRMED: 'Approval confirmed',
+    BURNING: 'Submitting source burn',
+    BRIDGE_PENDING: 'Source burn submitted',
+    BRIDGE_UNCONFIRMED: 'Awaiting Circle attestation',
+    SWITCHING_CHAIN: 'Preparing destination chain',
+    RECEIVING: 'Receiving USDC',
+    VERIFYING: 'Verifying destination balance',
+    VERIFIED: 'Bridge verified',
+    FAILED: 'Bridge needs attention',
+  };
+
+  const active = state.phase !== 'VERIFIED' && state.phase !== 'FAILED';
+
+  return (
+    <div className="rounded-2xl p-6 text-center space-y-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+      {state.phase === 'VERIFIED'
+        ? <CheckCircle className="size-10 mx-auto" style={{ color: 'var(--success)' }} />
+        : active
+          ? <Loader2 className="size-10 mx-auto animate-spin" style={{ color: 'var(--accent)' }} />
+          : <AlertTriangle className="size-10 mx-auto" style={{ color: 'var(--warning)' }} />}
+
+      <h2 className="text-base font-semibold" style={{ color: 'var(--ink)' }}>{title[state.phase]}</h2>
+
+      {state.error && (
+        <p className="text-sm" style={{ color: state.phase === 'FAILED' ? 'var(--danger)' : 'var(--muted)' }}>
+          {state.error}
+        </p>
+      )}
+
+      {state.burnTxHash && (
+        <p className="text-xs font-mono" style={{ color: 'var(--subtle)' }}>
+          burn: {state.burnTxHash.slice(0, 22)}...
+        </p>
+      )}
+
+      {state.receiveTxHash && (
+        <p className="text-xs font-mono" style={{ color: 'var(--subtle)' }}>
+          receive: {state.receiveTxHash.slice(0, 22)}...
+        </p>
+      )}
+
+      {(state.phase === 'VERIFIED' || state.phase === 'FAILED') && (
+        <button
+          onClick={onReset}
+          className="w-full rounded-xl py-2.5 text-sm font-semibold"
+          style={{ background: 'var(--surface-strong)', color: 'var(--muted)', border: '1px solid var(--border)' }}
+        >
+          {state.phase === 'VERIFIED' ? 'Bridge again' : 'Back'}
+        </button>
+      )}
     </div>
   );
 }
