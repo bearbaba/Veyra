@@ -181,26 +181,77 @@ export function BridgePage() {
     setBridgeState({ phase: 'EVALUATING' });
 
     try {
+      // Static CCTP routes still use a short freshness window. Re-quote at the
+      // execution boundary and require the deterministic routeId/money fields
+      // to remain identical to what the user reviewed.
+      const refreshedSelection = await selectBridgeRoutes({
+        params: {
+          clientIntentId: review.clientIntentId,
+          senderAddress: address,
+          recipientSnapshotId:
+            `direct:${review.evaluation.action.to.toLowerCase()}`,
+          destinationAddress: review.evaluation.action.to,
+          sourceChainId: review.evaluation.action.sourceChainId,
+          destinationChainId: review.evaluation.action.destinationChainId,
+          sourceTokenAddress: review.evaluation.action.tokenAddress,
+          amountIn: review.evaluation.action.amount,
+        },
+        adapters: [cctpV2BridgeProvider],
+        runtimeEnvironment: 'testnet',
+      });
+      const refreshedRoute = refreshedSelection.routes[0];
+      if (
+        !refreshedRoute ||
+        refreshedRoute.routeId !== review.evaluation.action.actionId ||
+        refreshedRoute.amountIn !== review.evaluation.action.amount ||
+        refreshedRoute.destinationAddress.toLowerCase() !==
+          review.evaluation.action.to.toLowerCase()
+      ) {
+        throw new Error(
+          'Bridge route changed or expired since review. Review the route again.',
+        );
+      }
+
+      const freshPreflight =
+        await cctpV2BridgeProvider.preflight(refreshedRoute);
+      const hardBlock = freshPreflight.find(
+        (check) => check.severity === 'HARD_BLOCK' && !check.passed,
+      );
+      if (hardBlock) throw new Error(hardBlock.message);
+
+      const executionAction = createBridgeActionFromRoute({
+        route: refreshedRoute,
+        from: address,
+        tokenDecimals: review.evaluation.action.tokenDecimals,
+      });
+      const executionEvaluation = evaluateBridgeAction(executionAction);
+      if (!executionEvaluation.canProceed) {
+        throw new Error(
+          executionEvaluation.blockedReason ??
+            'Bridge execution is no longer policy-ready.',
+        );
+      }
+
       const activityReceipt = await createBridgeActivityReceiptRemote({
         clientIntentId: review.clientIntentId,
-        routeId: review.evaluation.action.actionId,
+        routeId: executionAction.actionId,
         senderAddress: address,
-        sourceChainId: review.evaluation.action.sourceChainId,
-        destinationAddress: review.evaluation.action.to,
-        destinationChainId: review.evaluation.action.destinationChainId,
-        amountRaw: review.evaluation.action.amount.toString(),
-        tokenAddress: review.evaluation.action.tokenAddress,
+        sourceChainId: executionAction.sourceChainId,
+        destinationAddress: executionAction.to,
+        destinationChainId: executionAction.destinationChainId,
+        amountRaw: executionAction.amount.toString(),
+        tokenAddress: executionAction.tokenAddress,
         policyResult: {
-          decision: review.evaluation.policyResult.decision,
-          blockedBy: review.evaluation.policyResult.blockedBy,
+          decision: executionEvaluation.policyResult.decision,
+          blockedBy: executionEvaluation.policyResult.blockedBy,
           confirmationRequired:
-            review.evaluation.policyResult.confirmationRequired,
+            executionEvaluation.policyResult.confirmationRequired,
         },
-        preflightResults: review.providerPreflight,
+        preflightResults: freshPreflight,
       });
 
       await bridgeExecution.executeBridge(
-        review.evaluation.action,
+        executionAction,
         address,
         activityReceipt,
       );
