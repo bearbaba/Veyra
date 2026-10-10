@@ -23,6 +23,8 @@ import { saveReceipt } from '@/core/receipt/receiptStore';
 import type { VeyraReceipt } from '@/core/receipt/receiptTypes';
 import { buildTxExplorerUrl } from '@/onchain-facts';
 import { verifyPaymentRecipient } from '@/lib/api/identityApi';
+import { assertExecutionReady } from '@/core/execution/executionReadiness';
+import { VEYRA_ENV } from '@/lib/env';
 
 export type TransferStep =
   | 'IDLE'
@@ -84,6 +86,16 @@ export function useTransferExecution() {
     setState({ step: 'SIGNING', txHash: null, receipt: null, explorerUrl: null, error: null });
 
     try {
+      // Canonical final execution boundary. Re-check schema/provenance/provider
+      // eligibility immediately before any wallet signature.
+      assertExecutionReady({
+        action,
+        providerId: 'arc-erc20-transfer',
+        providerCapability: 'TRANSFER',
+        assetAddress: action.tokenAddress,
+        runtimeEnvironment: VEYRA_ENV,
+      });
+
       // Revalidate a frozen Veyra identity immediately before wallet signature.
       // If profile/wallet/revision changed since review, execution fails closed.
       if (recipientGuard) await verifyPaymentRecipient(recipientGuard);
