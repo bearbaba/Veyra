@@ -146,6 +146,25 @@ describe('Phase 5 receipt reconciliation', () => {
     expect(merged.displaySummary).toBe('new local summary');
   });
 
+  it('keeps sync pending when the server has not accepted the local terminal status', () => {
+    const local = receipt({
+      syncRevision: 2,
+      syncPending: true,
+      status: 'VERIFIED',
+      actualAmountDelta: 1_000_000n,
+    });
+    const remote = receipt({
+      syncRevision: 2,
+      syncPending: false,
+      status: 'PENDING',
+      actualAmountDelta: null,
+    });
+
+    const merged = reconcileVeyraReceipts(local, remote);
+    expect(merged.status).toBe('VERIFIED');
+    expect(merged.syncPending).toBe(true);
+  });
+
   it('preserves recovery metadata when only one side has it', () => {
     const local = receipt();
     const remote = receipt({
