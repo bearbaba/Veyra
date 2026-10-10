@@ -1,11 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { PublicClient, WalletClient, Hash } from 'viem';
+import type {
+  PublicClient,
+  WalletClient,
+  Hash,
+  TransactionReceipt,
+} from 'viem';
 import type { BridgeAction } from '../core/actions/actionSchema';
 import {
   broadcastDepositForBurn,
   broadcastReceiveMessage,
   depositForBurn,
   receiveMessage,
+  verifyCctpDestinationReceiptEvidence,
+  verifyCctpSourceReceiptEvidence,
   verifyDestinationBalance,
 } from '../providers/cctp/cctpV2Adapter';
 import { MANIFEST_CONSTANTS } from '../providers/registry/providerManifest';
@@ -16,6 +23,20 @@ const RECEIVE_HASH =
   '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as Hash;
 const WALLET = '0x1111111111111111111111111111111111111111';
 const RECIPIENT = '0x2222222222222222222222222222222222222222';
+
+const MESSAGE_SENT_TOPIC =
+  '0x8c5261668696ce22758910d05bab8f186d6eb247ceac2af2e82c7dc17669b036';
+const TRANSFER_TOPIC =
+  '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+function addressTopic(address: string): `0x${string}` {
+  return `0x${'0'.repeat(24)}${address.slice(2).toLowerCase()}`;
+}
+
+function uint256Data(value: bigint): `0x${string}` {
+  return `0x${value.toString(16).padStart(64, '0')}`;
+}
+
 
 function action(): BridgeAction {
   const now = Date.now();
@@ -107,6 +128,77 @@ describe('Phase 4F CCTP broadcast safety', () => {
     ).rejects.toThrow(/No CCTP domain/i);
 
     expect(writeContract).not.toHaveBeenCalled();
+  });
+
+  it('requires MessageSent from the canonical transmitter before source confirmation', () => {
+    const receipt = {
+      status: 'success',
+      logs: [
+        {
+          address: MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER,
+          topics: [MESSAGE_SENT_TOPIC],
+          data: '0x1234',
+        },
+      ],
+    } as unknown as Pick<TransactionReceipt, 'status' | 'logs'>;
+
+    expect(verifyCctpSourceReceiptEvidence(receipt)).toMatchObject({
+      verified: true,
+    });
+
+    const wrongEmitter = {
+      ...receipt,
+      logs: [
+        {
+          ...receipt.logs[0],
+          address: MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER,
+        },
+      ],
+    } as unknown as Pick<TransactionReceipt, 'status' | 'logs'>;
+
+    expect(verifyCctpSourceReceiptEvidence(wrongEmitter)).toMatchObject({
+      verified: false,
+    });
+  });
+
+  it('requires an exact USDC mint event to the reviewed destination recipient', () => {
+    const receipt = {
+      status: 'success',
+      logs: [
+        {
+          address: MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC,
+          topics: [
+            TRANSFER_TOPIC,
+            `0x${'0'.repeat(64)}`,
+            addressTopic(RECIPIENT),
+          ],
+          data: uint256Data(1_000_000n),
+        },
+      ],
+    } as unknown as Pick<TransactionReceipt, 'status' | 'logs'>;
+
+    expect(
+      verifyCctpDestinationReceiptEvidence(
+        receipt,
+        RECIPIENT,
+        MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC,
+        1_000_000n,
+      ),
+    ).toMatchObject({
+      verified: true,
+      transferAmount: 1_000_000n,
+    });
+
+    expect(
+      verifyCctpDestinationReceiptEvidence(
+        receipt,
+        WALLET,
+        MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC,
+        1_000_000n,
+      ),
+    ).toMatchObject({
+      verified: false,
+    });
   });
 
   it('requires the destination balance delta to equal the reviewed CCTP amount exactly', async () => {
