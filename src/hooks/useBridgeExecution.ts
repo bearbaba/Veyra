@@ -33,6 +33,7 @@ import type { BridgeAction } from '../core/actions/actionSchema';
 import { generatePlanReceiptId, generateExecutionReceiptId } from '../core/receipt/receiptId';
 import type { VeyraReceipt } from '../core/receipt/receiptTypes';
 import { VEYRA_ENV } from '../lib/env';
+import { assertExecutionReady } from '../core/execution/executionReadiness';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -102,6 +103,24 @@ export function useBridgeExecution() {
     walletAddress: Address,
   ) => {
     abortRef.current = false;
+
+    // Canonical final execution boundary. This runs before allowance checks or
+    // any wallet signature and revalidates the action plus provider state.
+    try {
+      assertExecutionReady({
+        action,
+        providerId: 'cctp-v2-bridge',
+        providerCapability: 'BRIDGE',
+        assetAddress: action.tokenAddress,
+        runtimeEnvironment: VEYRA_ENV,
+      });
+    } catch (error) {
+      setState({
+        phase: 'FAILED',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
 
     // ── Lifecycle gate ──────────────────────────────────────────────────────
     const eligibility = checkProviderEligibility(
