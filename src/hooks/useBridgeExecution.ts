@@ -178,35 +178,37 @@ export function useBridgeExecution() {
       return;
     }
 
-    const actionReservation = await reserveActionExecution({
-      actionId: action.actionId,
-      providerId: 'cctp-v2-bridge',
-      operation: 'BRIDGE',
-    });
-    if (!actionReservation.success) {
-      setState({
-        phase: 'FAILED',
-        error:
-          `Bridge action "${action.actionId}" cannot execute again: ` +
-          `${actionReservation.reason}. Resume/reconcile the existing execution instead.`,
-      });
-      return;
-    }
-
     let sourceSubmissionStarted = false;
-
-    // Read-only public client for the destination chain
-    const destPublicClient = createPublicClient({
-      transport: http(destRpc),
-      chain: {
-        id: action.destinationChainId,
-        name: `chain-${action.destinationChainId}`,
-        nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-        rpcUrls: { default: { http: [destRpc] } },
-      },
-    });
+    let actionReservationHeld = false;
 
     try {
+      const actionReservation = await reserveActionExecution({
+        actionId: action.actionId,
+        providerId: 'cctp-v2-bridge',
+        operation: 'BRIDGE',
+      });
+      if (!actionReservation.success) {
+        setState({
+          phase: 'FAILED',
+          error:
+            `Bridge action "${action.actionId}" cannot execute again: ` +
+            `${actionReservation.reason}. Resume/reconcile the existing execution instead.`,
+        });
+        return;
+      }
+      actionReservationHeld = true;
+
+      // Read-only public client for the destination chain
+      const destPublicClient = createPublicClient({
+        transport: http(destRpc),
+        chain: {
+          id: action.destinationChainId,
+          name: `chain-${action.destinationChainId}`,
+          nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+          rpcUrls: { default: { http: [destRpc] } },
+        },
+      });
+
       // ── Snapshot destination balance BEFORE bridge ────────────────────────
       const recipientAddress = getAddress(action.to);
       const balanceBefore    = await readBalance(destPublicClient, destUsdcAddress, recipientAddress);
@@ -230,6 +232,7 @@ export function useBridgeExecution() {
 
       if (abortRef.current) {
         await releaseActionExecutionReservation(action.actionId);
+        actionReservationHeld = false;
         return;
       }
 
@@ -471,7 +474,7 @@ export function useBridgeExecution() {
 
 
     } catch (err) {
-      if (!sourceSubmissionStarted) {
+      if (actionReservationHeld && !sourceSubmissionStarted) {
         try {
           await releaseActionExecutionReservation(action.actionId);
         } catch {
