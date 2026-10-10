@@ -18,10 +18,12 @@ import {
 } from '../providers/stablefx/stableFxAdapter';
 import type { VeyraReceipt } from '../core/receipt/receiptTypes';
 import { generatePlanReceiptId } from '../core/receipt/receiptId';
-import type { Address } from 'viem';
+import { parseUnits, type Address } from 'viem';
 import { checkProviderEligibility } from '../providers/registry/providerRegistry';
 import { VEYRA_ENV } from '../lib/env';
 import { assertExecutionReady } from '../core/execution/executionReadiness';
+import { verifyMinimumOutput } from '../core/execution/receiptVerification';
+import { saveReceipt } from '../core/receipt/receiptStore';
 
 interface ConvertState {
   status: ConvertPipelineStatus;
@@ -114,7 +116,7 @@ export function useConvertExecution() {
         await new Promise((r) => setTimeout(r, 5000));
         try {
           finalTrade = await pollStableFxTrade(trade.id);
-          if (finalTrade.status === 'complete' || finalTrade.status === 'taker_funded') break;
+          if (finalTrade.status === 'complete') break;
           if (finalTrade.status === 'failed') {
             setState((prev) => ({ ...prev, status: 'FAILED', trade: finalTrade, error: 'Trade failed on Circle' }));
             return;
@@ -125,20 +127,77 @@ export function useConvertExecution() {
       }
 
       const receiptId = generatePlanReceiptId();
+
+      if (finalTrade.status !== 'complete') {
+        const pendingReceipt: VeyraReceipt = {
+          receiptId,
+          planId: action.actionId,
+          actionType: 'CONVERT',
+          status: 'PENDING',
+          chainId: action.chainId,
+          createdAt: action.createdAt,
+          actualAmountDelta: null,
+          expectedAmountDelta: action.minAmountOut,
+          riskScore: null,
+          policyDecision: null,
+          displaySummary: `Convert is still pending at provider status ${finalTrade.status}.`,
+        };
+        await saveReceipt(pendingReceipt);
+        setState((prev) => ({
+          ...prev,
+          status: 'PENDING',
+          trade: finalTrade,
+          receipt: pendingReceipt,
+          error: 'Conversion has not reached final provider completion yet.',
+        }));
+        return;
+      }
+
+      const actualOutput = parseUnits(finalTrade.to.amount, action.toTokenDecimals);
+      const verification = verifyMinimumOutput(actualOutput, action.minAmountOut);
+
+      if (!verification.verified) {
+        const failedReceipt: VeyraReceipt = {
+          receiptId,
+          planId: action.actionId,
+          actionType: 'CONVERT',
+          status: 'FAILED',
+          chainId: action.chainId,
+          createdAt: action.createdAt,
+          completedAt: Date.now(),
+          actualAmountDelta: verification.actualAmount,
+          expectedAmountDelta: action.minAmountOut,
+          riskScore: null,
+          policyDecision: null,
+          displaySummary: `Convert verification failed: ${verification.detail}`,
+        };
+        await saveReceipt(failedReceipt);
+        setState((prev) => ({
+          ...prev,
+          status: 'FAILED',
+          trade: finalTrade,
+          receipt: failedReceipt,
+          error: verification.detail,
+        }));
+        return;
+      }
+
       const receipt: VeyraReceipt = {
         receiptId,
+        planId: action.actionId,
         actionType: 'CONVERT',
-        status: finalTrade.status === 'complete' ? 'VERIFIED' : 'PENDING',
+        status: 'VERIFIED',
         chainId: action.chainId,
         createdAt: action.createdAt,
         completedAt: Date.now(),
-        actualAmountDelta: action.minAmountOut,
+        actualAmountDelta: verification.actualAmount,
         expectedAmountDelta: action.minAmountOut,
         riskScore: null,
-        policyDecision: null,
+        policyDecision: 'PASS',
         displaySummary: `Convert ${finalTrade.from.amount} ${finalTrade.from.currency} → ${finalTrade.to.amount} ${finalTrade.to.currency}`,
       };
 
+      await saveReceipt(receipt);
       setState((prev) => ({ ...prev, status: 'VERIFIED', trade: finalTrade, receipt }));
     } catch (err) {
       setState((prev) => ({
