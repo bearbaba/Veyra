@@ -1,7 +1,9 @@
 import {
   createPublicClient,
+  decodeFunctionData,
   getAddress,
   http,
+  parseAbi,
   type Hash,
   type TransactionReceipt,
 } from 'viem';
@@ -50,6 +52,30 @@ export type ActivityReceiptChainReceiptFetcher = (
   chainId: number,
   txHash: Hash,
 ) => Promise<TransactionReceipt>;
+
+
+export interface ActivityReceiptTransactionCall {
+  to: string | null;
+  input: `0x${string}`;
+}
+
+export type ActivityReceiptChainTransactionFetcher = (
+  chainId: number,
+  txHash: Hash,
+) => Promise<ActivityReceiptTransactionCall>;
+
+export interface ActivityReceiptCctpAttestation {
+  message: `0x${string}`;
+  attestation: `0x${string}`;
+}
+
+export type ActivityReceiptAttestationFetcher = (
+  burnTxHash: Hash,
+) => Promise<ActivityReceiptCctpAttestation>;
+
+const RECEIVE_MESSAGE_ABI = parseAbi([
+  'function receiveMessage(bytes message, bytes attestation) returns (bool success)',
+]);
 
 function destinationUsdc(chainId: number): string | null {
   if (chainId === MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID) {
@@ -132,6 +158,8 @@ export async function verifyActivityReceiptTransitionEvidence(
     | 'receiveBlockNumber'
   >,
   fetchReceipt: ActivityReceiptChainReceiptFetcher,
+  fetchTransaction?: ActivityReceiptChainTransactionFetcher,
+  fetchAttestation?: ActivityReceiptAttestationFetcher,
 ): Promise<void> {
   if (!isCctpBridge(current)) return;
 
@@ -241,6 +269,57 @@ export async function verifyActivityReceiptTransitionEvidence(
       verification.detail,
     );
   }
+
+  if (fetchTransaction && fetchAttestation) {
+    const burnTxHash = requireHash(current.burnTxHash, 'burnTxHash');
+    const [transaction, authoritativeAttestation] = await Promise.all([
+      fetchTransaction(current.recipientChainId, receiveTxHash),
+      fetchAttestation(burnTxHash),
+    ]);
+
+    if (
+      !transaction.to ||
+      transaction.to.toLowerCase() !==
+        MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER.toLowerCase()
+    ) {
+      throw new ActivityReceiptEvidenceError(
+        'DESTINATION_CALL_TARGET_MISMATCH',
+        'Destination transaction does not call the canonical CCTP MessageTransmitterV2.',
+      );
+    }
+
+    let decoded;
+    try {
+      decoded = decodeFunctionData({
+        abi: RECEIVE_MESSAGE_ABI,
+        data: transaction.input,
+      });
+    } catch {
+      throw new ActivityReceiptEvidenceError(
+        'DESTINATION_CALL_UNDECODABLE',
+        'Destination transaction input is not a valid CCTP receiveMessage call.',
+      );
+    }
+
+    if (decoded.functionName !== 'receiveMessage') {
+      throw new ActivityReceiptEvidenceError(
+        'DESTINATION_CALL_UNEXPECTED',
+        'Destination transaction is not a receiveMessage call.',
+      );
+    }
+
+    const [message, attestation] = decoded.args;
+    if (
+      message.toLowerCase() !== authoritativeAttestation.message.toLowerCase() ||
+      attestation.toLowerCase() !==
+        authoritativeAttestation.attestation.toLowerCase()
+    ) {
+      throw new ActivityReceiptEvidenceError(
+        'DESTINATION_ATTESTATION_MISMATCH',
+        'Destination receiveMessage calldata is not bound to the authoritative Circle attestation for the source burn.',
+      );
+    }
+  }
 }
 
 function arcTestnetClient() {
@@ -257,37 +336,90 @@ function arcTestnetClient() {
   });
 }
 
-function defaultReceiptFetcher(): ActivityReceiptChainReceiptFetcher {
-  const source = arcTestnetClient();
-  const eth = createPublicClient({
-    chain: sepolia,
-    transport: http(
-      process.env.ETH_SEPOLIA_RPC_URL ??
-        'https://ethereum-sepolia-rpc.publicnode.com',
-    ),
-  });
-  const base = createPublicClient({
-    chain: baseSepolia,
-    transport: http(
-      process.env.BASE_SEPOLIA_RPC_URL ?? 'https://sepolia.base.org',
-    ),
-  });
+function chainClient(chainId: number) {
+  if (chainId === MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID) {
+    return arcTestnetClient();
+  }
+  if (chainId === MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID) {
+    return createPublicClient({
+      chain: sepolia,
+      transport: http(
+        process.env.ETH_SEPOLIA_RPC_URL ??
+          'https://ethereum-sepolia-rpc.publicnode.com',
+      ),
+    });
+  }
+  if (chainId === MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID) {
+    return createPublicClient({
+      chain: baseSepolia,
+      transport: http(
+        process.env.BASE_SEPOLIA_RPC_URL ?? 'https://sepolia.base.org',
+      ),
+    });
+  }
+  throw new ActivityReceiptEvidenceError(
+    'UNSUPPORTED_EVIDENCE_CHAIN',
+    `No evidence client is configured for chain ${chainId}.`,
+  );
+}
 
+function defaultTransactionFetcher(): ActivityReceiptChainTransactionFetcher {
   return async (chainId, txHash) => {
-    if (chainId === MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID) {
-      return source.getTransactionReceipt({ hash: txHash });
-    }
-    if (chainId === MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID) {
-      return eth.getTransactionReceipt({ hash: txHash });
-    }
-    if (chainId === MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID) {
-      return base.getTransactionReceipt({ hash: txHash });
-    }
-    throw new ActivityReceiptEvidenceError(
-      'UNSUPPORTED_EVIDENCE_CHAIN',
-      `No receipt verifier is configured for chain ${chainId}.`,
-    );
+    const client = chainClient(chainId);
+    const tx = await client.getTransaction({ hash: txHash });
+    return {
+      to: tx.to,
+      input: tx.input,
+    };
   };
+}
+
+function defaultAttestationFetcher(): ActivityReceiptAttestationFetcher {
+  return async (burnTxHash) => {
+    const sourceDomain = MANIFEST_CONSTANTS.ARC_TESTNET_CCTP_DOMAIN;
+    const response = await fetch(
+      `https://iris-api-sandbox.circle.com/v2/messages/${sourceDomain}?transactionHash=${burnTxHash}`,
+    );
+    if (!response.ok) {
+      throw new ActivityReceiptEvidenceError(
+        'ATTESTATION_EVIDENCE_UNAVAILABLE',
+        `Circle attestation API returned HTTP ${response.status}.`,
+        503,
+      );
+    }
+
+    const payload = (await response.json()) as {
+      messages?: Array<{
+        status?: string;
+        message?: string;
+        attestation?: string;
+      }>;
+    };
+    const message = payload.messages?.[0];
+    if (
+      message?.status !== 'complete' ||
+      typeof message.message !== 'string' ||
+      !/^0x[0-9a-fA-F]+$/.test(message.message) ||
+      typeof message.attestation !== 'string' ||
+      !/^0x[0-9a-fA-F]+$/.test(message.attestation)
+    ) {
+      throw new ActivityReceiptEvidenceError(
+        'ATTESTATION_EVIDENCE_INCOMPLETE',
+        'Circle attestation evidence is not complete for the source burn.',
+        503,
+      );
+    }
+
+    return {
+      message: message.message as `0x${string}`,
+      attestation: message.attestation as `0x${string}`,
+    };
+  };
+}
+
+function defaultReceiptFetcher(): ActivityReceiptChainReceiptFetcher {
+  return async (chainId, txHash) =>
+    chainClient(chainId).getTransactionReceipt({ hash: txHash });
 }
 
 export async function verifyOwnedActivityReceiptTransitionEvidence(
@@ -295,6 +427,10 @@ export async function verifyOwnedActivityReceiptTransitionEvidence(
   userId: string,
   input: ReceiptSyncInput,
   fetchReceipt: ActivityReceiptChainReceiptFetcher = defaultReceiptFetcher(),
+  fetchTransaction: ActivityReceiptChainTransactionFetcher =
+    defaultTransactionFetcher(),
+  fetchAttestation: ActivityReceiptAttestationFetcher =
+    defaultAttestationFetcher(),
 ): Promise<void> {
   const current = await getReceiptForUser(db, userId, input.receiptId);
   if (!current) {
@@ -310,6 +446,8 @@ export async function verifyOwnedActivityReceiptTransitionEvidence(
       current,
       input,
       fetchReceipt,
+      fetchTransaction,
+      fetchAttestation,
     );
   } catch (error) {
     if (error instanceof ActivityReceiptEvidenceError) throw error;
