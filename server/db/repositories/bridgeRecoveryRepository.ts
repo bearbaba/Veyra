@@ -1,6 +1,7 @@
-import { and, desc, eq, ne } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import type { DbClient } from '../client.js';
 import { bridgeRecoveryCheckpoints } from '../schema/bridgeRecovery.js';
+import { walletBindings } from '../schema/wallets.js';
 
 export type BridgeRecoveryStage =
   | 'SOURCE_BROADCAST'
@@ -348,6 +349,34 @@ export async function persistBridgeRecoveryCheckpoint(
       );
     }
     throw error;
+  }
+}
+
+export async function assertBridgeRecoveryWalletOwnership(
+  db: DbClient,
+  ownerUserId: string,
+  checkpoint: BridgeRecoveryInput,
+): Promise<void> {
+  assertBaseInput(checkpoint);
+
+  const [wallet] = await db
+    .select({ walletId: walletBindings.walletId })
+    .from(walletBindings)
+    .where(
+      and(
+        eq(walletBindings.veyraUserId, ownerUserId),
+        eq(walletBindings.chainId, checkpoint.sourceChainId),
+        eq(walletBindings.status, 'ACTIVE'),
+        isNull(walletBindings.revokedAt),
+        sql`lower(${walletBindings.walletAddress}) = lower(${checkpoint.walletAddress})`,
+      ),
+    )
+    .limit(1);
+
+  if (!wallet) {
+    throw new BridgeRecoveryConflictError(
+      'Bridge recovery source wallet is not an active verified wallet for this Veyra user',
+    );
   }
 }
 
