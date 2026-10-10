@@ -1,6 +1,6 @@
 /**
  * Duplicate-send key construction.
- * Covers 9 axes (amendment 4: environment added as 9th axis).
+ * Covers 9 canonical axes. Recipient identity uses a frozen snapshot ID or a direct-address fallback.
  * clientIntentId must be server-issued crypto.randomUUID() (amendment 5).
  *
  * The key is a SHA-256 hex digest of the canonical sorted JSON of all 9 fields.
@@ -14,8 +14,10 @@ export interface DedupParams {
   environment:         string;
   /** lowercase hex sender address */
   senderAddress:       string;
-  /** immutable snp_ snapshot ID — frozen recipient identity */
-  recipientSnapshotId: string;
+  /** immutable snp_ snapshot ID when the recipient is a Veyra identity */
+  recipientSnapshotId?: string | null;
+  /** direct EVM recipient fallback when no identity snapshot exists */
+  recipientAddress?: string;
   /** amount in smallest unit, as decimal string */
   amountRaw:           string;
   /** e.g. 'usdc' */
@@ -29,9 +31,28 @@ export interface DedupParams {
 }
 
 export function buildDedupKey(params: DedupParams): string {
-  // Canonical: sort keys alphabetically, stringify deterministically
+  const snapshotId = params.recipientSnapshotId?.trim() || null;
+  const recipientAddress = params.recipientAddress?.trim().toLowerCase() || null;
+  if (!snapshotId && !recipientAddress) {
+    throw new Error(
+      '[dedup] recipientSnapshotId or recipientAddress is required.',
+    );
+  }
+
+  const canonical = {
+    environment: params.environment,
+    senderAddress: params.senderAddress.trim().toLowerCase(),
+    recipientKey: snapshotId ?? `wallet:${recipientAddress}`,
+    amountRaw: params.amountRaw,
+    assetId: params.assetId.trim().toLowerCase(),
+    sourceChainId: params.sourceChainId,
+    destinationChainId: params.destinationChainId,
+    providerId: params.providerId.trim().toLowerCase(),
+    clientIntentId: params.clientIntentId,
+  };
+
   const sorted = Object.fromEntries(
-    Object.entries(params).sort(([a], [b]) => a.localeCompare(b)),
+    Object.entries(canonical).sort(([a], [b]) => a.localeCompare(b)),
   );
   return createHash('sha256')
     .update(JSON.stringify(sorted))
