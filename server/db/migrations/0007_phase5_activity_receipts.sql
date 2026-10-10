@@ -11,6 +11,7 @@ ALTER TABLE activity_receipts
   ADD COLUMN IF NOT EXISTS execution_tx_hash text,
   ADD COLUMN IF NOT EXISTS execution_block bigint,
   ADD COLUMN IF NOT EXISTS actual_amount_raw numeric(38, 0),
+  ADD COLUMN IF NOT EXISTS balance_before_raw numeric(38, 0),
   ADD COLUMN IF NOT EXISTS verified_balance_after numeric(38, 0),
   ADD COLUMN IF NOT EXISTS risk_score integer,
   ADD COLUMN IF NOT EXISTS policy_decision text,
