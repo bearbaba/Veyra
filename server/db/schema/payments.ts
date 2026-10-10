@@ -61,6 +61,7 @@ export const activityReceipts = pgTable(
     executionTxHash:     text('execution_tx_hash'),
     executionBlock:      bigint('execution_block', { mode: 'number' }),
     actualAmountRaw:     numeric('actual_amount_raw', { precision: 38, scale: 0 }),
+    balanceBeforeRaw:    numeric('balance_before_raw', { precision: 38, scale: 0 }),
     verifiedBalanceAfter:numeric('verified_balance_after', { precision: 38, scale: 0 }),
     riskScore:           integer('risk_score'),
     policyDecision:      text('policy_decision'),
