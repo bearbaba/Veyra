@@ -2,7 +2,7 @@
  * Phase 1 — migration-from-zero integration test.
  *
  * Creates a clean `veyra_migration_test` database, applies all migration
- * files in journal order (0000 through 0006), then verifies:
+ * files in journal order (0000 through 0007), then verifies:
  *   - all 21 expected tables exist
  *   - critical UNIQUE constraints are enforced
  *   - CHECK constraints reject invalid data
@@ -92,6 +92,11 @@ beforeAll(async () => {
     await execMigration(client, loadMigration('0005_phase2d_social_contacts.sql'));
     // 0006: Phase 4C durable bridge recovery
     await execMigration(client, loadMigration('0006_phase4c_bridge_recovery.sql'));
+    // 0007: Phase 5 ActivityReceipt lifecycle
+    await execMigration(
+      client,
+      loadMigration('0007_phase5_activity_receipt_lifecycle.sql'),
+    );
   } finally {
     client.release();
   }
