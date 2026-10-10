@@ -5,6 +5,7 @@ import type {
   Hash,
   TransactionReceipt,
 } from 'viem';
+import { encodeFunctionData } from 'viem';
 import type { BridgeAction } from '../core/actions/actionSchema';
 import {
   broadcastDepositForBurn,
@@ -13,6 +14,7 @@ import {
   receiveMessage,
   verifyCctpDestinationReceiptEvidence,
   verifyCctpSourceReceiptEvidence,
+  verifyCctpSourceTransactionBinding,
   verifyDestinationBalance,
 } from '../providers/cctp/cctpV2Adapter';
 import { MANIFEST_CONSTANTS } from '../providers/registry/providerManifest';
@@ -28,6 +30,24 @@ const MESSAGE_SENT_TOPIC =
   '0x8c5261668696ce22758910d05bab8f186d6eb247ceac2af2e82c7dc17669b036';
 const TRANSFER_TOPIC =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+const DEPOSIT_FOR_BURN_ABI = [
+  {
+    name: 'depositForBurn',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'amount', type: 'uint256' },
+      { name: 'destinationDomain', type: 'uint32' },
+      { name: 'mintRecipient', type: 'bytes32' },
+      { name: 'burnToken', type: 'address' },
+      { name: 'destinationCaller', type: 'bytes32' },
+      { name: 'maxFee', type: 'uint256' },
+      { name: 'minFinalityThreshold', type: 'uint32' },
+    ],
+    outputs: [],
+  },
+] as const;
 
 function addressTopic(address: string): `0x${string}` {
   return `0x${'0'.repeat(24)}${address.slice(2).toLowerCase()}`;
@@ -128,6 +148,78 @@ describe('Phase 4F CCTP broadcast safety', () => {
     ).rejects.toThrow(/No CCTP domain/i);
 
     expect(writeContract).not.toHaveBeenCalled();
+  });
+
+  it('binds source transaction calldata to the exact reviewed CCTP route', () => {
+    const reviewed = action();
+    const mintRecipient =
+      `0x000000000000000000000000${RECIPIENT.slice(2).toLowerCase()}` as `0x${string}`;
+    const input = encodeFunctionData({
+      abi: DEPOSIT_FOR_BURN_ABI,
+      functionName: 'depositForBurn',
+      args: [
+        reviewed.amount,
+        MANIFEST_CONSTANTS.ETH_SEPOLIA_CCTP_DOMAIN,
+        mintRecipient,
+        MANIFEST_CONSTANTS.ARC_TESTNET_USDC,
+        `0x${'00'.repeat(32)}`,
+        0n,
+        MANIFEST_CONSTANTS.CCTP_STANDARD_FINALITY,
+      ],
+    });
+
+    expect(
+      verifyCctpSourceTransactionBinding(
+        {
+          from: WALLET,
+          to: MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER,
+          input,
+        },
+        {
+          sender: WALLET,
+          recipient: RECIPIENT,
+          tokenAddress: MANIFEST_CONSTANTS.ARC_TESTNET_USDC,
+          amount: reviewed.amount,
+          destinationChainId: reviewed.destinationChainId,
+        },
+      ),
+    ).toMatchObject({ verified: true });
+  });
+
+  it('rejects a source burn whose calldata amount differs from recovery metadata', () => {
+    const reviewed = action();
+    const mintRecipient =
+      `0x000000000000000000000000${RECIPIENT.slice(2).toLowerCase()}` as `0x${string}`;
+    const input = encodeFunctionData({
+      abi: DEPOSIT_FOR_BURN_ABI,
+      functionName: 'depositForBurn',
+      args: [
+        reviewed.amount + 1n,
+        MANIFEST_CONSTANTS.ETH_SEPOLIA_CCTP_DOMAIN,
+        mintRecipient,
+        MANIFEST_CONSTANTS.ARC_TESTNET_USDC,
+        `0x${'00'.repeat(32)}`,
+        0n,
+        MANIFEST_CONSTANTS.CCTP_STANDARD_FINALITY,
+      ],
+    });
+
+    expect(
+      verifyCctpSourceTransactionBinding(
+        {
+          from: WALLET,
+          to: MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER,
+          input,
+        },
+        {
+          sender: WALLET,
+          recipient: RECIPIENT,
+          tokenAddress: MANIFEST_CONSTANTS.ARC_TESTNET_USDC,
+          amount: reviewed.amount,
+          destinationChainId: reviewed.destinationChainId,
+        },
+      ),
+    ).toMatchObject({ verified: false });
   });
 
   it('requires MessageSent from the canonical transmitter before source confirmation', () => {
