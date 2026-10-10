@@ -110,12 +110,20 @@ describe('PROVIDER_MANIFEST — provider lifecycle stages', () => {
     expect(entry!.provenance.notes).toContain('LIFECYCLE PROMOTED TO ENABLED');
   });
 
-  it('circle-unified-balance is DISCOVERED', () => {
-    const entry = PROVIDER_MANIFEST.find((e) => e.providerId === 'circle-unified-balance');
-    expect(entry).toBeDefined();
-    expect(entry!.lifecycleStage).toBe('DISCOVERED');
-    expect(entry!.enabled).toBe(false);
-    expect(entry!.trustStatus).toBe('UNVERIFIED');
+  it('Circle App Kit providers are IMPLEMENTED but fail closed until E2E', () => {
+    for (const providerId of [
+      'circle-appkit-unified-balance',
+      'circle-appkit-bridge',
+      'circle-appkit-swap',
+      'circle-appkit-earn',
+    ]) {
+      const entry = PROVIDER_MANIFEST.find((e) => e.providerId === providerId);
+      expect(entry).toBeDefined();
+      expect(entry!.lifecycleStage).toBe('IMPLEMENTED');
+      expect(entry!.enabled).toBe(false);
+      expect(entry!.trustStatus).toBe('OFFICIAL');
+      expect(entry!.healthStatus).toBe('UNKNOWN');
+    }
   });
 
   it('every entry has a lifecycleStage field', () => {
