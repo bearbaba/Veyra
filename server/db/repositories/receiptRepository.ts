@@ -178,8 +178,10 @@ export function isReceiptTransitionAllowed(
   from: ReceiptStatus,
   to: ReceiptStatus,
 ): boolean {
-  if (from === to) return true;
+  // A terminal receipt is immutable, including its revision and auxiliary
+  // fields. Never allow same-status browser syncs to mutate completed evidence.
   if (TERMINAL_STATUSES.has(from)) return false;
+  if (from === to) return true;
   return ALLOWED_TRANSITIONS[from].has(to);
 }
 
