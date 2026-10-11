@@ -24,7 +24,7 @@ function rpc(results: Record<string, unknown>) {
     called.push(request.method);
     return Promise.resolve({
       ok: true,
-      json: () => Promise.resolve({ result: results[request.method] }),
+      json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, result: results[request.method] }),
     });
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -66,6 +66,43 @@ describe('real Arc Testnet-only wallet-signed USDC beta', () => {
       expect(() => createArcTestnetPayPlan(SENDER, recipient, '0.1')).toThrow();
     }
     expect(() => createArcTestnetPayPlan(RECIPIENT, SENDER, '0.25')).not.toThrow();
+  });
+
+
+  it('rejects stale or malformed JSON-RPC replies before payment verification', async () => {
+    const chain = `0x${ARC_TESTNET_CHAIN_ID.toString(16)}`;
+    const rejected: unknown[] = [
+      { jsonrpc: '2.0', id: 2, result: chain },
+      { jsonrpc: '1.0', id: 1, result: chain },
+      { jsonrpc: '2.0', id: '1', result: chain },
+      { jsonrpc: '2.0', id: 1, error: { message: 'private-provider-key=123' } },
+      { jsonrpc: '2.0', id: 1 },
+      [ { jsonrpc: '2.0', id: 1, result: chain } ],
+      null,
+    ];
+    for (const reply of rejected) {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+        ok: true, json: () => Promise.resolve(reply),
+      })));
+      await expect(assertArcRpcChain()).rejects.toThrow('Arc RPC returned an untrusted response.');
+    }
+  });
+
+  it('rejects tampered reviewed payment plans before wallet signing or recovery', async () => {
+    const original = plan();
+    const modified = [
+      { ...original, amount: '0.5' },
+      { ...original, units: 500_000n },
+      { ...original, token: RECIPIENT as typeof original.token },
+      { ...original, to: '0x3333333333333333333333333333333333333333' as typeof original.to },
+      { ...original, data: `${original.data}00` as typeof original.data },
+    ];
+    for (const attempt of modified) {
+      const w = wallet();
+      await expect(submitArcTestnetPay(w.provider, attempt)).rejects.toThrow('Payment details changed since review.');
+      await expect(reconcileArcTestnetPay(attempt, HASH)).rejects.toThrow('Payment details changed since review.');
+      expect(w.methods).toEqual([]);
+    }
   });
 
   it('requires independent Arc RPC + wallet chain/account + balance before ONE user-sign RPC', async () => {

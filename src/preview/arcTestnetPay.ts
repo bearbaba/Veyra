@@ -50,6 +50,18 @@ export function createArcTestnetPayPlan(from: string, to: string, amount: string
   return { from: sender, to: recipient, units, amount, token, data };
 }
 
+function assertReviewedArcPayPlan(plan: ArcPayPlan): ArcPayPlan {
+  // Browser review objects may be restored or changed before an async wallet
+  // or RPC response. Rebuild the ONLY supported fixed-chain USDC transfer.
+  const reviewed = createArcTestnetPayPlan(plan.from, plan.to, plan.amount);
+  if (reviewed.from !== plan.from || reviewed.to !== plan.to ||
+      reviewed.token !== plan.token || reviewed.units !== plan.units ||
+      reviewed.data !== plan.data) {
+    fail('Payment details changed since review.');
+  }
+  return reviewed;
+}
+
 export async function arcTestnetRpc(method: string, params: unknown[]): Promise<unknown> {
   assertConfig();
   const response = await fetch(CHAIN.rpcUrls[0], {
@@ -57,8 +69,18 @@ export async function arcTestnetRpc(method: string, params: unknown[]): Promise<
     body: JSON.stringify({ jsonrpc: '2.0', method, params, id: 1 }),
   });
   if (!response.ok) fail('Arc Testnet public RPC temporarily unavailable.');
-  const json = await response.json() as { result?: unknown; error?: { message?: string } };
-  if (json.error || json.result === undefined) fail(json.error?.message ?? 'Arc RPC returned no result.');
+  const raw: unknown = await response.json();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    fail('Arc RPC returned an untrusted response.');
+  }
+  const json = raw as Record<string, unknown>;
+  // Do not accept a stale/mismatched JSON-RPC response, error envelope, or
+  // echo provider-supplied error messages into the public payment interface.
+  if (json.jsonrpc !== '2.0' || json.id !== 1 ||
+      Object.prototype.hasOwnProperty.call(json, 'error') ||
+      !Object.prototype.hasOwnProperty.call(json, 'result')) {
+    fail('Arc RPC returned an untrusted response.');
+  }
   return json.result;
 }
 function asHex(value: unknown): Hex {
@@ -85,9 +107,7 @@ export async function submitArcTestnetPay(
 ): Promise<Hex> {
   // Recheck the exact immutable original values immediately before the
   // signing RPC. Plan is not trusted, even if derived from a previous review.
-  const rebuilt = createArcTestnetPayPlan(plan.from, plan.to, plan.amount);
-  if (rebuilt.data !== plan.data || rebuilt.units !== plan.units ||
-      rebuilt.token !== plan.token) fail('Payment details changed since review.');
+  const rebuilt = assertReviewedArcPayPlan(plan);
   await assertArcRpcChain();
   const [chainRaw, accounts] = await Promise.all([
     provider.request({ method: 'eth_chainId' }),
@@ -129,14 +149,17 @@ export async function reconcileArcTestnetPay(
   plan: ArcPayPlan, txHash: string,
 ): Promise<ArcPayStatus> {
   if (!HASH_RE.test(txHash)) fail('Enter a complete transaction hash.');
+  // Capture validated immutable values BEFORE any await. Never verify against
+  // a caller-mutated plan after the network request has been started.
+  const reviewed = assertReviewedArcPayPlan(plan);
   await assertArcRpcChain();
   const rawTx = await arcTestnetRpc('eth_getTransactionByHash', [txHash]);
   if (!rawTx) return { state: 'PENDING', txHash: txHash as Hex };
   const tx = rawTx as RpcTransaction;
   if (!tx.hash || tx.hash.toLowerCase() !== txHash.toLowerCase() ||
-      tx.from?.toLowerCase() !== plan.from.toLowerCase() ||
-      tx.to?.toLowerCase() !== plan.token.toLowerCase() ||
-      tx.input?.toLowerCase() !== plan.data.toLowerCase()) {
+      tx.from?.toLowerCase() !== reviewed.from.toLowerCase() ||
+      tx.to?.toLowerCase() !== reviewed.token.toLowerCase() ||
+      tx.input?.toLowerCase() !== reviewed.data.toLowerCase()) {
     fail('Indexed transaction does not match the originally reviewed USDC payment.');
   }
   const rawReceipt = await arcTestnetRpc('eth_getTransactionReceipt', [txHash]);
@@ -154,12 +177,12 @@ export async function reconcileArcTestnetPay(
     fail('Unrecognized receipt status. Payment is unverified.');
   }
   const matched = receipt.status === '0x1' && Array.isArray(receipt.logs) && receipt.logs.some((log) => (
-    log.address?.toLowerCase() === plan.token.toLowerCase() &&
+    log.address?.toLowerCase() === reviewed.token.toLowerCase() &&
     log.topics?.length === 3 &&
     log.topics[0]?.toLowerCase() === TRANSFER_TOPIC.toLowerCase() &&
-    log.topics[1]?.toLowerCase() === topicAddress(plan.from) &&
-    log.topics[2]?.toLowerCase() === topicAddress(plan.to) &&
-    HEX_RE.test(log.data) && BigInt(log.data) === plan.units
+    log.topics[1]?.toLowerCase() === topicAddress(reviewed.from) &&
+    log.topics[2]?.toLowerCase() === topicAddress(reviewed.to) &&
+    HEX_RE.test(log.data) && BigInt(log.data) === reviewed.units
   ));
   if (receipt.status === '0x1' && !matched) {
     fail('Successful receipt has no matching USDC Transfer evidence.');
