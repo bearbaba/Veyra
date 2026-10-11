@@ -168,10 +168,18 @@ export async function recordDestinationSubmission(
       return; // idempotent response for exactly the same persisted tx
     }
 
+    // A self-relaying browser may have mirrored the destination checkpoint
+    // before the RPC indexed its transaction. Accept ONLY the exact same
+    // hash in that case. Different hashes and stage regressions remain blocked.
+    const checkpointMatches =
+      (checkpoint.stage === 'ATTESTATION_READY' &&
+        checkpoint.receiveTxHash === null) ||
+      (checkpoint.stage === 'DESTINATION_BROADCAST' &&
+        checkpoint.receiveTxHash?.toLowerCase() === receiveTxHash.toLowerCase());
+
     if (
       claim.receiveTxHash !== null ||
-      checkpoint.stage !== 'ATTESTATION_READY' ||
-      checkpoint.receiveTxHash !== null
+      !checkpointMatches
     ) {
       throw new BridgeRecoveryConflictError(
         'Destination transaction is already recorded or checkpoint changed.',
