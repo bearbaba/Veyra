@@ -39,6 +39,32 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     expect(preview).not.toMatch(/useWalletClient|useWriteContract|sendTransaction|writeContract|signTypedData/);
   });
 
+  it('uses a separate HTML entry that cannot import live main/App or wallet providers', () => {
+    const vite = read('vite.config.ts');
+    const entry = read('src/preview/main.tsx');
+    const app = read('src/preview/PreviewApp.tsx');
+    const surfaces = read('src/preview/PreviewSurfaces.tsx');
+    const ci = read('.github/workflows/ci.yml');
+    const audit = read('scripts/check-vercel-preview-bundle.ts');
+
+    expect(vite).toContain("process.env.VITE_VEYRA_UI_ONLY === '1'");
+    expect(vite).toContain("return html.replace(liveEntry, 'src=\"/src/preview/main.tsx\"')");
+    expect(entry).toContain("import { PreviewApp } from './PreviewApp'");
+    expect(entry).not.toContain("from '../main'");
+    expect(app).toContain("import { UiOnlyPreviewPage }");
+    expect(app).not.toContain("from '../App'");
+    for (const content of [entry, app, surfaces]) {
+      expect(content).not.toMatch(/from ['\"][^'\"]*(?:wagmi|connectkit|\/api\/|hooks\/useBridge|hooks\/useTransfer|securityBootstrap|providerManifest|receiptStore)/i);
+    }
+
+    expect(ci).toContain('Assert no wallet signing and BFF code in preview JavaScript');
+    expect(ci).toContain('bun run check:vercel-preview-bundle');
+    expect(audit).toContain('eth_sendTransaction');
+    expect(audit).toContain('depositForBurn');
+    expect(audit).toContain('receiveMessage');
+    expect(audit).toContain('BFF API path');
+  });
+
   it('does not pretend the localhost BFF runs as a Vercel API', () => {
     const config = JSON.parse(read('vercel.json')) as {
       rewrites?: Array<{ source?: string; destination?: string }>;
