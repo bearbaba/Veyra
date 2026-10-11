@@ -79,3 +79,6 @@ jobs:
 
       - name: Static Vercel preview bundle isolation
         run: bun run check:prod-bundle
+
+      - name: Assert no wallet signing and BFF code in preview JavaScript
+        run: bun run check:vercel-preview-bundle
