@@ -387,6 +387,35 @@ created through this recovery operation. The Activity list is refreshed
 after successful reconciliation. This can recover a **known hash** but
 cannot invent or recover a hash that the wallet and provider never exposed.
 
+**Read-only second attempt lost-hash recovery (without signing):** The
+authenticated `POST /api/bridge/reconcile-second-receive` accepts only a
+plan ID and a hash for a transaction the user or relayer already broadcast.
+It **cannot create a second submission reservation**, sign a wallet request
+or send a receive transaction. The server loads the owner-scoped original
+checkpoint and immutable attempt history, requires a stored canonical
+first destination revert, and requires the second attempt to have been
+previously reserved as `UNCERTAIN` (or already recorded with the *same*
+hash). It independently revalidates the canonical first reverted
+transaction/block hash and source Arc/Circle attestation; obtains the
+destination RPC's real chain ID and independently indexed second tx hash;
+requires a different hash from attempt #1, the exact canonical CCTP
+transmitter, valid sender, `destinationCaller=0` in the attested V2
+message and exactly matching `receiveMessage(message,attestation)`
+calldata. Only then does the repository record the **existing** second
+hash under the owner checkpoint lock and append an audit event. This
+does **not** mean a mint succeeded: the separate 12-confirmation mint
+verifier and ActivityReceipt settlement gates remain mandatory.
+
+The Activity recovery card now fetches the authenticated read-only
+`GET /api/bridge/destination-attempts?planId=…` history. It displays
+the first reverted hash, the second attempt's `UNCLAIMED`, `UNCERTAIN`
+or `RECORDED` state and canonical mint proof if any. The
+`Reconcile second hash (no signing)` form appears **only** when the
+server reports a previously reserved `UNCERTAIN` attempt #2. Unknown
+hashes and absent reservations remain locked. This also supports
+cross-device examination of the immutable attempt history, while still
+requiring an authenticated BFF.
+
 **Canonical Circle V2 nonce observation (read-only):** `POST
 /api/bridge/inspect-destination-nonce` accepts only a `planId` from an
 authenticated owner. It refuses plans without an immutable first receive tx,
