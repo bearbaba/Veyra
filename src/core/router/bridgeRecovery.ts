@@ -1,4 +1,8 @@
-export type AppKitBridgeRecoveryMode = 'NONE' | 'RETRY_BRIDGE' | 'START_NEW_AFTER_FIX';
+export type AppKitBridgeRecoveryMode =
+  | 'NONE'
+  | 'RETRY_BRIDGE'
+  | 'START_NEW_AFTER_FIX'
+  | 'RECONCILE_REQUIRED';
 
 export interface AppKitBridgeStepSnapshot {
   name: string;
@@ -73,15 +77,42 @@ export function analyzeAppKitBridgeRecovery(result: unknown): AppKitBridgeRecove
   }
 
   if (resultState === 'error') {
+    // "No tx hash was returned" does NOT mean "no tx was submitted". App Kit
+    // may lose the response after wallet broadcast. The only safe exception is
+    // an explicit pre-source approval rejection with no recorded source step.
+    const sourceStepObserved = steps.some(
+      (step) => step.name === 'burn' || step.name === 'transfer',
+    );
+    const provenPreSourceRejection =
+      !sourceStepObserved &&
+      failed?.name === 'approve' &&
+      !failed.txHash &&
+      steps.every(
+        (step) => step.name === 'approve' || step.name === 'estimate',
+      );
+
+    if (provenPreSourceRejection) {
+      return {
+        mode: 'START_NEW_AFTER_FIX',
+        resultState,
+        fundsInFlight: false,
+        sourceTransferSubmitted: false,
+        completedSteps,
+        failedStep: failed.name,
+        nextAction:
+          'The approval failed before any source transfer step. After resolving the rejection, obtain a new review/quote before starting a new bridge.',
+      };
+    }
+
     return {
-      mode: 'START_NEW_AFTER_FIX',
+      mode: 'RECONCILE_REQUIRED',
       resultState,
       fundsInFlight: false,
       sourceTransferSubmitted: false,
       completedSteps,
       failedStep: failed?.name ?? null,
       nextAction:
-        'No source transfer was submitted. Fix the reported cause, obtain a fresh review/quote, then the user may start a new bridge.',
+        'Source submission is uncertain. Keep the original action locked and reconcile wallet, provider, and chain evidence. Do not submit a new bridge or burn.',
     };
   }
 
