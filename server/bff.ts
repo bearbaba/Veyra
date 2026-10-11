@@ -79,6 +79,12 @@ import {
   recordDestinationSubmission,
 } from './db/repositories/bridgeDestinationSubmissionRepository.js';
 import type { Address } from 'viem';
+import {
+  verifyRevertedCctpDestinationReceiveFromNetwork,
+} from './services/cctpDestinationRevertVerificationService.js';
+import {
+  recordVerifiedFirstDestinationRevert,
+} from './db/repositories/bridgeDestinationRevertRepository.js';
 import { assertSelfRelayTransactionMatchesCheckpoint } from './services/cctpSelfRelayVerification.js';
 import { verifyCctpSourceCheckpointAttestationFromNetwork } from './services/cctpBridgeSourceAttestationService.js';
 import { receiptStatusEnum } from './db/schema/enums.js';
@@ -1624,6 +1630,72 @@ app.get('/api/bridge/pending', IDENTITY_RATE, async (req: Request, res: Response
   } catch (err) {
     console.error('[BFF] /api/bridge/pending error:', err);
     res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+/**
+ * Authenticated read-only on-chain resolution of a FIRST destination revert.
+ * No browser-supplied tx hash, block, status or confirmations are accepted.
+ * Recording this append-only evidence NEVER authorizes a second receiveMessage.
+ */
+app.post('/api/bridge/resolve-destination-revert', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const planId = typeof body?.planId === 'string' ? body.planId : '';
+    if (!planId || planId.length > 160) {
+      res.status(400).json({ ok: false, error: 'INVALID_BRIDGE_PLAN' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(db, userId, planId);
+    if (!checkpoint) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+    const claim = await getDestinationSubmissionClaim(db, userId, planId);
+    if (!claim || claim.mode !== 'ALREADY_SUBMITTED') {
+      throw new BridgeRecoveryConflictError(
+        'A canonical first destination receive hash must be recorded before revert resolution.',
+      );
+    }
+
+    const proof = await verifyRevertedCctpDestinationReceiveFromNetwork(
+      checkpoint,
+      claim.txHash,
+    );
+    const recorded = await recordVerifiedFirstDestinationRevert(
+      db,
+      userId,
+      planId,
+      proof,
+    );
+
+    res.json({
+      ok: true,
+      planId,
+      outcome: 'REVERTED',
+      attemptNumber: 1,
+      evidence: recorded,
+      retryAuthorized: false,
+    });
+  } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'DESTINATION_REVERT_NOT_VERIFIED',
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/bridge/resolve-destination-revert error:', err);
+    res.status(503).json({ ok: false, error: 'DESTINATION_REVERT_EVIDENCE_UNAVAILABLE' });
   }
 });
 
