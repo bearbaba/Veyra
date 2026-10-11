@@ -224,7 +224,7 @@ describe('Phase 5 source attestation evidence before destination self-relay sign
     const multiple = {
       ...receipt,
       logs: [...receipt.logs, receipt.logs[1]],
-    } as TransactionReceipt;
+    };
     expect(() =>
       assertCctpSourceCheckpointAttestation(
         checkpoint(), multiple, sourceTransaction(), circle,
