@@ -92,6 +92,58 @@ wallet). Do not treat identities, remote receipts or bridge execution as
 functional without an independently verified BFF. Keep the
 first deployment private/restricted if testing with real accounts.
 
+## Live direct USDC payment beta (limited, opt-in testnet-only)
+
+The Vercel Git Preview build now explicitly sets
+`VITE_VEYRA_TESTNET_PAY=1` **alongside**
+`VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1`. That flag selects a
+**separate, independently coded** `PreviewTestnetPayPage` inside
+`src/preview/PreviewApp.tsx`; it does NOT load the full Veyra finance
+execution runtime or override the original `assertExecutionReady` gate.
+
+Scope and requirements:
+
+- **Actually sends:** direct wallet-authorized ERC-20
+  `transfer(recipient, amount)` on Arc Testnet 5042002 to a complete
+  EVM wallet address; uses the canonical onchain-facts USDC contract
+  `0x3600000000000000000000000000000000000000`.
+- **Hard per-transaction cap:** 1.000000 *testnet* USDC maximum, six
+  decimal places, no approvals, no permits and no arbitrary contract
+  or token selection; not a daily quota or a multi-wallet spend limit.
+- **Human-in-the-loop:** the user must connect their own injected wallet,
+  manually switch it to Arc Testnet, enter a recipient/amount, inspect a
+  visible immutable review, check the explicit acknowledgement and
+  **personally accept the wallet's transaction request**. Veyra does not
+  sign on the user's behalf.
+- **RPC preflight:** independent Arc Testnet `eth_chainId` read, wallet
+  `eth_chainId`, `eth_accounts` and the reviewed USDC `balanceOf`
+  must all agree before requesting `eth_sendTransaction`.
+- **Receipt verification:** no green result from a returned hash alone.
+  `eth_getTransactionByHash` must exactly match the sender,
+  recipient-transmitter contract and reviewed calldata;
+  `eth_getTransactionReceipt` must be successful, include the
+  matching ERC-20 `Transfer(from, to, amount)`, have a canonical
+  block hash and at least two confirmations. A revert, mismatched log,
+  wrong chain, RPC error or reorg never produces VERIFIED.
+- **Lost response:** the browser saves a local per-account submission
+  journal before calling the wallet. A known hash survives reload and
+  can be rechecked; an uncertain wallet response stays locked until
+  the original transaction hash can be recovered independently.
+  The app does **not** repeat the send automatically. LocalStorage is
+  a recovery convenience only, not authoritative cross-device history.
+- **Still disabled:** payments to Veyra IDs, real StableFX conversions,
+  CCTP source burns/destination relays, cloud ActivityReceipt,
+  identity-based sessions and mainnet. Those require the authenticated
+  backend and separate live security acceptance.
+
+Do a disposable-wallet test with a very small Arc Testnet USDC amount.
+The account also needs sufficient native Arc Testnet gas token (its gas
+decimals differ from ERC-20 USDC decimals). Wallet and Arc RPC availability
+or browser CORS can prevent a transaction; never infer success from a
+missing response. A green GitHub CI with mocked RPC **is not** proof that
+a hosted user has completed a live transaction. Capture the real explorer
+link/tx receipt in the PR before calling this path field-accepted.
+
 ## Second milestone: connected testnet preview
 
 Provision a separate deployment for the BFF (or add a fully tested Functions
