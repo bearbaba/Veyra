@@ -8,6 +8,7 @@ export type SignerBackend = 'none' | 'dev-private-key' | 'kms';
 export interface ServerRuntimeConfig {
   environment: ServerEnvironment;
   nodeEnv: string;
+  hostedBackend: boolean;
   databaseUrl?: string;
   appOrigin?: string;
   sessionSecretConfigured: boolean;
@@ -44,6 +45,7 @@ export function readServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env): S
   return {
     environment: resolveServerEnvironment(env),
     nodeEnv: env.NODE_ENV ?? 'development',
+    hostedBackend: env.VEYRA_HOSTED_BACKEND === '1',
     databaseUrl: env.DATABASE_URL,
     appOrigin: env.VEYRA_APP_ORIGIN,
     sessionSecretConfigured: Boolean(env.VEYRA_SESSION_SECRET && env.VEYRA_SESSION_SECRET.length >= 32),
@@ -76,6 +78,45 @@ export function validateServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env
   const warnings: string[] = [];
 
   if (config.environment !== 'mainnet') {
+    if (config.hostedBackend) {
+      // The local/dev testnet BFF stays usable without infrastructure. Only
+      // a public hosted backend is required to pass these non-negotiable
+      // identity, transport, database and relay-signing preflight gates.
+      if (config.environment !== 'testnet') {
+        errors.push('Hosted BFF requires VEYRA_ENV=testnet; mainnet has a separate deployment gate.');
+      }
+      if (config.nodeEnv !== 'production') {
+        errors.push('Hosted BFF requires NODE_ENV=production, disabling dev identity headers.');
+      }
+      if (!config.databaseUrl) {
+        errors.push('Hosted BFF requires DATABASE_URL.');
+      } else {
+        try {
+          const db = new URL(config.databaseUrl);
+          if (!['postgres:', 'postgresql:'].includes(db.protocol) || !db.hostname ||
+              /^(localhost|127\\.0\\.0\\.1|::1)$/i.test(db.hostname)) {
+            errors.push('Hosted BFF requires a non-local PostgreSQL database URL.');
+          }
+          const sslMode = db.searchParams.get('sslmode');
+          const tlsConfigured = ['require', 'verify-ca', 'verify-full'].includes(sslMode ?? '');
+          if (!tlsConfigured && env.VEYRA_DATABASE_PRIVATE_NETWORK !== '1') {
+            errors.push('Hosted BFF requires PostgreSQL TLS (sslmode=require/verify-full) or an explicitly private database network.');
+          }
+        } catch {
+          errors.push('Hosted BFF DATABASE_URL is not a valid PostgreSQL URL.');
+        }
+      }
+      if (!config.sessionSecretConfigured) {
+        errors.push('Hosted BFF requires VEYRA_SESSION_SECRET of at least 32 characters.');
+      }
+      if (!isHttpsUrl(config.appOrigin)) {
+        errors.push('Hosted BFF requires VEYRA_APP_ORIGIN with HTTPS.');
+      }
+      if (env.RELAY_PRIVATE_KEY && env.VEYRA_ENABLE_TESTNET_RELAY !== '1') {
+        errors.push('Hosted BFF forbids RELAY_PRIVATE_KEY unless VEYRA_ENABLE_TESTNET_RELAY=1 is explicitly configured.');
+      }
+      return { ok: errors.length === 0, errors, warnings };
+    }
     if (!config.databaseUrl) warnings.push('DATABASE_URL is not configured; DB-backed routes will fail.');
     if (config.signerBackend === 'dev-private-key') warnings.push('Dev relay private key is configured; never reuse it for mainnet.');
     return { ok: true, errors, warnings };
