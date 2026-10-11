@@ -168,6 +168,22 @@ export async function verifyRevertedCctpDestinationReceiveFromNetwork(
     transport: http(rpcUrl),
   });
 
+  // A configured viem Chain object does not authenticate a user-provided
+  // RPC URL. Prove the actual network identity before accepting any receipt.
+  let actualChainId: number;
+  try {
+    actualChainId = await client.getChainId();
+  } catch {
+    throw new BridgeRecoveryConflictError(
+      'Destination revert RPC network identity unavailable; original attempt stays locked.',
+    );
+  }
+  if (actualChainId !== checkpoint.destinationChainId) {
+    throw new BridgeRecoveryConflictError(
+      'Destination revert RPC network does not match the reviewed destination chain.',
+    );
+  }
+
   return verifyRevertedCctpDestinationReceive(
     checkpoint,
     receiveTxHash,
