@@ -13,7 +13,7 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     };
     expect(config.framework).toBe('vite');
     expect(config.installCommand).toBe('bun install --frozen-lockfile');
-    expect(config.buildCommand).toBe('VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 bun run build');
+    expect(config.buildCommand).toBe('VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build');
     expect(config.outputDirectory).toBe('dist');
     expect(pkg.scripts?.build).toBe('vite build');
   });
@@ -97,6 +97,28 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
       expect(source).not.toMatch(/eth_sendTransaction|personal_sign|eth_signTypedData|wallet_sendCalls|useWriteContract|useWalletClient|sendTransaction|writeContract|depositForBurn/);
       expect(source).not.toMatch(/\/api\/(?:bridge|identity|activity|agent)/);
     }
+  });
+
+  it('allows exactly one explicitly authorized direct Arc testnet transfer, never bridge or mainnet signing', () => {
+    const app = read('src/preview/PreviewApp.tsx');
+    const source = read('src/preview/arcTestnetPay.ts');
+    const page = read('src/preview/PreviewTestnetPayPage.tsx');
+    const check = read('scripts/check-vercel-preview-bundle.ts');
+
+    expect(app).toContain("import.meta.env.VITE_VEYRA_TESTNET_PAY === '1'");
+    expect(app).toContain('<PreviewTestnetPayPage />');
+    expect(app).toContain('<UiOnlyPreviewPage surface={page} />');
+    expect(source).toContain('export const ARC_TESTNET_CHAIN_ID = 5042002');
+    expect(source).toContain('MAX_TESTNET_PAYMENT_UNITS = 1_000_000n');
+    expect(source).toContain("functionName: 'transfer'");
+    expect(source).toContain("method: 'eth_sendTransaction'");
+    expect(source).toContain('await assertArcRpcChain()');
+    expect(source).not.toMatch(/depositForBurn|receiveMessage|eth_signTypedData|personal_sign|approve\(/);
+    expect(page).toContain('I checked the chain, token, recipient and amount.');
+    expect(page).toContain('No automatic resubmission');
+    expect(check).toContain("VITE_VEYRA_TESTNET_PAY=1");
+    expect(check).toContain("match(/eth_sendTransaction/g)");
+    expect(check).toContain('CCTP receiveMessage ABI');
   });
 
   it('does not pretend the localhost BFF runs as a Vercel API', () => {
