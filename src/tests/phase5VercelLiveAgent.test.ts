@@ -107,7 +107,7 @@ describe('Phase 5 live Vercel agent: NO mock or canned answers', () => {
     expect(payload.max_tokens).toBe(450);
     expect(payload.messages[0]?.role).toBe('system');
     expect(payload.messages.filter((m) => m.role !== 'system')).toHaveLength(7);
-    expect(payload.messages.at(-1)?.content).toBe('Tôi muốn gửi USDC trên Arc');
+    expect(payload.messages[payload.messages.length - 1]?.content).toBe('Tôi muốn gửi USDC trên Arc');
   });
 
   it('upstream failure cannot masquerade as a successful Veyra AI response', async () => {
