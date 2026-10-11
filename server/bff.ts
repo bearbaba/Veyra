@@ -47,7 +47,11 @@ import { assertServerRuntimeConfig } from './config/runtimeConfig.js';
 import { getRateLimitPolicy } from './config/rateLimits.js';
 import { requestObservability } from './middleware/observability.js';
 import { PROVIDER_MANIFEST } from '../src/providers/registry/providerManifest.js';
-import { verifyCctpSourceReceiptEvidence } from '../src/providers/cctp/cctpV2Adapter.js';
+import {
+  extractUniqueCctpSourceMessage,
+  parseUniqueCctpAttestationResponse,
+  verifyCctpSourceReceiptEvidence,
+} from '../src/providers/cctp/cctpV2Adapter.js';
 import { evaluateMainnetReadiness } from './readiness/mainnetReadiness.js';
 import { probeSignerReadiness } from './readiness/signerReadiness.js';
 import { probeDatabaseReadiness } from './readiness/databaseReadiness.js';
@@ -1898,23 +1902,32 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
       return;
     }
 
-    const attestationPayload = await attestationResponse.json() as {
-      messages?: Array<{
-        status?: string;
-        message?: string;
-        attestation?: string;
-      }>;
-    };
-    const authoritativeAttestation = attestationPayload.messages?.[0];
+    let authoritativeAttestation;
+    try {
+      authoritativeAttestation = parseUniqueCctpAttestationResponse(
+        await attestationResponse.json(),
+      );
+    } catch {
+      throw new BridgeRecoveryConflictError(
+        'Circle returned malformed or multiple CCTP messages; destination relay requires unambiguous source attestation.',
+      );
+    }
+
+    const sourceMessage = extractUniqueCctpSourceMessage(sourceReceipt);
     if (
-      authoritativeAttestation?.status !== 'complete' ||
+      authoritativeAttestation.status !== 'complete' ||
       !authoritativeAttestation.message ||
       !authoritativeAttestation.attestation ||
-      authoritativeAttestation.message !== checkpoint.attestationMessage ||
-      authoritativeAttestation.attestation !== checkpoint.attestationSignature
+      !sourceMessage ||
+      authoritativeAttestation.message.toLowerCase() !==
+        sourceMessage.toLowerCase() ||
+      authoritativeAttestation.message.toLowerCase() !==
+        checkpoint.attestationMessage?.toLowerCase() ||
+      authoritativeAttestation.attestation.toLowerCase() !==
+        checkpoint.attestationSignature?.toLowerCase()
     ) {
       throw new BridgeRecoveryConflictError(
-        'Persisted CCTP attestation does not match Circle for the owned source burn',
+        'Circle CCTP attestation must match the single canonical MessageSent in the reviewed source burn and the persisted checkpoint.',
       );
     }
 
