@@ -72,6 +72,60 @@ export async function loadRemoteBridgeCheckpoints(): Promise<BridgeRecoveryCheck
 }
 
 
+/**
+ * Claim the unique destination submission slot before presenting a wallet
+ * signature for self-relay. Missing authentication/server errors are fatal:
+ * no wallet broadcast may occur without this durable cross-device lock.
+ */
+export async function claimSelfRelayDestinationRemote(planId: string): Promise<void> {
+  const headers = bridgeAuthHeaders();
+  if (Object.keys(headers).length === 0) {
+    throw new Error('Authenticated Veyra session required before self-relay signing.');
+  }
+
+  const response = await fetch('/api/bridge/claim-self-receive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify({ planId }),
+  });
+  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok || payload.ok !== true || payload.mode !== 'CLAIMED') {
+    throw new Error(
+      typeof payload.message === 'string'
+        ? payload.message
+        : 'Destination relay claim could not be confirmed. Do not sign a new receive transaction.',
+    );
+  }
+}
+
+/**
+ * A browser hash is only a hint. The server validates the transaction from
+ * the destination RPC and binds calldata to the immutable Circle attestation
+ * before writing the initial destination attempt to the shared audit ledger.
+ */
+export async function recordSelfRelayDestinationRemote(
+  planId: string,
+  txHash: string,
+): Promise<void> {
+  const headers = bridgeAuthHeaders();
+  if (Object.keys(headers).length === 0) {
+    throw new Error('Authenticated session required to reconcile a self-relay tx.');
+  }
+  const response = await fetch('/api/bridge/record-self-receive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify({ planId, txHash }),
+  });
+  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok || payload.ok !== true || payload.txHash !== txHash) {
+    throw new Error(
+      typeof payload.message === 'string'
+        ? payload.message
+        : 'Self-relay transaction has not yet been independently verified by the server.',
+    );
+  }
+}
+
 export type BridgeRelayRemoteResult =
   | { mode: 'UNAVAILABLE' }
   | { mode: 'SUBMITTED'; txHash: string }
