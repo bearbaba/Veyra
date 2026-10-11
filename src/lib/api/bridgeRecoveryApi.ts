@@ -230,6 +230,116 @@ export async function inspectDestinationNonceRemote(
   };
 }
 
+/**
+ * Cross-device attempt ledger is read-only, owner-scoped and authoritative.
+ * An UNCERTAIN slot (even with no hash) is NEVER an invitation to rebroadcast.
+ */
+export interface DestinationAttemptHistoryRemote {
+  planId: string;
+  sourceBurnTxHash: string;
+  destinationChainId: number;
+  first: {
+    receiveTxHash: string | null;
+    state: 'UNCLAIMED' | 'UNCERTAIN' | 'RECORDED';
+    reverted: boolean;
+    revertBlockHash: string | null;
+    confirmations: number | null;
+  };
+  second: {
+    receiveTxHash: string | null;
+    state: 'UNCLAIMED' | 'UNCERTAIN' | 'RECORDED';
+    verifiedMint: boolean;
+    mintBlockHash: string | null;
+    confirmations: number | null;
+  };
+  history: Array<{
+    attemptNumber: number;
+    eventType: string;
+    txHash: string | null;
+    occurredAt: string;
+  }>;
+}
+
+export async function loadDestinationAttemptHistoryRemote(
+  planId: string,
+): Promise<DestinationAttemptHistoryRemote> {
+  const auth = bridgeAuthHeaders();
+  if (Object.keys(auth).length === 0) {
+    throw new Error('Authenticated Veyra session required to load destination attempt history.');
+  }
+  const response = await fetch(
+    `/api/bridge/destination-attempts?planId=${encodeURIComponent(planId)}`,
+    { headers: auth },
+  );
+  const payload = await response.json().catch(() => ({})) as {
+    ok?: boolean;
+    retryAuthorized?: boolean;
+    history?: Partial<DestinationAttemptHistoryRemote>;
+    message?: string;
+  };
+  const h = payload.history;
+  if (
+    !response.ok ||
+    payload.ok !== true ||
+    payload.retryAuthorized !== false ||
+    !h ||
+    h.planId !== planId ||
+    !h.first ||
+    !h.second ||
+    !Array.isArray(h.history) ||
+    !['UNCLAIMED', 'UNCERTAIN', 'RECORDED'].includes(h.first.state) ||
+    !['UNCLAIMED', 'UNCERTAIN', 'RECORDED'].includes(h.second.state)
+  ) {
+    throw new Error(
+      payload.message ?? 'Authenticated attempt history unavailable. Do not retry.',
+    );
+  }
+  return h as DestinationAttemptHistoryRemote;
+}
+
+/**
+ * Recover an EXISTING attempt #2 broadcast hash only. The server rejects
+ * missing reservations, changed first revert, swapped chain/tx, different
+ * attestation or caller policy. This does not mark USDC minted or COMPLETE.
+ */
+export async function reconcileSecondReceiveRemote(
+  planId: string,
+  txHash: string,
+): Promise<void> {
+  const auth = bridgeAuthHeaders();
+  if (
+    Object.keys(auth).length === 0 ||
+    !/^0x[0-9a-fA-F]{64}$/.test(txHash)
+  ) {
+    throw new Error('Authenticated session and full existing second receive hash required.');
+  }
+  const response = await fetch('/api/bridge/reconcile-second-receive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify({ planId, txHash }),
+  });
+  const payload = await response.json().catch(() => ({})) as {
+    ok?: boolean;
+    attemptNumber?: number;
+    txHash?: string;
+    planId?: string;
+    retryAuthorized?: boolean;
+    message?: string;
+  };
+  if (
+    !response.ok ||
+    payload.ok !== true ||
+    payload.planId !== planId ||
+    payload.attemptNumber !== 2 ||
+    payload.retryAuthorized !== false ||
+    payload.txHash?.toLowerCase() !== txHash.toLowerCase()
+  ) {
+    throw new Error(
+      payload.message ?? 'Second transaction not independently verified. Retry slot stays locked.',
+    );
+  }
+}
+
 export type BridgeRelayRemoteResult =
   | { mode: 'UNAVAILABLE' }
   | { mode: 'SUBMITTED'; txHash: string }
