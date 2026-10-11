@@ -62,11 +62,13 @@ function isAuthenticated(raw: string | null): boolean {
   const expected = process.env.VEYRA_AGENT_BETA_TOKEN;
   if (!expected || expected.length < 24 || !raw?.startsWith('Bearer ')) return false;
   const actual = raw.slice(7);
-  if (actual.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(actual, 'utf8'), Buffer.from(expected, 'utf8'));
+  const provided = Buffer.from(actual, 'utf8');
+  const expectedBytes = Buffer.from(expected, 'utf8');
+  if (provided.length !== expectedBytes.length) return false;
+  return timingSafeEqual(provided, expectedBytes);
 }
 
-function sanitizeHistory(value: unknown): AgentInput['history'] {
+function sanitizeHistory(value: unknown): NonNullable<AgentInput['history']> {
   if (!Array.isArray(value)) return [];
   return value.slice(-MAX_HISTORY).flatMap((item: unknown) => {
     if (!item || typeof item !== 'object') return [];
