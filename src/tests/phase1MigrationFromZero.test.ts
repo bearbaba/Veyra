@@ -31,6 +31,7 @@ import { recordVerifiedFirstDestinationRevert } from '../../server/db/repositori
 import {
   claimSecondDestinationAttempt,
   getSecondDestinationAttempt,
+  getOwnedDestinationAttemptHistory,
   recordSecondDestinationAttemptHash,
 } from '../../server/db/repositories/bridgeDestinationRetryRepository.js';
 
@@ -528,6 +529,24 @@ describe('migration-from-zero: second destination attempt safety', () => {
     `);
     expect(events.rows.map((r) => r.event_type).sort())
       .toEqual(['BROADCAST_RECORDED', 'SUBMISSION_STARTED']);
+
+    const history = await getOwnedDestinationAttemptHistory(
+      db, 'usr_retry_two', planId,
+    );
+    expect(history).toMatchObject({
+      planId,
+      first: {
+        receiveTxHash: firstHash,
+        state: 'RECORDED',
+        reverted: true,
+        revertBlockHash: blockHash,
+      },
+      second: { receiveTxHash: secondHash, state: 'RECORDED' },
+    });
+    expect(history?.history).toHaveLength(4);
+    expect(await getOwnedDestinationAttemptHistory(
+      db, 'usr_self_relay', planId,
+    )).toBeNull();
 
     await expect(testPool.query(`
       UPDATE bridge_destination_retry_attempts SET receive_tx_hash = $1
