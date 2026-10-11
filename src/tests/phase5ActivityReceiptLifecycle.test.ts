@@ -123,6 +123,22 @@ describe('Phase 5 ActivityReceipt lifecycle', () => {
     }
   });
 
+  it('rejects terminal same-status syncs so completed receipts cannot be mutated', () => {
+    const terminal: ReceiptStatus[] = [
+      'COMPLETE',
+      'FAILED',
+      'INVALIDATED',
+      'DUPLICATE_DETECTED',
+      'CANCELLED',
+    ];
+    for (const status of terminal) {
+      expect(isReceiptTransitionAllowed(status, status), status).toBe(false);
+    }
+    // Non-terminal same-status sync remains available for advancing evidence
+    // without falsely claiming a new lifecycle state.
+    expect(isReceiptTransitionAllowed('BROADCAST', 'BROADCAST')).toBe(true);
+  });
+
   it('requires immutable CCTP burn evidence once broadcast is recorded', () => {
     const current = evidenceState({
       burnTxHash: SOURCE_TX,
