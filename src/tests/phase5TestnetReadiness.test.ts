@@ -9,6 +9,7 @@ import {
   REQUIRED_TESTNET_RPCS,
   evaluateTestnetReadiness,
   probeTestnetRpcEndpoints,
+  type TestnetRpcCheck,
 } from '../../server/readiness/testnetReadiness.js';
 
 const env: NodeJS.ProcessEnv = {
@@ -31,7 +32,7 @@ function readyDb() {
     drizzleMigrationCount: REQUIRED_DATABASE_MIGRATIONS,
   });
 }
-function readyRpc() {
+function readyRpc(): TestnetRpcCheck[] {
   return REQUIRED_TESTNET_RPCS.map(({ id, chainId }) => ({
     id, chainId, ok: true, detail: 'Pinned testnet RPC chain ID verified.',
   }));
