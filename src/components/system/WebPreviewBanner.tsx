@@ -41,7 +41,7 @@ export function WebPreviewBanner() {
       <div className="mx-auto flex max-w-5xl items-center gap-2 text-xs">
         <ShieldCheck className="size-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
         <span className="font-semibold" style={{ color: 'var(--ink-2)' }}>
-          {IS_UI_ONLY_PREVIEW ? 'Vercel UI Preview · signing disabled' : 'Web Preview'}
+          {IS_UI_ONLY_PREVIEW ? 'Vercel UI Preview · Signing disabled' : 'Web Preview'}
         </span>
         <span className="hidden sm:inline" style={{ color: 'var(--muted)' }}>
           {IS_UI_ONLY_PREVIEW
