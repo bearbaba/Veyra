@@ -32,6 +32,7 @@ interface PreviewWalletState {
   busy: boolean;
   error: string | null;
   activeWalletName: string | null;
+  activeProvider: InjectedPreviewProvider | null;
   connect: (walletId?: string) => Promise<void>;
   disconnect: () => void;
 }
@@ -152,6 +153,7 @@ export function PreviewWalletProvider({ children }: { children: ReactNode }) {
   const value = useMemo<PreviewWalletState>(() => ({
     address, chainId, wallets, busy, error,
     activeWalletName: active?.name ?? null,
+    activeProvider: active?.provider ?? null,
     connect, disconnect,
   }), [address, chainId, wallets, busy, error, active?.name, connect, disconnect]);
 
