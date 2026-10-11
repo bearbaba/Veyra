@@ -2,8 +2,8 @@
  * Phase 1 — migration-from-zero integration test.
  *
  * Creates a clean `veyra_migration_test` database, applies all migration
- * files in journal order (0000 through 0007), then verifies:
- *   - all 21 expected tables exist
+ * files in journal order (0000 through 0008), then verifies:
+ *   - all 23 expected tables exist
  *   - critical UNIQUE constraints are enforced
  *   - CHECK constraints reject invalid data
  *   - append-only triggers reject UPDATE/DELETE on execution_events
@@ -97,6 +97,11 @@ beforeAll(async () => {
       client,
       loadMigration('0007_phase5_activity_receipt_lifecycle.sql'),
     );
+    // 0008: Phase 5 first destination relay claim and append-only audit.
+    await execMigration(
+      client,
+      loadMigration('0008_phase5_destination_submission_claims.sql'),
+    );
   } finally {
     client.release();
   }
@@ -123,7 +128,7 @@ function pgTest(name: string, fn: () => Promise<void>) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('migration-from-zero: all 21 tables exist', () => {
+describe('migration-from-zero: all 23 tables exist', () => {
   const EXPECTED_TABLES = [
     'veyra_users',
     'handle_history',
@@ -146,6 +151,8 @@ describe('migration-from-zero: all 21 tables exist', () => {
     'post_interactions',
     'post_tips',
     'bridge_recovery_checkpoints',
+    'bridge_destination_submission_claims',
+    'bridge_destination_attempt_events',
   ];
 
   pgTest('all expected tables are created', async () => {
@@ -156,7 +163,56 @@ describe('migration-from-zero: all 21 tables exist', () => {
     for (const tbl of EXPECTED_TABLES) {
       expect(actual.has(tbl), `missing table: ${tbl}`).toBe(true);
     }
-    expect(res.rows.length).toBeGreaterThanOrEqual(21);
+    expect(res.rows.length).toBeGreaterThanOrEqual(23);
+  });
+});
+
+describe('migration-from-zero: destination relay claim integrity', () => {
+  pgTest('destination claims are unique and audit events are immutable', async () => {
+    await testPool.query(`
+      INSERT INTO veyra_users (veyr_user_id, veyr_handle, identity_revision, status)
+      VALUES ('usr_relaymig', 'relaymig', 1, 'ACTIVE')
+      ON CONFLICT DO NOTHING
+    `);
+    await testPool.query(`
+      INSERT INTO bridge_recovery_checkpoints
+        (plan_id, owner_user_id, stage, burn_tx_hash, source_chain_id,
+         destination_chain_id, wallet_address, recipient_address,
+         amount_raw, token_address, balance_before_raw)
+      VALUES
+        ('migration-relay-plan', 'usr_relaymig', 'ATTESTATION_READY',
+         '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+         5042002, 11155111, '0x1111111111111111111111111111111111111111',
+         '0x2222222222222222222222222222222222222222', 1000000,
+         '0x3333333333333333333333333333333333333333', 0)
+      ON CONFLICT DO NOTHING
+    `);
+    await testPool.query(`
+      INSERT INTO bridge_destination_submission_claims (plan_id, owner_user_id)
+      VALUES ('migration-relay-plan', 'usr_relaymig')
+    `);
+    await expect(
+      testPool.query(`
+        INSERT INTO bridge_destination_submission_claims (plan_id, owner_user_id)
+        VALUES ('migration-relay-plan', 'usr_relaymig')
+      `),
+    ).rejects.toMatchObject({ code: '23505' });
+
+    await testPool.query(`
+      INSERT INTO bridge_destination_attempt_events (event_id, plan_id, event_type)
+      VALUES ('relay-event-1', 'migration-relay-plan', 'SUBMISSION_STARTED')
+    `);
+    await expect(
+      testPool.query(`
+        UPDATE bridge_destination_attempt_events SET event_type = 'BROADCAST_RECORDED'
+        WHERE event_id = 'relay-event-1'
+      `),
+    ).rejects.toMatchObject({ code: 'P0001' });
+    await expect(
+      testPool.query(`
+        DELETE FROM bridge_destination_attempt_events WHERE event_id = 'relay-event-1'
+      `),
+    ).rejects.toMatchObject({ code: 'P0001' });
   });
 });
 
