@@ -148,14 +148,14 @@ beforeAll(async () => {
   } finally {
     client.release();
   }
-});
+}, 60_000); // 13 PostgreSQL migrations and DB recreation can exceed the default hook timeout under parallel CI.
 
 afterAll(async () => {
   if (pgSkipped) return;
   await testPool?.end().catch(() => undefined);
   await adminPool?.query(`DROP DATABASE IF EXISTS ${TEST_DB}`).catch(() => undefined);
   await adminPool?.end().catch(() => undefined);
-});
+}, 30_000);
 
 // ── Helper to skip individual tests when PG is unavailable ──────────────────
 
