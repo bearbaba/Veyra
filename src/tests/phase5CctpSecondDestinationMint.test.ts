@@ -168,10 +168,10 @@ describe('Phase 5 second CCTP receive canonical mint proof', () => {
 
   it('rejects wrong amount, wrong recipient, missing mint and duplicate mint', async () => {
     for (const chainReceipt of [
-      receipt({ logs: [mintLog(RECIPIENT, 999_999n)] as TransactionReceipt['logs'] }),
-      receipt({ logs: [mintLog(SENDER)] as TransactionReceipt['logs'] }),
+      receipt({ logs: [mintLog(RECIPIENT, 999_999n)] as unknown as TransactionReceipt['logs'] }),
+      receipt({ logs: [mintLog(SENDER)] as unknown as TransactionReceipt['logs'] }),
       receipt({ logs: [] }),
-      receipt({ logs: [mintLog(), mintLog()] as TransactionReceipt['logs'] }),
+      receipt({ logs: [mintLog(), mintLog()] as unknown as TransactionReceipt['logs'] }),
     ]) {
       await expect(checker({ chainReceipt }).proof).rejects
         .toThrow(/canonical USDC mint|exactly one reviewed USDC mint/i);
