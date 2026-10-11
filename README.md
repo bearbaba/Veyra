@@ -232,18 +232,24 @@ readiness is checked separately.
 **Frontend deployment configuration is now checked in:** `vercel.json`
 sets Vite, the locked Bun install, the forced
 `VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 bun run build` command and static `dist` output.
-In this build, Vite swaps the HTML entry to the **separate**
-`src/preview/main.tsx` React tree, which imports only static, offline Home,
-Agent, Activity, Settings and read-only Pay/Convert/Bridge screens — **no
-wallet connectors, transaction hooks, runtime signatures, BFF calls or real
-user receipts are bundled**. The full application also retains the canonical
-execution-time signing lock. This is compile-time isolation, not a UI toggle.
+In this build, Vite selects the **separate** `src/preview/main.tsx`
+React tree. The connected-preview dashboard now supports **real injected
+MetaMask/Rabby/Coinbase wallet account connection** via EIP-6963/EIP-1193
+(`eth_requestAccounts`), displays the wallet address and reads its
+**real Arc Testnet USDC balance** through read-only public RPC calls
+(`eth_chainId` + `eth_call`). Pay, Convert and Bridge expose interactive
+form previews; Agent remains explicitly scripted and Activity has an honest
+empty state without a backend. **No wallet signer, message signature,
+financial execution, backend credentials, BFF client or authenticated
+receipts are bundled.** The full application separately retains its
+canonical financial execution-time lock. This is build-time isolation, not
+a UI toggle; wallet connect is NOT payment authorization.
 
 CI separately builds the exact Vercel preview and runs
 `bun run check:vercel-preview-bundle` against the emitted JavaScript to
-reject signing RPCs, CCTP transaction ABI entrypoints or live backend paths. Vercel can publish this **UI-only preview** independently
-of CCTP E2E; no Vercel preview URL is claimed until actually deployed and
-verified.
+reject signing RPCs, CCTP transaction ABI entrypoints or live backend paths. Vercel can publish this **connected UI Preview** independently
+of CCTP E2E. A user-created Preview deployment has been reported, but public
+availability and hosted behavior have not been independently verified.
 
 **A frontend-only deployment is not a working full-stack demo.** The local
 Vite `/api` development proxy does not run on Vercel. Veyra uses a
