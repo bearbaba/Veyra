@@ -13,7 +13,7 @@ const MESSAGE_SENT_TOPIC =
 const MESSAGE = '0x12345678' as const;
 const OTHER_MESSAGE = '0xaabbccdd' as const;
 
-function messageLog(message: `0x${string}`) {
+function messageLog(message: `0x${string}`): { address: string; topics: string[]; data: `0x${string}` } {
   return {
     address: MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER,
     topics: [MESSAGE_SENT_TOPIC],
