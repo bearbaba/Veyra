@@ -16,6 +16,8 @@ import { MANIFEST_CONSTANTS } from '../../src/providers/registry/providerManifes
 import type { BridgeRecoveryInput } from '../db/repositories/bridgeRecoveryRepository.js';
 import { BridgeRecoveryConflictError } from '../db/repositories/bridgeRecoveryRepository.js';
 
+import { assertCctpDestinationRpcIdentity } from './cctpDestinationRpcIdentity.js';
+
 const RECEIVE_ABI = parseAbi([
   'function receiveMessage(bytes message, bytes attestation) returns (bool success)',
 ]);
@@ -178,11 +180,7 @@ export async function verifyRevertedCctpDestinationReceiveFromNetwork(
       'Destination revert RPC network identity unavailable; original attempt stays locked.',
     );
   }
-  if (actualChainId !== checkpoint.destinationChainId) {
-    throw new BridgeRecoveryConflictError(
-      'Destination revert RPC network does not match the reviewed destination chain.',
-    );
-  }
+  assertCctpDestinationRpcIdentity(checkpoint.destinationChainId, actualChainId);
 
   return verifyRevertedCctpDestinationReceive(
     checkpoint,
