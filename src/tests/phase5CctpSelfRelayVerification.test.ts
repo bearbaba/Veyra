@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { encodeFunctionData, parseAbi } from 'viem';
 import {
   assertSelfRelayTransactionMatchesCheckpoint,
+  assertSelfRelayNetworkEvidence,
 } from '../../server/services/cctpSelfRelayVerification.js';
 import type {
   BridgeRecoveryInput,
@@ -114,5 +115,39 @@ describe('Phase 5 self-relay authoritative transaction binding', () => {
         assertSelfRelayTransactionMatchesCheckpoint(value, transaction()),
       ).toThrow(/sender, target or attestation checkpoint/i);
     }
+  });
+});
+
+describe('Phase 5 lost-response self-relay hash reconciliation boundary', () => {
+  const hash = `0x${'9'.repeat(64)}`;
+
+  it('accepts only the exact indexed transaction on reviewed destination RPC chain', () => {
+    expect(() => assertSelfRelayNetworkEvidence(
+      checkpoint(),
+      hash,
+      MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID,
+      { ...transaction(), hash: hash.toUpperCase().replace('0X', '0x') },
+    )).not.toThrow();
+  });
+
+  it('rejects wrong RPC chain, malicious tx substitution and malformed hash', () => {
+    for (const [requested, chainId, indexed] of [
+      [hash, MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID, hash],
+      [hash, 5042002, hash],
+      [hash, Number.NaN, hash],
+      [hash, MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID, `0x${'8'.repeat(64)}`],
+      ['0xdead', MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID, hash],
+    ] as const) {
+      expect(() => assertSelfRelayNetworkEvidence(
+        checkpoint(), requested, chainId, { ...transaction(), hash: indexed },
+      )).toThrow(/hash or independent destination RPC chain ID mismatch/i);
+    }
+  });
+
+  it('also enforces the canonical CCTP call and intended wallet sender', () => {
+    expect(() => assertSelfRelayNetworkEvidence(
+      checkpoint(), hash, MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID,
+      { ...transaction({ from: SENDER }), hash },
+    )).toThrow(/sender, target or attestation checkpoint/i);
   });
 });
