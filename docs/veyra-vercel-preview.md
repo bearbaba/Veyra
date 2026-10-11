@@ -19,7 +19,11 @@ Browser -- HTTPS --> Vercel static Vite frontend (dist/)
 ```
 
 Vercel's Git deployment supports Vite build output; this repository now
-contains `vercel.json` for **the static frontend only**. The local Vite
+contains `vercel.json` for **the static frontend only**, with a mandatory
+`VITE_VEYRA_UI_ONLY=1 bun run build` command. The build-time lock cannot be
+turned off by a browser query param or a missing backend. The canonical
+financial execution gate rejects signing, and Pay/Convert/Bridge use
+read-only preview screens. Activity disables wallet-signing recovery. The local Vite
 development proxy (`vite.config.ts`, `/api` to `localhost:3001`) is NOT
 active on Vercel. There is intentionally **no production `/api` rewrite**
 in the initial config: silently forwarding user credentials or signed wallet
@@ -53,12 +57,15 @@ Do not put DB, API or relay secrets into the frontend.
    reports unavailable until the BFF is deployed. Do **not** treat a
    UI-only preview as a working payment/bridge demonstration.
 
-**UI-only preview restrictions:** no real mainnet assets, no recovery/signing
-attempts, and no claim that Pay, Agent, Activity persistence or CCTP
-execution is working. Frontend may still display wallet controls: do not
-authorize monetary transactions in this phase. Keep this first deployment
-private/restricted if testing with real accounts. The banner is informative,
-not a substitute for server-side enforcement.
+**UI-only preview restrictions:** this specific Vercel build cannot sign
+money-moving actions via Veyra's canonical execution pipeline. Pay, Convert
+and Bridge routes display read-only interactive flows. The Activity recovery
+button is suppressed, and the recovery runtime separately rejects resumption.
+Home may still display wallet-connection and identity controls; connecting a
+wallet is not a transfer. The Agent degrades to local fallback when the
+backend is unavailable. Do not treat identities, remote receipts or bridge
+execution as functional without an independently verified BFF. Keep the
+first deployment private/restricted if testing with real accounts.
 
 ## Second milestone: connected testnet preview
 
