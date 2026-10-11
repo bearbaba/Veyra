@@ -15,6 +15,7 @@ import {
   bridgeDestinationAttemptResolutions,
   bridgeDestinationRetryAttempts,
   bridgeDestinationRetryEvents,
+  bridgeDestinationRetryVerifications,
   bridgeDestinationSubmissionClaims,
   bridgeDestinationAttemptEvents,
   bridgeRecoveryCheckpoints,
@@ -241,6 +242,9 @@ export async function getOwnedDestinationAttemptHistory(
   second: {
     receiveTxHash: string | null;
     state: 'UNCLAIMED' | 'UNCERTAIN' | 'RECORDED';
+    verifiedMint: boolean;
+    mintBlockHash: string | null;
+    confirmations: number | null;
   };
   history: Array<{
     attemptNumber: number;
@@ -259,7 +263,7 @@ export async function getOwnedDestinationAttemptHistory(
     .limit(1);
   if (!checkpoint) return null;
 
-  const [[first], [proof], [second], firstEvents, retryEvents] = await Promise.all([
+  const [[first], [proof], [second], [secondMint], firstEvents, retryEvents] = await Promise.all([
     db.select().from(bridgeDestinationSubmissionClaims).where(and(
       eq(bridgeDestinationSubmissionClaims.planId, planId),
       eq(bridgeDestinationSubmissionClaims.ownerUserId, ownerUserId),
@@ -273,6 +277,11 @@ export async function getOwnedDestinationAttemptHistory(
       eq(bridgeDestinationRetryAttempts.planId, planId),
       eq(bridgeDestinationRetryAttempts.attemptNumber, 2),
       eq(bridgeDestinationRetryAttempts.ownerUserId, ownerUserId),
+    )).limit(1),
+    db.select().from(bridgeDestinationRetryVerifications).where(and(
+      eq(bridgeDestinationRetryVerifications.planId, planId),
+      eq(bridgeDestinationRetryVerifications.attemptNumber, 2),
+      eq(bridgeDestinationRetryVerifications.ownerUserId, ownerUserId),
     )).limit(1),
     db.select().from(bridgeDestinationAttemptEvents).where(
       eq(bridgeDestinationAttemptEvents.planId, planId),
@@ -313,6 +322,9 @@ export async function getOwnedDestinationAttemptHistory(
     second: {
       receiveTxHash: second?.receiveTxHash ?? null,
       state: !second ? 'UNCLAIMED' : second.receiveTxHash ? 'RECORDED' : 'UNCERTAIN',
+      verifiedMint: Boolean(secondMint),
+      mintBlockHash: secondMint?.destinationBlockHash ?? null,
+      confirmations: secondMint?.confirmations ?? null,
     },
     history,
   };
