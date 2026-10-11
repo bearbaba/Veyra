@@ -14,6 +14,8 @@ import { PayPage } from './components/pages/PayPage';
 import { ConvertPage } from './components/pages/ConvertPage';
 import { BridgePage } from './components/pages/BridgePage';
 import { ActivityPage } from './components/pages/ActivityPage';
+import { UiOnlyPreviewPage } from './components/pages/UiOnlyPreviewPage';
+import { IS_UI_ONLY_PREVIEW } from './lib/env';
 import { SettingsPage } from './components/pages/SettingsPage';
 
 export default function App() {
@@ -26,13 +28,13 @@ export default function App() {
       case 'agent':
         return <AgentPage onNavigate={setPage} />;
       case 'pay':
-        return <PayPage />;
+        return IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage />;
       case 'convert':
-        return <ConvertPage />;
+        return IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="convert" /> : <ConvertPage />;
       case 'bridge':
-        return <BridgePage />;
+        return IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="bridge" /> : <BridgePage />;
       case 'activity':
-        return <ActivityPage />;
+        return <ActivityPage readOnly={IS_UI_ONLY_PREVIEW} />;
       case 'settings':
         return <SettingsPage />;
       default:
