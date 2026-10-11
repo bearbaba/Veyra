@@ -70,8 +70,14 @@ export function PreviewWalletProvider({ children }: { children: ReactNode }) {
     window.dispatchEvent(new Event('eip6963:requestProvider'));
     // The live application's typing already declares Window.ethereum.
     // Narrow it locally instead of conflicting with that global interface.
-    const injected = (window as Window & { ethereum?: InjectedPreviewProvider }).ethereum;
-    if (injected && typeof injected.request === 'function') {
+    const rawInjected: unknown = (window as unknown as { ethereum?: unknown }).ethereum;
+    if (
+      rawInjected &&
+      typeof rawInjected === 'object' &&
+      'request' in rawInjected &&
+      typeof rawInjected.request === 'function'
+    ) {
+      const injected = rawInjected as InjectedPreviewProvider;
       setWallets((current) => current.some((w) => w.provider === injected)
         ? current : [...current, { id: 'injected', name: 'Injected wallet', provider: injected }]);
     }
