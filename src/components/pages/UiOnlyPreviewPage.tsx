@@ -5,7 +5,7 @@
  */
 import { useState } from 'react';
 import {
-  ArrowDown, ArrowLeftRight, ArrowRight, CheckCircle2, CreditCard,
+  ArrowDown, ArrowLeftRight, ArrowRight, CheckCircle2,
   Info, LockKeyhole, Route, SendHorizontal, ShieldCheck, Wallet,
 } from 'lucide-react';
 import { usePreviewWallet, shortPreviewAddress } from '../../preview/PreviewWallet';
