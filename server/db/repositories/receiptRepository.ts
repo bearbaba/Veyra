@@ -636,6 +636,137 @@ export async function transitionReceiptStatus(
   });
 }
 
+export interface VerifiedCctpSourceRevert {
+  burnTxHash: string;
+  sourceBlockNumber: number;
+  sourceBlockHash: string;
+  confirmations: number;
+}
+
+/**
+ * Exclusive server-side failure gate. A browser-reported FAILED status cannot
+ * close an in-flight CCTP receipt. Only a canonical, finality-checked, reverted
+ * source depositForBurn can do so, and only from BROADCAST.
+ */
+export function assertCctpSourceRevertFinalizable(
+  receipt: Pick<
+    typeof activityReceipts.$inferSelect,
+    | 'status'
+    | 'providerId'
+    | 'action'
+    | 'senderChainId'
+    | 'burnTxHash'
+    | 'burnChainId'
+    | 'burnBlockNumber'
+    | 'receiveTxHash'
+    | 'receiveChainId'
+    | 'receiveBlockNumber'
+  >,
+  proof: VerifiedCctpSourceRevert,
+): void {
+  if (
+    receipt.providerId !== 'cctp-v2-bridge' ||
+    receipt.action !== 'BRIDGE' ||
+    receipt.status !== 'BROADCAST' ||
+    !receipt.burnTxHash ||
+    receipt.burnTxHash.toLowerCase() !== proof.burnTxHash.toLowerCase() ||
+    receipt.burnChainId !== receipt.senderChainId ||
+    (receipt.burnBlockNumber !== null &&
+      receipt.burnBlockNumber !== proof.sourceBlockNumber) ||
+    receipt.receiveTxHash !== null ||
+    receipt.receiveChainId !== null ||
+    receipt.receiveBlockNumber !== null
+  ) {
+    throw new ReceiptTransitionError(
+      'Only the exact unreconciled BROADCAST CCTP burn can be finalized as reverted.',
+    );
+  }
+
+  if (
+    !Number.isSafeInteger(proof.sourceBlockNumber) ||
+    proof.sourceBlockNumber < 0 ||
+    !Number.isSafeInteger(proof.confirmations) ||
+    proof.confirmations < 12 ||
+    !/^0x[0-9a-fA-F]{64}$/.test(proof.burnTxHash) ||
+    !/^0x[0-9a-fA-F]{64}$/.test(proof.sourceBlockHash)
+  ) {
+    throw new ReceiptTransitionError(
+      'Verified source revert proof requires canonical block evidence and at least 12 confirmations.',
+    );
+  }
+}
+
+export async function finalizeVerifiedCctpSourceRevert(
+  db: DbClient,
+  senderUserId: string,
+  receiptId: string,
+  proof: VerifiedCctpSourceRevert,
+): Promise<typeof activityReceipts.$inferSelect> {
+  return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select()
+      .from(activityReceipts)
+      .where(
+        and(
+          eq(activityReceipts.receiptId, receiptId),
+          eq(activityReceipts.senderUserId, senderUserId),
+        ),
+      )
+      .for('update');
+
+    if (!current) {
+      throw new ReceiptTransitionError(
+        'ActivityReceipt not found for authenticated owner.',
+      );
+    }
+
+    // Re-check immutable identity and status AFTER obtaining the row lock:
+    // a concurrent SOURCE_CONFIRMED transition must always win over a stale
+    // external revert-verification attempt.
+    assertCctpSourceRevertFinalizable(current, proof);
+
+    const now = new Date();
+    const [updated] = await tx
+      .update(activityReceipts)
+      .set({
+        status: 'FAILED',
+        revision: sql`${activityReceipts.revision} + 1`,
+        burnBlockNumber: proof.sourceBlockNumber,
+        failureReason: 'SOURCE_TRANSACTION_REVERTED_VERIFIED',
+        failedAt: now,
+        updatedAt: now,
+        lastWrittenAt: now,
+        lastWrittenBy: 'bff',
+        resumable: false,
+        resumePayload: null,
+      })
+      .where(eq(activityReceipts.receiptId, receiptId))
+      .returning();
+
+    if (!updated) {
+      throw new ReceiptTransitionError('Source revert finalization failed.');
+    }
+
+    await insertTransitionEvent(
+      tx,
+      receiptId,
+      'bff',
+      current.status,
+      'FAILED',
+      {
+        reason: 'SOURCE_TRANSACTION_REVERTED_VERIFIED',
+        burnTxHash: proof.burnTxHash,
+        sourceBlockNumber: proof.sourceBlockNumber,
+        sourceBlockHash: proof.sourceBlockHash,
+        confirmations: proof.confirmations,
+        verification: 'SERVER_CANONICAL_REVERT_AND_CALLDATA',
+      },
+    );
+
+    return updated;
+  });
+}
+
 /** Append an execution-specific event without mutating prior audit history. */
 export async function appendEvent(
   db: DbClient,
