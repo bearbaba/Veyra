@@ -133,10 +133,18 @@ jobs:
             cat /tmp/veyra-bff-unauth.json
             exit 1
           fi
-          cors=$(curl --silent --head --header "Origin: https://untrusted.example" \
+          # A hostile Origin MUST receive no cross-origin permission.
+          denied_cors=$(curl --silent --head --header "Origin: https://untrusted.example" \
             "http://127.0.0.1:3001/api/health" | grep -i '^access-control-allow-origin:' || true)
-          if ! printf '%s' "$cors" | grep -q 'https://veyra.example'; then
-            echo "ERROR: hosted backend CORS origin not pinned"
+          if [ -n "$denied_cors" ]; then
+            echo "ERROR: hosted backend allowed a hostile CORS origin: $denied_cors"
+            exit 1
+          fi
+          # The one reviewed HTTPS UI Origin MUST be reflected exactly.
+          approved_cors=$(curl --silent --head --header "Origin: https://veyra.example" \
+            "http://127.0.0.1:3001/api/health" | grep -i '^access-control-allow-origin:' || true)
+          if ! printf '%s' "$approved_cors" | grep -qi '^access-control-allow-origin: https://veyra.example'; then
+            echo "ERROR: hosted backend did not allow its exact configured HTTPS origin"
             exit 1
           fi
           echo "Hosted testnet BFF HTTP startup / auth / CORS gates: PASS"
