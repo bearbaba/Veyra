@@ -224,6 +224,22 @@ export async function verifySecondCctpDestinationMintFromNetwork(
     transport: http(rpcUrl),
   });
 
+  // The RPC endpoint must independently report the reviewed destination
+  // chain, not merely inherit the viem client configuration.
+  let actualChainId: number;
+  try {
+    actualChainId = await client.getChainId();
+  } catch {
+    throw new BridgeRecoveryConflictError(
+      'Second destination mint RPC network identity unavailable; preserve retry evidence.',
+    );
+  }
+  if (actualChainId !== checkpoint.destinationChainId) {
+    throw new BridgeRecoveryConflictError(
+      'Second destination mint RPC network mismatches the reviewed chain.',
+    );
+  }
+
   return verifySecondCctpDestinationMint(
     checkpoint,
     secondTxHash,
