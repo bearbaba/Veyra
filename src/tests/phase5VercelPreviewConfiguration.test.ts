@@ -121,6 +121,29 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     expect(check).toContain('CCTP receiveMessage ABI');
   });
 
+  it('uses only a genuine server-side AI provider, never scripted fallback replies', () => {
+    const app = read('src/preview/PreviewApp.tsx');
+    const surfaces = read('src/preview/PreviewSurfaces.tsx');
+    const agent = read('src/preview/PreviewLiveAgent.tsx');
+    const serverless = read('api/agent/chat.ts');
+    const audit = read('scripts/check-vercel-preview-bundle.ts');
+
+    expect(app).toContain("import { PreviewLiveAgent } from './PreviewLiveAgent'");
+    expect(app).toContain('<PreviewLiveAgent onNavigate={setPage} />');
+    expect(surfaces).not.toContain('function explain(');
+    expect(surfaces).not.toContain('export function PreviewAgent(');
+    expect(agent).toContain("fetch('/api/agent/chat'");
+    expect(agent).toContain('Mã truy cập');
+    expect(agent).not.toContain('createFallbackAgentResponse');
+    expect(serverless).toContain('https://api.openai.com/v1/chat/completions');
+    expect(serverless).toContain('VEYRA_AGENT_BETA_TOKEN');
+    expect(serverless).toContain('process.env.OPENAI_API_KEY');
+    expect(serverless).toContain('store: false');
+    expect(serverless).not.toContain('local-fallback');
+    expect(audit).toContain('live AI function is the only permitted');
+    expect(audit).toContain('genuine Vercel AI endpoint path absent');
+  });
+
   it('does not pretend the localhost BFF runs as a Vercel API', () => {
     const config = JSON.parse(read('vercel.json')) as {
       rewrites?: Array<{ source?: string; destination?: string }>;
