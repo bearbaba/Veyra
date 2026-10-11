@@ -147,5 +147,24 @@ jobs:
             echo "ERROR: hosted backend did not allow its exact configured HTTPS origin"
             exit 1
           fi
+          # The hosted testnet has NO database or RPCs in this smoke setup:
+          # readiness must fail closed, not report generic health as release OK
+          # and not invoke mainnet-only KMS/provider activation criteria.
+          readiness_code=$(curl --silent --output /tmp/veyra-testnet-readiness.json \
+            --write-out '%{http_code}' "http://127.0.0.1:3001/api/health/readiness")
+          if [ "$readiness_code" != "503" ]; then
+            echo "ERROR: testnet readiness incorrectly claimed healthy infrastructure"
+            cat /tmp/veyra-testnet-readiness.json
+            exit 1
+          fi
+          if ! grep -q '"scope":"infrastructure-only"' /tmp/veyra-testnet-readiness.json; then
+            echo "ERROR: testnet readiness has no honest infrastructure-only scope"
+            cat /tmp/veyra-testnet-readiness.json
+            exit 1
+          fi
+          if ! grep -q '"financialAcceptanceReady":false' /tmp/veyra-testnet-readiness.json; then
+            echo "ERROR: testnet health is claiming signed financial acceptance"
+            exit 1
+          fi
           echo "Hosted testnet BFF HTTP startup / auth / CORS gates: PASS"
 
