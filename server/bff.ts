@@ -83,6 +83,7 @@ import { getOwnedDestinationAttemptHistory } from './db/repositories/bridgeDesti
 import { getSecondDestinationAttempt } from './db/repositories/bridgeDestinationRetryRepository.js';
 import { verifySecondCctpDestinationMintFromNetwork } from './services/cctpSecondDestinationVerificationService.js';
 import { recordVerifiedSecondDestinationMint } from './db/repositories/bridgeSecondDestinationVerificationRepository.js';
+import { finalizeVerifiedSecondCctpSettlement } from './db/repositories/bridgeSecondSettlementRepository.js';
 import { assertSelfRelayTransactionMatchesCheckpoint } from './services/cctpSelfRelayVerification.js';
 import { verifyCctpSourceCheckpointAttestationFromNetwork } from './services/cctpBridgeSourceAttestationService.js';
 import { receiptStatusEnum } from './db/schema/enums.js';
@@ -1747,6 +1748,91 @@ app.post('/api/bridge/verify-second-destination', IDENTITY_RATE, async (req: Req
     }
     console.error('[BFF] /api/bridge/verify-second-destination error:', err);
     res.status(503).json({ ok: false, error: 'SECOND_DESTINATION_EVIDENCE_UNAVAILABLE' });
+  }
+});
+
+/**
+ * Server-only terminal ActivityReceipt gate for a VERIFIED second CCTP mint.
+ * The first receive hash remains immutable; separate settlement fields and
+ * audit event identify the actual successful second destination transaction.
+ */
+app.post('/api/bridge/finalize-second-settlement', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const planId = typeof body?.planId === 'string' ? body.planId.trim() : '';
+    if (!planId || planId.length > 160) {
+      res.status(400).json({ ok: false, error: 'INVALID_BRIDGE_PLAN' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(db, userId, planId);
+    if (!checkpoint) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+    if (checkpoint.stage !== 'DESTINATION_BROADCAST') {
+      throw new BridgeRecoveryConflictError(
+        'Second settlement requires the original destination broadcast checkpoint.',
+      );
+    }
+
+    const retry = await getSecondDestinationAttempt(db, userId, planId);
+    if (!retry || retry.mode !== 'ALREADY_SUBMITTED') {
+      throw new BridgeRecoveryConflictError(
+        'No recorded second destination receive can be settled.',
+      );
+    }
+
+    // Revalidate independent Arc/Circle and destination finality NOW, rather
+    // than only relying on a previously observed browser or DB status.
+    await verifyCctpSourceCheckpointAttestationFromNetwork({
+      ...checkpoint,
+      stage: 'ATTESTATION_READY',
+    });
+    const proof = await verifySecondCctpDestinationMintFromNetwork(
+      checkpoint,
+      retry.txHash,
+    );
+    const token = checkpoint.destinationChainId ===
+      MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID
+      ? MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC
+      : MANIFEST_CONSTANTS.BASE_SEPOLIA_USDC;
+    await recordVerifiedSecondDestinationMint(
+      db, userId, planId, proof, token,
+    );
+    const settled = await finalizeVerifiedSecondCctpSettlement(
+      db, userId, planId,
+    );
+
+    res.json({
+      ok: true,
+      planId,
+      receiptId: settled.receiptId,
+      status: settled.status,
+      firstReceiveTxHash: settled.receiveTxHash,
+      settlementReceiveTxHash: settled.settlementReceiveTxHash,
+      settlementReceiveBlockNumber: settled.settlementReceiveBlockNumber,
+      settlementAttemptNumber: settled.settlementAttemptNumber,
+      retryAuthorized: false,
+    });
+  } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'SECOND_CCTP_SETTLEMENT_NOT_VERIFIED',
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/bridge/finalize-second-settlement error:', err);
+    res.status(503).json({ ok: false, error: 'SECOND_SETTLEMENT_EVIDENCE_UNAVAILABLE' });
   }
 });
 
