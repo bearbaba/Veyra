@@ -273,11 +273,14 @@ function assertUnchangedEvidence<T>(
   field: string,
   normalize: (value: T) => unknown = (value) => value,
 ): void {
+  // Explicit null is NOT the same as an omitted field. Once evidence has
+  // been persisted, neither clearing it with null nor replacing it is safe.
+  // Otherwise sync validation can see the current hash via ?? while the SQL
+  // update writes null and silently erases irreversible transaction evidence.
   if (
     current !== null &&
     incoming !== undefined &&
-    incoming !== null &&
-    normalize(current) !== normalize(incoming)
+    (incoming === null || normalize(current) !== normalize(incoming))
   ) {
     throw new ReceiptTransitionError(
       `${field} is immutable once recorded for an ActivityReceipt.`,
