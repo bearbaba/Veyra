@@ -351,10 +351,11 @@ describe('migration-from-zero: self-relay cross-device hash reconciliation', () 
     await expect(recordDestinationSubmission(
       db, 'usr_self_relay', 'claims-self-relay-plan', `0x${'1'.repeat(64)}`,
     )).rejects.toThrow(/already recorded/i);
-    expect(await testPool.query(
+    const events = await testPool.query<{ event_type: string }>(
       `SELECT event_type FROM bridge_destination_attempt_events
        WHERE plan_id = 'claims-self-relay-plan'`,
-    ).then((r) => r.rows)).toHaveLength(2);
+    );
+    expect(events.rows).toHaveLength(2);
   });
 });
 
