@@ -218,12 +218,13 @@ export function PreviewActivity({ onNavigate }: { onNavigate: (page: PreviewPage
     try {
       const value = localStorage.getItem(`veyra:arc-testnet-payment:v1:${wallet.address.toLowerCase()}`);
       if (value) {
-        const candidate = JSON.parse(value) as Partial<typeof latest> & Record<string, unknown>;
+        const candidate = JSON.parse(value) as Record<string, unknown>;
         if (typeof candidate.to === 'string' && /^0x[0-9a-fA-F]{40}$/.test(candidate.to) &&
             typeof candidate.amount === 'string' &&
-            ['AWAITING_WALLET', 'UNKNOWN', 'PENDING', 'VERIFIED', 'REVERTED'].includes(candidate.stage ?? '') &&
+            typeof candidate.stage === 'string' &&
+            ['AWAITING_WALLET', 'UNKNOWN', 'PENDING', 'VERIFIED', 'REVERTED'].includes(candidate.stage) &&
             (candidate.hash === null || (typeof candidate.hash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(candidate.hash)))) {
-          latest = { to: candidate.to, amount: candidate.amount, stage: candidate.stage!, hash: candidate.hash ?? null };
+          latest = { to: candidate.to, amount: candidate.amount, stage: candidate.stage, hash: typeof candidate.hash === 'string' ? candidate.hash : null };
         }
       }
     } catch { /* Local storage can be unavailable or have invalid entries */ }
