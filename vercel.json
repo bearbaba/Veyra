@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "installCommand": "bun install --frozen-lockfile",
-  "buildCommand": "VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 bun run build",
+  "buildCommand": "VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build",
   "outputDirectory": "dist",
   "headers": [
     {
