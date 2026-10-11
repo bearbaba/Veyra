@@ -35,6 +35,13 @@ describe('Phase 5 hosted backend deployment gates', () => {
     expect(() => assertServerRuntimeConfig(hosted)).not.toThrow();
     rejects({ VEYRA_ENV: 'local' }, 'VEYRA_ENV=testnet');
     rejects({ NODE_ENV: 'development' }, 'NODE_ENV=production');
+    expect(readServerRuntimeConfig({
+      ...hosted, VEYRA_HOSTED_BACKEND: undefined,
+    }).hostedBackend).toBe(true);
+    expect(validateServerRuntimeConfig({
+      ...hosted, VEYRA_HOSTED_BACKEND: undefined,
+      DATABASE_URL: undefined,
+    }).ok).toBe(false);
   });
 
   it('refuses a hosted public BFF without database credentials, TLS or a private network', () => {
@@ -77,6 +84,10 @@ describe('Phase 5 hosted backend deployment gates', () => {
       VEYRA_ENV: 'local',
       NODE_ENV: 'development',
     }).ok).toBe(true);
+    expect(validateServerRuntimeConfig({
+      VEYRA_ENV: 'local',
+      NODE_ENV: 'production',
+    }).errors.join(' ')).toContain('cannot start with VEYRA_ENV=local');
     expect(readServerRuntimeConfig({
       VEYRA_ENV: 'local',
     }).hostedBackend).toBe(false);
