@@ -64,6 +64,13 @@
       "when": 1791640000000,
       "tag": "0008_phase5_destination_submission_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791650000000,
+      "tag": "0009_phase5_destination_revert_evidence",
+      "breakpoints": true
     }
   ]
 }
