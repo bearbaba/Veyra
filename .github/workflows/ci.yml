@@ -82,3 +82,20 @@ jobs:
 
       - name: Assert no wallet signing and BFF code in preview JavaScript
         run: bun run check:vercel-preview-bundle
+
+      - name: Build hosted testnet Express BFF container
+        run: docker build -f Dockerfile.bff -t veyra-bff:ci .
+
+      - name: Assert hosted BFF refuses to start without required secrets
+        run: |
+          if docker run --rm veyra-bff:ci > /tmp/veyra-bff-boot.log 2>&1; then
+            echo "ERROR: public hosted BFF started with no database or session secret"
+            exit 1
+          fi
+          if ! grep -q 'Hosted BFF requires DATABASE_URL' /tmp/veyra-bff-boot.log; then
+            echo "ERROR: BFF did not fail for the required hosted-runtime reason"
+            cat /tmp/veyra-bff-boot.log
+            exit 1
+          fi
+          echo "Hosted testnet BFF startup safety gate: PASS"
+
