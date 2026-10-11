@@ -246,8 +246,25 @@ rather than sign a second receive. The BFF also now checks exact
 `DepositForBurn` source evidence before relay, not only the presence of
 `MessageSent`.
 
-**Remaining destination retry gate:** this initial durable claim deliberately
-permits only the FIRST server relay attempt. Subsequent distinct receive
+**Shared server/self-relay gate:** wallet-signed self-relay now uses the
+same owner-scoped PostgreSQL claim as the server relayer. Before requesting
+the destination wallet signature, Veyra commits the claim via
+`POST /api/bridge/claim-self-receive`. A second browser/device or server
+relay cannot bypass that claim. The wallet hash is persisted in local recovery
+immediately, then submitted to
+`POST /api/bridge/record-self-receive`. This endpoint independently reads
+the destination-chain transaction and verifies the sender is the reviewed
+recipient wallet, the call target is canonical MessageTransmitterV2, and
+the exact `receiveMessage` calldata contains the original persisted message
+and Circle attestation. Only then may PostgreSQL commit that hash to the
+immutable submission ledger. The repository also reconciles the exact
+hash when an asynchronous client checkpoint mirror advanced to
+`DESTINATION_BROADCAST` before the chain RPC indexed the transaction.
+Recovery retries verification of the *same* tx hash; it never signs again
+based on RPC timeouts. Any claim with an unknown hash remains locked.
+
+**Remaining destination retry gate:** this durable claim deliberately permits
+only the FIRST submission from either actor. Subsequent distinct receive
 transactions after a provably reverted destination transaction need a
 separate chain-verified attempt-resolution gate and append-only attempt history;
 they cannot overwrite the existing ActivityReceipt or checkpoint receive hash.
