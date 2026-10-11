@@ -94,7 +94,7 @@ export function validateServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env
         try {
           const db = new URL(config.databaseUrl);
           if (!['postgres:', 'postgresql:'].includes(db.protocol) || !db.hostname ||
-              /^(localhost|127\\.0\\.0\\.1|::1)$/i.test(db.hostname)) {
+              /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(db.hostname)) {
             errors.push('Hosted BFF requires a non-local PostgreSQL database URL.');
           }
           const sslMode = db.searchParams.get('sslmode');
@@ -111,6 +111,11 @@ export function validateServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env
       }
       if (!isHttpsUrl(config.appOrigin)) {
         errors.push('Hosted BFF requires VEYRA_APP_ORIGIN with HTTPS.');
+      } else {
+        const origin = new URL(config.appOrigin!);
+        if (origin.origin !== config.appOrigin || origin.username || origin.password) {
+          errors.push('Hosted BFF VEYRA_APP_ORIGIN must be an exact HTTPS origin without path, userinfo or trailing slash.');
+        }
       }
       if (env.RELAY_PRIVATE_KEY && env.VEYRA_ENABLE_TESTNET_RELAY !== '1') {
         errors.push('Hosted BFF forbids RELAY_PRIVATE_KEY unless VEYRA_ENABLE_TESTNET_RELAY=1 is explicitly configured.');
