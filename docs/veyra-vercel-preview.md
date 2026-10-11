@@ -20,7 +20,7 @@ Browser -- HTTPS --> Vercel static Vite frontend (dist/)
 
 Vercel's Git deployment supports Vite build output; this repository now
 contains `vercel.json` for **the static frontend only**, with a mandatory
-`VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 bun run build` command. The build-time lock cannot be
+`VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build` command. The build-time lock cannot be
 turned off by a browser query param or a missing backend. Vite selects
 `preview.html` as the **initial Rollup HTML input**, which imports
 `src/preview/main.tsx` and only dedicated offline Home, Agent, Activity, Settings and
@@ -28,9 +28,10 @@ read-only Pay/Convert/Bridge routes. It now includes **real injected
 wallet account connection** via EIP-6963/EIP-1193 (`eth_requestAccounts`,
 `eth_accounts`, `eth_chainId`) and Arc Testnet **read-only USDC balance**
 queries using the generated on-chain facts registry (RPC `eth_chainId`
-plus `eth_call balanceOf`). No wallet signer, message signature, payment
-approval, financial execution hooks, backend clients or ActivityReceipt
-recovery modules are imported into this published React entry. The resulting
+plus `eth_call balanceOf`). No wallet signer, message signature, general payment execution hooks, backend clients or ActivityReceipt
+recovery modules are imported into this published React entry. One
+independently constrained direct Arc Testnet ERC-20 transfer signer is
+imported ONLY into the beta Pay page; no blanket approve or CCTP signing. The resulting
 `dist/preview.html` is renamed to `dist/index.html` only after build;
 trying to build both a live and preview HTML entry fails. The canonical financial
 execution gate remains fail-closed in the full application as defense in
@@ -69,9 +70,10 @@ Do not put DB, API or relay secrets into the frontend.
    reports unavailable until the BFF is deployed. Do **not** treat a
    UI-only preview as a working payment/bridge demonstration.
 
-**UI-only preview restrictions:** this specific Vercel build cannot sign
-money-moving actions via Veyra's canonical execution pipeline. Pay, Convert
-and Bridge routes display read-only interactive flows. The Activity recovery
+**UI-only preview restrictions:** the standalone Vercel Preview never imports Veyra's general money-moving
+execution pipeline. **Pay supports one capped direct Arc Testnet USDC
+wallet-signed transfer per explicit user approval.** Convert and Bridge
+remain read-only; no CCTP source burn can be initiated. The Activity recovery
 button is suppressed, and the recovery runtime separately rejects resumption.
 The updated Preview uses a dedicated responsive dark-fintech dashboard,
 real **browser-injected wallet connection** (MetaMask/Rabby/Coinbase Wallet
@@ -84,8 +86,9 @@ and server-signed identity are not available in this version. Public RPC
 readouts may fail if the remote RPC is unavailable or blocks browser CORS;
 the UI displays an error rather than inventing a balance.
 
-Pay, Convert and Bridge now expose interactive input/review forms; the review
-is explicitly a *non-signing preview*, with no live quotes or transfers.
+Pay, Convert and Bridge now expose interactive input/review forms; the review is *non-signing* for Convert/Bridge. Pay has a separate,
+clearly labeled live testnet-only route with user-signed wallet transfer
+and on-chain verification, but no identity resolution.
 Agent has labeled deterministic explanations (not an LLM) and Activity
 shows an honest empty state (not fictional transactions for a connected
 wallet). Do not treat identities, remote receipts or bridge execution as
@@ -221,7 +224,7 @@ bun run test -- --run
 bun run build
 bun run check:prod-bundle
 # The real Vercel frontend build:
-VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 bun run build
+VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build
 bun run check:vercel-preview-bundle
 ```
 
