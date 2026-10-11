@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PROVIDER_MANIFEST } from '../providers/registry/providerManifest.js';
-import { REQUIRED_PRODUCTION_TABLES, assessDatabaseSnapshot } from '../../server/readiness/databaseReadiness.js';
+import { REQUIRED_PRODUCTION_TABLES, REQUIRED_PHASE5_RECEIPT_COLUMNS, assessDatabaseSnapshot } from '../../server/readiness/databaseReadiness.js';
 import { evaluateMainnetReadiness } from '../../server/readiness/mainnetReadiness.js';
 
 describe('Phase 3C mainnet readiness gate', () => {
@@ -13,7 +13,7 @@ describe('Phase 3C mainnet readiness gate', () => {
   };
 
   it('recognizes the verified mainnet provider catalog but still blocks execution', () => {
-    const database = assessDatabaseSnapshot({ connected: true, tables: [...REQUIRED_PRODUCTION_TABLES], drizzleMigrationCount: 6 });
+    const database = assessDatabaseSnapshot({ connected: true, tables: [...REQUIRED_PRODUCTION_TABLES], activityReceiptColumns: [...REQUIRED_PHASE5_RECEIPT_COLUMNS], drizzleMigrationCount: 13 });
     const signer = { ready: true, checks: [{ id: 'signer-health', ok: true, detail: 'ok' }] };
     const report = evaluateMainnetReadiness(safeEnv, PROVIDER_MANIFEST, { database, signer });
     expect(report.checks.find((c) => c.id === 'mainnet-provider-catalog')?.ok).toBe(true);
