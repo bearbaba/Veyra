@@ -2,7 +2,7 @@
  * Phase 1 — migration-from-zero integration test.
  *
  * Creates a clean `veyra_migration_test` database, applies all migration
- * files in journal order (0000 through 0011), then verifies:
+ * files in journal order (0000 through 0012), then verifies:
  *   - all 27 expected tables exist
  *   - critical UNIQUE constraints are enforced
  *   - CHECK constraints reject invalid data
@@ -31,6 +31,9 @@ import { recordVerifiedFirstDestinationRevert } from '../../server/db/repositori
 import {
   recordVerifiedSecondDestinationMint,
 } from '../../server/db/repositories/bridgeSecondDestinationVerificationRepository.js';
+import {
+  finalizeVerifiedSecondCctpSettlement,
+} from '../../server/db/repositories/bridgeSecondSettlementRepository.js';
 import {
   claimSecondDestinationAttempt,
   getSecondDestinationAttempt,
@@ -135,6 +138,11 @@ beforeAll(async () => {
     await execMigration(
       client,
       loadMigration('0011_phase5_second_destination_verification.sql'),
+    );
+    // 0012: Explicit immutable verified settlement fields in ActivityReceipt.
+    await execMigration(
+      client,
+      loadMigration('0012_phase5_second_settlement_receipt.sql'),
     );
   } finally {
     client.release();
@@ -657,6 +665,102 @@ describe('migration-from-zero: second receive verified mint invariants', () => {
       DELETE FROM bridge_destination_retry_verifications
       WHERE plan_id = 'retry-two-plan'
     `)).rejects.toMatchObject({ code: 'P0001' });
+  });
+});
+
+describe('migration-from-zero: second CCTP settlement ActivityReceipt', () => {
+  pgTest('finalizes only the owner, preserves reverted first hash, appends audit once and locks settlement tx', async () => {
+    await testPool.query(`
+      INSERT INTO wallet_bindings
+        (wallet_id, veyr_user_id, wallet_address, chain_id, wallet_type,
+         proof_scheme, proof_version, proof_challenge_id, proof_nonce,
+         proof_signature, proof_message_hash, issued_at, verified_at, status)
+      VALUES
+        ('wlt_retry_two','usr_retry_two','0x1111111111111111111111111111111111111111',
+         5042002,'EOA','EIP_712','1','retry-challenge','retry-nonce',
+         'retry-signature','retry-msg-hash',NOW(),NOW(),'ACTIVE')
+      ON CONFLICT DO NOTHING
+    `);
+    const firstHash = `0x${'7'.repeat(64)}`;
+    const secondHash = `0x${'8'.repeat(64)}`;
+    await testPool.query(`
+      INSERT INTO activity_receipts
+        (receipt_id, client_intent_id, sender_user_id, sender_wallet_id,
+         sender_address, sender_chain_id, recipient_address, recipient_chain_id,
+         amount_raw, amount_decimals, asset_id, token_address,
+         provider_id, route_id, dedup_key, environment, action, status,
+         burn_tx_hash, burn_chain_id, burn_block_number,
+         receive_tx_hash, receive_chain_id, resumable)
+      VALUES
+        ('rec_retry_two','intent-retry-two','usr_retry_two','wlt_retry_two',
+         '0x1111111111111111111111111111111111111111',5042002,
+         '0x2222222222222222222222222222222222222222',11155111,
+         1000000,6,'usdc','0x3333333333333333333333333333333333333333',
+         'cctp-v2-bridge','retry-two-plan','dedup_retry_two','testnet',
+         'BRIDGE','RECEIVE_FAILED_RETRYABLE',
+         $1,5042002,100,$1,11155111,true)
+    `, [firstHash]);
+
+    const db = drizzle(testPool, { schema });
+    const settled = await finalizeVerifiedSecondCctpSettlement(
+      db, 'usr_retry_two', 'retry-two-plan',
+    );
+    expect(settled).toMatchObject({
+      status: 'COMPLETE',
+      burnTxHash: firstHash,
+      receiveTxHash: firstHash,
+      settlementReceiveTxHash: secondHash,
+      settlementReceiveBlockNumber: 200,
+      settlementAttemptNumber: 2,
+      resumable: false,
+      failureReason: null,
+    });
+    expect(settled.revision).toBe(2);
+    const replayed = await finalizeVerifiedSecondCctpSettlement(
+      db, 'usr_retry_two', 'retry-two-plan',
+    );
+    expect(replayed.revision).toBe(2);
+    await expect(finalizeVerifiedSecondCctpSettlement(
+      db, 'usr_self_relay', 'retry-two-plan',
+    )).rejects.toThrow(/Owned settlement checkpoint not found/i);
+
+    const events = await testPool.query<{ payload: Record<string, unknown> }>(`
+      SELECT payload FROM execution_events
+      WHERE receipt_id = 'rec_retry_two' AND event_type = 'STATUS_TRANSITION'
+    `);
+    expect(events.rows).toHaveLength(1);
+    expect(events.rows[0]?.payload).toMatchObject({
+      fromStatus: 'RECEIVE_FAILED_RETRYABLE',
+      toStatus: 'COMPLETE',
+      firstAttemptRevertedHash: firstHash,
+      settlementReceiveTxHash: secondHash,
+      settlementAttemptNumber: 2,
+    });
+
+    for (const update of [
+      `UPDATE activity_receipts SET settlement_receive_tx_hash =
+         '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        WHERE receipt_id = 'rec_retry_two'`,
+      `UPDATE activity_receipts SET settlement_receive_tx_hash = NULL
+        WHERE receipt_id = 'rec_retry_two'`,
+      `UPDATE activity_receipts SET settlement_receive_block_number = 201
+        WHERE receipt_id = 'rec_retry_two'`,
+    ]) {
+      await expect(testPool.query(update))
+        .rejects.toMatchObject({ code: 'P0001' });
+    }
+
+    const first = await testPool.query<{
+      receive_tx_hash: string;
+      settlement_receive_tx_hash: string;
+    }>(`
+      SELECT receive_tx_hash, settlement_receive_tx_hash
+      FROM activity_receipts WHERE receipt_id = 'rec_retry_two'
+    `);
+    expect(first.rows[0]).toEqual({
+      receive_tx_hash: firstHash,
+      settlement_receive_tx_hash: secondHash,
+    });
   });
 });
 
