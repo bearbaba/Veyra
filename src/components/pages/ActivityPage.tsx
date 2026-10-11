@@ -31,6 +31,9 @@ import { cctpV2BridgeProvider } from '@/providers/cctp/cctpBridgeProvider';
 import {
   inspectDestinationNonceRemote,
   recordSelfRelayDestinationRemote,
+  loadDestinationAttemptHistoryRemote,
+  reconcileSecondReceiveRemote,
+  type DestinationAttemptHistoryRemote,
   type DestinationNonceObservation,
 } from '@/lib/api/bridgeRecoveryApi';
 
@@ -361,6 +364,58 @@ function RecoveryCard({
   onResume: () => void;
   onReconciled: () => Promise<void>;
 }) {
+  const [attemptHistory, setAttemptHistory] = useState<DestinationAttemptHistoryRemote | null>(null);
+  const [attemptHistoryError, setAttemptHistoryError] = useState<string | null>(null);
+  const [secondTxHash, setSecondTxHash] = useState('');
+  const [secondBusy, setSecondBusy] = useState(false);
+  const [secondMessage, setSecondMessage] = useState<string | null>(null);
+  const [secondError, setSecondError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (checkpoint.stage !== 'DESTINATION_BROADCAST' || !connected) return;
+    let active = true;
+    void loadDestinationAttemptHistoryRemote(checkpoint.planId).then((history) => {
+      if (active) {
+        setAttemptHistory(history);
+        setAttemptHistoryError(null);
+      }
+    }).catch((error: unknown) => {
+      if (active) setAttemptHistoryError(
+        error instanceof Error ? error.message : 'Destination attempt history unavailable.',
+      );
+    });
+    return () => { active = false; };
+  }, [checkpoint.planId, checkpoint.stage, connected]);
+
+  async function reconcileKnownSecondReceive() {
+    const hash = secondTxHash.trim();
+    if (
+      !connected || busy || secondBusy ||
+      checkpoint.stage !== 'DESTINATION_BROADCAST' ||
+      attemptHistory?.second.state !== 'UNCERTAIN' ||
+      !/^0x[0-9a-fA-F]{64}$/.test(hash)
+    ) {
+      return;
+    }
+    setSecondBusy(true);
+    setSecondMessage(null);
+    setSecondError(null);
+    try {
+      await reconcileSecondReceiveRemote(checkpoint.planId, hash);
+      const history = await loadDestinationAttemptHistoryRemote(checkpoint.planId);
+      setAttemptHistory(history);
+      setSecondTxHash('');
+      setSecondMessage('Previously broadcast second receive hash was independently indexed and recorded. This does not prove a mint.');
+      await onReconciled();
+    } catch (error) {
+      setSecondError(
+        error instanceof Error ? error.message : 'Cannot verify the existing second receive. Retry remains locked.',
+      );
+    } finally {
+      setSecondBusy(false);
+    }
+  }
+
   const [knownTxHash, setKnownTxHash] = useState('');
   const [reconcileBusy, setReconcileBusy] = useState(false);
   const [reconcileMessage, setReconcileMessage] = useState<string | null>(null);
@@ -501,6 +556,77 @@ function RecoveryCard({
               {reconcileError} · The submission remains locked.
             </p>
           )}
+        </section>
+      )}
+
+      {checkpoint.stage === 'DESTINATION_BROADCAST' && (
+        <section className="mt-3 space-y-3 rounded-xl p-3"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+          <p className="text-xs font-semibold" style={{ color: 'var(--ink)' }}>
+            Immutable CCTP destination attempt history
+          </p>
+          {attemptHistory && (
+            <div className="space-y-2 text-xs" style={{ color: 'var(--muted)' }}>
+              <p>First receive: {attemptHistory.first.state}
+                {attemptHistory.first.reverted ? ' · canonical revert recorded' : ''}
+              </p>
+              <p>Second receive: {attemptHistory.second.state}
+                {attemptHistory.second.verifiedMint ? ' · verified USDC mint' : ''}
+              </p>
+              {attemptHistory.second.receiveTxHash && (
+                <p className="break-all font-mono">Second hash: {attemptHistory.second.receiveTxHash}</p>
+              )}
+              {attemptHistory.second.mintBlockHash && (
+                <p className="break-all font-mono">
+                  Verified mint block: {attemptHistory.second.mintBlockHash}
+                </p>
+              )}
+              {attemptHistory.history.map((event) => (
+                <p key={`${event.attemptNumber}:${event.eventType}:${event.occurredAt}`}>
+                  Attempt #{event.attemptNumber} · {event.eventType}
+                </p>
+              ))}
+            </div>
+          )}
+          {attemptHistoryError && (
+            <p role="alert" className="text-xs leading-5" style={{ color: 'var(--warning)' }}>
+              {attemptHistoryError} · Existing submissions remain locked.
+            </p>
+          )}
+          {attemptHistory?.second.state === 'UNCERTAIN' && (
+            <form className="space-y-2" onSubmit={(event) => {
+              event.preventDefault();
+              void reconcileKnownSecondReceive();
+            }}>
+              <p className="text-xs leading-5" style={{ color: 'var(--muted)' }}>
+                Attempt #2 was previously reserved but has no recorded hash.
+                Paste ONLY an already broadcast transaction hash to verify on
+                the destination RPC; this form cannot create a transaction.
+              </p>
+              <label className="block text-xs font-semibold"
+                htmlFor={`retry-hash-${checkpoint.planId}`}
+                style={{ color: 'var(--ink)' }}>
+                Previously broadcast second receive hash
+              </label>
+              <input id={`retry-hash-${checkpoint.planId}`}
+                value={secondTxHash} onChange={(e) => setSecondTxHash(e.target.value)}
+                maxLength={66} placeholder="0x…" autoComplete="off" spellCheck={false}
+                disabled={!connected || busy || secondBusy}
+                className="w-full rounded-lg px-3 py-2 font-mono text-xs outline-none"
+                style={{ background: 'var(--surface-strong)', color: 'var(--ink)', border: '1px solid var(--border-strong)' }} />
+              <button type="submit"
+                disabled={!connected || busy || secondBusy || !/^0x[0-9a-fA-F]{64}$/.test(secondTxHash.trim())}
+                className="rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-40"
+                style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}>
+                {secondBusy ? 'Verifying existing transaction…' : 'Reconcile second hash (no signing)'}
+              </button>
+            </form>
+          )}
+          {secondMessage && <p role="status" className="text-xs" style={{ color: 'var(--success)' }}>{secondMessage}</p>}
+          {secondError && <p role="alert" className="text-xs" style={{ color: 'var(--danger)' }}>{secondError} · No new transaction was sent.</p>}
+          <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>
+            History is not authorization to sign or retry a transaction.
+          </p>
         </section>
       )}
 
