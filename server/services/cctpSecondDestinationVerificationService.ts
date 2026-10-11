@@ -22,6 +22,8 @@ import {
 import type { BridgeRecoveryInput } from '../db/repositories/bridgeRecoveryRepository.js';
 import { BridgeRecoveryConflictError } from '../db/repositories/bridgeRecoveryRepository.js';
 
+import { assertCctpDestinationRpcIdentity } from './cctpDestinationRpcIdentity.js';
+
 const RECEIVE_ABI = parseAbi([
   'function receiveMessage(bytes message, bytes attestation) returns (bool success)',
 ]);
@@ -234,11 +236,7 @@ export async function verifySecondCctpDestinationMintFromNetwork(
       'Second destination mint RPC network identity unavailable; preserve retry evidence.',
     );
   }
-  if (actualChainId !== checkpoint.destinationChainId) {
-    throw new BridgeRecoveryConflictError(
-      'Second destination mint RPC network mismatches the reviewed chain.',
-    );
-  }
+  assertCctpDestinationRpcIdentity(checkpoint.destinationChainId, actualChainId);
 
   return verifySecondCctpDestinationMint(
     checkpoint,
