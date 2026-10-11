@@ -28,6 +28,10 @@ import {
   type ActivityReceiptRemoteRecord,
 } from '@/lib/api/activityReceiptApi';
 import { cctpV2BridgeProvider } from '@/providers/cctp/cctpBridgeProvider';
+import {
+  inspectDestinationNonceRemote,
+  type DestinationNonceObservation,
+} from '@/lib/api/bridgeRecoveryApi';
 
 export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
   const { isConnected } = useAccount();
@@ -345,6 +349,28 @@ function RecoveryCard({
   busy: boolean;
   onResume: () => void;
 }) {
+  const [nonceStatus, setNonceStatus] = useState<
+    DestinationNonceObservation | null
+  >(null);
+  const [nonceBusy, setNonceBusy] = useState(false);
+  const [nonceError, setNonceError] = useState<string | null>(null);
+
+  async function checkNonce() {
+    if (!connected || busy || nonceBusy || checkpoint.stage !== 'DESTINATION_BROADCAST') {
+      return;
+    }
+    setNonceStatus(null);
+    setNonceError(null);
+    setNonceBusy(true);
+    try {
+      setNonceStatus(await inspectDestinationNonceRemote(checkpoint.planId));
+    } catch (error) {
+      setNonceError(error instanceof Error ? error.message : 'CCTP nonce verification unavailable');
+    } finally {
+      setNonceBusy(false);
+    }
+  }
+
   const instruction = nextBridgeResumeInstruction(checkpoint);
 
   return (
@@ -379,6 +405,45 @@ function RecoveryCard({
           </p>
         </div>
       </div>
+      {checkpoint.stage === 'DESTINATION_BROADCAST' && (
+        <section className="mt-3 space-y-2 rounded-xl p-3"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+          <p className="text-xs font-semibold" style={{ color: 'var(--ink)' }}>
+            CCTP destination nonce (read-only)
+          </p>
+          <p className="text-xs leading-5" style={{ color: 'var(--muted)' }}>
+            Check on-chain usage after a confirmed first receive revert. This never authorizes another burn, receive, or wallet signature.
+          </p>
+          <button
+            type="button"
+            onClick={() => void checkNonce()}
+            disabled={!connected || busy || nonceBusy}
+            className="rounded-lg px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}
+          >
+            {nonceBusy ? 'Checking canonical nonce…' : 'Inspect nonce without signing'}
+          </button>
+          {nonceStatus && (
+            <div aria-live="polite" className="space-y-1 text-xs" style={{ color: 'var(--muted)' }}>
+              <p>
+                {nonceStatus.usage === 'ALREADY_CONSUMED'
+                  ? 'Nonce already consumed on destination chain.'
+                  : 'Nonce unused at the observed block only — status may change.'}
+              </p>
+              <p className="font-mono">Block {nonceStatus.observedBlockNumber} · {nonceStatus.observedBlockHash.slice(0, 14)}…</p>
+              <p className="font-semibold" style={{ color: 'var(--warning)' }}>
+                Retry signing is NOT authorized.
+              </p>
+            </div>
+          )}
+          {nonceError && (
+            <p role="alert" className="text-xs leading-5" style={{ color: 'var(--danger)' }}>
+              {nonceError} · No new transaction is allowed.
+            </p>
+          )}
+        </section>
+      )}
+
       <button
         type="button"
         onClick={onResume}
