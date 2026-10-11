@@ -1,5 +1,6 @@
 import {
   createPublicClient,
+  decodeEventLog,
   decodeFunctionData,
   getAddress,
   http,
@@ -76,6 +77,47 @@ export type ActivityReceiptAttestationFetcher = (
 const RECEIVE_MESSAGE_ABI = parseAbi([
   'function receiveMessage(bytes message, bytes attestation) returns (bool success)',
 ]);
+
+const MESSAGE_SENT_ABI = parseAbi([
+  'event MessageSent(bytes message)',
+]);
+
+/**
+ * Circle's tx-hash API can return a complete attestation without proving
+ * which MessageSent in that source tx it belongs to. Require the *exact*
+ * message passed to destination receiveMessage to appear in a canonical
+ * source-chain MessageTransmitterV2 log.
+ */
+export function sourceReceiptContainsCctpMessage(
+  receipt: Pick<TransactionReceipt, 'status' | 'logs'>,
+  message: `0x${string}`,
+): boolean {
+  if (receipt.status !== 'success') return false;
+
+  return receipt.logs.some((log) => {
+    if (
+      log.address.toLowerCase() !==
+      MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER.toLowerCase()
+    ) {
+      return false;
+    }
+
+    try {
+      const decoded = decodeEventLog({
+        abi: MESSAGE_SENT_ABI,
+        topics: log.topics,
+        data: log.data,
+        strict: true,
+      });
+      return (
+        decoded.eventName === 'MessageSent' &&
+        decoded.args.message.toLowerCase() === message.toLowerCase()
+      );
+    } catch {
+      return false;
+    }
+  });
+}
 
 function destinationUsdc(chainId: number): string | null {
   if (chainId === MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID) {
@@ -324,6 +366,42 @@ export async function verifyActivityReceiptTransitionEvidence(
     throw new ActivityReceiptEvidenceError(
       'DESTINATION_ATTESTATION_MISMATCH',
       'Destination receiveMessage calldata is not bound to the authoritative Circle attestation for the source burn.',
+    );
+  }
+
+  // The attested message also has to be the exact bytes emitted by the
+  // recorded source burn. Matching only the Circle txHash query is insufficient
+  // when a source transaction emits multiple MessageSent events.
+  const sourceBlock = requireBlockNumber(
+    current.burnBlockNumber,
+    'burnBlockNumber',
+  );
+  const sourceReceipt = await fetchReceipt(current.senderChainId, burnTxHash);
+  if (Number(sourceReceipt.blockNumber) !== sourceBlock) {
+    throw new ActivityReceiptEvidenceError(
+      'SOURCE_BLOCK_MISMATCH',
+      'Recorded source burn block does not match the authoritative source receipt.',
+    );
+  }
+
+  const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt, {
+    burnToken: getAddress(current.tokenAddress),
+    amount,
+    depositor: getAddress(current.senderAddress),
+    mintRecipient: getAddress(current.recipientAddress),
+    destinationChainId: current.recipientChainId,
+  });
+  if (!sourceEvidence.verified) {
+    throw new ActivityReceiptEvidenceError(
+      'SOURCE_RECEIPT_UNVERIFIED',
+      sourceEvidence.detail,
+    );
+  }
+
+  if (!sourceReceiptContainsCctpMessage(sourceReceipt, authoritativeAttestation.message)) {
+    throw new ActivityReceiptEvidenceError(
+      'SOURCE_MESSAGE_MISMATCH',
+      'The Circle-attested destination message is not present in the canonical source MessageSent logs.',
     );
   }
 }
