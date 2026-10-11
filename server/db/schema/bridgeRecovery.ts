@@ -133,3 +133,49 @@ export const bridgeDestinationAttemptResolutions = pgTable(
     check('chk_destination_resolution_confirmations', sql`${t.confirmations} >= 12`),
   ],
 );
+
+/**
+ * Second-attempt claim and separate immutable event history. The first receive
+ * hash remains attached to its original checkpoint/ActivityReceipt.
+ */
+export const bridgeDestinationRetryAttempts = pgTable(
+  'bridge_destination_retry_attempts',
+  {
+    planId: text('plan_id').notNull()
+      .references(() => bridgeDestinationSubmissionClaims.planId),
+    attemptNumber: integer('attempt_number').notNull().default(2),
+    ownerUserId: text('owner_user_id').notNull()
+      .references(() => veyraUsers.veyraUserId),
+    receiveTxHash: text('receive_tx_hash'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.planId, t.attemptNumber] }),
+    index('ix_destination_retry_owner').on(t.ownerUserId, t.createdAt),
+    check('chk_destination_retry_attempt_number', sql`${t.attemptNumber} = 2`),
+    check('chk_destination_retry_tx_hash',
+      sql`${t.receiveTxHash} IS NULL OR ${t.receiveTxHash} ~ '^0x[0-9a-fA-F]{64}$'`),
+  ],
+);
+
+export const bridgeDestinationRetryEvents = pgTable(
+  'bridge_destination_retry_events',
+  {
+    eventId: text('event_id').primaryKey(),
+    planId: text('plan_id').notNull(),
+    attemptNumber: integer('attempt_number').notNull(),
+    eventType: text('event_type').notNull(),
+    receiveTxHash: text('receive_tx_hash'),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('uix_destination_retry_one_event_per_type')
+      .on(t.planId, t.attemptNumber, t.eventType),
+    check('chk_destination_retry_event_type',
+      sql`${t.eventType} IN ('SUBMISSION_STARTED','BROADCAST_RECORDED')`),
+    check('chk_destination_retry_event_hash',
+      sql`(${t.eventType} = 'SUBMISSION_STARTED' AND ${t.receiveTxHash} IS NULL)
+        OR (${t.eventType} = 'BROADCAST_RECORDED' AND ${t.receiveTxHash} ~ '^0x[0-9a-fA-F]{64}$')`),
+  ],
+);
