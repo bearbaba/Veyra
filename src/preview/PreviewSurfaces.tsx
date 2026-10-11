@@ -1,228 +1,296 @@
 /**
- * Public-safe, illustrative Veyra product surfaces.
- * No network fetches, wallet integrations, persistent identities, receipts,
- * provider execution calls or private financial data.
+ * Veyra connected Preview dashboard — real wallet identity and read-only
+ * Arc Testnet balance, but no BFF, signing or financial execution modules.
  */
 import { useState } from 'react';
 import {
-  Activity, ArrowRight, Bot, CheckCircle2, Compass,
-  LockKeyhole, Route, SendHorizontal, ShieldCheck,
-  Sparkles, Wallet,
+  Activity, ArrowDownRight, ArrowRight, ArrowUpRight, ArrowLeftRight,
+  Bot, CheckCircle2, Compass, Copy, CreditCard, ExternalLink,
+  History, LockKeyhole, RefreshCw, Route, SendHorizontal,
+  ShieldCheck, Sparkles, Wallet, Zap,
 } from 'lucide-react';
-import type { VeyraPage } from '../components/layout/AppShell';
+import { usePreviewArcBalance, usePreviewWallet, shortPreviewAddress } from './PreviewWallet';
+import { BrandLogo } from '../components/brand/BrandLogo';
+import type { PreviewPage } from './PreviewApp';
 
-const samplePrompts = [
-  'How would Veyra send 5 USDC?',
-  'Explain Arc to Sepolia bridge safety',
-  'What happens if a CCTP receive fails?',
+const prompts = [
+  'How does a Veyra payment work?',
+  'Explain an Arc to Base bridge',
+  'What if my transaction times out?',
 ];
 
-const previewFeatures = [
-  { title: 'Pay', caption: 'Recipient → policy → review', page: 'pay' as const, icon: SendHorizontal },
-  { title: 'Ask Veyra', caption: 'Explain before acting', page: 'agent' as const, icon: Bot },
-  { title: 'Bridge', caption: 'Attestation → mint → proof', page: 'bridge' as const, icon: Route },
-  { title: 'Activity', caption: 'Immutable attempt history', page: 'activity' as const, icon: Activity },
-];
+function explain(raw: string): string {
+  const text = raw.toLowerCase();
+  if (/bridge|cctp|sepolia|mint|attestation|base/.test(text)) {
+    return 'In the full Veyra flow, the source USDC burn produces one Circle message. After the Circle attestation is available, a destination receive is verified using the exact message, transaction receipt, USDC mint logs and finality. A missing response is never permission to burn again.';
+  }
+  if (/retry|fail|recover|revert|timeout|lost/.test(text)) {
+    return 'Veyra persists the original attempt before broadcast. If a response is lost, the same transaction hash can be reconciled against the destination chain. Uncertain attempts stay locked, and a new receive requires separate canonical revert and nonce evidence.';
+  }
+  if (/pay|usdc|send|recipient|transfer/.test(text)) {
+    return 'Veyra resolves the recipient, checks your selected asset and network, reviews the route and policy, then obtains an approved wallet signature in a verified transaction-enabled build. This Preview lets you connect a wallet and inspect balances, but cannot sign payments.';
+  }
+  return 'This Preview shows Veyra product behavior through deterministic examples. A live AI agent, authenticated identity, quotes and transaction execution will require the separate verified backend.';
+}
 
-export function PreviewHome({ onNavigate }: { onNavigate: (page: VeyraPage) => void }) {
+export function PreviewHome({ onNavigate }: { onNavigate: (page: PreviewPage) => void }) {
+  const wallet = usePreviewWallet();
+  const balance = usePreviewArcBalance(wallet.address);
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    if (!wallet.address) return;
+    try { await navigator.clipboard.writeText(wallet.address); setCopied(true); } catch { setCopied(false); }
+  }
+
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 md:px-7">
-      <section
-        className="relative overflow-hidden rounded-3xl p-7 md:p-10"
-        style={{
-          background: 'linear-gradient(135deg, #1d304c, #111e32 70%, #1b294b)',
-          border: '1px solid var(--border-strong)',
-        }}
-      >
-        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--accent)' }}>
-          <Sparkles className="size-4" /> Veyra on Arc · interactive UI preview
+    <div className="vp-page">
+      <div className="vp-page-heading">
+        <div>
+          <p className="vp-eyebrow">YOUR FINANCIAL WORKSPACE</p>
+          <h1 className="vp-page-title">Good to see you<span style={{ color: '#c5fb71' }}>.</span></h1>
+          <p className="vp-page-description">All your crypto essentials. One simple, smarter experience.</p>
         </div>
-        <h1 className="display mt-5 max-w-xl text-4xl font-black leading-tight md:text-5xl" style={{ color: 'var(--ink)' }}>
-          Pay anyone. <span style={{ color: 'var(--accent)' }}>Understand every step.</span>
-        </h1>
-        <p className="mt-4 max-w-xl text-sm leading-7" style={{ color: 'var(--muted)' }}>
-          Explore human-first USDC payments, deterministic review and recoverable CCTP bridges.
-          This is a no-signature product walkthrough, not a connected financial service.
-        </p>
-        <div className="mt-6 flex flex-wrap gap-3">
-          <button type="button" onClick={() => onNavigate('pay')}
-            className="inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-bold"
-            style={{ background: 'var(--accent)', color: '#0b1b25' }}>
-            Explore Pay <ArrowRight className="size-4" />
-          </button>
-          <button type="button" onClick={() => onNavigate('agent')}
-            className="inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-bold"
-            style={{ background: 'var(--surface)', color: 'var(--ink)', border: '1px solid var(--border-strong)' }}>
-            Ask Veyra <Bot className="size-4" />
-          </button>
-        </div>
-      </section>
+        <span className="vp-chain-pill"><span className="vp-status-dot" /> Testnet preview · connected wallet enabled</span>
+      </div>
 
-      <section>
-        <h2 className="text-xl font-bold" style={{ color: 'var(--ink)' }}>Explore the product</h2>
-        <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>Navigation and explanation only · no wallets or APIs are connected.</p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {previewFeatures.map(({ title, caption, page, icon: Icon }) => (
-            <button key={page} type="button" onClick={() => onNavigate(page)}
-              className="rounded-2xl p-5 text-left transition-transform hover:-translate-y-0.5"
-              style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
-              <Icon className="size-6" style={{ color: 'var(--accent)' }} />
-              <h3 className="mt-4 text-lg font-bold" style={{ color: 'var(--ink)' }}>{title}</h3>
-              <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>{caption}</p>
+      <section className="vp-grid-2">
+        <div className="vp-hero">
+          <div className="vp-eyebrow" style={{ color: '#ccff92' }}><Sparkles size={13} style={{ display: 'inline', marginRight: 6 }} /> MEET THE BETTER WAY TO MOVE MONEY</div>
+          <h2>Money moves.<br /><span>Veyra makes it simple.</span></h2>
+          <p>Send USDC by identity, discover the best routes and explore cross-chain transfers — without getting lost in chains or protocols.</p>
+          <div className="vp-hero-buttons">
+            <button type="button" className="vp-primary" onClick={() => onNavigate('pay')}>
+              <SendHorizontal size={16} /> Explore Pay <ArrowRight size={16} />
             </button>
-          ))}
+            <button type="button" className="vp-secondary" onClick={() => onNavigate('agent')}>
+              <Bot size={17} /> Ask Veyra
+            </button>
+          </div>
+        </div>
+
+        <div className="vp-card vp-card-pad">
+          <div className="vp-balance-head">
+            <BrandLogo logoKey="usdc" size={38} />
+            <div style={{ flex: 1 }}>
+              <p className="vp-balance-label">Your Arc Testnet wallet</p>
+              <strong className="vp-card-title">USDC balance</strong>
+            </div>
+            {wallet.address && <button type="button" className="vp-icon-button" aria-label="Refresh balance" onClick={balance.refresh}><RefreshCw size={16} /></button>}
+          </div>
+          <div className="vp-balance-value">
+            {!wallet.address ? '—' : balance.loading ? '···' : balance.formatted ?? '—'}
+            <span> USDC</span>
+          </div>
+          <p className="vp-balance-sub">
+            {!wallet.address
+              ? 'Connect a browser wallet to read your actual on-chain balance.'
+              : balance.error ?? 'Live read from Arc Testnet · balanceOf (no signature)'}
+          </p>
+          <div className="vp-balance-bottom">
+            <span>CONNECTED WALLET</span>
+            {wallet.address ? (
+              <button className="vp-text-button vp-mono" type="button" onClick={() => void copy()}>
+                {copied ? 'Copied' : shortPreviewAddress(wallet.address)} <Copy size={12} style={{ display: 'inline', marginLeft: 5 }} />
+              </button>
+            ) : (
+              <span className="vp-mini-value">Not connected</span>
+            )}
+          </div>
         </div>
       </section>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <PreviewStatus title="Wallet" detail="Not connected by design" icon={Wallet} />
-        <PreviewStatus title="Backend" detail="No API calls in static demo" icon={Compass} />
-        <PreviewStatus title="Transactions" detail="Signing and broadcast disabled" icon={LockKeyhole} />
+      <div className="vp-section-heading">
+        <div><h2>Move with Veyra</h2><p>Everything you need, right where you need it.</p></div>
       </div>
-    </div>
-  );
-}
-
-function PreviewStatus({ title, detail, icon: Icon }: {
-  title: string; detail: string; icon: typeof Wallet;
-}) {
-  return (
-    <div className="flex items-start gap-3 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-      <Icon className="mt-1 size-5 shrink-0" style={{ color: 'var(--accent)' }} />
-      <div>
-        <p className="text-sm font-bold" style={{ color: 'var(--ink)' }}>{title}</p>
-        <p className="mt-1 text-xs leading-5" style={{ color: 'var(--muted)' }}>{detail}</p>
-      </div>
-    </div>
-  );
-}
-
-function explanatoryReply(raw: string): string {
-  const lower = raw.toLowerCase();
-  if (/bridge|cctp|sepolia|mint|attestation/.test(lower)) {
-    return 'Illustrative explanation: Veyra reviews the source burn, waits for one matching Circle attestation, and independently verifies the destination USDC mint. A missing receipt or uncertain transaction remains locked; source USDC must never be burned again just because a request timed out.';
-  }
-  if (/retry|fail|recover|revert|timeout/.test(lower)) {
-    return 'Illustrative explanation: a destination receive can be retried only after a canonical, confirmed on-chain revert is proven. Each attempt has its own append-only history; uncertain broadcasts are not repeated automatically.';
-  }
-  if (/usdc|pay|send|transfer|recipient/.test(lower)) {
-    return 'Illustrative explanation: Veyra would resolve a wallet or verified recipient, validate the network and token, enforce policy, show a deterministic review, then request a wallet signature only in an independently approved testnet build.';
-  }
-  return 'This static demo can explain Pay, Convert, Bridge and Activity, but it does not use a language model or read live chain state. Use the navigation to explore actual product screens. Real execution is deliberately unavailable.';
-}
-
-export function PreviewAgent({ onNavigate }: { onNavigate: (page: VeyraPage) => void }) {
-  const [input, setInput] = useState('');
-  const [question, setQuestion] = useState('');
-  return (
-    <div className="mx-auto max-w-3xl space-y-5 px-4 py-8 md:px-7">
-      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--accent)' }}>
-        <Bot className="size-4" /> Ask Veyra · scripted preview
-      </div>
-      <h1 className="display text-3xl font-extrabold" style={{ color: 'var(--ink)' }}>Understand the action before it happens.</h1>
-      <p className="text-sm leading-6" style={{ color: 'var(--muted)' }}>
-        Offline examples explain how Veyra works. This demo does not call an LLM, resolve real recipients, or make transaction decisions.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {samplePrompts.map((sample) => (
-          <button key={sample} type="button" onClick={() => { setInput(sample); setQuestion(sample); }}
-            className="rounded-full px-3 py-2 text-xs font-semibold"
-            style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
-            {sample}
+      <div className="vp-grid-3">
+        {([
+          { title: 'Send a payment', desc: 'Pay people, not chains.', id: 'pay', icon: ArrowUpRight },
+          { title: 'Convert assets', desc: 'Review before you swap.', id: 'convert', icon: ArrowLeftRight },
+          { title: 'Bridge USDC', desc: 'Move across networks.', id: 'bridge', icon: Route },
+        ] as const).map(({ title, desc, id, icon: Icon }) => (
+          <button type="button" onClick={() => onNavigate(id)} key={id} className="vp-card vp-quick">
+            <span className="vp-quick-icon"><Icon size={21} /></span>
+            <span style={{ flex: 1 }}><strong>{title}</strong><p>{desc}</p></span>
+            <ArrowUpRight className="vp-quick-arrow" size={17} />
           </button>
         ))}
       </div>
-      <form onSubmit={(e) => { e.preventDefault(); const text = input.trim(); if (text) setQuestion(text.slice(0, 300)); }}>
-        <label htmlFor="preview-agent-question" className="mb-2 block text-xs font-semibold" style={{ color: 'var(--muted)' }}>
-          Type a question (illustrative replies only)
-        </label>
-        <div className="flex gap-2">
-          <input id="preview-agent-question" value={input} maxLength={300}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="How does bridge recovery work?"
-            className="min-w-0 flex-1 rounded-xl px-4 py-3 text-sm outline-none"
-            style={{ background: 'var(--surface-strong)', color: 'var(--ink)', border: '1px solid var(--border-strong)' }} />
-          <button type="submit" className="rounded-xl px-4 py-3 text-sm font-bold"
-            style={{ background: 'var(--accent)', color: '#0b1b25' }}>Explain</button>
+
+      <div className="vp-section-heading">
+        <div><h2>Your Veyra network</h2><p>Connected assets and product safety at a glance.</p></div>
+        <button type="button" className="vp-text-button" onClick={() => onNavigate('settings')}>View details <ArrowRight size={13} style={{ display: 'inline' }} /></button>
+      </div>
+      <section className="vp-grid-2">
+        <div className="vp-card vp-card-pad">
+          <div className="vp-balance-head">
+            <BrandLogo logoKey="arc" size={37} />
+            <div style={{ flex: 1 }}>
+              <strong className="vp-card-title">Powered by Arc</strong>
+              <p className="vp-caption">One home for your USDC.</p>
+            </div>
+            <span className="vp-safe-pill" style={{ marginTop: 0 }}><span /> TESTNET</span>
+          </div>
+          <div className="vp-stat-group">
+            <div className="vp-stat"><span>NETWORK</span><strong>Arc Testnet</strong></div>
+            <div className="vp-stat"><span>CHAIN ID</span><strong>5042002</strong></div>
+            <div className="vp-stat"><span>TOKEN</span><strong>USDC</strong></div>
+          </div>
+          <div className="vp-route">
+            <span className="vp-chain-logo vp-chain-arc">A</span>
+            <div className="vp-route-line" />
+            <span className="vp-chain-logo vp-chain-eth">Ξ</span>
+            <div className="vp-route-line" />
+            <span className="vp-chain-logo vp-chain-base">B</span>
+          </div>
+          <p className="vp-caption">Bridge route previews: Arc → Ethereum Sepolia / Base Sepolia. Live CCTP submission is disabled here.</p>
         </div>
-      </form>
-      {question && (
-        <section aria-live="polite" className="space-y-3 rounded-2xl p-5"
-          style={{ background: 'var(--surface-strong)', border: '1px solid var(--border-strong)' }}>
-          <p className="text-xs font-semibold" style={{ color: 'var(--subtle)' }}>Your example: {question}</p>
-          <p className="text-sm leading-7" style={{ color: 'var(--ink)' }}>{explanatoryReply(question)}</p>
-          <p className="text-xs" style={{ color: 'var(--warning)' }}>Static illustration · not financial advice, transaction confirmation or live AI.</p>
-        </section>
-      )}
-      <button type="button" onClick={() => onNavigate('bridge')}
-        className="inline-flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--accent)' }}>
-        Explore the CCTP bridge <ArrowRight className="size-4" />
-      </button>
+        <div className="vp-card vp-card-pad">
+          <div className="vp-balance-head" style={{ marginBottom: 17 }}>
+            <span className="vp-quick-icon"><ShieldCheck size={20} /></span>
+            <div><strong className="vp-card-title">Your safety, first</strong><p className="vp-caption">Designed for transparency.</p></div>
+          </div>
+          {[
+            ['Wallet connection', wallet.address ? 'Connected' : 'Available', CheckCircle2],
+            ['Arc testnet reads', 'Read-only', ArrowDownRight],
+            ['Payment & CCTP execution', 'Locked', LockKeyhole],
+          ].map(([name, status, Icon]) => (
+            <div className="vp-step" key={name as string}>
+              <span style={{ color: '#adc9f6' }}><Icon size={16} /></span>
+              <strong style={{ flex: 1, fontSize: 11 }}>{name as string}</strong>
+              <span style={{ color: status === 'Locked' ? '#e8be81' : '#bfe79b', fontSize: 10 }}>{status as string}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export function PreviewAgent({ onNavigate }: { onNavigate: (page: PreviewPage) => void }) {
+  const [question, setQuestion] = useState('');
+  const [input, setInput] = useState('');
+  return (
+    <div className="vp-page" style={{ maxWidth: 870 }}>
+      <div className="vp-page-heading">
+        <div><p className="vp-eyebrow">VEYRA INTELLIGENCE</p>
+          <h1 className="vp-page-title">Ask Veyra <Sparkles size={22} style={{ display: 'inline', color: '#c5fb71' }} /></h1>
+          <p className="vp-page-description">A clearer way to understand payments and blockchain routes.</p></div>
+        <span className="vp-chain-pill"><LockKeyhole size={14} /> Guided offline mode</span>
+      </div>
+      <div className="vp-card vp-card-pad">
+        <div className="vp-balance-head" style={{ marginBottom: 19 }}>
+          <span className="vp-quick-icon"><Bot size={20} /></span>
+          <div><strong className="vp-card-title">Veyra Assistant</strong><p className="vp-caption">Scripted explanations · live AI backend not connected</p></div>
+        </div>
+        <div className="vp-agent-conversation">
+          {!question ? (
+            <div className="vp-empty-state" style={{ paddingTop: 52 }}>
+              <Sparkles size={31} color="#c5fb71" />
+              <h3>What would you like to understand?</h3>
+              <p>Explore a payment flow, cross-chain USDC, or what Veyra does when a transaction gets stuck.</p>
+            </div>
+          ) : (
+            <div className="vp-stack">
+              <div className="vp-agent-bubble" style={{ marginLeft: '13%' }}>{question}</div>
+              <div className="vp-agent-bubble vp-agent-response">{explain(question)}</div>
+              <p className="vp-muted">Illustrative response · no live AI or account-specific analysis.</p>
+            </div>
+          )}
+        </div>
+        <div className="vp-agent-questions" style={{ marginBottom: 16 }}>
+          {prompts.map((q) => <button key={q} type="button" onClick={() => { setQuestion(q); setInput(q); }}>{q}</button>)}
+        </div>
+        <form onSubmit={(e) => { e.preventDefault(); const t = input.trim(); if (t) setQuestion(t.slice(0, 300)); }} style={{ display: 'flex', gap: 10 }}>
+          <input className="vp-form-input" aria-label="Ask Veyra" maxLength={300} placeholder="Ask a question about Veyra…"
+            value={input} onChange={(e) => setInput(e.target.value)} />
+          <button type="submit" className="vp-primary"><ArrowRight size={18} /></button>
+        </form>
+      </div>
+      <button type="button" className="vp-text-button" style={{ marginTop: 20 }} onClick={() => onNavigate('bridge')}>Explore Bridge USDC <ArrowRight size={14} style={{ display: 'inline' }} /></button>
     </div>
   );
 }
 
 export function PreviewActivity() {
+  const wallet = usePreviewWallet();
   return (
-    <div className="mx-auto max-w-3xl space-y-5 px-4 py-8 md:px-7">
-      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--accent)' }}>
-        <Activity className="size-4" /> Activity · illustrative example
+    <div className="vp-page" style={{ maxWidth: 940 }}>
+      <div className="vp-page-heading">
+        <div><p className="vp-eyebrow">TRANSACTION HISTORY</p><h1 className="vp-page-title">Your activity</h1>
+          <p className="vp-page-description">Trace payments, receipts and cross-chain events from one place.</p></div>
+        <span className="vp-chain-pill"><ShieldCheck size={14} /> Read-only preview</span>
       </div>
-      <h1 className="display text-3xl font-extrabold" style={{ color: 'var(--ink)' }}>Every attempt has a history.</h1>
-      <p className="text-sm leading-6" style={{ color: 'var(--muted)' }}>
-        No authenticated receipts are loaded in this standalone preview. The following timeline is fictional product copy, not a real transaction.
-      </p>
-      <div className="rounded-2xl p-5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
+      <div className="vp-card vp-empty-state" style={{ padding: '76px 25px' }}>
+        <span className="vp-quick-icon" style={{ width: 60, height: 60, margin: '0 auto' }}><History size={25} /></span>
+        <h3>No transaction history in this preview</h3>
+        <p>{wallet.address ? `Connected ${shortPreviewAddress(wallet.address)}. ` : ''}
+          Real verified receipts require the authenticated Veyra backend and database. We do not fabricate a transaction history for your wallet.
+        </p>
+        <span className="vp-safe-pill" style={{ marginTop: 19 }}><span /> NO TRANSACTIONS SENT</span>
+      </div>
+      <div className="vp-section-heading"><div><h2>How your receipts work</h2><p>Full Veyra records each step with separate chain evidence.</p></div></div>
+      <div className="vp-grid-3">
         {[
-          ['Source review', 'Wallet confirms the original burn only once'],
-          ['Circle attestation', 'Unique message bytes are checked against source evidence'],
-          ['Destination receive', 'Matching USDC mint is verified on the destination chain'],
-          ['Recovery', 'Uncertain submissions remain locked; attempt history is preserved'],
-        ].map(([title, detail], i) => (
-          <div key={title} className="flex items-start gap-3 py-3">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold"
-              style={{ color: 'var(--accent)', background: 'var(--accent-muted)' }}>{i + 1}</span>
-            <div>
-              <p className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>{title}</p>
-              <p className="mt-1 text-xs leading-5" style={{ color: 'var(--muted)' }}>{detail}</p>
-            </div>
-          </div>
+          { icon: CreditCard, title: 'Review', desc: 'Canonical intent & approval' },
+          { icon: Activity, title: 'Track', desc: 'Receipts with independent proof' },
+          { icon: ShieldCheck, title: 'Recover', desc: 'Safe retry checks, no double burn' },
+        ].map(({ icon: Icon, title, desc }) => (
+          <div className="vp-card vp-card-pad" key={title}><span className="vp-quick-icon"><Icon size={19} /></span>
+            <h3 style={{ fontSize: 13, fontWeight: 750, marginTop: 14 }}>{title}</h3><p className="vp-caption" style={{ marginTop: 5 }}>{desc}</p></div>
         ))}
-      </div>
-      <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--warning)' }}>
-        <LockKeyhole className="size-4" /> No wallet, recovery, signing or server ActivityReceipt in this build.
       </div>
     </div>
   );
 }
 
 export function PreviewSettings() {
+  const wallet = usePreviewWallet();
+  const balance = usePreviewArcBalance(wallet.address);
   return (
-    <div className="mx-auto max-w-3xl space-y-5 px-4 py-8 md:px-7">
-      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--accent)' }}>
-        <ShieldCheck className="size-4" /> Preview security posture
-      </div>
-      <h1 className="display text-3xl font-extrabold" style={{ color: 'var(--ink)' }}>Testnet product walkthrough</h1>
-      <p className="text-sm leading-6" style={{ color: 'var(--muted)' }}>
-        This Vercel build is an isolated React entrypoint; it does not load wallet connectors,
-        finance execution modules, identity services, or backend API clients.
-      </p>
-      <div className="space-y-3">
-        {[
-          ['Static UI', 'Ready for non-financial evaluation'],
-          ['Wallet signatures', 'Not included'],
-          ['Circle & provider API', 'Not connected'],
-          ['Database and receipts', 'Not connected'],
-          ['Mainnet execution', 'Not permitted'],
-        ].map(([title, status]) => (
-          <div key={title} className="flex items-center justify-between gap-3 rounded-xl p-4"
-            style={{ border: '1px solid var(--border)', background: 'var(--surface-strong)' }}>
-            <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--ink)' }}>
-              <CheckCircle2 className="size-4" style={{ color: 'var(--accent)' }} /> {title}
-            </div>
-            <p className="text-right text-xs" style={{ color: 'var(--muted)' }}>{status}</p>
+    <div className="vp-page" style={{ maxWidth: 940 }}>
+      <div className="vp-page-heading"><div><p className="vp-eyebrow">ACCOUNT & SAFETY</p>
+        <h1 className="vp-page-title">Settings</h1><p className="vp-page-description">Your wallet connection and preview capabilities.</p>
+      </div></div>
+      <section className="vp-grid-2">
+        <div className="vp-card vp-card-pad">
+          <div className="vp-balance-head"><Wallet color="#c5fb71" size={22} />
+            <div><strong className="vp-card-title">Connected wallet</strong>
+              <p className="vp-caption">{wallet.activeWalletName || 'Injected EVM wallet'}</p></div>
           </div>
-        ))}
+          <div className="vp-stat-group" style={{ display: 'grid' }}>
+            <div className="vp-stat"><span>ADDRESS</span><strong className="vp-mono vp-truncate">{wallet.address || 'Not connected'}</strong></div>
+            <div className="vp-stat"><span>WALLET NETWORK</span><strong>{wallet.chainId === 5042002 ? 'Arc Testnet' : wallet.chainId ? `Chain ${wallet.chainId}` : 'Not connected'}</strong></div>
+            <div className="vp-stat"><span>ARC TESTNET USDC</span><strong>{wallet.address ? (balance.loading ? 'Loading…' : balance.formatted ?? 'Unavailable') : '—'}</strong></div>
+          </div>
+          {balance.error && <p className="vp-form-error">{balance.error}</p>}
+          {wallet.address && <button type="button" className="vp-secondary" style={{ marginTop: 15 }}
+            onClick={() => window.open(`https://explorer.testnet.arc.io/address/${wallet.address}`, '_blank', 'noopener,noreferrer')}>
+            View in Arc Explorer <ExternalLink size={14} />
+          </button>}
+        </div>
+        <div className="vp-card vp-card-pad">
+          <div className="vp-balance-head"><ShieldCheck color="#c5fb71" size={22} />
+            <div><strong className="vp-card-title">Preview security</strong><p className="vp-caption">Your funds cannot move from this UI.</p></div>
+          </div>
+          <div className="vp-stack" style={{ gap: 12, marginTop: 22 }}>
+            {[
+              ['Injected wallet connection', 'Enabled'],
+              ['Public Arc RPC balance reads', 'Enabled'],
+              ['USDC payment signatures', 'Disabled'],
+              ['Swap / Bridge submission', 'Disabled'],
+              ['Backend identity & receipts', 'Unavailable'],
+              ['Mainnet financial actions', 'Disabled'],
+            ].map(([item, value]) => (
+              <div key={item} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid var(--vp-border)', paddingBottom: 11 }}>
+                <span className="vp-caption">{item}</span>
+                <span style={{ color: value === 'Enabled' ? '#bfeb8d' : '#d3b08e', fontSize: 11, whiteSpace: 'nowrap' }}>{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+      <div className="vp-form-note" style={{ marginTop: 18 }}>
+        <LockKeyhole size={18} /> Wallet connect authorizes this site to see your public address. It does not prove a Veyra ID or authorize spending. To revoke the site's wallet permission, use your wallet's Connected Sites settings.
       </div>
     </div>
   );
