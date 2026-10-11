@@ -220,12 +220,23 @@ submitted a transaction (`SIGNED` or later), an unverified browser-side
 `FAILED`, `CANCELLED`, or `INVALIDATED` claim cannot terminalize a CCTP
 receipt. This includes reverted-source cases: the UI can report the revert,
 but the durable receipt and replay lock remain open for authoritative
-reconciliation. A verified source-revert finalization procedure remains
-necessary before closing those receipts. A previously broadcast destination
-transaction hash also remains immutable; safely recording subsequent distinct
-destination retry attempts requires append-only attempt evidence rather than
-overwriting the original hash. That workflow must be completed/tested before
-claiming automatic recovery of all destination failure cases.
+reconciliation. **Source-revert resolution implemented:** the authenticated
+`POST /api/receipts/cctp/resolve-source-revert` accepts only a receipt ID
+and never a browser-supplied failure status. The BFF verifies the exact
+`depositForBurn` transaction sender, contract, calldata, canonical source
+receipt/block hash, and at least **12 source-chain confirmations**. Only an
+unreconciled `BROADCAST` receipt without destination execution can be
+atomically transitioned to `FAILED` under a PostgreSQL row lock. The
+verification decision and source block proof are appended to execution events.
+The original source action replay lock is not reopened. Recovery can request
+this server resolution when a source revert is observed. Authenticated
+terminal receipts are excluded from candidate recovery cards.
+
+A previously broadcast destination transaction hash also remains immutable;
+safely recording subsequent distinct destination retry attempts requires
+append-only attempt evidence rather than overwriting the original hash.
+That workflow must be completed/tested before claiming automatic recovery of
+all destination failure cases.
 
 Once the source may have been submitted, a temporary Activity API failure does
 not cause a second burn. The persistent action replay lock and bridge recovery
