@@ -53,7 +53,7 @@ export function loadArcPayJournal(
     return { kind: 'active', journal: {
       from: account, to: x.to, amount: x.amount,
       stage: x.stage === 'VERIFIED' || x.stage === 'REVERTED' ? 'PENDING' : x.stage,
-      hash: x.hash,
+      hash: x.hash ?? null,
     } };
   } catch {
     return { kind: 'blocked' };
