@@ -209,9 +209,16 @@ readiness is checked separately.
 **Frontend deployment configuration is now checked in:** `vercel.json`
 sets Vite, the locked Bun install, the forced
 `VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 bun run build` command and static `dist` output.
-In this build, the canonical signing gate rejects money-moving execution;
-Pay/Convert/Bridge show interactive read-only flows, and Activity recovery
-cannot request wallet signing. This lock is compile-time, not a UI toggle. Vercel can publish this **UI-only preview** independently
+In this build, Vite swaps the HTML entry to the **separate**
+`src/preview/main.tsx` React tree, which imports only static, offline Home,
+Agent, Activity, Settings and read-only Pay/Convert/Bridge screens — **no
+wallet connectors, transaction hooks, runtime signatures, BFF calls or real
+user receipts are bundled**. The full application also retains the canonical
+execution-time signing lock. This is compile-time isolation, not a UI toggle.
+
+CI separately builds the exact Vercel preview and runs
+`bun run check:vercel-preview-bundle` against the emitted JavaScript to
+reject signing RPCs, CCTP transaction ABI entrypoints or live backend paths. Vercel can publish this **UI-only preview** independently
 of CCTP E2E; no Vercel preview URL is claimed until actually deployed and
 verified.
 
