@@ -227,6 +227,38 @@ readiness is checked separately.
 - `docs/veyra-vercel-preview.md` — static Vite preview vs full-stack testnet,
   BFF/PostgreSQL deployment, required environment and release gates
 
+## Full testnet backend / release policy
+
+**Development continues without requesting repeated manual Vercel Preview
+deployments.** The target is a real authenticated Veyra Testnet app; the
+current static Preview is **not** the finished submission or YouTube demo.
+
+The repository includes a separately deployable `Dockerfile.bff` pinned to
+Bun `1.3.14`, running the real Express + PostgreSQL backend with
+`VEYRA_ENV=testnet`, `NODE_ENV=production`, and hosted-mode security.
+Even if the hosted-mode flag is omitted, a production testnet backend
+requires a non-local PostgreSQL URL with TLS or a trusted private network,
+a 32+-character `VEYRA_SESSION_SECRET` and exact HTTPS
+`VEYRA_APP_ORIGIN`. The testnet relay private key is forbidden in a
+hosted deployment unless explicitly authorized, and an unsafe local
+environment cannot masquerade as production. The BFF uses the hosting
+platform's `PORT` when provided and restricts CORS to its declared
+application origin. **Do not commit secrets.**
+
+GitHub CI now builds this Docker image and verifies that it refuses
+to launch without required configuration. It also boots the real
+production-shaped BFF and checks HTTP health, disabled development identity
+headers and restricted CORS. Migrations are a **separate authorized release
+step**, not a side effect of container startup.
+
+**Full release and final YouTube recording criteria:**
+`docs/veyra-testnet-release-gates.md` records the exact remaining
+frontend, backend, authenticated identity, Pay, Agent, Convert, CCTP Bridge,
+ActivityReceipt and security/evidence gates. A mock UI, mocked-wallet unit
+test, or CI green result must never be represented as an independently
+completed, wallet-signed cross-chain transaction. The final video will
+be recorded only from the accepted, actually running testnet release.
+
 ## Vercel preview deployment
 
 **Frontend deployment configuration is now checked in:** `vercel.json`
