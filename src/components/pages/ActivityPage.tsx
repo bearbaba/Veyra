@@ -30,6 +30,7 @@ import {
 import { cctpV2BridgeProvider } from '@/providers/cctp/cctpBridgeProvider';
 import {
   inspectDestinationNonceRemote,
+  recordSelfRelayDestinationRemote,
   type DestinationNonceObservation,
 } from '@/lib/api/bridgeRecoveryApi';
 
@@ -133,6 +134,15 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
               connected={isConnected}
               busy={bridgeExecution.state.phase !== 'IDLE'}
               onResume={() => void resume(checkpoint)}
+              onReconciled={async () => {
+                const [recoveryRows, activityRows] = await Promise.all([
+                  bridgeExecution.loadRecoveryCandidates(),
+                  loadActivityReceiptsRemote().catch(() => []),
+                ]);
+                setRecoveryCandidates(recoveryRows);
+                setRemoteReceipts(activityRows);
+                await reload();
+              }}
             />
           ))}
         </div>
@@ -343,12 +353,49 @@ function RecoveryCard({
   connected,
   busy,
   onResume,
+  onReconciled,
 }: {
   checkpoint: BridgeRecoveryCheckpoint;
   connected: boolean;
   busy: boolean;
   onResume: () => void;
+  onReconciled: () => Promise<void>;
 }) {
+  const [knownTxHash, setKnownTxHash] = useState('');
+  const [reconcileBusy, setReconcileBusy] = useState(false);
+  const [reconcileMessage, setReconcileMessage] = useState<string | null>(null);
+  const [reconcileError, setReconcileError] = useState<string | null>(null);
+
+  async function reconcilePreviouslySignedHash() {
+    const txHash = knownTxHash.trim();
+    if (
+      checkpoint.stage !== 'ATTESTATION_READY' ||
+      busy || reconcileBusy ||
+      !/^0x[0-9a-fA-F]{64}$/.test(txHash)
+    ) {
+      return;
+    }
+    setReconcileBusy(true);
+    setReconcileMessage(null);
+    setReconcileError(null);
+    try {
+      // This endpoint cannot sign: it only records a prior claimed
+      // submission after the BFF independently fetches the destination
+      // transaction, validates actual RPC chain + hash, sender, CCTP target
+      // and exact original message and attestation calldata.
+      await recordSelfRelayDestinationRemote(checkpoint.planId, txHash);
+      setReconcileMessage('Previously signed receive hash independently verified and recorded. No new transaction was sent.');
+      setKnownTxHash('');
+      await onReconciled();
+    } catch (error) {
+      setReconcileError(
+        error instanceof Error ? error.message : 'The original transaction cannot be verified. No new signature is allowed.',
+      );
+    } finally {
+      setReconcileBusy(false);
+    }
+  }
+
   const [nonceStatus, setNonceStatus] = useState<
     DestinationNonceObservation | null
   >(null);
@@ -405,6 +452,58 @@ function RecoveryCard({
           </p>
         </div>
       </div>
+      {checkpoint.stage === 'ATTESTATION_READY' && (
+        <section className="mt-3 space-y-2 rounded-xl p-3"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+          <p className="text-xs font-semibold" style={{ color: 'var(--ink)' }}>
+            Reconcile a previously signed destination receive
+          </p>
+          <p className="text-xs leading-5" style={{ color: 'var(--muted)' }}>
+            If your wallet already broadcast the original CCTP receive but Veyra lost its response,
+            paste that transaction hash. This will ONLY check and record an existing
+            on-chain submission. It never signs, resends or burns USDC.
+            No prior durable claim or mismatched transaction means verification is refused.
+          </p>
+          <form className="space-y-2" onSubmit={(event) => {
+            event.preventDefault();
+            void reconcilePreviouslySignedHash();
+          }}>
+            <label htmlFor={`known-receive-${checkpoint.planId}`}
+              className="block text-xs font-semibold" style={{ color: 'var(--muted)' }}>
+              Original destination transaction hash (0x + 64 hex characters)
+            </label>
+            <input
+              id={`known-receive-${checkpoint.planId}`}
+              value={knownTxHash}
+              onChange={(event) => setKnownTxHash(event.target.value)}
+              placeholder="0x…"
+              maxLength={66}
+              autoComplete="off"
+              spellCheck={false}
+              className="w-full rounded-lg px-3 py-2 font-mono text-xs outline-none"
+              style={{ background: 'var(--surface-strong)', color: 'var(--ink)', border: '1px solid var(--border-strong)' }}
+              disabled={busy || reconcileBusy}
+            />
+            <button
+              type="submit"
+              disabled={busy || reconcileBusy || !/^0x[0-9a-fA-F]{64}$/.test(knownTxHash.trim())}
+              className="rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-40"
+              style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}
+            >
+              {reconcileBusy ? 'Verifying saved transaction…' : 'Verify existing hash (no signing)'}
+            </button>
+          </form>
+          {reconcileMessage && (
+            <p role="status" className="text-xs" style={{ color: 'var(--success)' }}>{reconcileMessage}</p>
+          )}
+          {reconcileError && (
+            <p role="alert" className="text-xs" style={{ color: 'var(--danger)' }}>
+              {reconcileError} · The submission remains locked.
+            </p>
+          )}
+        </section>
+      )}
+
       {checkpoint.stage === 'DESTINATION_BROADCAST' && (
         <section className="mt-3 space-y-2 rounded-xl p-3"
           style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
