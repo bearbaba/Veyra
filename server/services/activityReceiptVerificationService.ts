@@ -278,55 +278,53 @@ export async function verifyActivityReceiptTransitionEvidence(
     );
   }
 
-  {
-    const burnTxHash = requireHash(current.burnTxHash, 'burnTxHash');
-    const [transaction, authoritativeAttestation] = await Promise.all([
-      fetchTransaction(current.recipientChainId, receiveTxHash),
-      fetchAttestation(burnTxHash),
-    ]);
+ const burnTxHash = requireHash(current.burnTxHash, 'burnTxHash');
+  const [transaction, authoritativeAttestation] = await Promise.all([
+    fetchTransaction(current.recipientChainId, receiveTxHash),
+    fetchAttestation(burnTxHash),
+  ]);
 
-    if (
-      !transaction.to ||
-      transaction.to.toLowerCase() !==
-        MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER.toLowerCase()
-    ) {
-      throw new ActivityReceiptEvidenceError(
-        'DESTINATION_CALL_TARGET_MISMATCH',
-        'Destination transaction does not call the canonical CCTP MessageTransmitterV2.',
-      );
-    }
+  if (
+    !transaction.to ||
+    transaction.to.toLowerCase() !==
+      MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER.toLowerCase()
+  ) {
+    throw new ActivityReceiptEvidenceError(
+      'DESTINATION_CALL_TARGET_MISMATCH',
+      'Destination transaction does not call the canonical CCTP MessageTransmitterV2.',
+    );
+  }
 
-    let decoded;
-    try {
-      decoded = decodeFunctionData({
-        abi: RECEIVE_MESSAGE_ABI,
-        data: transaction.input,
-      });
-    } catch {
-      throw new ActivityReceiptEvidenceError(
-        'DESTINATION_CALL_UNDECODABLE',
-        'Destination transaction input is not a valid CCTP receiveMessage call.',
-      );
-    }
+  let decoded;
+  try {
+    decoded = decodeFunctionData({
+      abi: RECEIVE_MESSAGE_ABI,
+      data: transaction.input,
+    });
+  } catch {
+    throw new ActivityReceiptEvidenceError(
+      'DESTINATION_CALL_UNDECODABLE',
+      'Destination transaction input is not a valid CCTP receiveMessage call.',
+    );
+  }
 
-    if (decoded.functionName !== 'receiveMessage') {
-      throw new ActivityReceiptEvidenceError(
-        'DESTINATION_CALL_UNEXPECTED',
-        'Destination transaction is not a receiveMessage call.',
-      );
-    }
+  if (decoded.functionName !== 'receiveMessage') {
+    throw new ActivityReceiptEvidenceError(
+      'DESTINATION_CALL_UNEXPECTED',
+      'Destination transaction is not a receiveMessage call.',
+    );
+  }
 
-    const [message, attestation] = decoded.args;
-    if (
-      message.toLowerCase() !== authoritativeAttestation.message.toLowerCase() ||
-      attestation.toLowerCase() !==
-        authoritativeAttestation.attestation.toLowerCase()
-    ) {
-      throw new ActivityReceiptEvidenceError(
-        'DESTINATION_ATTESTATION_MISMATCH',
-        'Destination receiveMessage calldata is not bound to the authoritative Circle attestation for the source burn.',
-      );
-    }
+  const [message, attestation] = decoded.args;
+  if (
+    message.toLowerCase() !== authoritativeAttestation.message.toLowerCase() ||
+    attestation.toLowerCase() !==
+      authoritativeAttestation.attestation.toLowerCase()
+  ) {
+    throw new ActivityReceiptEvidenceError(
+      'DESTINATION_ATTESTATION_MISMATCH',
+      'Destination receiveMessage calldata is not bound to the authoritative Circle attestation for the source burn.',
+    );
   }
 }
 
