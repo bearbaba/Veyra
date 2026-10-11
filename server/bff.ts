@@ -80,6 +80,9 @@ import {
   recordVerifiedFirstDestinationRevert,
 } from './db/repositories/bridgeDestinationRevertRepository.js';
 import { getOwnedDestinationAttemptHistory } from './db/repositories/bridgeDestinationRetryRepository.js';
+import { getSecondDestinationAttempt } from './db/repositories/bridgeDestinationRetryRepository.js';
+import { verifySecondCctpDestinationMintFromNetwork } from './services/cctpSecondDestinationVerificationService.js';
+import { recordVerifiedSecondDestinationMint } from './db/repositories/bridgeSecondDestinationVerificationRepository.js';
 import { assertSelfRelayTransactionMatchesCheckpoint } from './services/cctpSelfRelayVerification.js';
 import { verifyCctpSourceCheckpointAttestationFromNetwork } from './services/cctpBridgeSourceAttestationService.js';
 import { receiptStatusEnum } from './db/schema/enums.js';
@@ -1659,6 +1662,91 @@ app.get('/api/bridge/destination-attempts', IDENTITY_RATE, async (req: Request, 
   } catch (err) {
     console.error('[BFF] /api/bridge/destination-attempts error:', err);
     res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+/**
+ * Verifies successful SECOND receive without requesting a new signature.
+ * Only an owned, already-recorded attempt #2 hash can be verified. Source
+ * burn and Circle evidence are independently rechecked from Arc and Circle.
+ *
+ * Never overwrites the original ActivityReceipt's first receive tx hash.
+ */
+app.post('/api/bridge/verify-second-destination', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const planId = typeof body?.planId === 'string' ? body.planId.trim() : '';
+    if (!planId || planId.length > 160) {
+      res.status(400).json({ ok: false, error: 'INVALID_BRIDGE_PLAN' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(db, userId, planId);
+    if (!checkpoint) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+
+    const attempt = await getSecondDestinationAttempt(db, userId, planId);
+    if (!attempt || attempt.mode !== 'ALREADY_SUBMITTED') {
+      throw new BridgeRecoveryConflictError(
+        'No immutable second destination receive hash is available for verification.',
+      );
+    }
+
+    if (checkpoint.stage !== 'DESTINATION_BROADCAST') {
+      throw new BridgeRecoveryConflictError(
+        'Second receive verification requires an unresolved first destination checkpoint.',
+      );
+    }
+
+    // The shared source+CIRCLE verifier expects a pre-signature stage.
+    // Adapt ONLY that field for proof checking; the original DB checkpoint
+    // is independently checked again with row locks when recording the proof.
+    await verifyCctpSourceCheckpointAttestationFromNetwork({
+      ...checkpoint,
+      stage: 'ATTESTATION_READY',
+    });
+
+    const proof = await verifySecondCctpDestinationMintFromNetwork(
+      checkpoint,
+      attempt.txHash,
+    );
+    const token = checkpoint.destinationChainId ===
+      MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID
+      ? MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC
+      : MANIFEST_CONSTANTS.BASE_SEPOLIA_USDC;
+    const verified = await recordVerifiedSecondDestinationMint(
+      db, userId, planId, proof, token,
+    );
+
+    res.json({
+      ok: true,
+      planId,
+      attemptNumber: 2,
+      outcome: 'VERIFIED_MINT',
+      evidence: verified,
+      activityReceiptCompleted: false,
+      retryAuthorized: false,
+    });
+  } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'SECOND_DESTINATION_MINT_NOT_VERIFIED',
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/bridge/verify-second-destination error:', err);
+    res.status(503).json({ ok: false, error: 'SECOND_DESTINATION_EVIDENCE_UNAVAILABLE' });
   }
 });
 
