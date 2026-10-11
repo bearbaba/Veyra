@@ -107,7 +107,7 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
 
     expect(app).toContain("import.meta.env.VITE_VEYRA_TESTNET_PAY === '1'");
     expect(app).toContain('<PreviewTestnetPayPage />');
-    expect(app).toContain('<UiOnlyPreviewPage surface={page} />');
+    expect(app).toContain('<PreviewServiceStatus surface={page} onNavigate={setPage} />');
     expect(source).toContain('export const ARC_TESTNET_CHAIN_ID = 5042002');
     expect(source).toContain('MAX_TESTNET_PAYMENT_UNITS = 1_000_000n');
     expect(source).toContain("functionName: 'transfer'");
@@ -142,6 +142,16 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     expect(serverless).not.toContain('local-fallback');
     expect(audit).toContain('live AI function is the only permitted');
     expect(audit).toContain('genuine Vercel AI endpoint path absent');
+  });
+
+  it('does not simulate Bridge and FX quotes or claim success without a deployed BFF', () => {
+    const app = read('src/preview/PreviewApp.tsx');
+    const page = read('src/preview/PreviewServiceStatus.tsx');
+    expect(app).toContain("import { PreviewServiceStatus }");
+    expect(page).toContain('Không hiển thị báo giá, mô phỏng thành công hoặc nút ký giả.');
+    expect(page).toContain('Chưa có dịch vụ giao dịch thật trên Vercel');
+    expect(page).not.toMatch(/depositForBurn|receiveMessage|eth_sendTransaction|useWalletClient|writeContract/);
+    expect(page).not.toContain('Review preview');
   });
 
   it('does not pretend the localhost BFF runs as a Vercel API', () => {
