@@ -131,6 +131,30 @@ export async function recordSelfRelayDestinationRemote(
   }
 }
 
+/**
+ * Request independent proof that the immutable FIRST destination receive
+ * reverted. This records only a canonical, finality-checked, append-only
+ * resolution; it never grants permission for a new source burn/receive tx.
+ */
+export async function resolveFirstDestinationRevertRemote(
+  planId: string,
+): Promise<boolean> {
+  const auth = bridgeAuthHeaders();
+  if (Object.keys(auth).length === 0) return false;
+
+  const response = await fetch('/api/bridge/resolve-destination-revert', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify({ planId }),
+  });
+  const result = await response.json().catch(() => ({})) as Record<string, unknown>;
+  return response.ok &&
+    result.ok === true &&
+    result.planId === planId &&
+    result.outcome === 'REVERTED' &&
+    result.retryAuthorized === false;
+}
+
 export type BridgeRelayRemoteResult =
   | { mode: 'UNAVAILABLE' }
   | { mode: 'SUBMITTED'; txHash: string }
