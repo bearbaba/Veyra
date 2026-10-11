@@ -41,6 +41,8 @@ describe('Phase 5 hosted backend deployment gates', () => {
     rejects({ DATABASE_URL: '' }, 'DATABASE_URL');
     rejects({ DATABASE_URL: 'sqlite://not-postgres/test' }, 'PostgreSQL');
     rejects({ DATABASE_URL: 'postgres://localhost:5432/veyra' }, 'non-local PostgreSQL');
+    rejects({ DATABASE_URL: 'postgres://127.0.0.1:5432/veyra?sslmode=require' }, 'non-local PostgreSQL');
+    rejects({ DATABASE_URL: 'postgres://[::1]:5432/veyra?sslmode=require' }, 'non-local PostgreSQL');
     rejects({
       DATABASE_URL: 'postgres://veyra:dummy@pg.testnet.example:5432/veyra',
     }, 'PostgreSQL TLS');
@@ -57,6 +59,8 @@ describe('Phase 5 hosted backend deployment gates', () => {
     rejects({ VEYRA_SESSION_SECRET: 'short' }, 'VEYRA_SESSION_SECRET');
     rejects({ VEYRA_APP_ORIGIN: 'http://veyra.example' }, 'HTTPS');
     rejects({ VEYRA_APP_ORIGIN: '' }, 'HTTPS');
+    rejects({ VEYRA_APP_ORIGIN: 'https://veyra.example/path' }, 'exact HTTPS origin');
+    rejects({ VEYRA_APP_ORIGIN: 'https://user:pass@veyra.example' }, 'exact HTTPS origin');
   });
 
   it('cannot accidentally enable a funded relay key on the hosted backend', () => {
