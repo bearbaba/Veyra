@@ -13,9 +13,30 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     };
     expect(config.framework).toBe('vite');
     expect(config.installCommand).toBe('bun install --frozen-lockfile');
-    expect(config.buildCommand).toBe('bun run build');
+    expect(config.buildCommand).toBe('VITE_VEYRA_UI_ONLY=1 bun run build');
     expect(config.outputDirectory).toBe('dist');
     expect(pkg.scripts?.build).toBe('vite build');
+  });
+
+  it('locks payments, bridges and recovery in the static frontend at build and execution boundaries', () => {
+    const env = read('src/lib/env.ts');
+    const readiness = read('src/core/execution/executionReadiness.ts');
+    const app = read('src/App.tsx');
+    const activity = read('src/components/pages/ActivityPage.tsx');
+    const recovery = read('src/hooks/useBridgeExecution.ts');
+    const preview = read('src/components/pages/UiOnlyPreviewPage.tsx');
+    const banner = read('src/components/system/WebPreviewBanner.tsx');
+
+    expect(env).toContain('VITE_VEYRA_UI_ONLY');
+    expect(readiness).toContain('if (IS_UI_ONLY_PREVIEW)');
+    expect(app).toContain('<UiOnlyPreviewPage surface="pay" />');
+    expect(app).toContain('<UiOnlyPreviewPage surface="convert" />');
+    expect(app).toContain('<UiOnlyPreviewPage surface="bridge" />');
+    expect(app).toContain('<ActivityPage readOnly={IS_UI_ONLY_PREVIEW} />');
+    expect(activity).toContain('if (readOnly) return;');
+    expect(recovery).toContain('Static Vercel preview cannot sign, relay or resume a bridge.');
+    expect(banner).toContain('Signing disabled');
+    expect(preview).not.toMatch(/useWalletClient|useWriteContract|sendTransaction|writeContract|signTypedData/);
   });
 
   it('does not pretend the localhost BFF runs as a Vercel API', () => {
