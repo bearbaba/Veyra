@@ -84,6 +84,7 @@ import { receiptStatusEnum } from './db/schema/enums.js';
 import {
   BridgeRecoveryConflictError,
   assertBridgeRecoveryWalletOwnership,
+  assertBrowserBridgeCheckpointWritable,
   evaluateBridgeRelayDecision,
   getBridgeRecoveryCheckpointForOwner,
   loadPendingBridgeRecoveryCheckpoints,
@@ -1590,6 +1591,10 @@ app.post('/api/bridge/persist', IDENTITY_RATE, async (req: Request, res: Respons
       );
     }
 
+    // This endpoint only mirrors pre-destination recovery metadata.
+    // A browser cannot forge a destination tx hash or VERIFIED state here.
+    // Server-side relay and chain-verifying self-relay endpoints own that truth.
+    assertBrowserBridgeCheckpointWritable(input);
     const { db } = await import('./db/client.js');
     await assertBridgeRecoveryWalletOwnership(db, userId, input);
     const checkpoint = await persistBridgeRecoveryCheckpoint(db, userId, input);
