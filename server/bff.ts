@@ -75,6 +75,7 @@ import {
   recordDestinationSubmission,
 } from './db/repositories/bridgeDestinationSubmissionRepository.js';
 import type { Address } from 'viem';
+import { assertSelfRelayTransactionMatchesCheckpoint } from './services/cctpSelfRelayVerification.js';
 import { receiptStatusEnum } from './db/schema/enums.js';
 import {
   BridgeRecoveryConflictError,
@@ -1612,6 +1613,162 @@ app.get('/api/bridge/pending', IDENTITY_RATE, async (req: Request, res: Response
     res.json({ ok: true, pending });
   } catch (err) {
     console.error('[BFF] /api/bridge/pending error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+// ── Shared destination claim for user-signed self-relay ────────────────────
+// The server and the browser compete for the SAME durable plan claim. No user
+// signature may be requested before this transaction commits. If the browser
+// crashes or the wallet RPC loses the broadcast response, do not reopen it.
+app.post('/api/bridge/claim-self-receive', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const planId = typeof body?.planId === 'string' ? body.planId : '';
+    if (!planId || planId.length > 160) {
+      res.status(400).json({ ok: false, error: 'INVALID_BRIDGE_PLAN' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(db, userId, planId);
+    if (!checkpoint) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+
+    const claim = await claimDestinationSubmission(db, userId, planId);
+    if (claim.mode !== 'CLAIMED') {
+      res.status(409).json({
+        ok: false,
+        error: 'DESTINATION_SUBMISSION_ALREADY_CLAIMED',
+        message:
+          'A destination submission was already started; reconcile the original transaction before signing another.',
+      });
+      return;
+    }
+
+    res.json({ ok: true, mode: 'CLAIMED' });
+  } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'BRIDGE_RECOVERY_CONFLICT',
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/bridge/claim-self-receive error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+/**
+ * The browser can report a self-relay tx hash, but it cannot choose receipt
+ * truth. Verify the *actual* chain transaction sender, target and calldata
+ * before writing it to the immutable destination submission ledger.
+ */
+app.post('/api/bridge/record-self-receive', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const planId = typeof body?.planId === 'string' ? body.planId : '';
+    const txHash = typeof body?.txHash === 'string' ? body.txHash : '';
+    if (
+      !planId ||
+      planId.length > 160 ||
+      !/^0x[0-9a-fA-F]{64}$/.test(txHash)
+    ) {
+      res.status(400).json({ ok: false, error: 'INVALID_DESTINATION_SUBMISSION' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(db, userId, planId);
+    if (!checkpoint) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    const claim = await getDestinationSubmissionClaim(db, userId, planId);
+    if (!claim) {
+      throw new BridgeRecoveryConflictError(
+        'Self-relay transaction cannot be recorded without a committed destination claim.',
+      );
+    }
+    if (claim.mode === 'ALREADY_SUBMITTED') {
+      if (claim.txHash.toLowerCase() !== txHash.toLowerCase()) {
+        throw new BridgeRecoveryConflictError('A different destination tx hash is already immutable.');
+      }
+      res.json({ ok: true, txHash: claim.txHash, alreadyRecorded: true });
+      return;
+    }
+
+    if (
+      checkpoint.destinationChainId !== MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID &&
+      checkpoint.destinationChainId !== MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID
+    ) {
+      throw new BridgeRecoveryConflictError('Unsupported self-relay destination chain.');
+    }
+
+    const { createPublicClient, http: viemHttp } = await import('viem');
+    const { sepolia, baseSepolia } = await import('viem/chains');
+    const destination = checkpoint.destinationChainId === MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID
+      ? sepolia
+      : baseSepolia;
+    const rpcUrl = checkpoint.destinationChainId === MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID
+      ? (process.env.ETH_SEPOLIA_RPC_URL ?? 'https://ethereum-sepolia-rpc.publicnode.com')
+      : (process.env.BASE_SEPOLIA_RPC_URL ?? 'https://sepolia.base.org');
+
+    const client = createPublicClient({
+      chain: destination,
+      transport: viemHttp(rpcUrl),
+    });
+    let transaction;
+    try {
+      transaction = await client.getTransaction({ hash: txHash as `0x${string}` });
+    } catch {
+      res.status(503).json({
+        ok: false,
+        error: 'SELF_RELAY_TRANSACTION_NOT_INDEXED',
+        message: 'The destination RPC has not indexed this hash. The claim remains locked; reconcile later.',
+      });
+      return;
+    }
+
+    try {
+      assertSelfRelayTransactionMatchesCheckpoint(checkpoint, {
+        from: transaction.from,
+        to: transaction.to,
+        input: transaction.input,
+      });
+    } catch (err) {
+      throw new BridgeRecoveryConflictError(
+        err instanceof Error ? err.message : 'Self-relay call mismatch.',
+      );
+    }
+
+    await recordDestinationSubmission(db, userId, planId, txHash);
+    res.json({ ok: true, txHash, alreadyRecorded: false });
+  } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'BRIDGE_RECOVERY_CONFLICT',
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/bridge/record-self-receive error:', err);
     res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
   }
 });
