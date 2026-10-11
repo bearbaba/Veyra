@@ -80,6 +80,7 @@ import {
 } from './db/repositories/bridgeDestinationSubmissionRepository.js';
 import type { Address } from 'viem';
 import { assertSelfRelayTransactionMatchesCheckpoint } from './services/cctpSelfRelayVerification.js';
+import { verifyCctpSourceCheckpointAttestationFromNetwork } from './services/cctpBridgeSourceAttestationService.js';
 import { receiptStatusEnum } from './db/schema/enums.js';
 import {
   BridgeRecoveryConflictError,
@@ -1651,6 +1652,11 @@ app.post('/api/bridge/claim-self-receive', IDENTITY_RATE, async (req: Request, r
       return;
     }
     await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+
+    // Claiming grants permission to request the user's destination wallet
+    // signature. Revalidate reviewed source calldata and Circle's sole
+    // canonical MessageSent before granting that permission.
+    await verifyCctpSourceCheckpointAttestationFromNetwork(checkpoint);
 
     const claim = await claimDestinationSubmission(db, userId, planId);
     if (claim.mode !== 'CLAIMED') {
