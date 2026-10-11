@@ -155,6 +155,81 @@ export async function resolveFirstDestinationRevertRemote(
     result.retryAuthorized === false;
 }
 
+/**
+ * Owner-authenticated, read-only CCTP V2 usedNonces() inspection.
+ *
+ * Nonce=0 only means unused at a specific canonical destination block. It
+ * NEVER grants a second submission. The server independently rechecks the
+ * first revert and source Circle evidence before returning this observation.
+ */
+export interface DestinationNonceObservation {
+  nonce: string;
+  destinationChainId: number;
+  destinationDomain: number;
+  observedBlockNumber: number;
+  observedBlockHash: string;
+  usage: 'UNUSED_AT_OBSERVED_BLOCK' | 'ALREADY_CONSUMED';
+  retryAuthorized: false;
+}
+
+export async function inspectDestinationNonceRemote(
+  planId: string,
+): Promise<DestinationNonceObservation> {
+  const auth = bridgeAuthHeaders();
+  if (Object.keys(auth).length === 0) {
+    throw new Error('An authenticated Veyra session is required to inspect a CCTP nonce.');
+  }
+
+  const response = await fetch('/api/bridge/inspect-destination-nonce', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...auth,
+    },
+    body: JSON.stringify({ planId }),
+  });
+  const payload = await response.json().catch(() => ({})) as {
+    ok?: boolean;
+    planId?: string;
+    observation?: Partial<DestinationNonceObservation>;
+    retryAuthorized?: boolean;
+    message?: string;
+  };
+  const observed = payload.observation;
+  if (
+    !response.ok ||
+    payload.ok !== true ||
+    payload.planId !== planId ||
+    payload.retryAuthorized !== false ||
+    !observed ||
+    (observed.usage !== 'UNUSED_AT_OBSERVED_BLOCK' &&
+      observed.usage !== 'ALREADY_CONSUMED') ||
+    observed.retryAuthorized !== false ||
+    typeof observed.nonce !== 'string' ||
+    !/^0x[0-9a-fA-F]{64}$/.test(observed.nonce) ||
+    typeof observed.observedBlockHash !== 'string' ||
+    !/^0x[0-9a-fA-F]{64}$/.test(observed.observedBlockHash) ||
+    !Number.isSafeInteger(observed.observedBlockNumber) ||
+    !Number.isSafeInteger(observed.destinationChainId) ||
+    !Number.isSafeInteger(observed.destinationDomain)
+  ) {
+    throw new Error(
+      payload.message ??
+      'The destination nonce could not be independently verified. Do not retry.',
+    );
+  }
+
+  return {
+    nonce: observed.nonce,
+    destinationChainId: observed.destinationChainId as number,
+    destinationDomain: observed.destinationDomain as number,
+    observedBlockNumber: observed.observedBlockNumber as number,
+    observedBlockHash: observed.observedBlockHash,
+    usage: observed.usage,
+    retryAuthorized: false,
+  };
+}
+
 export type BridgeRelayRemoteResult =
   | { mode: 'UNAVAILABLE' }
   | { mode: 'SUBMITTED'; txHash: string }
