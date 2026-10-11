@@ -79,6 +79,7 @@ import {
 import {
   recordVerifiedFirstDestinationRevert,
 } from './db/repositories/bridgeDestinationRevertRepository.js';
+import { getOwnedDestinationAttemptHistory } from './db/repositories/bridgeDestinationRetryRepository.js';
 import { assertSelfRelayTransactionMatchesCheckpoint } from './services/cctpSelfRelayVerification.js';
 import { verifyCctpSourceCheckpointAttestationFromNetwork } from './services/cctpBridgeSourceAttestationService.js';
 import { receiptStatusEnum } from './db/schema/enums.js';
@@ -1623,6 +1624,40 @@ app.get('/api/bridge/pending', IDENTITY_RATE, async (req: Request, res: Response
     res.json({ ok: true, pending });
   } catch (err) {
     console.error('[BFF] /api/bridge/pending error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+/**
+ * Read-only attempt history for authenticated cross-device recovery.
+ * A history response does not grant another signing or relay permission.
+ */
+app.get('/api/bridge/destination-attempts', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const planId = typeof req.query.planId === 'string'
+      ? req.query.planId.trim() : '';
+    if (!planId || planId.length > 160) {
+      res.status(400).json({ ok: false, error: 'INVALID_BRIDGE_PLAN' });
+      return;
+    }
+    const { db } = await import('./db/client.js');
+    const history = await getOwnedDestinationAttemptHistory(db, userId, planId);
+    if (!history) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    res.json({
+      ok: true,
+      history,
+      retryAuthorized: false,
+    });
+  } catch (err) {
+    console.error('[BFF] /api/bridge/destination-attempts error:', err);
     res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
   }
 });
