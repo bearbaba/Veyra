@@ -86,6 +86,8 @@ import { inspectCctpDestinationNonceFromNetwork } from './services/cctpDestinati
 import { recordVerifiedSecondDestinationMint } from './db/repositories/bridgeSecondDestinationVerificationRepository.js';
 import { finalizeVerifiedSecondCctpSettlement } from './db/repositories/bridgeSecondSettlementRepository.js';
 import { assertSelfRelayNetworkEvidence } from './services/cctpSelfRelayVerification.js';
+import { assertSecondReceiveTransactionMatchesCheckpoint } from './services/cctpSecondReceiveReconciliationService.js';
+import { recordSecondDestinationAttemptHash } from './db/repositories/bridgeDestinationRetryRepository.js';
 import { verifyCctpSourceCheckpointAttestationFromNetwork } from './services/cctpBridgeSourceAttestationService.js';
 import { receiptStatusEnum } from './db/schema/enums.js';
 import {
@@ -1664,6 +1666,136 @@ app.get('/api/bridge/destination-attempts', IDENTITY_RATE, async (req: Request, 
   } catch (err) {
     console.error('[BFF] /api/bridge/destination-attempts error:', err);
     res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+/**
+ * Reconcile the HASH of an already-broadcast second receive after an unknown
+ * wallet/relayer response. This route deliberately cannot claim, sign or
+ * broadcast attempt #2. The reservation must already be committed.
+ *
+ * A submitted hash is a locator only: RPC chain identity, transaction hash,
+ * exact attested CCTP calldata and the original canonical reverted attempt
+ * are verified by the server before the immutable retry hash is recorded.
+ */
+app.post('/api/bridge/reconcile-second-receive', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const planId = typeof body?.planId === 'string' ? body.planId.trim() : '';
+    const txHash = typeof body?.txHash === 'string' ? body.txHash.trim() : '';
+    if (!planId || planId.length > 160 || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+      res.status(400).json({ ok: false, error: 'INVALID_SECOND_RECEIVE_RECONCILIATION' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(db, userId, planId);
+    if (!checkpoint) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+
+    const history = await getOwnedDestinationAttemptHistory(db, userId, planId);
+    const second = await getSecondDestinationAttempt(db, userId, planId);
+    if (
+      !history ||
+      history.first.state !== 'RECORDED' ||
+      !history.first.reverted ||
+      !history.first.receiveTxHash ||
+      !history.first.revertBlockHash ||
+      history.first.receiveTxHash.toLowerCase() !== checkpoint.receiveTxHash?.toLowerCase() ||
+      !second ||
+      (second.mode !== 'UNCERTAIN' &&
+        !(second.mode === 'ALREADY_SUBMITTED' &&
+          second.txHash.toLowerCase() === txHash.toLowerCase()))
+    ) {
+      throw new BridgeRecoveryConflictError(
+        'Second hash reconciliation requires an existing reserved retry and independently reverted first receive.',
+      );
+    }
+
+    // The historical first revert is rechecked, never assumed from a cached
+    // verdict; this detects chain reorganizations before accepting a hash.
+    const revert = await verifyRevertedCctpDestinationReceiveFromNetwork(
+      checkpoint, history.first.receiveTxHash,
+    );
+    if (revert.destinationBlockHash.toLowerCase() !== history.first.revertBlockHash.toLowerCase()) {
+      throw new BridgeRecoveryConflictError(
+        'Stored first revert proof is no longer canonical on the destination chain.',
+      );
+    }
+    await verifyCctpSourceCheckpointAttestationFromNetwork({
+      ...checkpoint, stage: 'ATTESTATION_READY',
+    });
+
+    const { createPublicClient, http: viemHttp } = await import('viem');
+    const { sepolia, baseSepolia } = await import('viem/chains');
+    if (
+      checkpoint.destinationChainId !== MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID &&
+      checkpoint.destinationChainId !== MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID
+    ) {
+      throw new BridgeRecoveryConflictError('Unsupported second-receive destination chain.');
+    }
+    const ethDestination = checkpoint.destinationChainId === MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID;
+    const client = createPublicClient({
+      chain: ethDestination ? sepolia : baseSepolia,
+      transport: viemHttp(ethDestination
+        ? (process.env.ETH_SEPOLIA_RPC_URL ?? 'https://ethereum-sepolia-rpc.publicnode.com')
+        : (process.env.BASE_SEPOLIA_RPC_URL ?? 'https://sepolia.base.org')),
+    });
+    let indexed;
+    let rpcChainId: number;
+    try {
+      [indexed, rpcChainId] = await Promise.all([
+        client.getTransaction({ hash: txHash as `0x${string}` }),
+        client.getChainId(),
+      ]);
+    } catch {
+      res.status(503).json({
+        ok: false,
+        error: 'SECOND_RECEIVE_TRANSACTION_NOT_INDEXED',
+        message: 'Cannot inspect the original second transaction. Its reserved slot remains locked.',
+        retryAuthorized: false,
+      });
+      return;
+    }
+
+    assertSecondReceiveTransactionMatchesCheckpoint(checkpoint, txHash, rpcChainId, {
+      hash: indexed.hash,
+      from: indexed.from,
+      to: indexed.to,
+      input: indexed.input,
+    });
+    await recordSecondDestinationAttemptHash(db, userId, planId, txHash);
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      ok: true,
+      planId,
+      attemptNumber: 2,
+      txHash: txHash.toLowerCase(),
+      alreadyRecorded: second.mode === 'ALREADY_SUBMITTED',
+      verifiedMint: false, // recording a broadcast does not imply mint success
+      retryAuthorized: false,
+    });
+  } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'SECOND_RECEIVE_RECONCILIATION_CONFLICT',
+        message: err.message,
+        retryAuthorized: false,
+      });
+      return;
+    }
+    console.error('[BFF] /api/bridge/reconcile-second-receive error:', err);
+    res.status(503).json({ ok: false, error: 'SECOND_RECEIVE_RECONCILIATION_UNAVAILABLE', retryAuthorized: false });
   }
 });
 
