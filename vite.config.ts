@@ -31,7 +31,7 @@ export default defineConfig({
               throw new Error('[preview] expected exclusively preview.html output; refusing unsafe deploy');
             }
             const html = readFileSync(preview, 'utf8');
-            if (!html.includes('<title>Veyra Preview')) {
+            if (!html.includes('<title>Veyra —')) {
               throw new Error('[preview] Vite produced an unexpected HTML entry');
             }
             renameSync(preview, index);
