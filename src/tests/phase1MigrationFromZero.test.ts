@@ -285,6 +285,16 @@ describe('migration-from-zero: destination relay exactly-once submission', () =>
     expect(events.rows.map((x) => x.event_type).sort())
       .toEqual(['BROADCAST_RECORDED', 'SUBMISSION_STARTED']);
 
+    await expect(testPool.query(`
+      UPDATE bridge_destination_submission_claims
+        SET receive_tx_hash = '0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
+        WHERE plan_id = 'claims-concurrency-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+    await expect(testPool.query(`
+      DELETE FROM bridge_destination_submission_claims
+        WHERE plan_id = 'claims-concurrency-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+
     const checkpoint = await testPool.query<{ stage: string; receive_tx_hash: string }>(`
       SELECT stage, receive_tx_hash FROM bridge_recovery_checkpoints
       WHERE plan_id = 'claims-concurrency-plan'
