@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import type {
-  PublicClient,
-  WalletClient,
-  Hash,
-  TransactionReceipt,
+import {
+  encodeAbiParameters,
+  type PublicClient,
+  type WalletClient,
+  type Hash,
+  type TransactionReceipt,
 } from 'viem';
 import type { BridgeAction } from '../core/actions/actionSchema';
 import {
@@ -190,7 +191,7 @@ describe('Phase 4F CCTP broadcast safety', () => {
         {
           address: MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER,
           topics: [MESSAGE_SENT_TOPIC],
-          data: '0x1234',
+          data: encodeAbiParameters([{ type: 'bytes' }], ['0x1234']),
         },
       ],
     } as unknown as Pick<TransactionReceipt, 'status' | 'logs'>;
