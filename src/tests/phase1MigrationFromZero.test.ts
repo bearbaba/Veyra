@@ -22,7 +22,6 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../server/db/schema/index.js';
-import type { DbClient } from '../../server/db/client.js';
 import {
   claimDestinationSubmission,
   getDestinationSubmissionClaim,
@@ -248,7 +247,7 @@ describe('migration-from-zero: destination relay exactly-once submission', () =>
          '0x1234', '0xabcd')
     `);
 
-    const db = drizzle(testPool, { schema }) as DbClient;
+    const db = drizzle(testPool, { schema });
     const claims = await Promise.all([
       claimDestinationSubmission(db, 'usr_relay_claims', 'claims-concurrency-plan'),
       claimDestinationSubmission(db, 'usr_relay_claims', 'claims-concurrency-plan'),
