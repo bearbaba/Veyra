@@ -635,6 +635,20 @@ describe('migration-from-zero: second receive verified mint invariants', () => {
       mint_amount_raw: proof.mintAmountRaw,
     });
 
+    const history = await getOwnedDestinationAttemptHistory(
+      db, 'usr_retry_two', planId,
+    );
+    expect(history?.second).toMatchObject({
+      receiveTxHash: proof.receiveTxHash,
+      state: 'RECORDED',
+      verifiedMint: true,
+      mintBlockHash: proof.destinationBlockHash,
+      confirmations: 12,
+    });
+    expect(await getOwnedDestinationAttemptHistory(
+      db, 'usr_self_relay', planId,
+    )).toBeNull();
+
     await expect(testPool.query(`
       UPDATE bridge_destination_retry_verifications
       SET confirmations = 13 WHERE plan_id = 'retry-two-plan'
