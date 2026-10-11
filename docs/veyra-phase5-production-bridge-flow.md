@@ -257,9 +257,15 @@ rather than sign a second receive. The BFF also now checks exact
 
 **Shared server/self-relay gate:** wallet-signed self-relay now uses the
 same owner-scoped PostgreSQL claim as the server relayer. Before requesting
-the destination wallet signature, Veyra commits the claim via
-`POST /api/bridge/claim-self-receive`. A second browser/device or server
-relay cannot bypass that claim. The wallet hash is persisted in local recovery
+the destination wallet signature, Veyra independently reads the canonical Arc
+source receipt and transaction, verifies the source `depositForBurn` calldata
+against the reviewed amount, recipient, token and destination, and revalidates
+the unique source `MessageSent` against Circle's unique complete attestation.
+Only after those checks does the authenticated
+`POST /api/bridge/claim-self-receive` commit the destination claim and grant
+permission to open the wallet signature. RPC/Circle errors fail closed before
+the signing boundary. A second browser/device or server relay cannot bypass
+that claim. The wallet hash is persisted in local recovery
 immediately, then submitted to
 `POST /api/bridge/record-self-receive`. This endpoint independently reads
 the destination-chain transaction and verifies the sender is the reviewed
