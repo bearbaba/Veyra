@@ -241,25 +241,36 @@ MetaMask/Rabby/Coinbase wallet account connection** via EIP-6963/EIP-1193
 is executable**, with a **hard 1 testnet USDC per-transaction cap**, explicit
 wallet review/signature, independent on-chain receipt and ERC-20 Transfer
 log verification, and browser-local pending/unknown-hash recovery. Convert,
-Bridge, Veyra ID Pay and the AI Agent are NOT live financial services yet.
-**No server private key, message-signature-based identity, backend BFF,
-Circle relay or CCTP transfer code is bundled.** The full application separately retains its
+Bridge and Veyra ID Pay are NOT live financial services yet.
+**The scripted Agent has been deleted.** A real standalone Vercel Function
+(`api/agent/chat.ts`) can call OpenAI with server-only API credentials
+when `VEYRA_AGENT_ENABLED=1`, `OPENAI_API_KEY`, and an access-control
+`VEYRA_AGENT_BETA_TOKEN` (>=24 characters) are configured in Vercel
+Preview Settings. It does NOT execute actions or authenticate payments.
+If unconfigured, Agent **shows unavailable** rather than fake answers.
+Convert/Bridge now expose **no simulated quote or transaction review**.
+No server private key, message-signature-based identity, Express BFF,
+Circle relay or CCTP transfer code is bundled in browser JavaScript. The full application separately retains its
 canonical financial execution-time lock. This is build-time isolation, not
 a UI toggle; wallet connect is NOT payment authorization.
 
 CI separately builds the exact Vercel preview and runs
 `bun run check:vercel-preview-bundle` against the emitted JavaScript to
 allow exactly the capped Arc USDC testnet transfer signer while continuing
-to reject all other signing RPCs, CCTP transaction ABI entrypoints and live
-backend paths. Vercel can publish this **connected UI Preview** independently
+to reject all other signing RPCs, CCTP transaction ABI entrypoints and
+backend financial paths. The single stateless, token-protected
+`/api/agent/chat` Vercel Function is explicitly allowed. Vercel can publish this **connected UI Preview** independently
 of CCTP E2E. A user-created Preview deployment has been reported, but public
 availability and hosted behavior have not been independently verified.
 
 **A frontend-only deployment is not a working full-stack demo.** The local
 Vite `/api` development proxy does not run on Vercel. Veyra uses a
 separately hosted, authenticated Express BFF plus PostgreSQL and Circle/RPC
-integrations; without that backend, Veyra ID Pay, Agent, identity, CCTP recovery and
-cross-device Activity API-dependent features cannot be treated as functional.
+integrations; without that backend, Veyra ID Pay, authenticated agent actions, identity,
+CCTP recovery and cross-device Activity API-dependent features cannot be
+treated as functional. **Standalone AI chat** can function with its separately
+configured Vercel API key and private beta access token, but it cannot
+move funds, check private account history or settle a bridge.
 Direct testnet USDC payments only are browser-driven; they are not backed
 by Veyra IDs or server receipts. Never use mainnet funds, a production wallet or a mainnet chain to test
 this capped testnet-only payment beta.
