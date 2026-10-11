@@ -16,6 +16,7 @@ import {
   bridgeDestinationRetryAttempts,
   bridgeDestinationRetryEvents,
   bridgeDestinationSubmissionClaims,
+  bridgeDestinationAttemptEvents,
   bridgeRecoveryCheckpoints,
 } from '../schema/bridgeRecovery.js';
 import { newEventId } from '../ids.js';
@@ -215,4 +216,104 @@ export async function recordSecondDestinationAttemptHash(
       receiveTxHash: canonicalHash,
     });
   });
+}
+
+/**
+ * Owner-only read model for cross-device recovery and audit. Never derives
+ * "retry allowed" from a row being present: the two attempt states are
+ * evidence, NOT transaction signing capabilities.
+ */
+export async function getOwnedDestinationAttemptHistory(
+  db: DbClient,
+  ownerUserId: string,
+  planId: string,
+): Promise<{
+  planId: string;
+  sourceBurnTxHash: string;
+  destinationChainId: number;
+  first: {
+    receiveTxHash: string | null;
+    state: 'UNCLAIMED' | 'UNCERTAIN' | 'RECORDED';
+    reverted: boolean;
+    revertBlockHash: string | null;
+    confirmations: number | null;
+  };
+  second: {
+    receiveTxHash: string | null;
+    state: 'UNCLAIMED' | 'UNCERTAIN' | 'RECORDED';
+  };
+  history: Array<{
+    attemptNumber: number;
+    eventType: string;
+    txHash: string | null;
+    occurredAt: string;
+  }>;
+} | null> {
+  const [checkpoint] = await db
+    .select()
+    .from(bridgeRecoveryCheckpoints)
+    .where(and(
+      eq(bridgeRecoveryCheckpoints.planId, planId),
+      eq(bridgeRecoveryCheckpoints.ownerUserId, ownerUserId),
+    ))
+    .limit(1);
+  if (!checkpoint) return null;
+
+  const [[first], [proof], [second], firstEvents, retryEvents] = await Promise.all([
+    db.select().from(bridgeDestinationSubmissionClaims).where(and(
+      eq(bridgeDestinationSubmissionClaims.planId, planId),
+      eq(bridgeDestinationSubmissionClaims.ownerUserId, ownerUserId),
+    )).limit(1),
+    db.select().from(bridgeDestinationAttemptResolutions).where(and(
+      eq(bridgeDestinationAttemptResolutions.planId, planId),
+      eq(bridgeDestinationAttemptResolutions.attemptNumber, 1),
+      eq(bridgeDestinationAttemptResolutions.ownerUserId, ownerUserId),
+    )).limit(1),
+    db.select().from(bridgeDestinationRetryAttempts).where(and(
+      eq(bridgeDestinationRetryAttempts.planId, planId),
+      eq(bridgeDestinationRetryAttempts.attemptNumber, 2),
+      eq(bridgeDestinationRetryAttempts.ownerUserId, ownerUserId),
+    )).limit(1),
+    db.select().from(bridgeDestinationAttemptEvents).where(
+      eq(bridgeDestinationAttemptEvents.planId, planId),
+    ),
+    db.select().from(bridgeDestinationRetryEvents).where(and(
+      eq(bridgeDestinationRetryEvents.planId, planId),
+      eq(bridgeDestinationRetryEvents.attemptNumber, 2),
+    )),
+  ]);
+
+  // Events belong to the already ownership-checked parent checkpoint.
+  const history = [
+    ...firstEvents.map((event) => ({
+      attemptNumber: 1,
+      eventType: event.eventType,
+      txHash: event.receiveTxHash,
+      occurredAt: event.occurredAt.toISOString(),
+    })),
+    ...retryEvents.map((event) => ({
+      attemptNumber: event.attemptNumber,
+      eventType: event.eventType,
+      txHash: event.receiveTxHash,
+      occurredAt: event.occurredAt.toISOString(),
+    })),
+  ].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
+
+  return {
+    planId,
+    sourceBurnTxHash: checkpoint.burnTxHash,
+    destinationChainId: checkpoint.destinationChainId,
+    first: {
+      receiveTxHash: first?.receiveTxHash ?? null,
+      state: !first ? 'UNCLAIMED' : first.receiveTxHash ? 'RECORDED' : 'UNCERTAIN',
+      reverted: proof?.outcome === 'REVERTED',
+      revertBlockHash: proof?.destinationBlockHash ?? null,
+      confirmations: proof?.confirmations ?? null,
+    },
+    second: {
+      receiveTxHash: second?.receiveTxHash ?? null,
+      state: !second ? 'UNCLAIMED' : second.receiveTxHash ? 'RECORDED' : 'UNCERTAIN',
+    },
+    history,
+  };
 }
