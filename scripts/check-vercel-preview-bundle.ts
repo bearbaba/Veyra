@@ -50,7 +50,7 @@ const blocked: Array<[string, RegExp]> = [
   ['financial writeContract hook', /useWriteContract/],
   ['financial execution pipeline', /assertExecutionReady/],
   ['private key to signer', /privateKeyToAccount/],
-  ['BFF API path', /\/api\/(?:health|bridge|identity|cctp|agent|activity)/],
+  ['BFF API path (live AI function is the only permitted same-origin API)', /\/api\/(?:health|bridge|identity|cctp|activity|agent\/(?!chat(?:[\x27\x22?]|$)))/],
   ['BFF signed session', /veyra:session/],
 ];
 
@@ -72,6 +72,26 @@ if (
   (all.match(/eth_sendTransaction/g) ?? []).length !== 1
 ) {
   throw new Error('[preview bundle] capped wallet-approved Arc Testnet payment safety boundary missing.');
+}
+
+// One stateless, token-protected Vercel Function IS explicitly allowed for
+// genuine AI chat. It must never be confused with the authenticated Express
+// BFF or be used as an execution/bridge API.
+if (!all.includes('/api/agent/chat')) {
+  throw new Error('[preview bundle] genuine Vercel AI endpoint path absent.');
+}
+const liveAgentSource = readFileSync(join(process.cwd(), 'src/preview/PreviewLiveAgent.tsx'), 'utf8');
+const apiSource = readFileSync(join(process.cwd(), 'api/agent/chat.ts'), 'utf8');
+if (
+  !liveAgentSource.includes("method: 'POST'") ||
+  !liveAgentSource.includes("Authorization: `Bearer") ||
+  liveAgentSource.includes('local-fallback') ||
+  !apiSource.includes("process.env.OPENAI_API_KEY") ||
+  !apiSource.includes("VEYRA_AGENT_BETA_TOKEN") ||
+  !apiSource.includes("store: false") ||
+  !apiSource.includes("max_tokens: 450")
+) {
+  throw new Error('[preview bundle] live AI auth or non-fallback safety contract missing.');
 }
 
 for (const [label, pattern] of blocked) {
