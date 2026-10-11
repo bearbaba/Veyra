@@ -213,6 +213,42 @@ export async function syncActivityReceiptRemote(
   };
 }
 
+/**
+ * Resolve an already-submitted CCTP source tx only when the BFF independently
+ * verifies a canonical reverted depositForBurn with sufficient confirmations.
+ * The browser submits only the owned receipt ID, never a claimed status/hash.
+ */
+export async function finalizeRevertedCctpSourceReceiptRemote(
+  receiptId: string,
+): Promise<{ receiptId: string; status: 'FAILED'; revision: number }> {
+  const response = await fetch('/api/receipts/cctp/resolve-source-revert', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...requireAuthHeaders(),
+    },
+    body: JSON.stringify({ receiptId }),
+  });
+
+  const payload = await parseResponse(response);
+  if (
+    payload.receiptId !== receiptId ||
+    payload.status !== 'FAILED' ||
+    typeof payload.revision !== 'number'
+  ) {
+    throw new ActivityReceiptApiError(
+      502,
+      'INVALID_RECEIPT_RESPONSE',
+      'Verified source revert service returned an invalid resolution.',
+    );
+  }
+  return {
+    receiptId,
+    status: 'FAILED',
+    revision: payload.revision,
+  };
+}
+
 export async function loadActivityReceiptsRemote(
   limit = 100,
 ): Promise<ActivityReceiptRemoteRecord[]> {
