@@ -216,7 +216,7 @@ function PreviewWorkspace() {
         ? <PreviewTestnetPayPage /> : <UiOnlyPreviewPage surface="pay" />;
       case 'convert':
       case 'bridge': return <UiOnlyPreviewPage surface={page} />;
-      case 'activity': return <PreviewActivity />;
+      case 'activity': return <PreviewActivity onNavigate={setPage} />;
       case 'settings': return <PreviewSettings />;
       default: return <PreviewHome onNavigate={setPage} />;
     }
