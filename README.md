@@ -208,7 +208,7 @@ readiness is checked separately.
 
 **Frontend deployment configuration is now checked in:** `vercel.json`
 sets Vite, the locked Bun install, the forced
-`VITE_VEYRA_UI_ONLY=1 bun run build` command and static `dist` output.
+`VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 bun run build` command and static `dist` output.
 In this build, the canonical signing gate rejects money-moving execution;
 Pay/Convert/Bridge show interactive read-only flows, and Activity recovery
 cannot request wallet signing. This lock is compile-time, not a UI toggle. Vercel can publish this **UI-only preview** independently
