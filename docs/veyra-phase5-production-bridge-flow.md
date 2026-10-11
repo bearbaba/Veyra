@@ -205,11 +205,27 @@ the destination receipt and transaction, requires the exact canonical USDC mint
 to the reviewed recipient, decodes the transaction as
 `receiveMessage(bytes,bytes)` to the canonical MessageTransmitterV2, and binds
 that calldata to Circle's authoritative attestation for the persisted source
-burn.
+burn. It also independently re-reads the source receipt, checks the recorded
+source block and reviewed `DepositForBurn`, and requires the *exact attested
+message bytes* to appear in the source MessageTransmitterV2 `MessageSent`
+event. A transaction-hash lookup alone cannot prove the correct message when
+one source transaction emitted multiple messages.
 
 A successful source transaction whose exact CCTP evidence cannot yet be proven
 is kept fail-closed and resumable/reconcilable. It is never converted into a
 fresh source execution.
+
+**Terminal safety and unresolved failure:** once the source wallet may have
+submitted a transaction (`SIGNED` or later), an unverified browser-side
+`FAILED`, `CANCELLED`, or `INVALIDATED` claim cannot terminalize a CCTP
+receipt. This includes reverted-source cases: the UI can report the revert,
+but the durable receipt and replay lock remain open for authoritative
+reconciliation. A verified source-revert finalization procedure remains
+necessary before closing those receipts. A previously broadcast destination
+transaction hash also remains immutable; safely recording subsequent distinct
+destination retry attempts requires append-only attempt evidence rather than
+overwriting the original hash. That workflow must be completed/tested before
+claiming automatic recovery of all destination failure cases.
 
 Once the source may have been submitted, a temporary Activity API failure does
 not cause a second burn. The persistent action replay lock and bridge recovery
