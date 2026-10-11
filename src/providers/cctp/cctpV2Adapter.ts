@@ -112,6 +112,57 @@ const TOKEN_MESSENGER_V2_ABI = [
 
 const MESSAGE_SENT_TOPIC =
   '0x8c5261668696ce22758910d05bab8f186d6eb247ceac2af2e82c7dc17669b036';
+
+const MESSAGE_SENT_ABI = [
+  {
+    name: 'MessageSent',
+    type: 'event',
+    anonymous: false,
+    inputs: [{ name: 'message', type: 'bytes', indexed: false }],
+  },
+] as const;
+
+/**
+ * Fail closed for batched/malformed CCTP sends. Until Veyra binds each
+ * DepositForBurn log index to its message index, a source tx emitting multiple
+ * MessageSent logs cannot be safely represented by one ActivityReceipt.
+ */
+export function extractUniqueCctpSourceMessage(
+  receipt: Pick<TransactionReceipt, 'status' | 'logs'>,
+): `0x${string}` | null {
+  if (receipt.status !== 'success') return null;
+
+  const transmitter = MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER.toLowerCase();
+  let message: `0x${string}` | null = null;
+
+  for (const log of receipt.logs) {
+    if (
+      log.address.toLowerCase() !== transmitter ||
+      log.topics[0]?.toLowerCase() !== MESSAGE_SENT_TOPIC
+    ) {
+      continue;
+    }
+
+    if (message !== null) return null;
+
+    try {
+      const decoded = decodeEventLog({
+        abi: MESSAGE_SENT_ABI,
+        data: log.data,
+        topics: log.topics,
+        strict: true,
+      });
+      if (decoded.eventName !== 'MessageSent' || decoded.args.message.length <= 2) {
+        return null;
+      }
+      message = decoded.args.message;
+    } catch {
+      return null;
+    }
+  }
+
+  return message;
+}
 const ERC20_TRANSFER_TOPIC =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const ZERO_ADDRESS_TOPIC = `0x${'0'.repeat(64)}`;
@@ -354,19 +405,11 @@ export function verifyCctpSourceReceiptEvidence(
     };
   }
 
-  const transmitter =
-    MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER.toLowerCase();
-  const hasMessageSent = receipt.logs.some(
-    (log) =>
-      log.address.toLowerCase() === transmitter &&
-      log.topics[0]?.toLowerCase() === MESSAGE_SENT_TOPIC,
-  );
-
-  if (!hasMessageSent) {
+  if (!extractUniqueCctpSourceMessage(receipt)) {
     return {
       verified: false,
       detail:
-        'Source CCTP receipt is missing MessageSent from MessageTransmitterV2.',
+        'Source CCTP receipt must contain exactly one valid MessageSent from MessageTransmitterV2; batched or malformed messages are not supported.',
     };
   }
 
