@@ -176,7 +176,7 @@ Scope and requirements:
   recipient-transmitter contract and reviewed calldata;
   `eth_getTransactionReceipt` must be successful, include the
   matching ERC-20 `Transfer(from, to, amount)`, have a canonical
-  block hash and at least two confirmations. A revert, mismatched log,
+  block hash and at least **12 confirmations for BOTH successful and reverted transactions** before allowing another send. A tentative revert, mismatched log,
   wrong chain, RPC error or reorg never produces VERIFIED.
 - **Lost response:** the browser saves a local per-account submission
   journal before calling the wallet. A known hash survives reload and
