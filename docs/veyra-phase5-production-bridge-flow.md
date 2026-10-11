@@ -306,6 +306,28 @@ destination submission locked. This creates trustworthy input for a future
 multi-attempt retry design without touching original ActivityReceipt,
 checkpoint hash or source burn history.
 
+**Second-attempt persistence foundation (migration 0010):** Veyra now has a
+separate `bridge_destination_retry_attempts` table and strictly append-only
+`bridge_destination_retry_events` audit history for attempt #2. The original
+attempt #1 claim, recovery checkpoint hash and ActivityReceipt hash are **never
+replaced**. `claimSecondDestinationAttempt()` acquires the owned checkpoint
+row lock and requires a matching first submission with an immutable,
+chain-verified `REVERTED` resolution and 12+ destination confirmations.
+Concurrent callers cannot both reserve attempt #2. A claim with no recorded
+hash stays `UNCERTAIN` without any timeout-based recycling; the distinct
+second hash, if ever verified/submitted by a trusted server caller, can be
+recorded exactly once and not overwritten. PostgreSQL triggers forbid
+mutating or deleting claims/attempt events. `GET
+/api/bridge/destination-attempts?planId=...` is an authenticated, read-only
+cross-device history view of both attempts and first revert evidence;
+`retryAuthorized:false` is explicit.
+
+**Important:** migration 0010 is *infrastructure*, not a live second-relay
+feature. No second-attempt signing or broadcast endpoint is enabled until the
+authoritative destination nonce/readiness recheck, verified success/finality,
+ActivityReceipt completion with immutable first-hash preservation and UI
+recovery semantics can all be implemented and E2E-tested together.
+
 **Remaining destination retry gate:** this durable claim deliberately permits
 only the FIRST submission from either actor. Subsequent distinct receive
 transactions after a provably reverted destination transaction need a
