@@ -82,7 +82,8 @@ beforeAll(async () => {
   await adminPool.query(`CREATE DATABASE ${TEST_DB}`);
 
   const testUrl = ADMIN_URL.replace(/\/[^/]+$/, `/${TEST_DB}`);
-  testPool = new Pool({ connectionString: testUrl, max: 1 });
+  // Multiple connections are required to exercise simultaneous relay claims.
+  testPool = new Pool({ connectionString: testUrl, max: 3 });
 
   // Apply migrations in order.
   const client = await testPool.connect();
