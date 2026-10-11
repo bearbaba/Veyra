@@ -9,6 +9,7 @@ import type {
   BridgeProviderAdapter,
   BridgeProviderExecutionRuntime,
   RouteQuoteParams,
+  RouteOption,
 } from '../providers/bridge/bridgeProviderTypes';
 
 const SENDER = '0x1111111111111111111111111111111111111111';
@@ -122,6 +123,58 @@ describe('Phase 5 bridge RouteEngine', () => {
     expect(result.excludedProviders[0]?.reason).toBe(
       'UNSAFE_OR_EXPIRED_ROUTE',
     );
+  });
+
+  it('rejects provider quotes that change reviewed money-moving fields or route identity', async () => {
+    const mutations: Array<[string, (route: RouteOption) => RouteOption]> = [
+      ['routeId', (route) => ({ ...route, routeId: '0x' + 'a'.repeat(64) })],
+      ['amount', (route) => ({ ...route, amountIn: route.amountIn + 1n })],
+      ['destination address', (route) => ({
+        ...route,
+        destinationAddress: '0x3333333333333333333333333333333333333333',
+      })],
+      ['source chain', (route) => ({ ...route, sourceChainId: 84532 })],
+      ['destination chain', (route) => ({ ...route, destinationChainId: 84532 })],
+      ['source token', (route) => ({
+        ...route,
+        sourceTokenAddress: '0x3333333333333333333333333333333333333333',
+      })],
+      ['destination token', (route) => ({
+        ...route,
+        destinationTokenAddress: '0x3333333333333333333333333333333333333333',
+      })],
+      ['first hop token', (route) => ({
+        ...route,
+        hops: [{ ...route.hops[0], sourceTokenAddress: '0x3333333333333333333333333333333333333333' }],
+      })],
+      ['missing hops', (route) => ({ ...route, hops: [] })],
+      ['excessive quote lifetime', (route) => ({
+        ...route,
+        ttlMs: 86_400_000,
+        expiresAt: route.quotedAt + 86_400_000,
+      })],
+    ];
+
+    for (const [name, mutate] of mutations) {
+      const untrustedAdapter: BridgeProviderAdapter = {
+        ...cctpV2BridgeProvider,
+        quoteRoute: async (input) => {
+          const original = await cctpV2BridgeProvider.quoteRoute(input);
+          return original ? mutate(original) : null;
+        },
+      };
+
+      const result = await selectBridgeRoutes({
+        params: params(),
+        adapters: [untrustedAdapter],
+        runtimeEnvironment: 'testnet',
+      });
+
+      expect(result.routes, name).toEqual([]);
+      expect(result.excludedProviders[0]?.reason, name).toBe(
+        'UNSAFE_OR_EXPIRED_ROUTE',
+      );
+    }
   });
 
   it('executes a reviewed route only through a matching provider runtime', async () => {
