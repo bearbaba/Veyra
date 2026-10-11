@@ -192,7 +192,7 @@ function PreviewShell({ page, onNavigate, children }: {
           </div>
         </header>
         <div className="vp-preview-ribbon">
-          <div><ShieldCheck size={16} /><strong>CONNECTED UI PREVIEW</strong><span>Wallet connection and public balance reads only. Payments, swaps and bridges are locked.</span></div>
+          <div><ShieldCheck size={16} /><strong>INTERACTIVE UI PREVIEW</strong><span>Wallet connection and public balance reads only. Payments, swaps and bridges are locked.</span></div>
           <span className="vp-ribbon-tag">TESTNET</span>
         </div>
         <main className="vp-content" id="content">{children}</main>
