@@ -58,3 +58,34 @@ DROP TRIGGER IF EXISTS trg_bridge_destination_attempt_events_append_only
 CREATE TRIGGER trg_bridge_destination_attempt_events_append_only
   BEFORE UPDATE OR DELETE ON bridge_destination_attempt_events
   FOR EACH ROW EXECUTE FUNCTION forbid_bridge_destination_event_mutation();
+
+--> statement-breakpoint
+
+CREATE OR REPLACE FUNCTION guard_destination_submission_claim_immutability()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'destination submission claims cannot be deleted';
+  END IF;
+
+  IF NEW.plan_id IS DISTINCT FROM OLD.plan_id OR
+     NEW.owner_user_id IS DISTINCT FROM OLD.owner_user_id OR
+     NEW.attempt_number IS DISTINCT FROM OLD.attempt_number OR
+     NEW.created_at IS DISTINCT FROM OLD.created_at OR
+     (OLD.receive_tx_hash IS NOT NULL AND
+      NEW.receive_tx_hash IS DISTINCT FROM OLD.receive_tx_hash)
+  THEN
+    RAISE EXCEPTION 'destination submission identity and recorded tx hash are immutable';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+--> statement-breakpoint
+
+DROP TRIGGER IF EXISTS trg_destination_submission_claim_immutable
+  ON bridge_destination_submission_claims;
+--> statement-breakpoint
+
+CREATE TRIGGER trg_destination_submission_claim_immutable
+  BEFORE UPDATE OR DELETE ON bridge_destination_submission_claims
+  FOR EACH ROW EXECUTE FUNCTION guard_destination_submission_claim_immutability();
