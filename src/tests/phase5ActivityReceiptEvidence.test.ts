@@ -258,6 +258,23 @@ describe('Phase 5 authoritative ActivityReceipt evidence', () => {
     expect(fetchAttestation).toHaveBeenCalledWith(SOURCE_TX);
   });
 
+  it('fails closed if confirmation is attempted without transaction or attestation verifiers', async () => {
+    const fetchReceipt = vi.fn().mockResolvedValue(destinationReceipt());
+
+    await expect(
+      verifyActivityReceiptTransitionEvidence(
+        context(),
+        {
+          status: 'CONFIRMED',
+          receiveBlockNumber: 200,
+        },
+        fetchReceipt,
+      ),
+    ).rejects.toMatchObject({
+      code: 'DESTINATION_VERIFIER_UNAVAILABLE',
+    });
+  });
+
   it('rejects a destination receiveMessage call with a different Circle attestation', async () => {
     const fetchReceipt = vi.fn().mockResolvedValue(destinationReceipt());
     const fetchTransaction = vi
