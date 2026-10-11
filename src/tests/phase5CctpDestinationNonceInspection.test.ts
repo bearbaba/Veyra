@@ -54,21 +54,21 @@ function inspect(args: {
 } = {}) {
   let hashCalls = 0;
   let headCalls = 0;
-  const getHead = vi.fn(async () => {
+  const getHead = vi.fn(() => {
     headCalls += 1;
     if (args.failure === 'head' && headCalls === 2) throw new Error('RPC error');
-    return headCalls === 1 ? 200n : (args.head ?? 200n);
+    return Promise.resolve(headCalls === 1 ? 200n : (args.head ?? 200n));
   });
-  const getHash = vi.fn(async () => {
+  const getHash = vi.fn(() => {
     hashCalls += 1;
     if (args.failure === 'hash') throw new Error('RPC unavailable');
-    return hashCalls === 1
+    return Promise.resolve(hashCalls === 1
       ? (args.firstHash === undefined ? BLOCK_HASH : args.firstHash)
-      : (args.secondHash === undefined ? BLOCK_HASH : args.secondHash);
+      : (args.secondHash === undefined ? BLOCK_HASH : args.secondHash));
   });
-  const readNonce = vi.fn(async () => {
+  const readNonce = vi.fn(() => {
     if (args.failure === 'read') throw new Error('RPC timeout');
-    return args.used ?? 0n;
+    return Promise.resolve(args.used ?? 0n);
   });
   return {
     proof: inspectCctpDestinationNonce(
