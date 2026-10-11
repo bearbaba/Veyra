@@ -69,6 +69,38 @@ minimal AI function. **Do not enable full-stack browser execution or add a
 database readiness have all been verified.** A public health check alone is
 not proof of identity or bridge readiness.
 
+## Phase 5 database + multi-chain infrastructure readiness (automatic)
+
+An updated `GET /api/health/database` now requires **all thirteen
+migration records (0000–0012)**, the original relational tables, all
+seven Phase 4C/5 CCTP recovery/attempt/verification tables, and the
+three immutable second-settlement columns on `activity_receipts`.
+Passing an old Phase 3 schema with only 6 migrations is explicitly
+a release-blocking failure, even if a simple SELECT succeeds.
+
+In `VEYRA_ENV=testnet`, `GET /api/health/readiness` now uses the
+dedicated **testnet readiness gate**, independent of mainnet signer/KMS
+approval. It checks hosted runtime configuration, Phase 5 PostgreSQL
+readiness and live `eth_chainId` for all reviewed endpoints:
+
+| Environment variable | Required chain | Chain ID |
+|---|---|---:|
+| `ARC_TESTNET_RPC_URL` | Arc Testnet | 5042002 |
+| `ETH_SEPOLIA_RPC_URL` | Ethereum Sepolia | 11155111 |
+| `BASE_SEPOLIA_RPC_URL` | Base Sepolia | 84532 |
+
+Hosted RPC URLs must use HTTPS; only developer-mode loopback HTTP is
+allowed. The probe never echoes RPC URLs, keys, or exception text into
+the public response and times out quickly when upstream endpoints fail.
+
+**Meaning of status:** HTTP 200 `ready:true` on
+`/api/health/readiness` means **infrastructure only**. The JSON
+explicitly carries `scope:"infrastructure-only"` and
+`financialAcceptanceReady:false`. This must **never** be presented as
+evidence of an actual wallet-authorized Pay, identity, StableFX, CCTP
+or owner Activity receipt. Those separate acceptance gates are above.
+An unconfigured PostgreSQL/RPC backend must instead return HTTP 503.
+
 ## Evidence policy
 
 Capture *developer-operated* tests on every release candidate. Never
