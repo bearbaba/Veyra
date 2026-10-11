@@ -288,6 +288,24 @@ contains an independently verified reverted-source terminal `FAILED`
 resolution. Any other failed or uncertain bridge remains available for
 reconciliation.
 
+**Canonical first destination revert resolution (migration 0009):** the
+authenticated `POST /api/bridge/resolve-destination-revert` accepts only
+`planId`, fetches the original receive transaction and receipt from the
+destination chain independently, verifies the transaction targeted
+MessageTransmitterV2 with the exact stored `receiveMessage` message and
+attestation, and requires a `reverted` receipt in a canonical block with at
+least **12 confirmations**. Under the owned checkpoint row lock, its proof
+must exactly match the immutable first destination claim hash and chain.
+The proof is inserted into `bridge_destination_attempt_resolutions`
+as an append-only first-attempt record; PostgreSQL prohibits its UPDATE/DELETE.
+A second proof with identical transaction/block evidence is idempotent;
+conflicting evidence fails closed. Recovery can request this proof after it
+observes a reverted receive but NEVER automatically signs or broadcasts a
+second receive. An unavailable RPC or incomplete finality leaves the first
+destination submission locked. This creates trustworthy input for a future
+multi-attempt retry design without touching original ActivityReceipt,
+checkpoint hash or source burn history.
+
 **Remaining destination retry gate:** this durable claim deliberately permits
 only the FIRST submission from either actor. Subsequent distinct receive
 transactions after a provably reverted destination transaction need a
