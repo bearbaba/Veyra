@@ -1,5 +1,6 @@
 import {
   bigint,
+  integer,
   check,
   index,
   numeric,
@@ -45,5 +46,56 @@ export const bridgeRecoveryCheckpoints = pgTable(
       'chk_bridge_recovery_stage',
       sql`${t.stage} IN ('SOURCE_BROADCAST','SOURCE_CONFIRMED','ATTESTATION_READY','DESTINATION_BROADCAST','VERIFIED')`,
     ),
+  ],
+);
+
+/**
+ * Durable fail-closed claim for the first destination relay submission.
+ *
+ * There is intentionally no automatic claim expiry: a crash after wallet
+ * broadcast can leave the tx hash unknown, and releasing the claim could
+ * cause a second receive transaction.
+ */
+export const bridgeDestinationSubmissionClaims = pgTable(
+  'bridge_destination_submission_claims',
+  {
+    planId: text('plan_id').primaryKey()
+      .references(() => bridgeRecoveryCheckpoints.planId),
+    ownerUserId: text('owner_user_id').notNull()
+      .references(() => veyraUsers.veyraUserId),
+    attemptNumber: integer('attempt_number').notNull().default(1),
+    receiveTxHash: text('receive_tx_hash'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('ix_destination_submission_owner').on(t.ownerUserId, t.createdAt),
+    check('chk_destination_submission_first_attempt', sql`${t.attemptNumber} = 1`),
+    check('chk_destination_submission_tx_hash',
+      sql`${t.receiveTxHash} IS NULL OR ${t.receiveTxHash} ~ '^0x[0-9a-fA-F]{64}$'`),
+  ],
+);
+
+/**
+ * Append-only event records. PostgreSQL forbids UPDATE and DELETE via trigger
+ * in migration 0008, so later recovery logic cannot erase past submissions.
+ */
+export const bridgeDestinationAttemptEvents = pgTable(
+  'bridge_destination_attempt_events',
+  {
+    eventId: text('event_id').primaryKey(),
+    planId: text('plan_id').notNull()
+      .references(() => bridgeDestinationSubmissionClaims.planId),
+    eventType: text('event_type').notNull(),
+    receiveTxHash: text('receive_tx_hash'),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('uix_destination_attempt_one_event_per_type').on(t.planId, t.eventType),
+    check('chk_destination_attempt_event_type',
+      sql`${t.eventType} IN ('SUBMISSION_STARTED','BROADCAST_RECORDED')`),
+    check('chk_destination_attempt_event_hash',
+      sql`(${t.eventType} = 'SUBMISSION_STARTED' AND ${t.receiveTxHash} IS NULL)
+        OR (${t.eventType} = 'BROADCAST_RECORDED' AND ${t.receiveTxHash} ~ '^0x[0-9a-fA-F]{64}$')`),
   ],
 );
