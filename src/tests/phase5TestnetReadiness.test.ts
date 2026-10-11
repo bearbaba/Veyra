@@ -146,7 +146,7 @@ describe('Phase 5 real hosted testnet readiness is NOT mainnet readiness', () =>
     expect(bad[0].detail).not.toContain('secret-path');
     expect(bad[1].detail).not.toContain('password');
     const rejected = vi.fn(() => Promise.reject(new Error('RPC sensitive-key=12345')));
-    const failed = await probeTestnetRpcEndpoints(env, rejected as unknown as typeof fetch);
+    const failed = await probeTestnetRpcEndpoints(env, rejected);
     expect(failed.map((x) => x.ok)).toEqual([false, false, false]);
     expect(JSON.stringify(failed)).not.toContain('sensitive-key');
     expect(JSON.stringify(failed)).not.toContain('key-sensitive-eth');
