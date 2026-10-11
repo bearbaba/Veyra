@@ -198,6 +198,40 @@ function assertTransitionAllowed(
   );
 }
 
+/**
+ * Generic receipts share the broader lifecycle above, but a CCTP bridge must
+ * not skip SOURCE_CONFIRMED (the only stage requiring canonical source-burn
+ * verification) or enter a generic CONFIRMING state. Once the destination
+ * has been confirmed, a browser must not downgrade the receipt to FAILED.
+ */
+export function isCctpBridgeReceiptTransitionAllowed(
+  from: ReceiptStatus,
+  to: ReceiptStatus,
+): boolean {
+  if (!isReceiptTransitionAllowed(from, to)) return false;
+  if (from === 'BROADCAST' && (to === 'CONFIRMING' || to === 'CONFIRMED')) {
+    return false;
+  }
+  if (from === 'CONFIRMED' && to === 'FAILED') return false;
+  return true;
+}
+
+function assertTransitionAllowedForReceipt(
+  current: { status: ReceiptStatus; providerId: string; action: string },
+  to: ReceiptStatus,
+): void {
+  assertTransitionAllowed(current.status, to);
+  if (
+    current.providerId === 'cctp-v2-bridge' &&
+    current.action === 'BRIDGE' &&
+    !isCctpBridgeReceiptTransitionAllowed(current.status, to)
+  ) {
+    throw new ReceiptTransitionError(
+      `Unsafe CCTP ActivityReceipt transition ${current.status} -> ${to}.`,
+    );
+  }
+}
+
 function transitionDates(status: ReceiptStatus, now: Date) {
   return {
     completedAt: status === 'COMPLETE' ? now : undefined,
@@ -538,6 +572,8 @@ export async function transitionReceiptStatus(
     const [current] = await tx
       .select({
         status: activityReceipts.status,
+        providerId: activityReceipts.providerId,
+        action: activityReceipts.action,
       })
       .from(activityReceipts)
       .where(eq(activityReceipts.receiptId, receiptId))
@@ -547,7 +583,7 @@ export async function transitionReceiptStatus(
       throw new ReceiptTransitionError(`Receipt not found: ${receiptId}`);
     }
 
-    assertTransitionAllowed(current.status, newStatus);
+    assertTransitionAllowedForReceipt(current, newStatus);
     if (current.status === newStatus) return;
 
     const now = new Date();
@@ -622,7 +658,7 @@ export async function syncReceiptRevision(
       return { conflict: true as const, serverRecord: current };
     }
 
-    assertTransitionAllowed(current.status, input.status);
+    assertTransitionAllowedForReceipt(current, input.status);
     validateReceiptSyncEvidence(current, input);
 
     const now = new Date();
