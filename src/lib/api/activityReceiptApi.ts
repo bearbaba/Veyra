@@ -54,6 +54,9 @@ export interface ActivityReceiptRemoteRecord {
   receiveTxHash: string | null;
   receiveChainId: number | null;
   receiveBlockNumber: number | null;
+  settlementReceiveTxHash: string | null;
+  settlementReceiveBlockNumber: number | null;
+  settlementAttemptNumber: number | null;
   resumable: boolean;
   resumePayload: Record<string, unknown> | null;
   failureReason: string | null;
