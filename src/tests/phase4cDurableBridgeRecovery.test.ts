@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BridgeRecoveryConflictError,
+  assertBrowserBridgeCheckpointWritable,
   evaluateBridgeRelayDecision,
   mergeBridgeRecoveryCheckpoint,
   type BridgeRecoveryInput,
@@ -74,6 +75,26 @@ describe('Phase 4C durable bridge recovery merge', () => {
     expect(() =>
       mergeBridgeRecoveryCheckpoint(null, value),
     ).toThrow(/receiveTxHash/i);
+  });
+
+  it('blocks untrusted browser sync of destination broadcast, verified state and hashes', () => {
+    const ready = {
+      ...checkpoint('ATTESTATION_READY'),
+      attestationMessage: '0x1234',
+      attestationSignature: '0xabcd',
+    };
+    expect(() => assertBrowserBridgeCheckpointWritable(checkpoint('SOURCE_BROADCAST')))
+      .not.toThrow();
+    expect(() => assertBrowserBridgeCheckpointWritable(ready)).not.toThrow();
+
+    for (const untrusted of [
+      { ...ready, stage: 'DESTINATION_BROADCAST' as const, receiveTxHash: '0x' + '3'.repeat(64) },
+      { ...ready, stage: 'VERIFIED' as const, receiveTxHash: '0x' + '3'.repeat(64) },
+      { ...ready, receiveTxHash: '0x' + '3'.repeat(64) },
+    ]) {
+      expect(() => assertBrowserBridgeCheckpointWritable(untrusted))
+        .toThrow(/cannot claim a destination broadcast or verified completion/i);
+    }
   });
 
   it('allows relay only from ATTESTATION_READY and uses persisted evidence', () => {
