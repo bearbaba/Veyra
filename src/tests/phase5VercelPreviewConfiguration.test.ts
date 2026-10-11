@@ -48,7 +48,11 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     const audit = read('scripts/check-vercel-preview-bundle.ts');
 
     expect(vite).toContain("process.env.VITE_VEYRA_UI_ONLY === '1'");
-    expect(vite).toContain("return html.replace(liveEntry, 'src=\"/src/preview/main.tsx\"')");
+    expect(vite).toContain('rollupOptions: { input: previewHtml }');
+    expect(vite).toContain('renameSync(preview, index)');
+    expect(vite).not.toContain('transformIndexHtml');
+    expect(read('preview.html')).toContain('src="/src/preview/main.tsx"');
+    expect(read('preview.html')).not.toContain('src="/src/main.tsx"');
     expect(entry).toContain("import { PreviewApp } from './PreviewApp'");
     expect(entry).not.toContain("from '../main'");
     expect(app).toContain("import { UiOnlyPreviewPage }");
