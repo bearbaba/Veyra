@@ -60,6 +60,7 @@ import {
 import {
   ActivityReceiptEvidenceError,
   verifyOwnedActivityReceiptTransitionEvidence,
+  finalizeOwnedRevertedCctpSource,
 } from './services/activityReceiptVerificationService.js';
 import {
   getResumableReceipts as getResumableActivityReceipts,
@@ -1425,6 +1426,52 @@ app.post('/api/receipts/sync', IDENTITY_RATE, async (req: Request, res: Response
       return;
     }
     console.error('[BFF] /api/receipts/sync error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+/**
+ * No browser-supplied status/hash/block is trusted here. The authenticated
+ * BFF independently verifies a canonical reverted CCTP source burn and
+ * atomically closes only its owner's matching BROADCAST receipt.
+ */
+app.post('/api/receipts/cctp/resolve-source-revert', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const receiptId =
+      typeof body?.receiptId === 'string' ? body.receiptId : '';
+    if (!receiptId || receiptId.length > 150) {
+      res.status(400).json({ ok: false, error: 'INVALID_RECEIPT_ID' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const resolved = await finalizeOwnedRevertedCctpSource(db, userId, receiptId);
+    res.json({ ok: true, ...resolved });
+  } catch (err) {
+    if (err instanceof ActivityReceiptEvidenceError) {
+      res.status(err.httpStatus).json({
+        ok: false,
+        error: err.code,
+        message: err.message,
+      });
+      return;
+    }
+    if (err instanceof ReceiptTransitionError) {
+      res.status(409).json({
+        ok: false,
+        error: 'RECEIPT_TRANSITION_CONFLICT',
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/receipts/cctp/resolve-source-revert error:', err);
     res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
   }
 });
