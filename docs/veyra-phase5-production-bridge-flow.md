@@ -367,6 +367,26 @@ or ambiguous receipts fail closed. The Activity page labels the reverted
 first destination hash separately from the final settlement hash.
 No source burn or destination signature is initiated by the finalizer.
 
+**Crash-safe reconciliation of a known self-relay transaction hash:** An
+authenticated user who previously claimed the first destination submission
+and signed its `receiveMessage`, but lost the wallet/RPC response, can now
+paste **the original transaction hash** into the Activity recovery card
+while the persisted checkpoint is at `ATTESTATION_READY`. This invokes the
+pre-existing `POST /api/bridge/record-self-receive` endpoint, **not** any
+wallet signing or relay path. The server requires an existing durable
+first-attempt submission claim, fetches the actual transaction from the
+destination RPC, now checks the **independently returned RPC chain ID** and
+**indexed transaction's own hash** match the requested destination chain and
+hash, then verifies the source-attested CCTP `receiveMessage` calldata,
+canonical MessageTransmitter and the reviewed recipient wallet sender.
+Only then is the original submission hash and checkpoint transition
+recorded atomically and idempotently; failed, missing, unindexed or
+contradictory evidence leaves the claim `UNCERTAIN` and locked. No new
+CCTP burn/receive transaction is sent, and a new first claim cannot be
+created through this recovery operation. The Activity list is refreshed
+after successful reconciliation. This can recover a **known hash** but
+cannot invent or recover a hash that the wallet and provider never exposed.
+
 **Canonical Circle V2 nonce observation (read-only):** `POST
 /api/bridge/inspect-destination-nonce` accepts only a `planId` from an
 authenticated owner. It refuses plans without an immutable first receive tx,
