@@ -189,10 +189,19 @@ async function advanceBridgeActivity(
   const currentRank = BRIDGE_ACTIVITY_RANK[progress.status];
   const targetRank = BRIDGE_ACTIVITY_RANK[status];
 
+  // Destination receive can legitimately move between pending and retryable.
+  // Those are a cycle, not a monotonic rank progression.
+  const isReceiveRetryTransition =
+    (progress.status === 'RECEIVE_PENDING' &&
+      status === 'RECEIVE_FAILED_RETRYABLE') ||
+    (progress.status === 'RECEIVE_FAILED_RETRYABLE' &&
+      status === 'RECEIVE_PENDING');
+
   if (
     currentRank !== undefined &&
     targetRank !== undefined &&
-    currentRank > targetRank
+    currentRank > targetRank &&
+    !isReceiveRetryTransition
   ) {
     return progress;
   }
@@ -290,7 +299,9 @@ async function catchUpRecoveryActivity(
     await advance('PREFLIGHT_PASSED', {});
   }
   if (rank() < (BRIDGE_ACTIVITY_RANK.SIGNED ?? 3)) {
-    await advance('SIGNED', { resumable: true });
+    // SIGNED alone carries no confirmed burn hash; the server forbids
+    // resumable=true until BROADCAST persists that immutable evidence.
+    await advance('SIGNED', { resumable: false });
   }
   if (rank() < (BRIDGE_ACTIVITY_RANK.BROADCAST ?? 4)) {
     await advance('BROADCAST', {
