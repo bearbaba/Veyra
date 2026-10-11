@@ -80,6 +80,7 @@ export function arcPayExplorerUrl(hash: string): string {
 export async function submitArcTestnetPay(
   provider: InjectedPreviewProvider,
   plan: ArcPayPlan,
+  onWalletRequest: () => void = () => undefined,
 ): Promise<Hex> {
   // Recheck the exact immutable original values immediately before the
   // signing RPC. Plan is not trusted, even if derived from a previous review.
@@ -102,6 +103,10 @@ export async function submitArcTestnetPay(
   if (await getArcTestnetUsdcBalance(rebuilt.from) < rebuilt.units) {
     fail('Insufficient testnet USDC to send.');
   }
+  // The caller must know if the attempt reached a wallet submission RPC:
+  // earlier preflight failures can safely unlock; an unknown wallet response
+  // after this point must NEVER cause automatic resubmission.
+  onWalletRequest();
   // This is the ONLY financial RPC in the beta frontend. The wallet opens
   // its own signing review; rejection never triggers a retry.
   const hash = await provider.request({
