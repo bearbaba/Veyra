@@ -179,3 +179,43 @@ export const bridgeDestinationRetryEvents = pgTable(
         OR (${t.eventType} = 'BROADCAST_RECORDED' AND ${t.receiveTxHash} ~ '^0x[0-9a-fA-F]{64}$')`),
   ],
 );
+
+/**
+ * Immutable, independently verified finality and mint evidence for retry #2.
+ * First attempt claim, recovery checkpoint and ActivityReceipt remain intact.
+ */
+export const bridgeDestinationRetryVerifications = pgTable(
+  'bridge_destination_retry_verifications',
+  {
+    planId: text('plan_id').notNull(),
+    attemptNumber: integer('attempt_number').notNull().default(2),
+    ownerUserId: text('owner_user_id').notNull()
+      .references(() => veyraUsers.veyraUserId),
+    receiveTxHash: text('receive_tx_hash').notNull(),
+    destinationChainId: bigint('destination_chain_id', { mode: 'number' }).notNull(),
+    destinationBlockNumber: bigint('destination_block_number', { mode: 'number' }).notNull(),
+    destinationBlockHash: text('destination_block_hash').notNull(),
+    mintToken: text('mint_token').notNull(),
+    mintRecipient: text('mint_recipient').notNull(),
+    mintAmountRaw: numeric('mint_amount_raw', { precision: 38, scale: 0 }).notNull(),
+    confirmations: integer('confirmations').notNull(),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.planId, t.attemptNumber] }),
+    index('ix_retry_verifications_owner').on(t.ownerUserId, t.verifiedAt),
+    check('chk_retry_verification_second_only', sql`${t.attemptNumber} = 2`),
+    check('chk_retry_verification_hash',
+      sql`${t.receiveTxHash} ~ '^0x[0-9a-fA-F]{64}$'`),
+    check('chk_retry_verification_block_hash',
+      sql`${t.destinationBlockHash} ~ '^0x[0-9a-fA-F]{64}$'`),
+    check('chk_retry_verification_block_number',
+      sql`${t.destinationBlockNumber} >= 0`),
+    check('chk_retry_verification_amount', sql`${t.mintAmountRaw} > 0`),
+    check('chk_retry_verification_confirmations', sql`${t.confirmations} >= 12`),
+    check('chk_retry_verification_token',
+      sql`${t.mintToken} ~ '^0x[0-9a-fA-F]{40}$'`),
+    check('chk_retry_verification_recipient',
+      sql`${t.mintRecipient} ~ '^0x[0-9a-fA-F]{40}$'`),
+  ],
+);
