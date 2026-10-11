@@ -231,32 +231,38 @@ readiness is checked separately.
 
 **Frontend deployment configuration is now checked in:** `vercel.json`
 sets Vite, the locked Bun install, the forced
-`VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 bun run build` command and static `dist` output.
+`VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build` command and static `dist` output.
 In this build, Vite selects the **separate** `src/preview/main.tsx`
 React tree. The connected-preview dashboard now supports **real injected
 MetaMask/Rabby/Coinbase wallet account connection** via EIP-6963/EIP-1193
 (`eth_requestAccounts`), displays the wallet address and reads its
 **real Arc Testnet USDC balance** through read-only public RPC calls
-(`eth_chainId` + `eth_call`). Pay, Convert and Bridge expose interactive
-form previews; Agent remains explicitly scripted and Activity has an honest
-empty state without a backend. **No wallet signer, message signature,
-financial execution, backend credentials, BFF client or authenticated
-receipts are bundled.** The full application separately retains its
+(`eth_chainId` + `eth_call`). **Direct Arc Testnet wallet-to-wallet USDC Pay
+is executable**, with a **hard 1 testnet USDC per-transaction cap**, explicit
+wallet review/signature, independent on-chain receipt and ERC-20 Transfer
+log verification, and browser-local pending/unknown-hash recovery. Convert,
+Bridge, Veyra ID Pay and the AI Agent are NOT live financial services yet.
+**No server private key, message-signature-based identity, backend BFF,
+Circle relay or CCTP transfer code is bundled.** The full application separately retains its
 canonical financial execution-time lock. This is build-time isolation, not
 a UI toggle; wallet connect is NOT payment authorization.
 
 CI separately builds the exact Vercel preview and runs
 `bun run check:vercel-preview-bundle` against the emitted JavaScript to
-reject signing RPCs, CCTP transaction ABI entrypoints or live backend paths. Vercel can publish this **connected UI Preview** independently
+allow exactly the capped Arc USDC testnet transfer signer while continuing
+to reject all other signing RPCs, CCTP transaction ABI entrypoints and live
+backend paths. Vercel can publish this **connected UI Preview** independently
 of CCTP E2E. A user-created Preview deployment has been reported, but public
 availability and hosted behavior have not been independently verified.
 
 **A frontend-only deployment is not a working full-stack demo.** The local
 Vite `/api` development proxy does not run on Vercel. Veyra uses a
 separately hosted, authenticated Express BFF plus PostgreSQL and Circle/RPC
-integrations; without that backend, Pay/Agent/identity/recovery/Activity
-API-dependent features cannot be treated as functional. A preview build must
-not expose mainnet signing or be used to send real funds.
+integrations; without that backend, Veyra ID Pay, Agent, identity, CCTP recovery and
+cross-device Activity API-dependent features cannot be treated as functional.
+Direct testnet USDC payments only are browser-driven; they are not backed
+by Veyra IDs or server receipts. Never use mainnet funds, a production wallet or a mainnet chain to test
+this capped testnet-only payment beta.
 
 For the first Preview build, import `bearbaba/Veyra` in Vercel, select the
 Phase 5 branch/PR as a preview target, and set the **non-secret**
