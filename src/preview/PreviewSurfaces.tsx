@@ -152,7 +152,7 @@ export function PreviewHome({ onNavigate }: { onNavigate: (page: PreviewPage) =>
           {[
             { name: 'Wallet connection', status: wallet.address ? 'Connected' : 'Available', icon: CheckCircle2 },
             { name: 'Arc testnet reads', status: 'Read-only', icon: ArrowDownRight },
-            { name: 'Payment & CCTP execution', status: 'Locked', icon: LockKeyhole },
+            { name: 'CCTP & Convert execution', status: 'Locked', icon: LockKeyhole },
           ].map(({ name, status, icon: StatusIcon }) => (
             <div className="vp-step" key={name}>
               <span style={{ color: '#adc9f6' }}><StatusIcon size={16} /></span>
@@ -211,24 +211,64 @@ export function PreviewAgent({ onNavigate }: { onNavigate: (page: PreviewPage) =
   );
 }
 
-export function PreviewActivity() {
+export function PreviewActivity({ onNavigate }: { onNavigate: (page: PreviewPage) => void }) {
   const wallet = usePreviewWallet();
+  let latest: { to: string; amount: string; stage: string; hash: string | null } | null = null;
+  if (wallet.address) {
+    try {
+      const value = localStorage.getItem(`veyra:arc-testnet-payment:v1:${wallet.address.toLowerCase()}`);
+      if (value) {
+        const candidate = JSON.parse(value) as Partial<typeof latest> & Record<string, unknown>;
+        if (typeof candidate.to === 'string' && /^0x[0-9a-fA-F]{40}$/.test(candidate.to) &&
+            typeof candidate.amount === 'string' &&
+            ['AWAITING_WALLET', 'UNKNOWN', 'PENDING', 'VERIFIED', 'REVERTED'].includes(candidate.stage ?? '') &&
+            (candidate.hash === null || (typeof candidate.hash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(candidate.hash)))) {
+          latest = { to: candidate.to, amount: candidate.amount, stage: candidate.stage!, hash: candidate.hash ?? null };
+        }
+      }
+    } catch { /* Local storage can be unavailable or have invalid entries */ }
+  }
   return (
     <div className="vp-page" style={{ maxWidth: 940 }}>
       <div className="vp-page-heading">
-        <div><p className="vp-eyebrow">TRANSACTION HISTORY</p><h1 className="vp-page-title">Your activity</h1>
-          <p className="vp-page-description">Trace payments, receipts and cross-chain events from one place.</p></div>
-        <span className="vp-chain-pill"><ShieldCheck size={14} /> Read-only preview</span>
+        <div><p className="vp-eyebrow">TESTNET TRANSACTION HISTORY</p><h1 className="vp-page-title">Your activity</h1>
+          <p className="vp-page-description">The latest direct Arc Testnet payment is stored only in this browser. Server-backed ActivityReceipt history requires a deployed, authenticated BFF.</p></div>
+        <span className="vp-chain-pill"><ShieldCheck size={14} /> Local testnet ledger</span>
       </div>
-      <div className="vp-card vp-empty-state" style={{ padding: '76px 25px' }}>
-        <span className="vp-quick-icon" style={{ width: 60, height: 60, margin: '0 auto' }}><History size={25} /></span>
-        <h3>No transaction history in this preview</h3>
-        <p>{wallet.address ? `Connected ${shortPreviewAddress(wallet.address)}. ` : ''}
-          Real verified receipts require the authenticated Veyra backend and database. We do not fabricate a transaction history for your wallet.
-        </p>
-        <span className="vp-safe-pill" style={{ marginTop: 19 }}><span /> NO TRANSACTIONS SENT</span>
-      </div>
-      <div className="vp-section-heading"><div><h2>How your receipts work</h2><p>Full Veyra records each step with separate chain evidence.</p></div></div>
+      {latest ? (
+        <div className="vp-card vp-card-pad">
+          <p className="vp-eyebrow">LAST ARC TESTNET USDC PAYMENT</p>
+          <h2 className="vp-card-title" style={{ fontSize: 17 }}>{latest.amount} USDC → {shortPreviewAddress(latest.to)}</h2>
+          <p className="vp-caption" style={{ marginTop: 9 }}>Recorded status: <strong>{latest.stage}</strong> · local browser record only</p>
+          {latest.hash && (
+            <a href={`https://explorer.testnet.arc.io/tx/${latest.hash}`} target="_blank" rel="noopener noreferrer"
+              className="vp-text-button" style={{ display: 'inline-block', marginTop: 13 }}>
+              Inspect submitted hash on Arc Explorer
+            </a>
+          )}
+          <button className="vp-primary" type="button" style={{ marginTop: 18 }}
+            onClick={() => onNavigate('pay')}>
+            {latest.stage === 'VERIFIED' ? 'View Pay / send another' : 'Open Pay to reconcile receipt'}
+            <ArrowRight size={16} />
+          </button>
+          <p className="vp-caption" style={{ marginTop: 15 }}>
+            This card does not prove settlement. The Pay screen independently checks RPC chain ID,
+            transaction calldata, canonical block and ERC-20 Transfer event before showing VERIFIED.
+          </p>
+        </div>
+      ) : (
+        <div className="vp-card vp-empty-state" style={{ padding: '76px 25px' }}>
+          <span className="vp-quick-icon" style={{ width: 60, height: 60, margin: '0 auto' }}><History size={25} /></span>
+          <h3>No recorded testnet payment in this browser</h3>
+          <p>{wallet.address ? `Connected ${shortPreviewAddress(wallet.address)}. ` : ''}
+            Connect a wallet and submit a direct testnet payment to begin. Real cross-device receipts require the authenticated backend.
+          </p>
+          <button type="button" className="vp-primary" style={{ marginTop: 20 }} onClick={() => onNavigate('pay')}>
+            Open Arc Testnet Pay <ArrowRight size={15} />
+          </button>
+        </div>
+      )}
+      <div className="vp-section-heading"><div><h2>Future cloud receipts</h2><p>The full Veyra BFF maintains independent and owner-authenticated proof.</p></div></div>
       <div className="vp-grid-3">
         {[
           { icon: CreditCard, title: 'Review', desc: 'Canonical intent & approval' },
