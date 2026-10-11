@@ -232,11 +232,28 @@ The original source action replay lock is not reopened. Recovery can request
 this server resolution when a source revert is observed. Authenticated
 terminal receipts are excluded from candidate recovery cards.
 
-A previously broadcast destination transaction hash also remains immutable;
-safely recording subsequent distinct destination retry attempts requires
-append-only attempt evidence rather than overwriting the original hash.
-That workflow must be completed/tested before claiming automatic recovery of
-all destination failure cases.
+**Server destination relay exactly-once gate (migration 0008):** a
+`bridge_destination_submission_claims` row is committed under the owned
+checkpoint row lock *before* the relay wallet may broadcast
+`receiveMessage`. Concurrent relay requests cannot both win. Two append-only
+`bridge_destination_attempt_events` records track initial
+`SUBMISSION_STARTED` and eventual `BROADCAST_RECORDED`. PostgreSQL rejects
+event UPDATE/DELETE, and the first destination tx hash is immutable. Hash,
+recovery checkpoint and the broadcast event are committed atomically. If
+the process or RPC crashes before the hash can be persisted, the claim stays
+`UNCERTAIN`; repeat relay requests return a conflict and must reconcile
+rather than sign a second receive. The BFF also now checks exact
+`DepositForBurn` source evidence before relay, not only the presence of
+`MessageSent`.
+
+**Remaining destination retry gate:** this initial durable claim deliberately
+permits only the FIRST server relay attempt. Subsequent distinct receive
+transactions after a provably reverted destination transaction need a
+separate chain-verified attempt-resolution gate and append-only attempt history;
+they cannot overwrite the existing ActivityReceipt or checkpoint receive hash.
+The UI must not automatically retry a previously broadcast receive or assume
+that a missing hash means no transaction was sent. Automatic retry of such
+failures is NOT yet approved.
 
 Once the source may have been submitted, a temporary Activity API failure does
 not cause a second burn. The persistent action replay lock and bridge recovery
