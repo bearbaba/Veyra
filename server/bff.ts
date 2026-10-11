@@ -69,6 +69,12 @@ import {
   syncReceiptRevision,
   type ReceiptStatus as ActivityReceiptStatus,
 } from './db/repositories/receiptRepository.js';
+import {
+  claimDestinationSubmission,
+  getDestinationSubmissionClaim,
+  recordDestinationSubmission,
+} from './db/repositories/bridgeDestinationSubmissionRepository.js';
+import type { Address } from 'viem';
 import { receiptStatusEnum } from './db/schema/enums.js';
 import {
   BridgeRecoveryConflictError,
@@ -1655,6 +1661,26 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
 
     await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
 
+    // A separate durable claim is committed before any wallet broadcast.
+    // Crashed/missing-hash submissions remain UNCERTAIN, never auto-retry.
+    const previousClaim = await getDestinationSubmissionClaim(
+      db, userId, planId,
+    );
+    if (previousClaim?.mode === 'ALREADY_SUBMITTED') {
+      res.json({
+        ok: true,
+        alreadySubmitted: true,
+        alreadyReceived: false,
+        txHash: previousClaim.txHash,
+      });
+      return;
+    }
+    if (previousClaim?.mode === 'UNCERTAIN') {
+      throw new BridgeRecoveryConflictError(
+        'Destination submission is uncertain after a prior relay claim. Reconcile chain/provider evidence before any retry.',
+      );
+    }
+
     const {
       createWalletClient,
       createPublicClient,
@@ -1692,7 +1718,13 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
       );
     }
 
-    const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt);
+    const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt, {
+      burnToken: checkpoint.tokenAddress as Address,
+      amount: BigInt(checkpoint.amount),
+      depositor: checkpoint.walletAddress as Address,
+      mintRecipient: checkpoint.recipientAddress as Address,
+      destinationChainId: checkpoint.destinationChainId,
+    });
     if (!sourceEvidence.verified) {
       throw new BridgeRecoveryConflictError(sourceEvidence.detail);
     }
@@ -1820,6 +1852,26 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
       return;
     }
 
+    // Atomic, crash-safe claim BEFORE opening the wallet broadcast boundary.
+    // Two requests that passed simulation concurrently still cannot both send.
+    const claim = await claimDestinationSubmission(db, userId, planId);
+    if (claim.mode === 'ALREADY_SUBMITTED') {
+      res.json({
+        ok: true,
+        alreadySubmitted: true,
+        alreadyReceived: false,
+        txHash: claim.txHash,
+      });
+      return;
+    }
+    if (claim.mode === 'UNCERTAIN') {
+      throw new BridgeRecoveryConflictError(
+        'Destination submission already claimed; the tx hash is not yet known. No automatic duplicate relay is allowed.',
+      );
+    }
+
+    // A failure after this line leaves the durable claim UNCERTAIN, even when
+    // the client reports a timeout. Never release it based on RPC errors.
     const txHash = await walletClient.writeContract({
       address: transmitter,
       abi: RECEIVE_ABI,
@@ -1827,15 +1879,9 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
       args: [message as `0x${string}`, attestation as `0x${string}`],
     });
 
-    // Persist immediately after broadcast and before responding. Repeating the
-    // same planId then returns this exact destination tx rather than submitting
-    // receiveMessage again.
-    await persistBridgeRecoveryCheckpoint(db, userId, {
-      ...checkpoint,
-      stage: 'DESTINATION_BROADCAST',
-      receiveTxHash: txHash,
-      updatedAt: Date.now(),
-    });
+    // The hash, the canonical checkpoint and the immutable broadcast event
+    // are committed together. A crash before commit remains fail-closed.
+    await recordDestinationSubmission(db, userId, planId, txHash);
 
     res.json({
       ok: true,
