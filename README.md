@@ -116,10 +116,18 @@ Phase 5 additionally keeps distinct, append-only destination attempts:
 - `0011`: chain-verified second receive, unique exact USDC mint and finality
 - `0012`: separate immutable settlement hash/block/attempt fields in the
   ActivityReceipt; the original first destination hash remains unchanged
+- **Read-only CCTP V2 nonce inspection:** authenticated
+  `POST /api/bridge/inspect-destination-nonce` independently rechecks the
+  first revert and original Arc/Circle source, parses the 32-byte nonce from
+  the attested V2 message and reads destination `usedNonces` against one
+  block with canonical hash checks. Activity shows `UNUSED_AT_OBSERVED_BLOCK`
+  or `ALREADY_CONSUMED`; neither authorizes another transaction.
 
-**Important:** this is not yet authorization to submit retry #2. The
-second-attempt signing/broadcast pathway remains blocked pending nonce safety
-and live testnet acceptance. The app does not silently retry a source burn.
+**Important:** observing an unused nonce is NOT authorization to submit retry
+#2. Another relayer can consume it at any moment. The second-attempt
+signing/broadcast pathway remains disabled pending an atomic server-authorized
+signing boundary, unknown-submission reconciliation and live testnet
+acceptance. The app does not silently retry a source burn.
 
 ## App Kit execution boundary
 
