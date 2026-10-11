@@ -105,7 +105,7 @@ import {
 const runtimeConfig = assertServerRuntimeConfig();
 const RATE_POLICY = getRateLimitPolicy();
 const app = express();
-app.set('trust proxy', runtimeConfig.environment === 'mainnet' ? 1 : false);
+app.set('trust proxy', runtimeConfig.environment === 'mainnet' || runtimeConfig.hostedBackend ? 1 : false);
 app.use(requestObservability);
 
 // ── Body parsing with size limits ────────────────────────────────────────────
@@ -113,7 +113,11 @@ app.use(express.json({ limit: '4kb' }));
 
 // ── CORS for local dev ───────────────────────────────────────────────────────
 app.use((req: Request, res: Response, next: NextFunction): void => {
-  const allowedOrigin = runtimeConfig.environment === 'mainnet' ? runtimeConfig.appOrigin : '*';
+  // Hosted testnet is public-facing and must never expose credentialed
+  // identity APIs through a wildcard CORS origin.
+  const allowedOrigin = runtimeConfig.environment === 'mainnet' || runtimeConfig.hostedBackend
+    ? runtimeConfig.appOrigin
+    : '*';
   if (allowedOrigin === '*' || req.header('origin') === allowedOrigin || !req.header('origin')) {
     res.setHeader('Access-Control-Allow-Origin', allowedOrigin ?? '');
   }
@@ -2567,7 +2571,10 @@ app.get('/api/health/readiness', async (_req: Request, res: Response): Promise<v
 
 // ── Start ────────────────────────────────────────────────────────────────────
 
-const PORT = parseInt(process.env.BFF_PORT ?? '3001', 10);
+const PORT = Number(process.env.PORT ?? process.env.BFF_PORT ?? '3001');
+if (!Number.isSafeInteger(PORT) || PORT < 1 || PORT > 65535) {
+  throw new Error('[BFF] PORT/BFF_PORT must be a valid TCP port.');
+}
 app.listen(PORT, () => {
   console.log(`[BFF] Listening on port ${PORT}`);
   console.log(`[BFF] LLM provider: ${LLM_PROVIDER} (model: ${LLM_MODEL})`);
