@@ -270,7 +270,15 @@ export async function verifyActivityReceiptTransitionEvidence(
     );
   }
 
-  if (fetchTransaction && fetchAttestation) {
+  if (!fetchTransaction || !fetchAttestation) {
+    throw new ActivityReceiptEvidenceError(
+      'DESTINATION_VERIFIER_UNAVAILABLE',
+      'CCTP confirmation requires both a destination transaction verifier and authoritative Circle attestation.',
+      503,
+    );
+  }
+
+  {
     const burnTxHash = requireHash(current.burnTxHash, 'burnTxHash');
     const [transaction, authoritativeAttestation] = await Promise.all([
       fetchTransaction(current.recipientChainId, receiveTxHash),
