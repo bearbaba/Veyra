@@ -344,11 +344,38 @@ hash. A successful proof deliberately returns
 mint does not yet implement a safe terminal ActivityReceipt transition,
 cross-device recovery completion or approval for another transaction.
 
-**Important:** migration 0010 is *infrastructure*, not a live second-relay
-feature. No second-attempt signing or broadcast endpoint is enabled until the
-authoritative destination nonce/readiness recheck, verified success/finality,
-ActivityReceipt completion with immutable first-hash preservation and UI
-recovery semantics can all be implemented and E2E-tested together.
+**Second-attempt ActivityReceipt settlement (migration 0012):** one
+CCTP ActivityReceipt can now represent both the *first reverted destination
+transaction* and the *second successful settlement transaction* without
+overwriting earlier immutable evidence. Dedicated nullable
+`settlement_receive_tx_hash`, `settlement_receive_block_number`, and
+`settlement_attempt_number` fields identify the actual verified mint
+separately from the original `receive_tx_hash`. PostgreSQL forbids changing
+those settlement fields after first write. The authenticated
+`POST /api/bridge/finalize-second-settlement` accepts only `planId`,
+independently revalidates the Arc source burn/Circle attestation and the
+canonical second destination mint/finality, records the verified mint proof,
+then row-locks the original checkpoint and ActivityReceipt. It requires
+the original source burn, first reverted destination hash, exact reviewed
+recipient/amount/chain/token, persisted second hash, >=12 destination
+confirmations, and a single matching CCTP ActivityReceipt in
+`RECEIVE_PENDING` or `RECEIVE_FAILED_RETRYABLE`. It atomically transitions
+the receipt to `COMPLETE`, sets the separate settlement fields, clears
+resumability, and appends a detailed immutable `STATUS_TRANSITION` audit
+event. Repeating the exact finalized settlement is idempotent; conflicting
+or ambiguous receipts fail closed. The Activity page labels the reverted
+first destination hash separately from the final settlement hash.
+No source burn or destination signature is initiated by the finalizer.
+
+**Important:** migrations 0010–0012 are *recovery and settlement
+infrastructure*, not a live second-relay signing feature. The authoritative
+server can verify and close an existing successful second attempt if its hash
+has been recorded through a trusted boundary, but **no new attempt-#2 wallet
+signature or broadcast endpoint is enabled**. Before allowing a second
+submission, the system must prove the first revert is still canonical,
+recheck destination Circle nonce/readiness, establish a trusted authenticated
+signing/broadcast boundary, reconcile unknown submissions and validate
+reload/cross-device recovery with real testnet transactions.
 
 **Remaining destination retry gate:** this durable claim deliberately permits
 only the FIRST submission from either actor. Subsequent distinct receive
