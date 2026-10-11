@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { encodeFunctionData, parseAbi, toEventSelector } from 'viem';
 import {
-  ARC_TESTNET_CHAIN_ID, MAX_TESTNET_PAYMENT_UNITS, arcPayExplorerUrl,
+  ARC_TESTNET_CHAIN_ID, MAX_TESTNET_PAYMENT_UNITS, ARC_PAY_FINALITY_CONFIRMATIONS, arcPayExplorerUrl,
   assertArcRpcChain, createArcTestnetPayPlan, reconcileArcTestnetPay,
   submitArcTestnetPay,
 } from '../preview/arcTestnetPay';
@@ -98,7 +98,7 @@ describe('real Arc Testnet-only wallet-signed USDC beta', () => {
     expect(validWallet.methods).not.toContain('eth_sendTransaction');
   });
 
-  it('reconciles a canonical receipt only after exact USDC Transfer log and 2 confirmations', async () => {
+  it('reconciles a canonical receipt only after exact USDC Transfer log and 12 confirmations', async () => {
     const p = plan();
     const tx = { hash: HASH, from: SENDER, to: CONTRACT, input: p.data };
     const log = {
@@ -114,12 +114,12 @@ describe('real Arc Testnet-only wallet-signed USDC beta', () => {
     const good = {
       eth_chainId: `0x${ARC_TESTNET_CHAIN_ID.toString(16)}`,
       eth_getTransactionByHash: tx, eth_getTransactionReceipt: receipt,
-      eth_getBlockByNumber: { hash: BLOCK_HASH }, eth_blockNumber: '0xc8',
+      eth_getBlockByNumber: { hash: BLOCK_HASH }, eth_blockNumber: '0xd2',
     };
     rpc(good);
     await expect(reconcileArcTestnetPay(p, HASH)).resolves.toMatchObject({
       state: 'VERIFIED',
-      proof: { txHash: HASH, blockHash: BLOCK_HASH, blockNumber: 199, confirmations: 2 },
+      proof: { txHash: HASH, blockHash: BLOCK_HASH, blockNumber: 199, confirmations: 12 },
     });
     expect(arcPayExplorerUrl(HASH)).toContain('/tx/');
     rpc({ ...good, eth_blockNumber: '0xc7' });
@@ -132,15 +132,42 @@ describe('real Arc Testnet-only wallet-signed USDC beta', () => {
     await expect(reconcileArcTestnetPay(p, HASH)).rejects.toThrow(/Canonical block hash changed/);
   });
 
-  it('a reverted tx is not reported as a verified transfer', async () => {
+  it('keeps a reverted payment LOCKED until canonical 12-block finality', async () => {
     const p = plan();
-    rpc({
+    expect(ARC_PAY_FINALITY_CONFIRMATIONS).toBe(12n);
+    const tx = { hash: HASH, from: SENDER, to: CONTRACT, input: p.data };
+    const receipt = { transactionHash: HASH, status: '0x0', blockHash: BLOCK_HASH, blockNumber: '0xc7', logs: [] };
+    const results = {
       eth_chainId: `0x${ARC_TESTNET_CHAIN_ID.toString(16)}`,
-      eth_getTransactionByHash: { hash: HASH, from: SENDER, to: CONTRACT, input: p.data },
-      eth_getTransactionReceipt: {
-        transactionHash: HASH, status: '0x0', blockHash: BLOCK_HASH, blockNumber: '0xc7', logs: [],
-      },
-    });
+      eth_getTransactionByHash: tx,
+      eth_getTransactionReceipt: receipt,
+      eth_getBlockByNumber: { hash: BLOCK_HASH },
+      eth_blockNumber: '0xd1', // 11 confirmations
+    };
+    rpc(results);
+    await expect(reconcileArcTestnetPay(p, HASH)).resolves.toMatchObject({ state: 'PENDING' });
+    rpc({ ...results, eth_blockNumber: '0xd2' }); // 12 confirmations
     await expect(reconcileArcTestnetPay(p, HASH)).resolves.toMatchObject({ state: 'REVERTED' });
+  });
+
+  it('rejects a reorged or forged reverted receipt instead of unlocking another send', async () => {
+    const p = plan();
+    const tx = { hash: HASH, from: SENDER, to: CONTRACT, input: p.data };
+    const receipt = { transactionHash: HASH, status: '0x0', blockHash: BLOCK_HASH, blockNumber: '0xc7', logs: [] };
+    const results = {
+      eth_chainId: `0x${ARC_TESTNET_CHAIN_ID.toString(16)}`,
+      eth_getTransactionByHash: tx,
+      eth_getTransactionReceipt: receipt,
+      eth_getBlockByNumber: { hash: HASH },
+      eth_blockNumber: '0xd2',
+    };
+    rpc(results);
+    await expect(reconcileArcTestnetPay(p, HASH)).rejects.toThrow(/Canonical block hash changed/);
+    rpc({ ...results, eth_getBlockByNumber: null });
+    await expect(reconcileArcTestnetPay(p, HASH)).rejects.toThrow(/Canonical block hash changed/);
+    rpc({ ...results, eth_getTransactionReceipt: { ...receipt, transactionHash: HASH.replace('a', 'b') } });
+    await expect(reconcileArcTestnetPay(p, HASH)).rejects.toThrow(/Receipt identity/);
+    rpc({ ...results, eth_getBlockByNumber: { hash: BLOCK_HASH }, eth_blockNumber: '0xc6' });
+    await expect(reconcileArcTestnetPay(p, HASH)).resolves.toMatchObject({ state: 'PENDING' });
   });
 });
