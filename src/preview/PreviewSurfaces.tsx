@@ -13,26 +13,6 @@ import { usePreviewArcBalance, usePreviewWallet, shortPreviewAddress } from './P
 import { BrandLogo } from '../components/brand/BrandLogo';
 import type { PreviewPage } from './PreviewApp';
 
-const prompts = [
-  'How does a Veyra payment work?',
-  'Explain an Arc to Base bridge',
-  'What if my transaction times out?',
-];
-
-function explain(raw: string): string {
-  const text = raw.toLowerCase();
-  if (/bridge|cctp|sepolia|mint|attestation|base/.test(text)) {
-    return 'In the full Veyra flow, the source USDC burn produces one Circle message. After the Circle attestation is available, a destination receive is verified using the exact message, transaction receipt, USDC mint logs and finality. A missing response is never permission to burn again.';
-  }
-  if (/retry|fail|recover|revert|timeout|lost/.test(text)) {
-    return 'Veyra persists the original attempt before broadcast. If a response is lost, the same transaction hash can be reconciled against the destination chain. Uncertain attempts stay locked, and a new receive requires separate canonical revert and nonce evidence.';
-  }
-  if (/pay|usdc|send|recipient|transfer/.test(text)) {
-    return 'Veyra resolves the recipient, checks your selected asset and network, reviews the route and policy, then obtains an approved wallet signature in a verified transaction-enabled build. This Preview lets you connect a wallet and inspect balances, but cannot sign payments.';
-  }
-  return 'This Preview shows Veyra product behavior through deterministic examples. A live AI agent, authenticated identity, quotes and transaction execution will require the separate verified backend.';
-}
-
 export function PreviewHome({ onNavigate }: { onNavigate: (page: PreviewPage) => void }) {
   const wallet = usePreviewWallet();
   const balance = usePreviewArcBalance(wallet.address);
@@ -162,51 +142,6 @@ export function PreviewHome({ onNavigate }: { onNavigate: (page: PreviewPage) =>
           ))}
         </div>
       </section>
-    </div>
-  );
-}
-
-export function PreviewAgent({ onNavigate }: { onNavigate: (page: PreviewPage) => void }) {
-  const [question, setQuestion] = useState('');
-  const [input, setInput] = useState('');
-  return (
-    <div className="vp-page" style={{ maxWidth: 870 }}>
-      <div className="vp-page-heading">
-        <div><p className="vp-eyebrow">VEYRA INTELLIGENCE</p>
-          <h1 className="vp-page-title">Ask Veyra <Sparkles size={22} style={{ display: 'inline', color: '#c5fb71' }} /></h1>
-          <p className="vp-page-description">A clearer way to understand payments and blockchain routes.</p></div>
-        <span className="vp-chain-pill"><LockKeyhole size={14} /> Guided offline mode</span>
-      </div>
-      <div className="vp-card vp-card-pad">
-        <div className="vp-balance-head" style={{ marginBottom: 19 }}>
-          <span className="vp-quick-icon"><Bot size={20} /></span>
-          <div><strong className="vp-card-title">Veyra Assistant</strong><p className="vp-caption">Scripted explanations · live AI backend not connected</p></div>
-        </div>
-        <div className="vp-agent-conversation">
-          {!question ? (
-            <div className="vp-empty-state" style={{ paddingTop: 52 }}>
-              <Sparkles size={31} color="#c5fb71" />
-              <h3>What would you like to understand?</h3>
-              <p>Explore a payment flow, cross-chain USDC, or what Veyra does when a transaction gets stuck.</p>
-            </div>
-          ) : (
-            <div className="vp-stack">
-              <div className="vp-agent-bubble" style={{ marginLeft: '13%' }}>{question}</div>
-              <div className="vp-agent-bubble vp-agent-response">{explain(question)}</div>
-              <p className="vp-muted">Illustrative response · no live AI or account-specific analysis.</p>
-            </div>
-          )}
-        </div>
-        <div className="vp-agent-questions" style={{ marginBottom: 16 }}>
-          {prompts.map((q) => <button key={q} type="button" onClick={() => { setQuestion(q); setInput(q); }}>{q}</button>)}
-        </div>
-        <form onSubmit={(e) => { e.preventDefault(); const t = input.trim(); if (t) setQuestion(t.slice(0, 300)); }} style={{ display: 'flex', gap: 10 }}>
-          <input className="vp-form-input" aria-label="Ask Veyra" maxLength={300} placeholder="Ask a question about Veyra…"
-            value={input} onChange={(e) => setInput(e.target.value)} />
-          <button type="submit" className="vp-primary"><ArrowRight size={18} /></button>
-        </form>
-      </div>
-      <button type="button" className="vp-text-button" style={{ marginTop: 20 }} onClick={() => onNavigate('bridge')}>Explore Bridge USDC <ArrowRight size={14} style={{ display: 'inline' }} /></button>
     </div>
   );
 }
