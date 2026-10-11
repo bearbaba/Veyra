@@ -215,6 +215,15 @@ A successful source transaction whose exact CCTP evidence cannot yet be proven
 is kept fail-closed and resumable/reconcilable. It is never converted into a
 fresh source execution.
 
+**Ambiguous CCTP message guard:** Veyra currently supports exactly one strictly
+ABI-decoded `MessageSent(bytes)` event per source transaction and exactly one
+Circle `/v2/messages/{domain}?transactionHash=...` response message. A batched
+source transfer (or malformed/multiple Circle messages) is rejected rather than
+choosing `messages[0]`. Server destination relay additionally requires the
+sole Circle message bytes to match the sole canonical source `MessageSent`.
+This deliberately limits batch support until per-message log index and
+source burn association can be verified independently.
+
 **Terminal safety and unresolved failure:** once the source wallet may have
 submitted a transaction (`SIGNED` or later), an unverified browser-side
 `FAILED`, `CANCELLED`, or `INVALIDATED` claim cannot terminalize a CCTP
@@ -262,6 +271,16 @@ hash when an asynchronous client checkpoint mirror advanced to
 `DESTINATION_BROADCAST` before the chain RPC indexed the transaction.
 Recovery retries verification of the *same* tx hash; it never signs again
 based on RPC timeouts. Any claim with an unknown hash remains locked.
+
+**Browser checkpoint trust boundary:** `POST /api/bridge/persist` accepts only
+pre-destination recovery states. A browser cannot write
+`DESTINATION_BROADCAST`, `VERIFIED`, or a destination transaction hash through
+the checkpoint mirror; those are exclusively server-verified boundaries. Older
+server recovery checkpoints are also filtered out of the Bridge recovery UI
+when a matching authenticated ActivityReceipt is already `COMPLETE` or
+contains an independently verified reverted-source terminal `FAILED`
+resolution. Any other failed or uncertain bridge remains available for
+reconciliation.
 
 **Remaining destination retry gate:** this durable claim deliberately permits
 only the FIRST submission from either actor. Subsequent distinct receive
