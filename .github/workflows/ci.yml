@@ -75,7 +75,7 @@ jobs:
         run: bun run check:prod-bundle
 
       - name: Static Vercel UI-only preview build
-        run: VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 bun run build
+        run: VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build
 
       - name: Static Vercel preview bundle isolation
         run: bun run check:prod-bundle
