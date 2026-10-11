@@ -306,6 +306,58 @@ describe('migration-from-zero: destination relay exactly-once submission', () =>
   });
 });
 
+describe('migration-from-zero: self-relay cross-device hash reconciliation', () => {
+  pgTest('accepts exact RPC-verified hash after browser checkpoint mirroring, never another hash', async () => {
+    await testPool.query(`
+      INSERT INTO veyra_users (veyr_user_id, veyr_handle, identity_revision, status)
+      VALUES ('usr_self_relay', 'selfrelay', 1, 'ACTIVE')
+      ON CONFLICT DO NOTHING
+    `);
+    await testPool.query(`
+      INSERT INTO bridge_recovery_checkpoints
+        (plan_id, owner_user_id, stage, burn_tx_hash, source_chain_id,
+         destination_chain_id, wallet_address, recipient_address,
+         amount_raw, token_address, balance_before_raw,
+         attestation_message, attestation_signature)
+      VALUES
+        ('claims-self-relay-plan', 'usr_self_relay', 'ATTESTATION_READY',
+         '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+         5042002, 11155111, '0x1111111111111111111111111111111111111111',
+         '0x2222222222222222222222222222222222222222', 1000000,
+         '0x3333333333333333333333333333333333333333', 0,
+         '0x1234', '0xabcd')
+    `);
+
+    const db = drizzle(testPool, { schema });
+    expect(await claimDestinationSubmission(
+      db, 'usr_self_relay', 'claims-self-relay-plan',
+    )).toEqual({ mode: 'CLAIMED' });
+    const original = `0x${'f'.repeat(64)}`;
+
+    // The client's best-effort checkpoint mirror may beat RPC indexing.
+    await testPool.query(`
+      UPDATE bridge_recovery_checkpoints
+      SET stage = 'DESTINATION_BROADCAST', receive_tx_hash = $1
+      WHERE plan_id = 'claims-self-relay-plan'
+    `, [original]);
+
+    await recordDestinationSubmission(
+      db, 'usr_self_relay', 'claims-self-relay-plan', original,
+    );
+    expect(await getDestinationSubmissionClaim(
+      db, 'usr_self_relay', 'claims-self-relay-plan',
+    )).toEqual({ mode: 'ALREADY_SUBMITTED', txHash: original });
+
+    await expect(recordDestinationSubmission(
+      db, 'usr_self_relay', 'claims-self-relay-plan', `0x${'1'.repeat(64)}`,
+    )).rejects.toThrow(/already recorded/i);
+    expect(await testPool.query(
+      `SELECT event_type FROM bridge_destination_attempt_events
+       WHERE plan_id = 'claims-self-relay-plan'`,
+    ).then((r) => r.rows)).toHaveLength(2);
+  });
+});
+
 describe('migration-from-zero: critical constraints', () => {
   pgTest('dedup_key UNIQUE constraint rejects duplicate receipt', async () => {
     // Insert a minimal user + wallet + snapshot so FKs are satisfied.
