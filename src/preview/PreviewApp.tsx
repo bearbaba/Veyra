@@ -15,6 +15,7 @@ import { UiOnlyPreviewPage } from '../components/pages/UiOnlyPreviewPage';
 import { PreviewTestnetPayPage } from './PreviewTestnetPayPage';
 import { PreviewHome, PreviewActivity, PreviewSettings } from './PreviewSurfaces';
 import { PreviewLiveAgent } from './PreviewLiveAgent';
+import { PreviewServiceStatus } from './PreviewServiceStatus';
 import {
   PreviewWalletProvider, shortPreviewAddress, usePreviewWallet,
 } from './PreviewWallet';
@@ -216,7 +217,7 @@ function PreviewWorkspace() {
       case 'pay': return import.meta.env.VITE_VEYRA_TESTNET_PAY === '1'
         ? <PreviewTestnetPayPage /> : <UiOnlyPreviewPage surface="pay" />;
       case 'convert':
-      case 'bridge': return <UiOnlyPreviewPage surface={page} />;
+      case 'bridge': return <PreviewServiceStatus surface={page} onNavigate={setPage} />;
       case 'activity': return <PreviewActivity onNavigate={setPage} />;
       case 'settings': return <PreviewSettings />;
       default: return <PreviewHome onNavigate={setPage} />;
