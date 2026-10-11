@@ -85,7 +85,7 @@ import { verifySecondCctpDestinationMintFromNetwork } from './services/cctpSecon
 import { inspectCctpDestinationNonceFromNetwork } from './services/cctpDestinationNonceInspectionService.js';
 import { recordVerifiedSecondDestinationMint } from './db/repositories/bridgeSecondDestinationVerificationRepository.js';
 import { finalizeVerifiedSecondCctpSettlement } from './db/repositories/bridgeSecondSettlementRepository.js';
-import { assertSelfRelayTransactionMatchesCheckpoint } from './services/cctpSelfRelayVerification.js';
+import { assertSelfRelayNetworkEvidence } from './services/cctpSelfRelayVerification.js';
 import { verifyCctpSourceCheckpointAttestationFromNetwork } from './services/cctpBridgeSourceAttestationService.js';
 import { receiptStatusEnum } from './db/schema/enums.js';
 import {
@@ -2132,7 +2132,11 @@ app.post('/api/bridge/record-self-receive', IDENTITY_RATE, async (req: Request, 
     }
 
     try {
-      assertSelfRelayTransactionMatchesCheckpoint(checkpoint, {
+      // A configured viem chain is not proof that an external RPC URL is
+      // actually serving that chain. Hash reconciliation must verify BOTH.
+      const rpcChainId = await client.getChainId();
+      assertSelfRelayNetworkEvidence(checkpoint, txHash, rpcChainId, {
+        hash: transaction.hash,
         from: transaction.from,
         to: transaction.to,
         input: transaction.input,
