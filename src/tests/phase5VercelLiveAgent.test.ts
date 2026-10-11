@@ -106,7 +106,7 @@ describe('Phase 5 live Vercel agent: NO mock or canned answers', () => {
     expect(payload.store).toBe(false);
     expect(payload.max_tokens).toBe(450);
     expect(payload.messages[0]?.role).toBe('system');
-    expect(payload.messages[0]?.content).toContain("language of the user's LATEST message");
+    expect(payload.messages[0]?.content).toMatch(/language\s+of the user's LATEST message/);
     expect(payload.messages[0]?.content).toContain('default to English');
     expect(payload.messages[0]?.content).toContain('Do not force Vietnamese');
     expect(payload.messages.filter((m) => m.role !== 'system')).toHaveLength(7);

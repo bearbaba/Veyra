@@ -138,7 +138,7 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     expect(agent).toContain('Ask questions in any language.');
     expect(fullAgent).toContain("title: 'Any language'");
     expect(fullAgent).not.toContain('Gửi 20 USDC');
-    expect(ai).toContain("language of the user's LATEST message");
+    expect(ai).toMatch(/language\s+of the user's LATEST message/);
     expect(ai).toContain('default to English');
     expect(ai).toContain('Do not force Vietnamese');
   });
