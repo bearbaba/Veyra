@@ -21,9 +21,15 @@ Browser -- HTTPS --> Vercel static Vite frontend (dist/)
 Vercel's Git deployment supports Vite build output; this repository now
 contains `vercel.json` for **the static frontend only**, with a mandatory
 `VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 bun run build` command. The build-time lock cannot be
-turned off by a browser query param or a missing backend. The canonical
-financial execution gate rejects signing, and Pay/Convert/Bridge use
-read-only preview screens. Activity disables wallet-signing recovery. The local Vite
+turned off by a browser query param or a missing backend. The Vite HTML
+entry is replaced *before bundle generation* with `src/preview/main.tsx`,
+which imports only dedicated offline Home, Agent, Activity, Settings and
+read-only Pay/Convert/Bridge routes. No `wagmi`, `viem`, backend clients,
+wallet connection, transaction signing, or ActivityReceipt recovery modules
+are imported into the published React entry. The canonical financial
+execution gate remains fail-closed in the full application as defense in
+depth. CI scans the emitted static JavaScript bundle after a dedicated
+preview build using `bun run check:vercel-preview-bundle`. The local Vite
 development proxy (`vite.config.ts`, `/api` to `localhost:3001`) is NOT
 active on Vercel. There is intentionally **no production `/api` rewrite**
 in the initial config: silently forwarding user credentials or signed wallet
@@ -61,10 +67,13 @@ Do not put DB, API or relay secrets into the frontend.
 money-moving actions via Veyra's canonical execution pipeline. Pay, Convert
 and Bridge routes display read-only interactive flows. The Activity recovery
 button is suppressed, and the recovery runtime separately rejects resumption.
-Home may still display wallet-connection and identity controls; connecting a
-wallet is not a transfer. The Agent degrades to local fallback when the
-backend is unavailable. Do not treat identities, remote receipts or bridge
-execution as functional without an independently verified BFF. Keep the
+The preview Home has illustrative panels instead of a wallet connector or
+live balances. The preview Agent has explicitly labeled deterministic sample
+explanations (not AI or on-chain information), and Activity shows a fictional
+workflow without any transaction hashes or backend calls. No identity or
+wallet-authentication requests are made by this isolated entrypoint. Do not
+treat identities, remote receipts or bridge execution as functional without
+an independently verified BFF. Keep the
 first deployment private/restricted if testing with real accounts.
 
 ## Second milestone: connected testnet preview
@@ -143,6 +152,9 @@ bun run lint
 bun run test -- --run
 bun run build
 bun run check:prod-bundle
+# The real Vercel frontend build:
+VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 bun run build
+bun run check:vercel-preview-bundle
 ```
 
 Post-deploy checks:
