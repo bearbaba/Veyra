@@ -44,8 +44,10 @@ import {
   type BridgeRecoveryCheckpoint,
 } from '../core/execution/bridgeCheckpointStore';
 import {
+  claimSelfRelayDestinationRemote,
   loadRemoteBridgeCheckpoints,
   persistBridgeCheckpointRemote,
+  recordSelfRelayDestinationRemote,
   relayBridgeReceiveRemote,
 } from '../lib/api/bridgeRecoveryApi';
 import {
@@ -738,6 +740,7 @@ export function useBridgeExecution() {
 
       let receiveTxHash: Hash;
       let destinationReceipt;
+      let selfRelayHash: Hash | null = null;
 
       const remoteRelay = await tryAuthenticatedRemoteRelay(attestationCheckpoint);
       if (remoteRelay.mode === 'ALREADY_RECEIVED') {
@@ -807,6 +810,11 @@ export function useBridgeExecution() {
           return;
         }
 
+        // Server relay and self-relay share one DB claim. Without it, two
+        // tabs/devices could race past attestation and both ask for signatures.
+        // Never request a wallet signature unless the claim transaction
+        // commits successfully; uncertain claims are NOT auto-released.
+        await claimSelfRelayDestinationRemote(planId);
         setState({ phase: 'RECEIVING', approveTxHash, burnTxHash });
         receiveTxHash = await broadcastReceiveMessage(
           walletClient,
@@ -815,6 +823,7 @@ export function useBridgeExecution() {
           attestation.message,
           attestation.attestation,
         );
+        selfRelayHash = receiveTxHash;
       }
 
       // Persist the destination tx hash before waiting for confirmation. This
@@ -828,6 +837,14 @@ export function useBridgeExecution() {
         receiveTxHash,
         updatedAt: Date.now(),
       });
+
+      if (selfRelayHash) {
+        // Local crash recovery is durable first; the server independently
+        // verifies the broadcast tx whenever its destination RPC can see it.
+        // An indexing delay preserves the claim as UNCERTAIN (fail-closed).
+        await recordSelfRelayDestinationRemote(planId, selfRelayHash)
+          .catch(() => undefined);
+      }
 
       activityProgress = await advanceBridgeActivity(
         activityProgress,
@@ -1339,6 +1356,7 @@ export function useBridgeExecution() {
 
       if (current.stage === 'ATTESTATION_READY') {
         let receiveTxHash: Hash;
+        let selfRelayHash: Hash | null = null;
         const remoteRelay = await tryAuthenticatedRemoteRelay(current);
 
         if (remoteRelay.mode === 'ALREADY_RECEIVED') {
@@ -1376,6 +1394,9 @@ export function useBridgeExecution() {
           setState({ phase: 'SWITCHING_CHAIN', burnTxHash });
           await switchChainAsync({ chainId: current.destinationChainId });
 
+          // Recovered self-relay must compete for the SAME claim as the
+          // server relayer and any other browser session.
+          await claimSelfRelayDestinationRemote(current.planId);
           setState({ phase: 'RECEIVING', burnTxHash });
           receiveTxHash = await broadcastReceiveMessage(
             walletClient,
@@ -1384,6 +1405,7 @@ export function useBridgeExecution() {
             current.attestationMessage!,
             current.attestationSignature!,
           );
+          selfRelayHash = receiveTxHash;
         }
 
         // Persist before any confirmation/read. If the page disappears now,
@@ -1395,6 +1417,11 @@ export function useBridgeExecution() {
           updatedAt: Date.now(),
         };
         await persistRecoveryCheckpoint(current);
+
+        if (selfRelayHash) {
+          await recordSelfRelayDestinationRemote(current.planId, selfRelayHash)
+            .catch(() => undefined);
+        }
 
         if (recoveryActivity) {
           try {
@@ -1422,6 +1449,11 @@ export function useBridgeExecution() {
         }
 
         const receiveTxHash = current.receiveTxHash as Hash;
+        // Reconcile a previously signed self-relay once the destination RPC
+        // has indexed it. Server receipt truth remains independent of browser
+        // success, and a failed call cannot authorize another signature.
+        await recordSelfRelayDestinationRemote(current.planId, receiveTxHash)
+          .catch(() => undefined);
 
         if (recoveryActivity) {
           try {
