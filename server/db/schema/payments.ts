@@ -65,6 +65,11 @@ export const activityReceipts = pgTable(
     receiveTxHash:       text('receive_tx_hash'),
     receiveChainId:      bigint('receive_chain_id', { mode: 'number' }),
     receiveBlockNumber:  bigint('receive_block_number', { mode: 'number' }),
+    // An authoritative second mint settles the receipt without changing the
+    // immutable original first receiveTxHash (which may have reverted).
+    settlementReceiveTxHash: text('settlement_receive_tx_hash'),
+    settlementReceiveBlockNumber: bigint('settlement_receive_block_number', { mode: 'number' }),
+    settlementAttemptNumber: integer('settlement_attempt_number'),
     environment:         text('environment').notNull().default('testnet'),
     status:              receiptStatusEnum('status').notNull().default('INTENT_CAPTURED'),
     revision:            bigint('revision', { mode: 'number' }).notNull().default(1),
