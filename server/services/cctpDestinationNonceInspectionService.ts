@@ -21,6 +21,8 @@ import { MANIFEST_CONSTANTS } from '../../src/providers/registry/providerManifes
 import type { BridgeRecoveryInput } from '../db/repositories/bridgeRecoveryRepository.js';
 import { BridgeRecoveryConflictError } from '../db/repositories/bridgeRecoveryRepository.js';
 
+import { assertCctpDestinationRpcIdentity } from './cctpDestinationRpcIdentity.js';
+
 const TRANSMITTER_ABI = parseAbi([
   'function usedNonces(bytes32 nonce) view returns (uint256)',
 ]);
@@ -187,11 +189,7 @@ export async function inspectCctpDestinationNonceFromNetwork(
       'Destination nonce RPC chain identity unavailable; do not authorize retry.',
     );
   }
-  if (actualChainId !== checkpoint.destinationChainId) {
-    throw new BridgeRecoveryConflictError(
-      'Destination nonce RPC chain does not match the reviewed CCTP route.',
-    );
-  }
+  assertCctpDestinationRpcIdentity(checkpoint.destinationChainId, actualChainId);
 
   return inspectCctpDestinationNonce(
     checkpoint,
