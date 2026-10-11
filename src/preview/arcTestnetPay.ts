@@ -11,6 +11,7 @@ import type { InjectedPreviewProvider } from './PreviewWallet';
 
 export const ARC_TESTNET_CHAIN_ID = 5042002;
 export const MAX_TESTNET_PAYMENT_UNITS = 1_000_000n; // max 1 testnet USDC
+export const ARC_PAY_FINALITY_CONFIRMATIONS = 12n; // both success and revert must settle
 const HASH_RE = /^0x[\da-fA-F]{64}$/;
 const HEX_RE = /^0x[\da-fA-F]+$/;
 const TRANSFER_ABI = parseAbi(['function transfer(address to, uint256 amount) returns (bool)']);
@@ -145,9 +146,14 @@ export async function reconcileArcTestnetPay(
       !HASH_RE.test(receipt.blockHash ?? '') || !HEX_RE.test(receipt.blockNumber ?? '')) {
     fail('Receipt identity or block information does not match the transaction.');
   }
-  if (receipt.status === '0x0') return { state: 'REVERTED', txHash: txHash as Hex };
-  if (receipt.status !== '0x1') fail('Unrecognized receipt status. Payment is unverified.');
-  const matched = Array.isArray(receipt.logs) && receipt.logs.some((log) => (
+  // A receipt (INCLUDING a revert) is only tentative until its block is
+  // canonical and confirmed. An early revert may be replaced by a successful
+  // transaction in a reorg; unlocking the next send before finality risks
+  // a duplicate transfer. Only successful receipts need a Transfer log.
+  if (receipt.status !== '0x0' && receipt.status !== '0x1') {
+    fail('Unrecognized receipt status. Payment is unverified.');
+  }
+  const matched = receipt.status === '0x1' && Array.isArray(receipt.logs) && receipt.logs.some((log) => (
     log.address?.toLowerCase() === plan.token.toLowerCase() &&
     log.topics?.length === 3 &&
     log.topics[0]?.toLowerCase() === TRANSFER_TOPIC.toLowerCase() &&
@@ -155,16 +161,25 @@ export async function reconcileArcTestnetPay(
     log.topics[2]?.toLowerCase() === topicAddress(plan.to) &&
     HEX_RE.test(log.data) && BigInt(log.data) === plan.units
   ));
-  if (!matched) fail('Successful receipt has no matching USDC Transfer evidence.');
+  if (receipt.status === '0x1' && !matched) {
+    fail('Successful receipt has no matching USDC Transfer evidence.');
+  }
   const number = BigInt(receipt.blockNumber);
   const block = await arcTestnetRpc('eth_getBlockByNumber', [receipt.blockNumber, false]) as { hash?: string } | null;
-  if (!block || block.hash?.toLowerCase() !== receipt.blockHash.toLowerCase()) {
+  if (!block || !HASH_RE.test(block.hash ?? '') ||
+      block.hash?.toLowerCase() !== receipt.blockHash.toLowerCase()) {
     fail('Canonical block hash changed; payment remains unverified.');
   }
   const head = BigInt(asHex(await arcTestnetRpc('eth_blockNumber', [])));
-  if (head < number || head - number + 1n < 2n) return { state: 'PENDING', txHash: txHash as Hex };
-  if (number > BigInt(Number.MAX_SAFE_INTEGER) || head - number + 1n > BigInt(Number.MAX_SAFE_INTEGER)) {
+  if (head < number || head - number + 1n < ARC_PAY_FINALITY_CONFIRMATIONS) {
+    return { state: 'PENDING', txHash: txHash as Hex };
+  }
+  if (number > BigInt(Number.MAX_SAFE_INTEGER) ||
+      head - number + 1n > BigInt(Number.MAX_SAFE_INTEGER)) {
     fail('Unsafe block number.');
+  }
+  if (receipt.status === '0x0') {
+    return { state: 'REVERTED', txHash: txHash as Hex };
   }
   return {
     state: 'VERIFIED',
