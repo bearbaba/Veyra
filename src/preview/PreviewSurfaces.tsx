@@ -5,9 +5,9 @@
 import { useState } from 'react';
 import {
   Activity, ArrowDownRight, ArrowRight, ArrowUpRight, ArrowLeftRight,
-  Bot, CheckCircle2, Compass, Copy, CreditCard, ExternalLink,
+  Bot, CheckCircle2, Copy, CreditCard, ExternalLink,
   History, LockKeyhole, RefreshCw, Route, SendHorizontal,
-  ShieldCheck, Sparkles, Wallet, Zap,
+  ShieldCheck, Sparkles, Wallet,
 } from 'lucide-react';
 import { usePreviewArcBalance, usePreviewWallet, shortPreviewAddress } from './PreviewWallet';
 import { BrandLogo } from '../components/brand/BrandLogo';
@@ -150,14 +150,14 @@ export function PreviewHome({ onNavigate }: { onNavigate: (page: PreviewPage) =>
             <div><strong className="vp-card-title">Your safety, first</strong><p className="vp-caption">Designed for transparency.</p></div>
           </div>
           {[
-            ['Wallet connection', wallet.address ? 'Connected' : 'Available', CheckCircle2],
-            ['Arc testnet reads', 'Read-only', ArrowDownRight],
-            ['Payment & CCTP execution', 'Locked', LockKeyhole],
-          ].map(([name, status, Icon]) => (
-            <div className="vp-step" key={name as string}>
-              <span style={{ color: '#adc9f6' }}><Icon size={16} /></span>
-              <strong style={{ flex: 1, fontSize: 11 }}>{name as string}</strong>
-              <span style={{ color: status === 'Locked' ? '#e8be81' : '#bfe79b', fontSize: 10 }}>{status as string}</span>
+            { name: 'Wallet connection', status: wallet.address ? 'Connected' : 'Available', icon: CheckCircle2 },
+            { name: 'Arc testnet reads', status: 'Read-only', icon: ArrowDownRight },
+            { name: 'Payment & CCTP execution', status: 'Locked', icon: LockKeyhole },
+          ].map(({ name, status, icon: StatusIcon }) => (
+            <div className="vp-step" key={name}>
+              <span style={{ color: '#adc9f6' }}><StatusIcon size={16} /></span>
+              <strong style={{ flex: 1, fontSize: 11 }}>{name}</strong>
+              <span style={{ color: status === 'Locked' ? '#e8be81' : '#bfe79b', fontSize: 10 }}>{status}</span>
             </div>
           ))}
         </div>
