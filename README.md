@@ -116,6 +116,12 @@ Phase 5 additionally keeps distinct, append-only destination attempts:
 - `0011`: chain-verified second receive, unique exact USDC mint and finality
 - `0012`: separate immutable settlement hash/block/attempt fields in the
   ActivityReceipt; the original first destination hash remains unchanged
+- **Lost-response first receive recovery:** Activity can accept the
+  hash of a destination `receiveMessage` transaction that was ALREADY
+  signed and broadcast. The authenticated server requires the pre-existing
+  first-attempt claim and independently verifies the RPC chain ID, returned
+  transaction hash, recipient signer, canonical transmitter, message and
+  Circle attestation before recording it. This never signs or resends.
 - **Read-only CCTP V2 nonce inspection:** authenticated
   `POST /api/bridge/inspect-destination-nonce` independently rechecks the
   first revert and original Arc/Circle source, parses the 32-byte nonce from
