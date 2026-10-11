@@ -85,6 +85,13 @@
       "when": 1791670000000,
       "tag": "0011_phase5_second_destination_verification",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791680000000,
+      "tag": "0012_phase5_second_settlement_receipt",
+      "breakpoints": true
     }
   ]
 }
