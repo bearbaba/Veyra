@@ -20,7 +20,7 @@ Browser -- HTTPS --> Vercel static Vite frontend (dist/)
 
 Vercel's Git deployment supports Vite build output; this repository now
 contains `vercel.json` for **the static frontend only**, with a mandatory
-`VITE_VEYRA_UI_ONLY=1 bun run build` command. The build-time lock cannot be
+`VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 bun run build` command. The build-time lock cannot be
 turned off by a browser query param or a missing backend. The canonical
 financial execution gate rejects signing, and Pay/Convert/Bridge use
 read-only preview screens. Activity disables wallet-signing recovery. The local Vite
