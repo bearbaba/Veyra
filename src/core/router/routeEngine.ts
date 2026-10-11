@@ -1,4 +1,4 @@
-import { getAddress, keccak256, stringToHex } from 'viem';
+import { getAddress, isAddress, keccak256, stringToHex } from 'viem';
 import { SECURITY_CONFIG } from '../../lib/securityConfig';
 import { checkProviderEligibility } from '../../providers/registry/providerRegistry';
 import type {
@@ -96,16 +96,78 @@ async function quoteWithTimeout(
 function isRouteStructurallySafe(
   route: RouteOption,
   adapter: BridgeProviderAdapter,
+  params: RouteQuoteParams,
   now: number,
 ): boolean {
+  // A provider quote is untrusted until every money-moving field and the
+  // deterministic action ID are bound to the user's original request.
+  const supported = adapter.capabilities.supportedRoutes.find(
+    (candidate) =>
+      candidate.sourceChainId === params.sourceChainId &&
+      candidate.destinationChainId === params.destinationChainId &&
+      candidate.sourceTokenAddress.toLowerCase() ===
+        params.sourceTokenAddress.toLowerCase(),
+  );
+  if (
+    !supported ||
+    !isAddress(params.senderAddress) ||
+    !isAddress(params.destinationAddress) ||
+    !isAddress(supported.destinationTokenAddress) ||
+    !isAddress(route.destinationAddress) ||
+    !isAddress(route.sourceTokenAddress) ||
+    !isAddress(route.destinationTokenAddress)
+  ) {
+    return false;
+  }
+
+  const expectedRouteId = buildRouteId({
+    clientIntentId: params.clientIntentId,
+    senderAddress: params.senderAddress,
+    recipientSnapshotId: params.recipientSnapshotId,
+    amountIn: params.amountIn,
+    sourceTokenAddress: params.sourceTokenAddress,
+    sourceChainId: params.sourceChainId,
+    destinationTokenAddress: supported.destinationTokenAddress,
+    destinationChainId: params.destinationChainId,
+    provider: adapter.providerId,
+    providerVersion: adapter.version,
+  });
+
   if (
     route.provider !== adapter.providerId ||
     route.providerVersion !== adapter.version ||
+    route.routeId.toLowerCase() !== expectedRouteId.toLowerCase() ||
+    route.sourceChainId !== params.sourceChainId ||
+    route.destinationChainId !== params.destinationChainId ||
+    route.sourceTokenAddress.toLowerCase() !==
+      params.sourceTokenAddress.toLowerCase() ||
+    route.destinationTokenAddress.toLowerCase() !==
+      supported.destinationTokenAddress.toLowerCase() ||
+    route.destinationAddress.toLowerCase() !==
+      params.destinationAddress.toLowerCase() ||
+    route.amountIn !== params.amountIn ||
     route.expiresAt <= now ||
     route.quotedAt > now ||
+    route.ttlMs <= 0 ||
+    route.ttlMs > adapter.capabilities.quoteTtlMs ||
     route.ttlMs !== route.expiresAt - route.quotedAt ||
     route.amountIn <= 0n ||
-    route.amountOut <= 0n
+    route.amountOut <= 0n ||
+    !Array.isArray(route.hops) ||
+    route.hops.length === 0
+  ) {
+    return false;
+  }
+
+  const firstHop = route.hops[0];
+  const lastHop = route.hops[route.hops.length - 1];
+  if (
+    firstHop.sourceChainId !== params.sourceChainId ||
+    firstHop.sourceTokenAddress.toLowerCase() !==
+      params.sourceTokenAddress.toLowerCase() ||
+    lastHop.destinationChainId !== params.destinationChainId ||
+    lastHop.destinationTokenAddress.toLowerCase() !==
+      supported.destinationTokenAddress.toLowerCase()
   ) {
     return false;
   }
@@ -191,7 +253,7 @@ export async function selectBridgeRoutes(input: {
       continue;
     }
 
-    if (!isRouteStructurallySafe(route, adapter, verificationNow)) {
+    if (!isRouteStructurallySafe(route, adapter, input.params, verificationNow)) {
       excludedProviders.push({
         providerId: adapter.providerId,
         reason: 'UNSAFE_OR_EXPIRED_ROUTE',
