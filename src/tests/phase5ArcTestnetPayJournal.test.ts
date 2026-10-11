@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arcPayJournalKey, clearArcPayJournal, loadArcPayJournal, storeArcPayJournal, type ArcPayJournal } from '../preview/arcPayJournal';
+import { arcPayJournalKey, browserArcPayJournalStorage, clearArcPayJournal, loadArcPayJournal, storeArcPayJournal, type ArcPayJournal } from '../preview/arcPayJournal';
 
 const FROM = '0x1111111111111111111111111111111111111111';
 const TO = '0x2222222222222222222222222222222222222222';
@@ -63,5 +63,25 @@ describe('Arc Testnet Pay browser recovery must fail closed', () => {
     expect(loadArcPayJournal(FROM, broken)).toEqual({ kind: 'blocked' });
     expect(storeArcPayJournal(unknown, broken)).toBe(false);
     expect(clearArcPayJournal(FROM, broken)).toBe(false);
+  });
+
+  it('fails closed when the browser localStorage getter throws', () => {
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    try {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: Object.defineProperty({}, 'localStorage', {
+          configurable: true,
+          get: () => { throw new Error('Storage access denied'); },
+        }),
+      });
+      const guarded = browserArcPayJournalStorage();
+      expect(loadArcPayJournal(FROM, guarded)).toEqual({ kind: 'blocked' });
+      expect(storeArcPayJournal(pending, guarded)).toBe(false);
+      expect(clearArcPayJournal(FROM, guarded)).toBe(false);
+    } finally {
+      if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
+      else Reflect.deleteProperty(globalThis, 'window');
+    }
   });
 });

@@ -10,7 +10,7 @@ import { ArrowRight, CheckCircle2, ExternalLink, LockKeyhole, RefreshCw, SendHor
 import { usePreviewWallet, shortPreviewAddress, usePreviewArcBalance } from './PreviewWallet';
 import { ARC_TESTNET_CHAIN_ID, arcPayExplorerUrl, createArcTestnetPayPlan, reconcileArcTestnetPay, submitArcTestnetPay, type ArcPayPlan, type ArcPayStatus } from './arcTestnetPay';
 import { BrandLogo } from '../components/brand/BrandLogo';
-import { loadArcPayJournal, storeArcPayJournal, clearArcPayJournal, type ArcPayJournal as Journal } from './arcPayJournal';
+import { browserArcPayJournalStorage, loadArcPayJournal, storeArcPayJournal, clearArcPayJournal, type ArcPayJournal as Journal } from './arcPayJournal';
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Wallet or Arc Testnet RPC error. Do not repeat the transaction.';
@@ -47,7 +47,7 @@ export function PreviewTestnetPayPage() {
       setRecoveryBlocked(false);
       return;
     }
-    const loaded = loadArcPayJournal(wallet.address, localStorage);
+    const loaded = loadArcPayJournal(wallet.address, browserArcPayJournalStorage());
     setJournal(loaded.kind === 'active' ? loaded.journal : null);
     setRecoveryBlocked(loaded.kind === 'blocked');
     setLoadedAccount(wallet.address.toLowerCase());
@@ -58,7 +58,7 @@ export function PreviewTestnetPayPage() {
       return setError('Connect your browser wallet and wait for payment recovery to load.');
     }
     // Re-read storage to detect a pending transaction from another tab.
-    const existing = loadArcPayJournal(wallet.address, localStorage);
+    const existing = loadArcPayJournal(wallet.address, browserArcPayJournalStorage());
     if (existing.kind !== 'empty' || recoveryBlocked || journal) {
       if (existing.kind === 'blocked') setRecoveryBlocked(true);
       if (existing.kind === 'active') setJournal(existing.journal);
@@ -75,7 +75,7 @@ export function PreviewTestnetPayPage() {
         !confirmed || recoveryBlocked || loadedAccount !== wallet.address.toLowerCase() ||
         wallet.address.toLowerCase() !== review.from.toLowerCase() || journal) return;
     // Reject an earlier attempt from another tab or an unreadable recovery lock.
-    const existing = loadArcPayJournal(wallet.address, localStorage);
+    const existing = loadArcPayJournal(wallet.address, browserArcPayJournalStorage());
     if (existing.kind !== 'empty') {
       if (existing.kind === 'blocked') setRecoveryBlocked(true);
       if (existing.kind === 'active') setJournal(existing.journal);
@@ -86,7 +86,7 @@ export function PreviewTestnetPayPage() {
     // Record before invoking a wallet/RPC, fail-closed on any unknown result.
     const started: Journal = { from: review.from, to: review.to, amount: review.amount,
       stage: 'AWAITING_WALLET', hash: null };
-    if (!storeArcPayJournal(started, localStorage)) {
+    if (!storeArcPayJournal(started, browserArcPayJournalStorage())) {
       signingInProgress.current = false;
       setError('Local recovery storage unavailable. No wallet request sent; enable browser storage before trying a testnet payment.');
       return;
@@ -100,7 +100,7 @@ export function PreviewTestnetPayPage() {
         walletRequestStarted = true;
       });
       const pending: Journal = { ...started, stage: 'PENDING', hash };
-      const saved = storeArcPayJournal(pending, localStorage);
+      const saved = storeArcPayJournal(pending, browserArcPayJournalStorage());
       setJournal(pending);
       setProof({ state: 'PENDING', txHash: hash, indexed: false });
       if (!saved) {
@@ -111,7 +111,7 @@ export function PreviewTestnetPayPage() {
       balance.refresh();
     } catch (cause) {
       if (!walletRequestStarted || walletRejected(cause)) {
-        if (clearArcPayJournal(started.from, localStorage)) {
+        if (clearArcPayJournal(started.from, browserArcPayJournalStorage())) {
           setJournal(null);
           setError(walletRejected(cause)
             ? 'Wallet rejected the transaction. Nothing was sent by this request.'
@@ -122,7 +122,7 @@ export function PreviewTestnetPayPage() {
         }
       } else {
         const uncertain: Journal = { ...started, stage: 'UNKNOWN' };
-        storeArcPayJournal(uncertain, localStorage);
+        storeArcPayJournal(uncertain, browserArcPayJournalStorage());
         setJournal(uncertain);
         setReview(null);
         setError(`${errorMessage(cause)} If your wallet already submitted a transaction, paste its hash below. Never press Send again for an uncertain request.`);
@@ -148,7 +148,7 @@ export function PreviewTestnetPayPage() {
       const stage = result.state === 'VERIFIED' ? 'VERIFIED'
         : result.state === 'REVERTED' ? 'REVERTED' : 'PENDING';
       const next: Journal = { ...journal, hash, stage };
-      if (!storeArcPayJournal(next, localStorage)) {
+      if (!storeArcPayJournal(next, browserArcPayJournalStorage())) {
         setError('Could not save the verified payment status. The original payment stays locked; restore browser storage and recheck.');
         return;
       }
@@ -160,10 +160,11 @@ export function PreviewTestnetPayPage() {
   }
 
   function newPayment() {
-    if (!journal || (journal.stage !== 'VERIFIED' && journal.stage !== 'REVERTED')) return;
+    if (busy || signingInProgress.current || !journal ||
+        (journal.stage !== 'VERIFIED' && journal.stage !== 'REVERTED')) return;
     // A completed/reverted journal is immutable elsewhere on-chain.
     // This removes only the local display record to allow a new review.
-    if (!clearArcPayJournal(journal.from, localStorage)) {
+    if (!clearArcPayJournal(journal.from, browserArcPayJournalStorage())) {
       setError('Could not clear the completed recovery record. Browser storage must be available before another payment.');
       return;
     }
@@ -291,7 +292,7 @@ export function PreviewTestnetPayPage() {
                 </div>
               )}
               {(journal.stage === 'VERIFIED' || journal.stage === 'REVERTED') &&
-                <button type="button" className="vp-secondary vp-full" style={{ marginTop: 12 }} onClick={newPayment}>Start a new testnet payment</button>}
+                <button type="button" className="vp-secondary vp-full" style={{ marginTop: 12 }} onClick={newPayment} disabled={busy}>Start a new testnet payment</button>}
             </div>
           )}
         </section>

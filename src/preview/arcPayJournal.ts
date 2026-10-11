@@ -22,6 +22,17 @@ export type ArcPayJournalLoad =
   | { kind: 'blocked' };
 
 type JournalStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
+// Some privacy modes throw when the localStorage getter itself is accessed.
+const UNAVAILABLE_STORAGE: JournalStorage = {
+  getItem: () => { throw new Error('Storage unavailable'); },
+  setItem: () => { throw new Error('Storage unavailable'); },
+  removeItem: () => { throw new Error('Storage unavailable'); },
+};
+export function browserArcPayJournalStorage(): JournalStorage {
+  try { return window.localStorage; }
+  catch { return UNAVAILABLE_STORAGE; }
+}
 const HASH_RE = /^0x[0-9a-fA-F]{64}$/;
 const STAGES = ['AWAITING_WALLET', 'UNKNOWN', 'PENDING', 'VERIFIED', 'REVERTED'];
 
