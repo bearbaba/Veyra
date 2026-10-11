@@ -387,6 +387,15 @@ created through this recovery operation. The Activity list is refreshed
 after successful reconciliation. This can recover a **known hash** but
 cannot invent or recover a hash that the wallet and provider never exposed.
 
+**Independent destination RPC chain identity:** every server-side
+on-chain proof for (1) the original reverted receive, (2) the canonical
+success/mint of a previously recorded second receive, and (3) the pinned
+CCTP V2 `usedNonces` observation calls `eth_chainId` on the **actual
+configured RPC endpoint**. The shared fail-closed verifier requires the
+returned ID to match the reviewed Ethereum Sepolia/Base Sepolia chain;
+a viem `chain` configuration alone is not treated as evidence. RPC
+timeouts, wrong network and unsupported destination IDs fail closed.
+
 **Read-only second attempt lost-hash recovery (without signing):** The
 authenticated `POST /api/bridge/reconcile-second-receive` accepts only a
 plan ID and a hash for a transaction the user or relayer already broadcast.
