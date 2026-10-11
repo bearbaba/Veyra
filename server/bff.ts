@@ -50,6 +50,7 @@ import { PROVIDER_MANIFEST } from '../src/providers/registry/providerManifest.js
 import { evaluateMainnetReadiness } from './readiness/mainnetReadiness.js';
 import { probeSignerReadiness } from './readiness/signerReadiness.js';
 import { probeDatabaseReadiness } from './readiness/databaseReadiness.js';
+import { evaluateTestnetReadiness, probeTestnetRpcEndpoints } from './readiness/testnetReadiness.js';
 import { refreshMainnetProviderHealth } from './services/providerHealthService.js';
 import { getAllProviderHealthRecords } from '../src/providers/registry/providerRegistry.js';
 import {
@@ -2549,6 +2550,23 @@ app.get('/api/health/signer', async (_req: Request, res: Response): Promise<void
 });
 
 app.get('/api/health/readiness', async (_req: Request, res: Response): Promise<void> => {
+  // Testnet and mainnet are distinct release paths. Previously this route
+  // applied the mainnet KMS/provider requirements to testnet and could never
+  // truthfully report hosted Arc/Sepolia infrastructure availability.
+  if (runtimeConfig.environment === 'testnet') {
+    const [database, rpc] = await Promise.all([
+      probeDatabaseReadiness(process.env.DATABASE_URL),
+      probeTestnetRpcEndpoints(process.env),
+    ]);
+    const report = evaluateTestnetReadiness(process.env, database, rpc);
+    res.status(report.ready ? 200 : 503).json({
+      ok: report.ready,
+      ...report,
+      ts: Date.now(),
+    });
+    return;
+  }
+
   const [database, signer] = await Promise.all([
     probeDatabaseReadiness(process.env.DATABASE_URL),
     probeSignerReadiness(process.env),
@@ -2564,6 +2582,7 @@ app.get('/api/health/readiness', async (_req: Request, res: Response): Promise<v
   res.status(report.ready ? 200 : 503).json({
     ok: report.ready,
     environment: runtimeConfig.environment,
+    scope: 'mainnet-release-gates',
     checks: report.checks,
     ts: Date.now(),
   });
