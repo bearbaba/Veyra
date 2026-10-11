@@ -20,12 +20,6 @@ export interface InjectedPreviewProvider {
   removeListener?(event: string, listener: (...args: unknown[]) => void): void;
 }
 
-declare global {
-  interface Window {
-    ethereum?: InjectedPreviewProvider;
-  }
-}
-
 type DiscoveredWallet = { id: string; name: string; provider: InjectedPreviewProvider };
 type Eip6963Event = Event & {
   detail?: { info?: { uuid?: string; name?: string }; provider?: InjectedPreviewProvider };
@@ -74,9 +68,12 @@ export function PreviewWalletProvider({ children }: { children: ReactNode }) {
     }
     window.addEventListener('eip6963:announceProvider', announced);
     window.dispatchEvent(new Event('eip6963:requestProvider'));
-    if (window.ethereum) {
-      setWallets((current) => current.some((w) => w.provider === window.ethereum)
-        ? current : [...current, { id: 'injected', name: 'Injected wallet', provider: window.ethereum! }]);
+    // The live application's typing already declares Window.ethereum.
+    // Narrow it locally instead of conflicting with that global interface.
+    const injected = (window as Window & { ethereum?: InjectedPreviewProvider }).ethereum;
+    if (injected && typeof injected.request === 'function') {
+      setWallets((current) => current.some((w) => w.provider === injected)
+        ? current : [...current, { id: 'injected', name: 'Injected wallet', provider: injected }]);
     }
     return () => window.removeEventListener('eip6963:announceProvider', announced);
   }, []);
