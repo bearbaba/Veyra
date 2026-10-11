@@ -122,6 +122,15 @@ Phase 5 additionally keeps distinct, append-only destination attempts:
   first-attempt claim and independently verifies the RPC chain ID, returned
   transaction hash, recipient signer, canonical transmitter, message and
   Circle attestation before recording it. This never signs or resends.
+- **Second receive lost-response recovery:** previously reserved attempt #2
+  can now be matched to an *already indexed* destination transaction hash
+  using the authenticated `POST /api/bridge/reconcile-second-receive`
+  endpoint. The BFF revalidates the original reverted first attempt and
+  Arc/Circle source, the actual destination RPC chain, immutable hash and
+  exact original any-caller CCTP receive calldata. No claim, signing,
+  resubmission or mint-success claim occurs. Activity can display the
+  owner-scoped append-only attempt history across devices and show the
+  second-hash reconciliation form only for an existing `UNCERTAIN` slot.
 - **Read-only CCTP V2 nonce inspection:** authenticated
   `POST /api/bridge/inspect-destination-nonce` independently rechecks the
   first revert and original Arc/Circle source, parses the 32-byte nonce from
