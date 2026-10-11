@@ -141,6 +141,41 @@ describe('Phase 5 ActivityReceipt lifecycle', () => {
     ).toThrow(/burnTxHash is immutable/i);
   });
 
+  it('rejects explicit null clearing of all immutable on-chain receipt fields', () => {
+    const current = evidenceState({
+      burnTxHash: SOURCE_TX,
+      burnChainId: 5042002,
+      burnBlockNumber: 100,
+      receiveTxHash: DEST_TX,
+      receiveChainId: 11155111,
+      receiveBlockNumber: 200,
+    });
+
+    const attemptedClears: Array<[
+      string,
+      Partial<Parameters<typeof validateReceiptSyncEvidence>[1]>
+    ]> = [
+      ['burnTxHash', { burnTxHash: null }],
+      ['burnChainId', { burnChainId: null }],
+      ['burnBlockNumber', { burnBlockNumber: null }],
+      ['receiveTxHash', { receiveTxHash: null }],
+      ['receiveChainId', { receiveChainId: null }],
+      ['receiveBlockNumber', { receiveBlockNumber: null }],
+    ];
+
+    for (const [field, update] of attemptedClears) {
+      expect(() =>
+        validateReceiptSyncEvidence(current, {
+          receiptId: 'rcpt',
+          revision: 10,
+          status: 'CONFIRMED',
+          ...update,
+        }),
+        `clearing ${field} must never succeed`,
+      ).toThrow(/immutable once recorded/i);
+    }
+  });
+
   it('requires source confirmation evidence before advancing CCTP lifecycle', () => {
     const current = evidenceState({
       burnTxHash: SOURCE_TX,
