@@ -47,6 +47,41 @@ describe('Phase 4B App Kit bridge recovery', () => {
     expect(() => assertRetryBridgeAllowed(result)).toThrow(/retry is not allowed/i);
   });
 
+  it('does not suggest a new bridge when burn failed without a returned tx hash', () => {
+    const result = {
+      state: 'error',
+      steps: [
+        { name: 'approve', state: 'success', txHash: '0xapproved' },
+        { name: 'burn', state: 'error', error: 'RPC response lost' },
+      ],
+    };
+    const recovery = analyzeAppKitBridgeRecovery(result);
+    expect(recovery.mode).toBe('RECONCILE_REQUIRED');
+    expect(recovery.nextAction).toMatch(/Do not submit a new bridge or burn/i);
+    expect(() => assertRetryBridgeAllowed(result)).toThrow(/retry is not allowed/i);
+  });
+
+  it('fails closed when the SDK result lacks any trustworthy pre-source failure step', () => {
+    for (const steps of [
+      [],
+      [{ name: 'unknown', state: 'error', error: 'timeout' }],
+      [{ name: 'approve', state: 'success', txHash: '0xapproved' }],
+    ]) {
+      const recovery = analyzeAppKitBridgeRecovery({ state: 'error', steps });
+      expect(recovery.mode).toBe('RECONCILE_REQUIRED');
+    }
+  });
+
+  it('does not mistake a broadcast approval for proof that a fresh bridge is safe', () => {
+    const recovery = analyzeAppKitBridgeRecovery({
+      state: 'error',
+      steps: [
+        { name: 'approve', state: 'error', txHash: '0xmaybeapproved' },
+      ],
+    });
+    expect(recovery.mode).toBe('RECONCILE_REQUIRED');
+  });
+
   it('does not retry a successful result', () => {
     const result = {
       state: 'success',
