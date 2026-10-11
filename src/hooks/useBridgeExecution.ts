@@ -38,6 +38,7 @@ import { VEYRA_ENV } from '../lib/env';
 import { assertExecutionReady } from '../core/execution/executionReadiness';
 import { saveReceipt } from '../core/receipt/receiptStore';
 import {
+  excludeAuthoritativelyResolvedBridgeCheckpoints,
   loadResumableBridgeCheckpoints,
   reconcileBridgeRecoveryCandidates,
   saveBridgeCheckpoint,
@@ -1697,26 +1698,17 @@ export function useBridgeExecution() {
     }
 
     const reconciled = reconcileBridgeRecoveryCandidates(local, remote);
-    const resolvedRoutes = new Set<string>();
+    let unresolved = reconciled;
     try {
       const receipts = await loadActivityReceiptsRemote(250);
-      for (const receipt of receipts) {
-        if (
-          receipt.providerId === 'cctp-v2-bridge' &&
-          receipt.status === 'FAILED' &&
-          receipt.failureReason === 'SOURCE_TRANSACTION_REVERTED_VERIFIED'
-        ) {
-          resolvedRoutes.add(receipt.routeId);
-        }
-      }
+      unresolved = excludeAuthoritativelyResolvedBridgeCheckpoints(
+        reconciled,
+        receipts,
+      );
     } catch {
       // Never suppress unresolved recovery when Activity is offline. An
       // authenticated terminal server record is the only filtering authority.
     }
-
-    const unresolved = reconciled.filter(
-      (checkpoint) => !resolvedRoutes.has(checkpoint.planId),
-    );
 
     // Cache accepted remote-only/advanced checkpoints locally so subsequent
     // reloads do not depend on server availability.
