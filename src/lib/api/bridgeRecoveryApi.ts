@@ -117,7 +117,12 @@ export async function recordSelfRelayDestinationRemote(
     body: JSON.stringify({ planId, txHash }),
   });
   const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (!response.ok || payload.ok !== true || payload.txHash !== txHash) {
+  if (
+    !response.ok ||
+    payload.ok !== true ||
+    typeof payload.txHash !== 'string' ||
+    payload.txHash.toLowerCase() !== txHash.toLowerCase()
+  ) {
     throw new Error(
       typeof payload.message === 'string'
         ? payload.message
