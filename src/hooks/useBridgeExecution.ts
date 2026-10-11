@@ -56,6 +56,8 @@ import {
 } from '../core/execution/actionExecutionReplayStore';
 import {
   advanceActivityReceiptRemote,
+  finalizeRevertedCctpSourceReceiptRemote,
+  loadActivityReceiptsRemote,
   loadResumableActivityReceiptsRemote,
   type ActivityReceiptHandle,
   type ActivityReceiptStatus,
@@ -1147,6 +1149,43 @@ export function useBridgeExecution() {
         return;
       }
 
+      if (sourceReceipt.status === 'reverted') {
+        // Do not trust browser-side revert observations to close a receipt.
+        // BFF independently verifies sender, depositForBurn calldata,
+        // canonical block hash and finality before changing durable state.
+        if (!recoveryActivity) {
+          setState({
+            phase: 'FAILED',
+            burnTxHash,
+            error:
+              'Source transaction reverted, but no authenticated ActivityReceipt is available for authoritative reconciliation. ' +
+              'Keep the action locked; do not resubmit the burn.',
+          });
+          return;
+        }
+        try {
+          await finalizeRevertedCctpSourceReceiptRemote(
+            recoveryActivity.handle.receiptId,
+          );
+          setState({
+            phase: 'FAILED',
+            burnTxHash,
+            error:
+              'Source CCTP depositForBurn was independently verified as reverted and the ActivityReceipt was safely closed. ' +
+              'No USDC was bridged by that source transaction. A new intent requires a new review.',
+          });
+        } catch {
+          setState({
+            phase: 'FAILED',
+            burnTxHash,
+            error:
+              'Source transaction appears reverted, but server-side finality or calldata verification is not complete. ' +
+              'The original source action remains locked; reconcile later, do not resubmit.',
+          });
+        }
+        return;
+      }
+
       const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt, {
         burnToken: getAddress(current.tokenAddress),
         amount: BigInt(current.amount),
@@ -1626,14 +1665,34 @@ export function useBridgeExecution() {
     }
 
     const reconciled = reconcileBridgeRecoveryCandidates(local, remote);
+    const resolvedRoutes = new Set<string>();
+    try {
+      const receipts = await loadActivityReceiptsRemote(250);
+      for (const receipt of receipts) {
+        if (
+          receipt.providerId === 'cctp-v2-bridge' &&
+          receipt.status === 'FAILED' &&
+          receipt.failureReason === 'SOURCE_TRANSACTION_REVERTED_VERIFIED'
+        ) {
+          resolvedRoutes.add(receipt.routeId);
+        }
+      }
+    } catch {
+      // Never suppress unresolved recovery when Activity is offline. An
+      // authenticated terminal server record is the only filtering authority.
+    }
+
+    const unresolved = reconciled.filter(
+      (checkpoint) => !resolvedRoutes.has(checkpoint.planId),
+    );
 
     // Cache accepted remote-only/advanced checkpoints locally so subsequent
     // reloads do not depend on server availability.
-    for (const checkpoint of reconciled) {
+    for (const checkpoint of unresolved) {
       await saveBridgeCheckpoint(checkpoint);
     }
 
-    return reconciled;
+    return unresolved;
   }, []);
 
   const reset = useCallback(() => {
