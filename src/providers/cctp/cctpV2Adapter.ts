@@ -221,6 +221,48 @@ export interface CctpAttestation {
   attestation?: string;  // hex-encoded attestation bytes
 }
 
+const NONEMPTY_HEX_BYTES = /^0x(?:[0-9a-fA-F]{2})+$/;
+
+/**
+ * Circle's transaction-hash endpoint is a *collection*. Selecting [0] is
+ * unsafe if a transaction emits more than one CCTP message. This single-bridge
+ * implementation supports exactly one message; reject ambiguous responses
+ * rather than guessing which attestation to use for the reviewed burn.
+ */
+export function parseUniqueCctpAttestationResponse(payload: unknown): CctpAttestation {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('[cctpV2] Invalid Circle attestation response.');
+  }
+  const messages = (payload as { messages?: unknown }).messages;
+  if (messages === undefined) {
+    throw new Error('[cctpV2] Circle attestation response has no messages field.');
+  }
+  if (!Array.isArray(messages)) {
+    throw new Error('[cctpV2] Circle messages must be an array.');
+  }
+  if (messages.length === 0) return { status: 'pending' };
+  if (messages.length !== 1) {
+    throw new Error('[cctpV2] Ambiguous Circle attestation: multiple messages for one source tx.');
+  }
+
+  const record: unknown = messages[0];
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
+    throw new Error('[cctpV2] Invalid Circle message record.');
+  }
+  const row = record as Record<string, unknown>;
+  if (row.status !== 'complete') return { status: 'pending' };
+  if (
+    typeof row.message !== 'string' ||
+    typeof row.attestation !== 'string' ||
+    !NONEMPTY_HEX_BYTES.test(row.message) ||
+    !NONEMPTY_HEX_BYTES.test(row.attestation)
+  ) {
+    throw new Error('[cctpV2] Complete Circle attestation has invalid message bytes.');
+  }
+
+  return { status: 'complete', message: row.message, attestation: row.attestation };
+}
+
 // ── Attestation polling (via BFF) ────────────────────────────────────────────
 
 export async function fetchCctpAttestation(sourceDomain: number, txHash: Hash): Promise<CctpAttestation> {
@@ -229,20 +271,11 @@ export async function fetchCctpAttestation(sourceDomain: number, txHash: Hash): 
   if (!res.ok) {
     throw new Error(`Attestation poll failed: ${res.status}`);
   }
-  const data = await res.json() as { ok: boolean; data: { messages?: Array<{ status: string; message?: string; attestation?: string }> } };
-  const messages = data.data.messages;
-  if (!messages || messages.length === 0) {
-    return { status: 'pending' };
+  const data = await res.json() as { ok?: boolean; data?: unknown };
+  if (data.ok !== true) {
+    throw new Error('[cctpV2] Invalid Circle attestation proxy response.');
   }
-  const msg = messages[0];
-  if (msg.status === 'complete' && msg.message && msg.attestation) {
-    return {
-      status: 'complete',
-      message: msg.message,
-      attestation: msg.attestation,
-    };
-  }
-  return { status: 'pending' };
+  return parseUniqueCctpAttestationResponse(data.data);
 }
 
 // ── Step 1: Approve ──────────────────────────────────────────────────────────
