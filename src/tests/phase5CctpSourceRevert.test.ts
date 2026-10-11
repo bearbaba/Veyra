@@ -84,16 +84,16 @@ function verifier(input: {
   canonicalHash?: `0x${string}` | null;
   head?: bigint;
 } = {}) {
-  const getReceipt = vi.fn(async () => input.receipt ?? revertedReceipt());
-  const getTx = vi.fn(async () => ({
+  const getReceipt = vi.fn(() => Promise.resolve(input.receipt ?? revertedReceipt()));
+  const getTx = vi.fn(() => Promise.resolve({
     from: input.from ?? SENDER,
     to: input.to ?? MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER,
     input: input.calldata ?? calldata(),
   }));
-  const getBlockHash = vi.fn(async () =>
+  const getBlockHash = vi.fn(() => Promise.resolve(
     input.canonicalHash === undefined ? BLOCK_HASH : input.canonicalHash,
-  );
-  const getHead = vi.fn(async () => input.head ?? 111n);
+  ));
+  const getHead = vi.fn(() => Promise.resolve(input.head ?? 111n));
 
   return {
     proof: verifyRevertedCctpSourceEvidence(
