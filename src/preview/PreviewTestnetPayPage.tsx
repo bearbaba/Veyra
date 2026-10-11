@@ -32,13 +32,19 @@ function readJournal(account: string): Journal | null {
         !['AWAITING_WALLET', 'UNKNOWN', 'PENDING', 'VERIFIED', 'REVERTED'].includes(x.stage ?? '') ||
         (x.hash !== null && x.hash !== undefined && (typeof x.hash !== 'string' || !/^0x[\da-fA-F]{64}$/.test(x.hash)))) return null;
     createArcTestnetPayPlan(account, x.to, x.amount);
-    return { from: account, to: x.to, amount: x.amount, stage: x.stage!, hash: x.hash ?? null };
+    // Never trust a restored VERIFIED/REVERTED flag as current chain proof.
+    // Reconcile on-chain after reload before enabling another payment.
+    return { from: account, to: x.to, amount: x.amount,
+      stage: x.stage === 'VERIFIED' || x.stage === 'REVERTED' ? 'PENDING' : x.stage,
+      hash: x.hash ?? null };
   } catch { return null; }
 }
-function storeJournal(journal: Journal | null): void {
-  if (!journal) return;
-  try { localStorage.setItem(storageKey(journal.from), JSON.stringify(journal)); } catch {
-    // Browser storage can be disabled; do not claim persistent recovery.
+function storeJournal(journal: Journal): boolean {
+  try {
+    localStorage.setItem(storageKey(journal.from), JSON.stringify(journal));
+    return localStorage.getItem(storageKey(journal.from)) === JSON.stringify(journal);
+  } catch {
+    return false;
   }
 }
 function errorMessage(error: unknown): string {
@@ -89,12 +95,18 @@ export function PreviewTestnetPayPage() {
     // Record before invoking a wallet/RPC, fail-closed on any unknown result.
     const started: Journal = { from: review.from, to: review.to, amount: review.amount,
       stage: 'AWAITING_WALLET', hash: null };
-    storeJournal(started);
+    if (!storeJournal(started)) {
+      setError('Local recovery storage unavailable. No wallet request sent; enable browser storage before trying a testnet payment.');
+      return;
+    }
     setJournal(started);
     setBusy(true);
     setError(null);
+    let walletRequestStarted = false;
     try {
-      const hash = await submitArcTestnetPay(wallet.activeProvider, review);
+      const hash = await submitArcTestnetPay(wallet.activeProvider, review, () => {
+        walletRequestStarted = true;
+      });
       const pending: Journal = { ...started, stage: 'PENDING', hash };
       storeJournal(pending);
       setJournal(pending);
@@ -103,10 +115,12 @@ export function PreviewTestnetPayPage() {
       setConfirmed(false);
       balance.refresh();
     } catch (cause) {
-      if (walletRejected(cause)) {
+      if (!walletRequestStarted || walletRejected(cause)) {
         try { localStorage.removeItem(storageKey(started.from)); } catch { /* no-op */ }
         setJournal(null);
-        setError('Wallet rejected the transaction. Nothing was sent by this request.');
+        setError(walletRejected(cause)
+          ? 'Wallet rejected the transaction. Nothing was sent by this request.'
+          : `${errorMessage(cause)} No transaction submission was requested, so you can review again.`);
       } else {
         const uncertain: Journal = { ...started, stage: 'UNKNOWN' };
         storeJournal(uncertain);
