@@ -29,6 +29,7 @@
     "production:preflight": "bun run scripts/production-preflight.ts",
     "check:dev-isolation": "bun run scripts/check-dev-isolation.ts",
     "check:prod-bundle": "bun run scripts/check-prod-bundle-isolation.ts",
+    "check:vercel-preview-bundle": "bun run scripts/check-vercel-preview-bundle.ts",
     "lint:fix": "oxlint --type-aware --quiet src scripts --fix && oxlint --quiet --fix ."
   },
   "dependencies": {
