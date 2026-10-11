@@ -99,3 +99,45 @@ jobs:
           fi
           echo "Hosted testnet BFF startup safety gate: PASS"
 
+      - name: Boot production-shaped testnet BFF and check HTTP trust boundary
+        run: |
+          docker run --detach --name veyra-bff-smoke --network host \
+            -e VEYRA_ENV=testnet \
+            -e NODE_ENV=production \
+            -e VEYRA_HOSTED_BACKEND=1 \
+            -e VEYRA_APP_ORIGIN=https://veyra.example \
+            -e VEYRA_SESSION_SECRET=01234567890123456789012345678901 \
+            -e DATABASE_URL=postgres://veyra:dummy@pg.testnet.example:5432/veyra?sslmode=require \
+            -e PORT=3001 \
+            veyra-bff:ci
+          trap 'docker rm --force veyra-bff-smoke >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for i in $(seq 1 25); do
+            if curl --fail --silent --show-error http://127.0.0.1:3001/api/health > /tmp/veyra-bff-health.json 2>/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            docker logs veyra-bff-smoke
+            exit 1
+          fi
+          grep -q '"ok":true' /tmp/veyra-bff-health.json
+          result=$(curl --silent --output /tmp/veyra-bff-unauth.json --write-out '%{http_code}' \
+            --header "Origin: https://untrusted.example" \
+            --header "X-Veyra-User-Id: usr_111111111111" \
+            "http://127.0.0.1:3001/api/bridge/destination-attempts?planId=example")
+          if [ "$result" != "401" ]; then
+            echo "ERROR: unsigned development identity bypass returned HTTP $result"
+            cat /tmp/veyra-bff-unauth.json
+            exit 1
+          fi
+          cors=$(curl --silent --head --header "Origin: https://untrusted.example" \
+            "http://127.0.0.1:3001/api/health" | grep -i '^access-control-allow-origin:' || true)
+          if ! printf '%s' "$cors" | grep -q 'https://veyra.example'; then
+            echo "ERROR: hosted backend CORS origin not pinned"
+            exit 1
+          fi
+          echo "Hosted testnet BFF HTTP startup / auth / CORS gates: PASS"
+
