@@ -12,6 +12,7 @@ import {
   Wallet, X,
 } from 'lucide-react';
 import { UiOnlyPreviewPage } from '../components/pages/UiOnlyPreviewPage';
+import { PreviewTestnetPayPage } from './PreviewTestnetPayPage';
 import { PreviewHome, PreviewAgent, PreviewActivity, PreviewSettings } from './PreviewSurfaces';
 import {
   PreviewWalletProvider, shortPreviewAddress, usePreviewWallet,
@@ -87,7 +88,7 @@ export function PreviewWalletButton({ fullWidth = false }: { fullWidth?: boolean
               </div>
               <button className="vp-icon-button" aria-label="Close" onClick={() => setOpen(false)}><X size={18} /></button>
             </div>
-            <p className="vp-caption">Connect an existing browser wallet to view your Arc Testnet balance. Veyra Preview never asks you to sign or send funds.</p>
+            <p className="vp-caption">Connect an injected wallet to view Arc Testnet balances. A real testnet USDC payment, if you later choose to initiate one, requires a separate explicit wallet approval.</p>
             {wallet.address ? (
               <div className="vp-modal-wallet">
                 <span className="vp-status-dot" />
@@ -119,7 +120,7 @@ export function PreviewWalletButton({ fullWidth = false }: { fullWidth?: boolean
             {wallet.error && <p className="vp-form-error" role="alert">{wallet.error}</p>}
             {wallet.address && <button type="button" className="vp-secondary vp-full"
               onClick={() => { wallet.disconnect(); setOpen(false); }}>Hide wallet in Veyra</button>}
-            <div className="vp-modal-note"><LockKeyhole size={16} /> No payment, transaction or message signing in this build.</div>
+            <div className="vp-modal-note"><LockKeyhole size={16} /> Connecting only shares your public address. Direct testnet USDC Pay separately requires your explicit wallet approval; other financial actions stay disabled.</div>
           </div>
         </div>
       )}
@@ -167,8 +168,8 @@ function PreviewShell({ page, onNavigate, children }: {
           <div className="vp-sidebar-card">
             <div className="vp-card-mini-icon"><ShieldCheck size={18} /></div>
             <strong>Explore safely</strong>
-            <p>Testnet workspace. Live payments stay disabled until the backend is verified.</p>
-            <span className="vp-safe-pill"><span /> NO SIGNING</span>
+            <p>Direct Arc Testnet USDC Pay: max 1 token per transfer. Bridge and Convert still locked.</p>
+            <span className="vp-safe-pill"><span /> TESTNET ONLY</span>
           </div>
           <button className={`vp-nav-link ${page === 'settings' ? 'vp-nav-active' : ''}`}
             onClick={() => select('settings')}>
@@ -192,13 +193,13 @@ function PreviewShell({ page, onNavigate, children }: {
           </div>
         </header>
         <div className="vp-preview-ribbon">
-          <div><ShieldCheck size={16} /><strong>INTERACTIVE UI PREVIEW</strong><span>Wallet connection and public balance reads only. Payments, swaps and bridges are locked.</span></div>
+          <div><ShieldCheck size={16} /><strong>ARC TESTNET BETA</strong><span>Real capped USDC Pay via your wallet; Convert and Bridge remain read-only until independently verified.</span></div>
           <span className="vp-ribbon-tag">TESTNET</span>
         </div>
         <main className="vp-content" id="content">{children}</main>
         <footer className="vp-footer">
           <span>© Veyra · Built for Arc</span>
-          <span>{wallet.address ? `Connected: ${shortPreviewAddress(wallet.address)}` : 'Connect a wallet to view live balances'} · Financial actions disabled</span>
+          <span>{wallet.address ? `Connected: ${shortPreviewAddress(wallet.address)}` : 'Connect a wallet to view live balances'} · Capped testnet Pay only</span>
         </footer>
       </div>
     </div>
@@ -211,7 +212,8 @@ function PreviewWorkspace() {
     switch (page) {
       case 'home': return <PreviewHome onNavigate={setPage} />;
       case 'agent': return <PreviewAgent onNavigate={setPage} />;
-      case 'pay':
+      case 'pay': return import.meta.env.VITE_VEYRA_TESTNET_PAY === '1'
+        ? <PreviewTestnetPayPage /> : <UiOnlyPreviewPage surface="pay" />;
       case 'convert':
       case 'bridge': return <UiOnlyPreviewPage surface={page} />;
       case 'activity': return <PreviewActivity />;
