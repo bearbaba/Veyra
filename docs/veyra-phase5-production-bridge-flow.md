@@ -322,6 +322,28 @@ mutating or deleting claims/attempt events. `GET
 cross-device history view of both attempts and first revert evidence;
 `retryAuthorized:false` is explicit.
 
+**Authoritative second receive verification (migration 0011):** a separate
+`bridge_destination_retry_verifications` table stores immutable evidence
+that the second recorded receive transaction succeeded in a canonical
+Sepolia/Base Sepolia block with **12 or more confirmations**, called the
+canonical Circle MessageTransmitterV2 with the original attested
+`receiveMessage(bytes,bytes)`, and emitted exactly one reviewed recipient
+USDC mint of exactly the original amount. Server-side
+`POST /api/bridge/verify-second-destination` accepts only `planId`, checks
+the authenticated owner and recorded attempt #2 transaction hash, re-reads
+the original Arc source burn and authoritative Circle attestation, verifies
+the canonical destination receipt, call, mint and finality, then commits
+evidence under the owned checkpoint row lock. Both the old ActivityReceipt
+receive hash and the original recovery checkpoint remain immutable.
+Concurrent or repeated proofs for the same chain transaction are idempotent;
+contradictory mint/block evidence fails closed. PostgreSQL forbids
+UPDATE/DELETE on verified second mint rows. The owner-only destination
+attempt history API exposes `second.verifiedMint`, finality and mint block
+hash. A successful proof deliberately returns
+`activityReceiptCompleted:false` and `retryAuthorized:false`: proving a
+mint does not yet implement a safe terminal ActivityReceipt transition,
+cross-device recovery completion or approval for another transaction.
+
 **Important:** migration 0010 is *infrastructure*, not a live second-relay
 feature. No second-attempt signing or broadcast endpoint is enabled until the
 authoritative destination nonce/readiness recheck, verified success/finality,
