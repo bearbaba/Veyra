@@ -51,7 +51,7 @@ export function createArcTestnetPayPlan(from: string, to: string, amount: string
 
 export async function arcTestnetRpc(method: string, params: unknown[]): Promise<unknown> {
   assertConfig();
-  const response = await fetch(CHAIN.rpcUrls[0]!, {
+  const response = await fetch(CHAIN.rpcUrls[0], {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', method, params, id: 1 }),
   });
