@@ -201,20 +201,45 @@ function assertTransitionAllowed(
 }
 
 /**
- * Generic receipts share the broader lifecycle above, but a CCTP bridge must
- * not skip SOURCE_CONFIRMED (the only stage requiring canonical source-burn
- * verification) or enter a generic CONFIRMING state. Once the destination
- * has been confirmed, a browser must not downgrade the receipt to FAILED.
+ * CCTP has an irreversible source burn. Once the wallet may have submitted it
+ * (SIGNED onwards), unverified browser errors must NOT terminalize the
+ * ActivityReceipt and remove it from recovery. Only independently verified
+ * source/destination execution can complete the receipt. A reverted source
+ * transaction needs a dedicated authoritative failure-resolution path; it
+ * must not be accepted as an unverified browser FAILED claim.
  */
 export function isCctpBridgeReceiptTransitionAllowed(
   from: ReceiptStatus,
   to: ReceiptStatus,
 ): boolean {
   if (!isReceiptTransitionAllowed(from, to)) return false;
+
+  const sourceMayHaveBeenSubmitted = new Set<ReceiptStatus>([
+    'SIGNED',
+    'BROADCAST',
+    'SOURCE_CONFIRMED',
+    'ATTESTATION_PENDING',
+    'RECEIVE_PENDING',
+    'RECEIVE_FAILED_RETRYABLE',
+    'CONFIRMED',
+  ]);
+
+  if (
+    sourceMayHaveBeenSubmitted.has(from) &&
+    (to === 'FAILED' ||
+      to === 'CANCELLED' ||
+      to === 'INVALIDATED' ||
+      to === 'DUPLICATE_DETECTED')
+  ) {
+    return false;
+  }
+
+  // Generic transfer shortcuts bypass CCTP's canonical source-burn
+  // confirmation; those transitions are never valid for this provider.
   if (from === 'BROADCAST' && (to === 'CONFIRMING' || to === 'CONFIRMED')) {
     return false;
   }
-  if (from === 'CONFIRMED' && to === 'FAILED') return false;
+
   return true;
 }
 
