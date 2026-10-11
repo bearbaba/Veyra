@@ -155,7 +155,12 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     expect(surfaces).not.toContain('function explain(');
     expect(surfaces).not.toContain('export function PreviewAgent(');
     expect(agent).toContain("fetch('/api/agent/chat'");
-    expect(agent).toContain('Private beta access code');
+    expect(agent).toContain('AI beta access code');
+    expect(agent).toContain('requestInFlight.current = true');
+    expect(agent).toContain('requestInFlight.current = false');
+    expect(agent).toContain('signal: AbortSignal.timeout(20_000)');
+    expect(agent).toContain("{ role: 'assistant' as const, text: payload.reply as string }].slice(-30)");
+    expect(agent).not.toContain('setMessages([...prior,');
     expect(agent).not.toContain('createFallbackAgentResponse');
     expect(serverless).toContain('https://api.openai.com/v1/chat/completions');
     expect(serverless).toContain('VEYRA_AGENT_BETA_TOKEN');

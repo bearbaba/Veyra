@@ -4,7 +4,7 @@
  * No secrets are compiled into this browser: beta access token lives in
  * component memory and disappears on refresh.
  */
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowRight, Bot, ExternalLink, KeyRound, LockKeyhole, RefreshCw, ShieldCheck, Sparkles, Wifi, WifiOff } from 'lucide-react';
 import type { PreviewPage } from './PreviewApp';
 
@@ -23,6 +23,8 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
+  // Prevent duplicate POSTs even when multiple events fire before React renders.
+  const requestInFlight = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const checkStatus = useCallback(async () => {
@@ -33,6 +35,7 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
         method: 'GET',
         headers: { Accept: 'application/json' },
         cache: 'no-store',
+        signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) throw new Error('AI endpoint is not deployed.');
       const data = await response.json() as {
@@ -55,9 +58,10 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
   async function sendMessage(event?: FormEvent<HTMLFormElement>, example?: string) {
     event?.preventDefault();
     const question = (example ?? input).trim();
-    if (busy || !status?.live || accessCode.trim().length < 24 ||
+    if (requestInFlight.current || busy || !status?.live || accessCode.trim().length < 24 ||
         !question || question.length > 1200) return;
 
+    requestInFlight.current = true;
     setBusy(true);
     setError(null);
     const prior = messages.slice(-6);
@@ -70,6 +74,7 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
           Authorization: `Bearer ${accessCode.trim()}`,
         },
         body: JSON.stringify({ message: question, history: prior }),
+        signal: AbortSignal.timeout(20_000),
       });
       const payload = await response.json().catch(() => ({})) as {
         ok?: boolean; live?: boolean; reply?: unknown; error?: string;
@@ -77,17 +82,24 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
       if (!response.ok || payload.ok !== true || payload.live !== true ||
           typeof payload.reply !== 'string' || !payload.reply.trim()) {
         throw new Error(response.status === 401
-          ? 'Incorrect beta access code. Check VEYRA_AGENT_BETA_TOKEN in Vercel.'
-          : response.status === 503
-            ? 'The live AI service is unavailable. Check OPENAI_API_KEY and Vercel environment variables.'
-            : 'The AI service did not return a valid reply. No simulated fallback is used.');
+          ? 'Incorrect beta access code. Please check your access code.'
+          : response.status === 429
+            ? 'Too many requests. Please wait before trying again.'
+            : response.status === 503
+              ? 'Live AI is temporarily unavailable. Please try again later.'
+              : 'The AI service did not return a valid reply. No simulated fallback is used.');
       }
-      setMessages([...prior, { role: 'user', text: question },
-        { role: 'assistant', text: payload.reply }]);
+      // Keep the visible conversation while sending only six recent turns to AI.
+      setMessages((current) => [...current, { role: 'user' as const, text: question },
+        { role: 'assistant' as const, text: payload.reply as string }].slice(-30));
       setInput('');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not connect to the live AI service.');
+      const timedOut = cause instanceof Error && (cause.name === 'TimeoutError' || cause.name === 'AbortError');
+      setError(timedOut
+        ? 'The AI request timed out. Please try again.'
+        : cause instanceof Error ? cause.message : 'Could not connect to the live AI service.');
     } finally {
+      requestInFlight.current = false;
       setBusy(false);
     }
   }
@@ -112,7 +124,7 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
           <span className="vp-quick-icon"><Bot size={21} /></span>
           <div style={{ flex: 1 }}>
             <strong className="vp-card-title">Veyra Assistant</strong>
-            <p className="vp-caption">{ready ? 'OpenAI · live responses from a Vercel Function' : 'Requires a server-side API key and a private beta access code'}</p>
+            <p className="vp-caption">{ready ? 'OpenAI · live server responses' : 'The live assistant is currently unavailable'}</p>
           </div>
           <button className="vp-icon-button" type="button" onClick={() => void checkStatus()}
             aria-label="Refresh AI status"><RefreshCw size={16} /></button>
@@ -124,14 +136,12 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
             <div>
               <strong>{statusError ?? 'The live AI service is not enabled on Vercel.'}</strong>
               <p style={{ marginTop: 8 }}>
-                In Vercel → Project → Settings → Environment Variables, configure
-                <code> OPENAI_API_KEY</code>, <code>VEYRA_AGENT_BETA_TOKEN</code> (at least 24 characters)
-                and <code>VEYRA_AGENT_ENABLED=1</code> for Preview, then redeploy.
-                Never enter an OpenAI API key on the website or expose it through VITE_* variables.
+                Live chat requires a separately configured server-side AI service.
+                No offline or simulated answers are shown. Wallet payments operate independently.
               </p>
-              <a href="https://vercel.com/docs/environment-variables" target="_blank" rel="noreferrer"
+              <a href="https://github.com/bearbaba/Veyra/blob/phase5-production-bridge-flow/docs/veyra-vercel-preview.md" target="_blank" rel="noreferrer"
                 className="vp-text-button" style={{ display: 'inline-flex', gap: 5, marginTop: 8 }}>
-                Vercel environment variable guide <ExternalLink size={13}/>
+                Operator setup guide <ExternalLink size={13}/>
               </a>
             </div>
           </div>
@@ -141,12 +151,12 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
           <div style={{ marginBottom: 19 }}>
             <label className="vp-form-label" htmlFor="vp-agent-beta-code">
               <KeyRound size={14} style={{ display: 'inline', marginRight: 6 }}/>
-              Private beta access code (VEYRA_AGENT_BETA_TOKEN)
+              AI beta access code
             </label>
             <input id="vp-agent-beta-code" className="vp-form-input"
               type="password" autoComplete="off" spellCheck={false} value={accessCode}
               onChange={(event) => setAccessCode(event.target.value)}
-              placeholder="Enter the beta access code configured in Vercel" maxLength={160}/>
+              placeholder="Enter your private beta access code" maxLength={160}/>
             <p className="vp-caption" style={{ marginTop: 7 }}>
               The access code stays in memory for this page only. Never enter a wallet private key or seed phrase.
             </p>
