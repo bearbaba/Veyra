@@ -10,6 +10,7 @@ import { MANIFEST_CONSTANTS } from '../providers/registry/providerManifest';
 import {
   ActivityReceiptEvidenceError,
   verifyActivityReceiptTransitionEvidence,
+  sourceReceiptContainsCctpMessage,
   type ActivityReceiptEvidenceContext,
 } from '../../server/services/activityReceiptVerificationService.js';
 
@@ -81,6 +82,7 @@ function bytes32Address(address: string): `0x${string}` {
 
 function sourceReceipt(
   amount = 1_000_000n,
+  message: `0x${string}` = MESSAGE,
 ): TransactionReceipt {
   const topics = encodeEventTopics({
     abi: [DEPOSIT_EVENT],
@@ -125,7 +127,7 @@ function sourceReceipt(
       {
         address: MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER,
         topics: [MESSAGE_SENT_TOPIC],
-        data: '0x1234',
+        data: encodeAbiParameters([{ type: 'bytes' }], [message]),
       },
     ],
   } as unknown as TransactionReceipt;
@@ -165,12 +167,25 @@ function context(
     tokenAddress: MANIFEST_CONSTANTS.ARC_TESTNET_USDC,
     burnTxHash: SOURCE_TX,
     burnChainId: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
-    burnBlockNumber: null,
+    burnBlockNumber: 100,
     receiveTxHash: DEST_TX,
     receiveChainId: MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID,
     receiveBlockNumber: null,
     ...overrides,
   };
+}
+
+function chainReceiptFetcher(
+  recipient = RECIPIENT,
+  sourceMessage: `0x${string}` = MESSAGE,
+) {
+  return vi.fn().mockImplementation((chainId: number) =>
+    Promise.resolve(
+      chainId === MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID
+        ? sourceReceipt(1_000_000n, sourceMessage)
+        : destinationReceipt(recipient),
+    ),
+  );
 }
 
 describe('Phase 5 authoritative ActivityReceipt evidence', () => {
@@ -227,7 +242,7 @@ describe('Phase 5 authoritative ActivityReceipt evidence', () => {
   });
 
   it('accepts CONFIRMED only after the exact mint and source-bound receiveMessage call are present', async () => {
-    const fetchReceipt = vi.fn().mockResolvedValue(destinationReceipt());
+    const fetchReceipt = chainReceiptFetcher();
     const fetchTransaction = vi.fn().mockResolvedValue(receiveCall());
     const fetchAttestation = vi.fn().mockResolvedValue({
       message: MESSAGE,
@@ -258,8 +273,54 @@ describe('Phase 5 authoritative ActivityReceipt evidence', () => {
     expect(fetchAttestation).toHaveBeenCalledWith(SOURCE_TX);
   });
 
+  it('requires the Circle-attested message to appear in canonical source MessageSent logs', async () => {
+    const fetchReceipt = chainReceiptFetcher(RECIPIENT, '0xaabbccdd');
+    const fetchTransaction = vi.fn().mockResolvedValue(receiveCall());
+    const fetchAttestation = vi.fn().mockResolvedValue({
+      message: MESSAGE,
+      attestation: ATTESTATION,
+    });
+
+    expect(sourceReceiptContainsCctpMessage(sourceReceipt(), MESSAGE)).toBe(true);
+    expect(sourceReceiptContainsCctpMessage(sourceReceipt(), '0xaabbccdd')).toBe(false);
+
+    await expect(
+      verifyActivityReceiptTransitionEvidence(
+        context(),
+        { status: 'CONFIRMED', receiveBlockNumber: 200 },
+        fetchReceipt,
+        fetchTransaction,
+        fetchAttestation,
+      ),
+    ).rejects.toMatchObject({ code: 'SOURCE_MESSAGE_MISMATCH' });
+    expect(fetchReceipt).toHaveBeenCalledWith(
+      MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
+      SOURCE_TX,
+    );
+  });
+
+  it('rejects an authoritative source receipt with an unexpected block during destination confirmation', async () => {
+    const fetchReceipt = vi.fn().mockImplementation((chainId: number) =>
+      Promise.resolve(
+        chainId === MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID
+          ? { ...sourceReceipt(), blockNumber: 101n }
+          : destinationReceipt(),
+      ),
+    );
+
+    await expect(
+      verifyActivityReceiptTransitionEvidence(
+        context(),
+        { status: 'CONFIRMED', receiveBlockNumber: 200 },
+        fetchReceipt,
+        vi.fn().mockResolvedValue(receiveCall()),
+        vi.fn().mockResolvedValue({ message: MESSAGE, attestation: ATTESTATION }),
+      ),
+    ).rejects.toMatchObject({ code: 'SOURCE_BLOCK_MISMATCH' });
+  });
+
   it('fails closed if confirmation is attempted without transaction or attestation verifiers', async () => {
-    const fetchReceipt = vi.fn().mockResolvedValue(destinationReceipt());
+    const fetchReceipt = chainReceiptFetcher();
 
     await expect(
       verifyActivityReceiptTransitionEvidence(
@@ -276,7 +337,7 @@ describe('Phase 5 authoritative ActivityReceipt evidence', () => {
   });
 
   it('rejects a destination receiveMessage call with a different Circle attestation', async () => {
-    const fetchReceipt = vi.fn().mockResolvedValue(destinationReceipt());
+    const fetchReceipt = chainReceiptFetcher();
     const fetchTransaction = vi
       .fn()
       .mockResolvedValue(receiveCall('0x9999', ATTESTATION));
@@ -302,7 +363,7 @@ describe('Phase 5 authoritative ActivityReceipt evidence', () => {
   });
 
   it('rejects a destination transaction that calls a non-CCTP contract', async () => {
-    const fetchReceipt = vi.fn().mockResolvedValue(destinationReceipt());
+    const fetchReceipt = chainReceiptFetcher();
     const fetchTransaction = vi.fn().mockResolvedValue({
       ...receiveCall(),
       to: '0x3333333333333333333333333333333333333333',
