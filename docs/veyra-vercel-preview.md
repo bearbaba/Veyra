@@ -21,12 +21,14 @@ Browser -- HTTPS --> Vercel static Vite frontend (dist/)
 Vercel's Git deployment supports Vite build output; this repository now
 contains `vercel.json` for **the static frontend only**, with a mandatory
 `VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 bun run build` command. The build-time lock cannot be
-turned off by a browser query param or a missing backend. The Vite HTML
-entry is replaced *before bundle generation* with `src/preview/main.tsx`,
-which imports only dedicated offline Home, Agent, Activity, Settings and
+turned off by a browser query param or a missing backend. Vite selects
+`preview.html` as the **initial Rollup HTML input**, which imports
+`src/preview/main.tsx` and only dedicated offline Home, Agent, Activity, Settings and
 read-only Pay/Convert/Bridge routes. No `wagmi`, `viem`, backend clients,
 wallet connection, transaction signing, or ActivityReceipt recovery modules
-are imported into the published React entry. The canonical financial
+are imported into the published React entry. The resulting
+`dist/preview.html` is renamed to `dist/index.html` only after build;
+trying to build both a live and preview HTML entry fails. The canonical financial
 execution gate remains fail-closed in the full application as defense in
 depth. CI scans the emitted static JavaScript bundle after a dedicated
 preview build using `bun run check:vercel-preview-bundle`. The local Vite
