@@ -12,10 +12,13 @@ import { baseSepolia, sepolia } from 'viem/chains';
 import type { DbClient } from '../db/client.js';
 import {
   getReceiptForUser,
+  finalizeVerifiedCctpSourceRevert,
+  type VerifiedCctpSourceRevert,
   type ReceiptStatus,
   type ReceiptSyncInput,
 } from '../db/repositories/receiptRepository.js';
 import { MANIFEST_CONSTANTS } from '../../src/providers/registry/providerManifest.js';
+import { chainIdToCctpDomain } from '../../src/providers/cctp/cctpV2Adapter.js';
 import {
   verifyCctpDestinationReceiptEvidence,
   verifyCctpSourceReceiptEvidence,
@@ -445,6 +448,207 @@ function chainClient(chainId: number) {
     'UNSUPPORTED_EVIDENCE_CHAIN',
     `No evidence client is configured for chain ${chainId}.`,
   );
+}
+
+const SOURCE_BURN_ABI = parseAbi([
+  'function depositForBurn(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken, bytes32 destinationCaller, uint256 maxFee, uint32 minFinalityThreshold)',
+]);
+
+export interface CctpSourceRevertContext {
+  providerId: string;
+  action: string;
+  status: ReceiptStatus;
+  senderAddress: string;
+  senderChainId: number;
+  recipientAddress: string;
+  recipientChainId: number;
+  amountRaw: string;
+  tokenAddress: string;
+  burnTxHash: string | null;
+  burnChainId: number | null;
+  burnBlockNumber: number | null;
+  receiveTxHash: string | null;
+  receiveChainId: number | null;
+  receiveBlockNumber: number | null;
+}
+
+export interface CctpSourceRevertTransaction {
+  from: string;
+  to: string | null;
+  input: `0x${string}`;
+}
+
+const MIN_REVERT_CONFIRMATIONS = 12;
+
+/**
+ * Only a canonical reverted depositForBurn (exact sender, contract, amount,
+ * destination and calldata) with >=12 source confirmations may close a
+ * BROADCAST receipt. Failure reports from browsers are never authoritative.
+ */
+export async function verifyRevertedCctpSourceEvidence(
+  current: CctpSourceRevertContext,
+  fetchReceipt: (txHash: Hash) => Promise<TransactionReceipt>,
+  fetchTransaction: (txHash: Hash) => Promise<CctpSourceRevertTransaction>,
+  fetchCanonicalBlockHash: (blockNumber: bigint) => Promise<Hash | null>,
+  fetchHeadBlockNumber: () => Promise<bigint>,
+): Promise<VerifiedCctpSourceRevert> {
+  if (
+    current.providerId !== 'cctp-v2-bridge' ||
+    current.action !== 'BRIDGE' ||
+    current.status !== 'BROADCAST' ||
+    current.senderChainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID ||
+    current.burnChainId !== current.senderChainId ||
+    current.receiveTxHash !== null ||
+    current.receiveChainId !== null ||
+    current.receiveBlockNumber !== null
+  ) {
+    throw new ActivityReceiptEvidenceError(
+      'SOURCE_REVERT_NOT_ELIGIBLE',
+      'Only a broadcast Arc Testnet CCTP receipt with no destination execution can be resolved as reverted.',
+    );
+  }
+
+  const burnTxHash = requireHash(current.burnTxHash, 'burnTxHash');
+  const [receipt, transaction] = await Promise.all([
+    fetchReceipt(burnTxHash),
+    fetchTransaction(burnTxHash),
+  ]);
+
+  if (
+    receipt.status !== 'reverted' ||
+    receipt.transactionHash.toLowerCase() !== burnTxHash.toLowerCase() ||
+    !Number.isSafeInteger(Number(receipt.blockNumber)) ||
+    (current.burnBlockNumber !== null &&
+      Number(receipt.blockNumber) !== current.burnBlockNumber)
+  ) {
+    throw new ActivityReceiptEvidenceError(
+      'SOURCE_REVERT_UNVERIFIED',
+      'The exact recorded CCTP source transaction has not been proven reverted.',
+    );
+  }
+
+  if (
+    transaction.from.toLowerCase() !== current.senderAddress.toLowerCase() ||
+    !transaction.to ||
+    transaction.to.toLowerCase() !==
+      MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER.toLowerCase()
+  ) {
+    throw new ActivityReceiptEvidenceError(
+      'SOURCE_REVERT_CALL_MISMATCH',
+      'Reverted transaction sender or target is not the reviewed CCTP source burn.',
+    );
+  }
+
+  let decoded;
+  try {
+    decoded = decodeFunctionData({ abi: SOURCE_BURN_ABI, data: transaction.input });
+  } catch {
+    throw new ActivityReceiptEvidenceError(
+      'SOURCE_REVERT_CALL_MISMATCH',
+      'Reverted transaction is not the reviewed depositForBurn calldata.',
+    );
+  }
+
+  const [amount, domain, recipient, token, destinationCaller, maxFee, finality] =
+    decoded.args;
+  const expectedRecipient =
+    `0x${'0'.repeat(24)}${getAddress(current.recipientAddress).slice(2)}`.toLowerCase();
+  const emptyCaller = `0x${'0'.repeat(64)}`;
+  if (
+    decoded.functionName !== 'depositForBurn' ||
+    amount !== requireAmount(current.amountRaw) ||
+    Number(domain) !== chainIdToCctpDomain(current.recipientChainId) ||
+    recipient.toLowerCase() !== expectedRecipient ||
+    token.toLowerCase() !== current.tokenAddress.toLowerCase() ||
+    destinationCaller.toLowerCase() !== emptyCaller ||
+    maxFee !== 0n ||
+    Number(finality) !== MANIFEST_CONSTANTS.CCTP_STANDARD_FINALITY
+  ) {
+    throw new ActivityReceiptEvidenceError(
+      'SOURCE_REVERT_CALL_MISMATCH',
+      'Reverted transaction arguments differ from the reviewed CCTP source burn.',
+    );
+  }
+
+  const [canonicalHash, head] = await Promise.all([
+    fetchCanonicalBlockHash(receipt.blockNumber),
+    fetchHeadBlockNumber(),
+  ]);
+  if (
+    !canonicalHash ||
+    canonicalHash.toLowerCase() !== receipt.blockHash.toLowerCase() ||
+    head < receipt.blockNumber ||
+    head - receipt.blockNumber + 1n < BigInt(MIN_REVERT_CONFIRMATIONS)
+  ) {
+    throw new ActivityReceiptEvidenceError(
+      'SOURCE_REVERT_NOT_FINAL',
+      'Source revert is not in the canonical chain with sufficient confirmations.',
+      409,
+    );
+  }
+
+  return {
+    burnTxHash,
+    sourceBlockNumber: Number(receipt.blockNumber),
+    sourceBlockHash: receipt.blockHash,
+    confirmations: Number(head - receipt.blockNumber + 1n),
+  };
+}
+
+/**
+ * Authenticated, fail-closed resolution. Rechecks owner, route/status and
+ * exact immutable burn evidence under the database row lock after chain reads.
+ */
+export async function finalizeOwnedRevertedCctpSource(
+  db: DbClient,
+  userId: string,
+  receiptId: string,
+): Promise<{ receiptId: string; status: ReceiptStatus; revision: number }> {
+  const current = await getReceiptForUser(db, userId, receiptId);
+  if (!current) {
+    throw new ActivityReceiptEvidenceError(
+      'RECEIPT_NOT_FOUND',
+      'ActivityReceipt was not found for the authenticated user.',
+      404,
+    );
+  }
+
+  const client = chainClient(current.senderChainId);
+  let proof: VerifiedCctpSourceRevert;
+  try {
+    proof = await verifyRevertedCctpSourceEvidence(
+      current,
+      (txHash) => client.getTransactionReceipt({ hash: txHash }),
+      async (txHash) => {
+        const tx = await client.getTransaction({ hash: txHash });
+        return { from: tx.from, to: tx.to, input: tx.input };
+      },
+      async (blockNumber) => {
+        const block = await client.getBlock({ blockNumber });
+        return block.hash;
+      },
+      () => client.getBlockNumber(),
+    );
+  } catch (error) {
+    if (error instanceof ActivityReceiptEvidenceError) throw error;
+    throw new ActivityReceiptEvidenceError(
+      'SOURCE_REVERT_RPC_UNAVAILABLE',
+      'Independent source-chain revert verification is unavailable.',
+      503,
+    );
+  }
+
+  const updated = await finalizeVerifiedCctpSourceRevert(
+    db,
+    userId,
+    receiptId,
+    proof,
+  );
+  return {
+    receiptId: updated.receiptId,
+    status: updated.status,
+    revision: updated.revision,
+  };
 }
 
 function defaultTransactionFetcher(): ActivityReceiptChainTransactionFetcher {
