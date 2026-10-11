@@ -91,8 +91,9 @@ describe('Phase 5 real hosted testnet readiness is NOT mainnet readiness', () =>
 
   it('rejects missing DB, missing/wrong/duplicated RPC probes and absent hosted credentials', () => {
     expect(evaluateTestnetReadiness(env, readyDb(), readyRpc().slice(0, 2)).ready).toBe(false);
-    const bad = readyRpc();
-    bad[1] = { ...bad[1], chainId: 1 };
+    const bad = readyRpc().map((check, index) => (
+      index === 1 ? { ...check, chainId: 1 } : check
+    ));
     expect(evaluateTestnetReadiness(env, readyDb(), bad).ready).toBe(false);
     expect(evaluateTestnetReadiness(env, readyDb(), [...readyRpc(), readyRpc()[0]]).ready).toBe(false);
     expect(evaluateTestnetReadiness(env, assessDatabaseSnapshot({
