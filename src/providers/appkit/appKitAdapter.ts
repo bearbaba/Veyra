@@ -93,7 +93,12 @@ function normalizeAmount(amount: string): string {
 
 function assertAddress(address: string): string {
   const value = address.trim();
-  if (!/^0x[0-9a-fA-F]{40}$/.test(value)) throw new Error('Invalid EVM recipient address');
+  if (
+    !/^0x[0-9a-fA-F]{40}$/.test(value) ||
+    /^0x0{40}$/i.test(value)
+  ) {
+    throw new Error('Invalid or zero EVM address');
+  }
   return value;
 }
 
@@ -490,6 +495,10 @@ export function assertUnifiedSpendMatchesAction(input: {
 }): void {
   const sourceChainId = appKitTestnetChainId(input.sourceChain);
   const destinationChainId = appKitTestnetChainId(input.destinationChain);
+
+  assertAddress(input.action.from);
+  assertAddress(input.action.to);
+  assertAddress(input.recipientAddress);
 
   if (input.action.providerId !== 'circle-appkit-unified-balance') {
     throw new Error('[appKit] Unified spend action provider does not match circle-appkit-unified-balance.');
