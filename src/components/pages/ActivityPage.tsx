@@ -278,8 +278,23 @@ function RemoteActivityCard({
         )}
         {receipt.receiveTxHash && (
           <DetailRow
-            label="Destination tx"
+            label={receipt.settlementReceiveTxHash ? 'First dest tx' : 'Destination tx'}
             value={`${receipt.receiveTxHash.slice(0, 10)}...`}
+            mono
+          />
+        )}
+        {receipt.settlementReceiveTxHash && (
+          <DetailRow
+            label={`Settled tx (#${receipt.settlementAttemptNumber ?? '?'})`}
+            value={`${receipt.settlementReceiveTxHash.slice(0, 10)}...`}
+            mono
+          />
+        )}
+        {receipt.settlementReceiveBlockNumber !== null &&
+          receipt.settlementReceiveBlockNumber !== undefined && (
+          <DetailRow
+            label="Settlement block"
+            value={String(receipt.settlementReceiveBlockNumber)}
             mono
           />
         )}
