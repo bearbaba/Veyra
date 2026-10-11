@@ -160,6 +160,27 @@ function assertBaseInput(input: BridgeRecoveryInput): void {
   }
 }
 
+/**
+ * Untrusted browser checkpoint sync may only advance pre-destination metadata.
+ * DESTINATION_BROADCAST and VERIFIED are chain-backed states and MUST be
+ * written through an authoritative server-side transaction verifier, never
+ * directly through /api/bridge/persist with browser-supplied tx hashes.
+ */
+export function assertBrowserBridgeCheckpointWritable(
+  checkpoint: BridgeRecoveryInput,
+): void {
+  assertBaseInput(checkpoint);
+  if (
+    checkpoint.stage === 'DESTINATION_BROADCAST' ||
+    checkpoint.stage === 'VERIFIED' ||
+    checkpoint.receiveTxHash !== undefined
+  ) {
+    throw new BridgeRecoveryConflictError(
+      'Browser checkpoint sync cannot claim a destination broadcast or verified completion; use the server-verified destination transaction boundary.',
+    );
+  }
+}
+
 function sameAddress(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
