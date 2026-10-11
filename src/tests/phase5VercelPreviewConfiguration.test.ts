@@ -69,6 +69,36 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     expect(audit).toContain('BFF API path');
   });
 
+  it('allows real wallet account connection in preview, never wallet signing or transaction submission', () => {
+    const wallet = read('src/preview/PreviewWallet.tsx');
+    const overview = read('src/preview/PreviewSurfaces.tsx');
+    const shell = read('src/preview/PreviewApp.tsx');
+    const readOnlyForms = read('src/components/pages/UiOnlyPreviewPage.tsx');
+    const css = read('src/preview/preview.css');
+    const entry = read('src/preview/main.tsx');
+
+    expect(entry).toContain("import './preview.css'");
+    expect(shell).toContain('<PreviewWalletProvider>');
+    expect(shell).toContain('PreviewWalletButton');
+    expect(wallet).toContain('eip6963:announceProvider');
+    expect(wallet).toContain('eip6963:requestProvider');
+    expect(wallet).toContain("method: 'eth_requestAccounts'");
+    expect(wallet).toContain("method: 'eth_accounts'");
+    expect(wallet).toContain("method: 'eth_chainId'");
+    expect(wallet).toContain("readRpc('eth_call'");
+    expect(wallet).toContain('getUsdc(ARC_ID)');
+    expect(wallet).toContain('actualChain !== ARC_ID');
+    expect(overview).toContain('usePreviewArcBalance');
+    expect(readOnlyForms).toContain('Review preview');
+    expect(readOnlyForms).toContain('No payment signatures');
+    expect(css).toContain('.vp-shell');
+
+    for (const source of [entry, shell, overview, wallet, readOnlyForms]) {
+      expect(source).not.toMatch(/eth_sendTransaction|personal_sign|eth_signTypedData|wallet_sendCalls|useWriteContract|useWalletClient|sendTransaction|writeContract|depositForBurn/);
+      expect(source).not.toMatch(/\/api\/(?:bridge|identity|activity|agent)/);
+    }
+  });
+
   it('does not pretend the localhost BFF runs as a Vercel API', () => {
     const config = JSON.parse(read('vercel.json')) as {
       rewrites?: Array<{ source?: string; destination?: string }>;
