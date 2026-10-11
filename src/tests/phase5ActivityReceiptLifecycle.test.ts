@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isReceiptTransitionAllowed,
+  isCctpBridgeReceiptTransitionAllowed,
   validateReceiptSyncEvidence,
   type ReceiptExecutionEvidenceState,
   type ReceiptStatus,
@@ -77,6 +78,35 @@ describe('Phase 5 ActivityReceipt lifecycle', () => {
     expect(
       isReceiptTransitionAllowed('SOURCE_CONFIRMED', 'COMPLETE'),
     ).toBe(false);
+  });
+
+  it('rejects CCTP shortcuts past authoritative source verification', () => {
+    expect(isReceiptTransitionAllowed('BROADCAST', 'CONFIRMED')).toBe(true);
+    expect(isCctpBridgeReceiptTransitionAllowed('BROADCAST', 'CONFIRMED')).toBe(false);
+    expect(isCctpBridgeReceiptTransitionAllowed('BROADCAST', 'CONFIRMING')).toBe(false);
+    expect(isCctpBridgeReceiptTransitionAllowed('BROADCAST', 'SOURCE_CONFIRMED')).toBe(true);
+    expect(isCctpBridgeReceiptTransitionAllowed('CONFIRMED', 'FAILED')).toBe(false);
+    expect(isCctpBridgeReceiptTransitionAllowed('CONFIRMED', 'COMPLETE')).toBe(true);
+  });
+
+  it('allows recovery to catch up through SIGNED before a burn hash is stored', () => {
+    const current = evidenceState();
+    expect(() =>
+      validateReceiptSyncEvidence(current, {
+        receiptId: 'rcpt',
+        revision: 4,
+        status: 'SIGNED',
+        resumable: false,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateReceiptSyncEvidence(current, {
+        receiptId: 'rcpt',
+        revision: 4,
+        status: 'SIGNED',
+        resumable: true,
+      }),
+    ).toThrow(/resumable before a source burn hash/i);
   });
 
   it('does not reopen terminal receipts', () => {
