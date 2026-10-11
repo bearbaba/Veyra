@@ -2,8 +2,8 @@
  * Phase 1 — migration-from-zero integration test.
  *
  * Creates a clean `veyra_migration_test` database, applies all migration
- * files in journal order (0000 through 0010), then verifies:
- *   - all 26 expected tables exist
+ * files in journal order (0000 through 0011), then verifies:
+ *   - all 27 expected tables exist
  *   - critical UNIQUE constraints are enforced
  *   - CHECK constraints reject invalid data
  *   - append-only triggers reject UPDATE/DELETE on execution_events
@@ -28,6 +28,9 @@ import {
   recordDestinationSubmission,
 } from '../../server/db/repositories/bridgeDestinationSubmissionRepository.js';
 import { recordVerifiedFirstDestinationRevert } from '../../server/db/repositories/bridgeDestinationRevertRepository.js';
+import {
+  recordVerifiedSecondDestinationMint,
+} from '../../server/db/repositories/bridgeSecondDestinationVerificationRepository.js';
 import {
   claimSecondDestinationAttempt,
   getSecondDestinationAttempt,
@@ -128,6 +131,11 @@ beforeAll(async () => {
       client,
       loadMigration('0010_phase5_second_destination_attempt.sql'),
     );
+    // 0011: Independently verified successful second receive, append-only.
+    await execMigration(
+      client,
+      loadMigration('0011_phase5_second_destination_verification.sql'),
+    );
   } finally {
     client.release();
   }
@@ -154,7 +162,7 @@ function pgTest(name: string, fn: () => Promise<void>) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('migration-from-zero: all 26 tables exist', () => {
+describe('migration-from-zero: all 27 tables exist', () => {
   const EXPECTED_TABLES = [
     'veyra_users',
     'handle_history',
@@ -182,6 +190,7 @@ describe('migration-from-zero: all 26 tables exist', () => {
     'bridge_destination_attempt_resolutions',
     'bridge_destination_retry_attempts',
     'bridge_destination_retry_events',
+    'bridge_destination_retry_verifications',
   ];
 
   pgTest('all expected tables are created', async () => {
@@ -192,7 +201,7 @@ describe('migration-from-zero: all 26 tables exist', () => {
     for (const tbl of EXPECTED_TABLES) {
       expect(actual.has(tbl), `missing table: ${tbl}`).toBe(true);
     }
-    expect(res.rows.length).toBeGreaterThanOrEqual(26);
+    expect(res.rows.length).toBeGreaterThanOrEqual(27);
   });
 });
 
@@ -562,6 +571,76 @@ describe('migration-from-zero: second destination attempt safety', () => {
     `)).rejects.toMatchObject({ code: 'P0001' });
     await expect(testPool.query(`
       DELETE FROM bridge_destination_retry_events
+      WHERE plan_id = 'retry-two-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+  });
+});
+
+describe('migration-from-zero: second receive verified mint invariants', () => {
+  pgTest('inserts unique finality proof, rejects changed mint evidence, and preserves immutable first tx', async () => {
+    const db = drizzle(testPool, { schema });
+    const planId = 'retry-two-plan';
+    const proof = {
+      receiveTxHash: `0x${'8'.repeat(64)}`,
+      destinationChainId: 11155111,
+      destinationBlockNumber: 200,
+      destinationBlockHash: `0x${'a'.repeat(64)}`,
+      mintToken: '0x3333333333333333333333333333333333333333',
+      mintRecipient: '0x2222222222222222222222222222222222222222',
+      mintAmountRaw: '1000000',
+      confirmations: 12,
+    };
+
+    const verified = await recordVerifiedSecondDestinationMint(
+      db, 'usr_retry_two', planId, proof, proof.mintToken,
+    );
+    expect(verified).toEqual(proof);
+
+    expect(await recordVerifiedSecondDestinationMint(
+      db, 'usr_retry_two', planId, proof, proof.mintToken,
+    )).toMatchObject(proof);
+
+    for (const invalid of [
+      { ...proof, receiveTxHash: `0x${'7'.repeat(64)}` },
+      { ...proof, mintAmountRaw: '999999' },
+      { ...proof, mintRecipient: '0x1111111111111111111111111111111111111111' },
+      { ...proof, confirmations: 11 },
+    ]) {
+      await expect(recordVerifiedSecondDestinationMint(
+        db, 'usr_retry_two', planId, invalid, proof.mintToken,
+      )).rejects.toThrow(/Second mint proof must match/i);
+    }
+
+    await expect(recordVerifiedSecondDestinationMint(
+      db, 'usr_self_relay', planId, proof, proof.mintToken,
+    )).rejects.toThrow(/Owned second-mint checkpoint/i);
+
+    const firstCheckpoint = await testPool.query<{ receive_tx_hash: string }>(`
+      SELECT receive_tx_hash FROM bridge_recovery_checkpoints
+      WHERE plan_id = 'retry-two-plan'
+    `);
+    expect(firstCheckpoint.rows[0]?.receive_tx_hash).toBe(`0x${'7'.repeat(64)}`);
+
+    const minted = await testPool.query<{
+      mint_amount_raw: string;
+      receive_tx_hash: string;
+    }>(`
+      SELECT receive_tx_hash, mint_amount_raw
+      FROM bridge_destination_retry_verifications
+      WHERE plan_id = 'retry-two-plan' AND attempt_number = 2
+    `);
+    expect(minted.rows).toHaveLength(1);
+    expect(minted.rows[0]).toEqual({
+      receive_tx_hash: proof.receiveTxHash,
+      mint_amount_raw: proof.mintAmountRaw,
+    });
+
+    await expect(testPool.query(`
+      UPDATE bridge_destination_retry_verifications
+      SET confirmations = 13 WHERE plan_id = 'retry-two-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+    await expect(testPool.query(`
+      DELETE FROM bridge_destination_retry_verifications
       WHERE plan_id = 'retry-two-plan'
     `)).rejects.toMatchObject({ code: 'P0001' });
   });
