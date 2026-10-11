@@ -35,7 +35,7 @@ function readJournal(account: string): Journal | null {
     // Never trust a restored VERIFIED/REVERTED flag as current chain proof.
     // Reconcile on-chain after reload before enabling another payment.
     return { from: account, to: x.to, amount: x.amount,
-      stage: x.stage === 'VERIFIED' || x.stage === 'REVERTED' ? 'PENDING' : x.stage,
+      stage: x.stage === 'VERIFIED' || x.stage === 'REVERTED' ? 'PENDING' : x.stage!,
       hash: x.hash ?? null };
   } catch { return null; }
 }
