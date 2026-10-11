@@ -367,6 +367,26 @@ or ambiguous receipts fail closed. The Activity page labels the reverted
 first destination hash separately from the final settlement hash.
 No source burn or destination signature is initiated by the finalizer.
 
+**Canonical Circle V2 nonce observation (read-only):** `POST
+/api/bridge/inspect-destination-nonce` accepts only a `planId` from an
+authenticated owner. It refuses plans without an immutable first receive tx,
+stored canonical 12+-confirmed revert, or any previously reserved attempt #2,
+including the `UNCERTAIN` state. It independently revalidates the first
+reverted CCTP receive and original Arc/Circle source attestation, parses
+`version/sourceDomain/destinationDomain/bytes32 nonce` from the exact
+**MessageV2** attested bytes (nonce at byte offset 12), and reads destination
+`MessageTransmitterV2.usedNonces(bytes32)` at a pinned block. The canonical
+block hash is fetched on both sides of the nonce read. `0` is reported as
+`UNUSED_AT_OBSERVED_BLOCK`; `1` is reported as `ALREADY_CONSUMED`.
+Unsupported message versions, source/destination domains, destination caller,
+nonce 0, truncated message, reorg, RPC timeout and other unexpected values
+fail closed. **Both responses explicitly include `retryAuthorized:false`.**
+An unused nonce is only a time-bounded observation, never proof that another
+relay will not consume the message before a signature/broadcast. This API is
+not a retry submission route. Source: Circle's official
+`MessageTransmitterV2.sol` / `BaseMessageTransmitter.sol` and
+`MessageV2.sol`.
+
 **Important:** migrations 0010–0012 are *recovery and settlement
 infrastructure*, not a live second-relay signing feature. The authoritative
 server can verify and close an existing successful second attempt if its hash
