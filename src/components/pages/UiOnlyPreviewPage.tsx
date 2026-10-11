@@ -93,7 +93,7 @@ export function UiOnlyPreviewPage({ surface }: { surface: UiOnlyPreviewSurface }
       <div className="flex items-start gap-3 rounded-2xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
         <LockKeyhole className="mt-0.5 size-5 shrink-0" style={{ color: 'var(--warning)' }} />
         <div>
-          <p className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>No funds, signatures or transactions in this build</p>
+          <p className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>No payment signatures or transactions in this build</p>
           <p className="mt-1 text-sm leading-6" style={{ color: 'var(--muted)' }}>
             This Vercel static preview demonstrates the product structure only. Real recipient resolution,
             quotes, execution, receipts and CCTP recovery require an authenticated BFF, PostgreSQL,
