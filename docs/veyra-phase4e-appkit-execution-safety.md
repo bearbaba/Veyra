@@ -111,6 +111,14 @@ Provider health DOWN blocks retry.
 
 The recovery gate does not reopen the original action for a fresh bridge burn.
 
+**Uncertain SDK failure:** an `error` result with no source transaction hash is
+not proof that no source burn/transfer was submitted. `analyzeAppKitBridgeRecovery()`
+returns `RECONCILE_REQUIRED` unless there is a narrowly identifiable
+pre-source approval rejection; it does not suggest a fresh bridge after a
+provider/RPC timeout or an errored burn step without a hash. The replay lock
+remains authoritative until wallet/provider/chain evidence resolves whether
+the source transaction was submitted.
+
 ## 4. Persistent action replay protection
 
 Phase 4E adds `actionExecutionReplayStore` in IndexedDB.
