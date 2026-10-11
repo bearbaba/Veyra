@@ -27,8 +27,8 @@ if (scripts.length === 0 || !index.includes('/assets/')) {
 
 const all = scripts.map((file) => readFileSync(file, 'utf8')).join('\n');
 
-// The preview strings below are deliberately emitted by src/preview.
-for (const marker of ['ARC TESTNET BETA', 'Veyra Assistant', 'Chưa có dịch vụ giao dịch thật trên Vercel']) {
+// Confirm that the built Preview contains its English service-gate copy, not a stale UI.
+for (const marker of ['ARC TESTNET BETA', 'Veyra Assistant', 'Live execution is not available on this Preview']) {
   if (!all.toLowerCase().includes(marker.toLowerCase())) {
     throw new Error(`[preview bundle] expected standalone preview UI not found: ${marker}`);
   }
