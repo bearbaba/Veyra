@@ -20,6 +20,15 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import * as schema from '../../server/db/schema/index.js';
+import type { DbClient } from '../../server/db/client.js';
+import {
+  claimDestinationSubmission,
+  getDestinationSubmissionClaim,
+  recordDestinationSubmission,
+} from '../../server/db/repositories/bridgeDestinationSubmissionRepository.js';
+
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -213,6 +222,77 @@ describe('migration-from-zero: destination relay claim integrity', () => {
         DELETE FROM bridge_destination_attempt_events WHERE event_id = 'relay-event-1'
       `),
     ).rejects.toMatchObject({ code: 'P0001' });
+  });
+});
+
+describe('migration-from-zero: destination relay exactly-once submission', () => {
+  pgTest('concurrent requests claim once and keep the exact first destination tx', async () => {
+    await testPool.query(`
+      INSERT INTO veyra_users (veyr_user_id, veyr_handle, identity_revision, status)
+      VALUES ('usr_relay_claims', 'relayclaims', 1, 'ACTIVE')
+      ON CONFLICT DO NOTHING
+    `);
+    await testPool.query(`
+      INSERT INTO bridge_recovery_checkpoints
+        (plan_id, owner_user_id, stage, burn_tx_hash, source_chain_id,
+         destination_chain_id, wallet_address, recipient_address,
+         amount_raw, token_address, balance_before_raw,
+         attestation_message, attestation_signature)
+      VALUES
+        ('claims-concurrency-plan', 'usr_relay_claims', 'ATTESTATION_READY',
+         '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+         5042002, 11155111, '0x1111111111111111111111111111111111111111',
+         '0x2222222222222222222222222222222222222222', 1000000,
+         '0x3333333333333333333333333333333333333333', 0,
+         '0x1234', '0xabcd')
+    `);
+
+    const db = drizzle(testPool, { schema }) as DbClient;
+    const claims = await Promise.all([
+      claimDestinationSubmission(db, 'usr_relay_claims', 'claims-concurrency-plan'),
+      claimDestinationSubmission(db, 'usr_relay_claims', 'claims-concurrency-plan'),
+    ]);
+
+    expect(claims.map((r) => r.mode).sort()).toEqual(['CLAIMED', 'UNCERTAIN']);
+    expect(await getDestinationSubmissionClaim(
+      db, 'usr_relay_claims', 'claims-concurrency-plan',
+    )).toEqual({ mode: 'UNCERTAIN' });
+
+    const hash = `0x${'c'.repeat(64)}`;
+    await recordDestinationSubmission(
+      db, 'usr_relay_claims', 'claims-concurrency-plan', hash,
+    );
+    // Persisting the SAME hash is idempotent; a second hash must fail.
+    await recordDestinationSubmission(
+      db, 'usr_relay_claims', 'claims-concurrency-plan', hash,
+    );
+    await expect(recordDestinationSubmission(
+      db, 'usr_relay_claims', 'claims-concurrency-plan', `0x${'d'.repeat(64)}`,
+    )).rejects.toThrow(/already recorded/i);
+
+    expect(await claimDestinationSubmission(
+      db, 'usr_relay_claims', 'claims-concurrency-plan',
+    )).toEqual({ mode: 'ALREADY_SUBMITTED', txHash: hash });
+
+    const events = await testPool.query<{
+      event_type: string;
+      receive_tx_hash: string | null;
+    }>(`
+      SELECT event_type, receive_tx_hash FROM bridge_destination_attempt_events
+      WHERE plan_id = 'claims-concurrency-plan' ORDER BY occurred_at
+    `);
+    expect(events.rows).toHaveLength(2);
+    expect(events.rows.map((x) => x.event_type).sort())
+      .toEqual(['BROADCAST_RECORDED', 'SUBMISSION_STARTED']);
+
+    const checkpoint = await testPool.query<{ stage: string; receive_tx_hash: string }>(`
+      SELECT stage, receive_tx_hash FROM bridge_recovery_checkpoints
+      WHERE plan_id = 'claims-concurrency-plan'
+    `);
+    expect(checkpoint.rows[0]).toMatchObject({
+      stage: 'DESTINATION_BROADCAST',
+      receive_tx_hash: hash,
+    });
   });
 });
 
