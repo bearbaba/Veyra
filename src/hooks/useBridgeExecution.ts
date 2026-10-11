@@ -628,21 +628,17 @@ export function useBridgeExecution() {
       });
       if (!sourceEvidence.verified) {
         if (sourceReceipt.status !== 'success') {
-          activityProgress = await advanceBridgeActivity(
-            activityProgress,
-            'FAILED',
-            {
-              burnTxHash,
-              burnChainId: action.sourceChainId,
-              burnBlockNumber: Number(sourceReceipt.blockNumber),
-              failureReason: sourceEvidence.detail,
-              resumable: false,
-            },
-          );
+          // A reverted source transaction is visible to the user, but an
+          // unverified browser FAILED claim must never close the durable
+          // ActivityReceipt after the wallet submission boundary. Preserve the
+          // broadcast hash/checkpoint and replay lock until an authoritative
+          // server-side failure-resolution path is available.
           setState({
             phase: 'FAILED',
             burnTxHash,
-            error: `Source CCTP transaction failed: ${sourceEvidence.detail}`,
+            error:
+              `Source CCTP transaction reverted: ${sourceEvidence.detail}. ` +
+              'The source action remains locked for reconciliation; do not resend this bridge action.',
           });
           return;
         }
