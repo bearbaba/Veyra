@@ -48,7 +48,7 @@ export function PreviewHome({ onNavigate }: { onNavigate: (page: PreviewPage) =>
         <div>
           <p className="vp-eyebrow">YOUR FINANCIAL WORKSPACE</p>
           <h1 className="vp-page-title">Good to see you<span style={{ color: '#c5fb71' }}>.</span></h1>
-          <p className="vp-page-description">All your crypto essentials. One simple, smarter experience.</p>
+          <p className="vp-page-description">Real Arc Testnet USDC transfers are available. Cross-chain and FX routes remain gated.</p>
         </div>
         <span className="vp-chain-pill"><span className="vp-status-dot" /> Testnet preview · connected wallet enabled</span>
       </div>
@@ -104,7 +104,7 @@ export function PreviewHome({ onNavigate }: { onNavigate: (page: PreviewPage) =>
       </div>
       <div className="vp-grid-3">
         {([
-          { title: 'Send a payment', desc: 'Pay people, not chains.', id: 'pay', icon: ArrowUpRight },
+          { title: 'Send testnet USDC', desc: 'Real wallet signature · max 1 USDC.', id: 'pay', icon: ArrowUpRight },
           { title: 'Convert assets', desc: 'Review before you swap.', id: 'convert', icon: ArrowLeftRight },
           { title: 'Bridge USDC', desc: 'Move across networks.', id: 'bridge', icon: Route },
         ] as const).map(({ title, desc, id, icon: Icon }) => (
@@ -276,7 +276,7 @@ export function PreviewSettings() {
             {[
               ['Injected wallet connection', 'Enabled'],
               ['Public Arc RPC balance reads', 'Enabled'],
-              ['USDC payment signatures', 'Disabled'],
+              ['Direct Arc Testnet USDC Pay', 'Enabled · 1 USDC cap'],
               ['Swap / Bridge submission', 'Disabled'],
               ['Backend identity & receipts', 'Unavailable'],
               ['Mainnet financial actions', 'Disabled'],
