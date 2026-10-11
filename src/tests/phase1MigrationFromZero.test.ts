@@ -2,8 +2,8 @@
  * Phase 1 — migration-from-zero integration test.
  *
  * Creates a clean `veyra_migration_test` database, applies all migration
- * files in journal order (0000 through 0008), then verifies:
- *   - all 23 expected tables exist
+ * files in journal order (0000 through 0009), then verifies:
+ *   - all 24 expected tables exist
  *   - critical UNIQUE constraints are enforced
  *   - CHECK constraints reject invalid data
  *   - append-only triggers reject UPDATE/DELETE on execution_events
@@ -27,6 +27,7 @@ import {
   getDestinationSubmissionClaim,
   recordDestinationSubmission,
 } from '../../server/db/repositories/bridgeDestinationSubmissionRepository.js';
+import { recordVerifiedFirstDestinationRevert } from '../../server/db/repositories/bridgeDestinationRevertRepository.js';
 
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
@@ -111,6 +112,11 @@ beforeAll(async () => {
       client,
       loadMigration('0008_phase5_destination_submission_claims.sql'),
     );
+    // 0009: Chain-verified and append-only destination attempt resolution.
+    await execMigration(
+      client,
+      loadMigration('0009_phase5_destination_revert_evidence.sql'),
+    );
   } finally {
     client.release();
   }
@@ -137,7 +143,7 @@ function pgTest(name: string, fn: () => Promise<void>) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('migration-from-zero: all 23 tables exist', () => {
+describe('migration-from-zero: all 24 tables exist', () => {
   const EXPECTED_TABLES = [
     'veyra_users',
     'handle_history',
@@ -162,6 +168,7 @@ describe('migration-from-zero: all 23 tables exist', () => {
     'bridge_recovery_checkpoints',
     'bridge_destination_submission_claims',
     'bridge_destination_attempt_events',
+    'bridge_destination_attempt_resolutions',
   ];
 
   pgTest('all expected tables are created', async () => {
@@ -172,7 +179,7 @@ describe('migration-from-zero: all 23 tables exist', () => {
     for (const tbl of EXPECTED_TABLES) {
       expect(actual.has(tbl), `missing table: ${tbl}`).toBe(true);
     }
-    expect(res.rows.length).toBeGreaterThanOrEqual(23);
+    expect(res.rows.length).toBeGreaterThanOrEqual(24);
   });
 });
 
@@ -356,6 +363,52 @@ describe('migration-from-zero: self-relay cross-device hash reconciliation', () 
        WHERE plan_id = 'claims-self-relay-plan'`,
     );
     expect(events.rows).toHaveLength(2);
+  });
+});
+
+describe('migration-from-zero: append-only first destination revert proof', () => {
+  pgTest('writes immutable evidence once and rejects changed blocks or deletions', async () => {
+    const hash = `0x${'c'.repeat(64)}`;
+    const block = `0x${'d'.repeat(64)}`;
+    const proof = {
+      receiveTxHash: hash,
+      destinationChainId: 11155111,
+      destinationBlockNumber: 100,
+      destinationBlockHash: block,
+      confirmations: 12,
+    };
+    const db = drizzle(testPool, { schema });
+
+    const first = await recordVerifiedFirstDestinationRevert(
+      db, 'usr_relay_claims', 'claims-concurrency-plan', proof,
+    );
+    expect(first).toMatchObject(proof);
+    expect(await recordVerifiedFirstDestinationRevert(
+      db, 'usr_relay_claims', 'claims-concurrency-plan', proof,
+    )).toMatchObject(proof);
+
+    await expect(recordVerifiedFirstDestinationRevert(
+      db,
+      'usr_relay_claims',
+      'claims-concurrency-plan',
+      { ...proof, destinationBlockHash: `0x${'e'.repeat(64)}` },
+    )).rejects.toThrow(/conflicts with newly verified evidence/i);
+
+    await expect(testPool.query(`
+      UPDATE bridge_destination_attempt_resolutions SET confirmations = 13
+      WHERE plan_id = 'claims-concurrency-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+    await expect(testPool.query(`
+      DELETE FROM bridge_destination_attempt_resolutions
+      WHERE plan_id = 'claims-concurrency-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+
+    const events = await testPool.query<{ receive_tx_hash: string }>(`
+      SELECT receive_tx_hash FROM bridge_destination_attempt_resolutions
+      WHERE plan_id = 'claims-concurrency-plan' AND attempt_number = 1
+    `);
+    expect(events.rows).toHaveLength(1);
+    expect(events.rows[0]?.receive_tx_hash).toBe(hash);
   });
 });
 
