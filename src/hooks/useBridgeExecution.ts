@@ -50,6 +50,7 @@ import {
   persistBridgeCheckpointRemote,
   recordSelfRelayDestinationRemote,
   relayBridgeReceiveRemote,
+  resolveFirstDestinationRevertRemote,
 } from '../lib/api/bridgeRecoveryApi';
 import {
   lockActionExecution,
@@ -1486,6 +1487,47 @@ export function useBridgeExecution() {
             burnTxHash,
             receiveTxHash,
             error: 'Destination transaction is not indexed yet. Retry verification later.',
+          });
+          return;
+        }
+
+        if (destReceiptObj.status === 'reverted') {
+          // A browser RPC saying 'reverted' is NOT sufficient to unlock a
+          // destination retry. The BFF checks calldata, original hash,
+          // canonical block and >=12 confirmations and appends immutable
+          // evidence. Neither outcome signs another receiveMessage.
+          const resolved = await resolveFirstDestinationRevertRemote(
+            current.planId,
+          ).catch(() => false);
+
+          if (recoveryActivity) {
+            try {
+              recoveryActivity = await advanceBridgeActivity(
+                recoveryActivity,
+                'RECEIVE_FAILED_RETRYABLE',
+                {
+                  receiveTxHash,
+                  receiveChainId: current.destinationChainId,
+                  failureReason: resolved
+                    ? 'DESTINATION_RECEIVE_REVERTED_VERIFIED'
+                    : 'DESTINATION_RECEIVE_REVERT_PENDING_VERIFICATION',
+                  resumable: true,
+                  resumePayload: bridgeResumePayload(current.planId),
+                },
+              );
+            } catch {
+              // Authenticated receipt sync is additive; original checkpoint
+              // and source replay lock remain the safety authorities.
+            }
+          }
+
+          setState({
+            phase: 'FAILED',
+            burnTxHash,
+            receiveTxHash,
+            error: resolved
+              ? 'First destination receive is independently verified as reverted. Evidence is preserved; another receive attempt is NOT authorized yet. Never burn again on the source.'
+              : 'Destination receive appears reverted, but server-side canonical finality proof is not complete. The first receive remains locked; retry recovery later without signing again.',
           });
           return;
         }
