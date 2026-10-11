@@ -45,7 +45,7 @@ export function readServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env): S
   return {
     environment: resolveServerEnvironment(env),
     nodeEnv: env.NODE_ENV ?? 'development',
-    hostedBackend: env.VEYRA_HOSTED_BACKEND === '1',
+    hostedBackend: env.VEYRA_HOSTED_BACKEND === '1' || (env.NODE_ENV === 'production' && env.VEYRA_ENV === 'testnet'),
     databaseUrl: env.DATABASE_URL,
     appOrigin: env.VEYRA_APP_ORIGIN,
     sessionSecretConfigured: Boolean(env.VEYRA_SESSION_SECRET && env.VEYRA_SESSION_SECRET.length >= 32),
@@ -76,6 +76,12 @@ export function validateServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env
   const config = readServerRuntimeConfig(env);
   const errors: string[] = [];
   const warnings: string[] = [];
+
+  // A non-container invocation must not accidentally turn an unsafe
+  // localhost/development BFF into a publicly reachable production process.
+  if (config.nodeEnv === 'production' && config.environment === 'local') {
+    errors.push('Production BFF cannot start with VEYRA_ENV=local.');
+  }
 
   if (config.environment !== 'mainnet') {
     if (config.hostedBackend) {
@@ -124,7 +130,7 @@ export function validateServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env
     }
     if (!config.databaseUrl) warnings.push('DATABASE_URL is not configured; DB-backed routes will fail.');
     if (config.signerBackend === 'dev-private-key') warnings.push('Dev relay private key is configured; never reuse it for mainnet.');
-    return { ok: true, errors, warnings };
+    return { ok: errors.length === 0, errors, warnings };
   }
 
   if (config.nodeEnv !== 'production') errors.push('Mainnet requires NODE_ENV=production.');
