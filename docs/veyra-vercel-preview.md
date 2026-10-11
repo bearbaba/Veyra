@@ -1,7 +1,7 @@
 # Veyra on Vercel — preview deployment and acceptance gates
 
 **Status (2026-10-11):** frontend build configuration is in the repository.
-**No actual Vercel deployment URL has been verified.** A successful GitHub CI
+**An initial user-provided Vercel Preview URL exists but has not been independently verified as public/accessible to this runtime.** A successful GitHub CI
 build is not a Vercel deployment and does not prove that an authenticated BFF
 or live cross-chain bridge works.
 
@@ -24,9 +24,13 @@ contains `vercel.json` for **the static frontend only**, with a mandatory
 turned off by a browser query param or a missing backend. Vite selects
 `preview.html` as the **initial Rollup HTML input**, which imports
 `src/preview/main.tsx` and only dedicated offline Home, Agent, Activity, Settings and
-read-only Pay/Convert/Bridge routes. No `wagmi`, `viem`, backend clients,
-wallet connection, transaction signing, or ActivityReceipt recovery modules
-are imported into the published React entry. The resulting
+read-only Pay/Convert/Bridge routes. It now includes **real injected
+wallet account connection** via EIP-6963/EIP-1193 (`eth_requestAccounts`,
+`eth_accounts`, `eth_chainId`) and Arc Testnet **read-only USDC balance**
+queries using the generated on-chain facts registry (RPC `eth_chainId`
+plus `eth_call balanceOf`). No wallet signer, message signature, payment
+approval, financial execution hooks, backend clients or ActivityReceipt
+recovery modules are imported into this published React entry. The resulting
 `dist/preview.html` is renamed to `dist/index.html` only after build;
 trying to build both a live and preview HTML entry fails. The canonical financial
 execution gate remains fail-closed in the full application as defense in
@@ -69,13 +73,23 @@ Do not put DB, API or relay secrets into the frontend.
 money-moving actions via Veyra's canonical execution pipeline. Pay, Convert
 and Bridge routes display read-only interactive flows. The Activity recovery
 button is suppressed, and the recovery runtime separately rejects resumption.
-The preview Home has illustrative panels instead of a wallet connector or
-live balances. The preview Agent has explicitly labeled deterministic sample
-explanations (not AI or on-chain information), and Activity shows a fictional
-workflow without any transaction hashes or backend calls. No identity or
-wallet-authentication requests are made by this isolated entrypoint. Do not
-treat identities, remote receipts or bridge execution as functional without
-an independently verified BFF. Keep the
+The updated Preview uses a dedicated responsive dark-fintech dashboard,
+real **browser-injected wallet connection** (MetaMask/Rabby/Coinbase Wallet
+when injected into the browser), and Arc Testnet USDC balanceOf reads through
+an independent public RPC. The wallet may be connected on any network because
+Arc balances are read from the known Arc RPC — Veyra does not request a chain
+switch. Browser-extension permission prompts are for **account visibility
+only**, not a spending authorization or verified Veyra ID. WalletConnect QR
+and server-signed identity are not available in this version. Public RPC
+readouts may fail if the remote RPC is unavailable or blocks browser CORS;
+the UI displays an error rather than inventing a balance.
+
+Pay, Convert and Bridge now expose interactive input/review forms; the review
+is explicitly a *non-signing preview*, with no live quotes or transfers.
+Agent has labeled deterministic explanations (not an LLM) and Activity
+shows an honest empty state (not fictional transactions for a connected
+wallet). Do not treat identities, remote receipts or bridge execution as
+functional without an independently verified BFF. Keep the
 first deployment private/restricted if testing with real accounts.
 
 ## Second milestone: connected testnet preview
