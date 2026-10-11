@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
-const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 function read(path: string): string {
   return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
 }
@@ -18,7 +16,6 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     expect(config.buildCommand).toBe('bun run build');
     expect(config.outputDirectory).toBe('dist');
     expect(pkg.scripts?.build).toBe('vite build');
-    expect(repoRoot).toMatch(/Veyra|veyra|repo|work/i);
   });
 
   it('does not pretend the localhost BFF runs as a Vercel API', () => {
@@ -39,7 +36,7 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     expect(readme).toContain('actual Vercel URL not verified');
     expect(runbook).toContain('DATABASE_URL');
     expect(runbook).toContain('UI-only preview');
-    expect(runbook).toContain('retryAuthorized');
+    expect(runbook).toContain('second wallet-signing/broadcast boundary remains');
     expect(runbook).toContain('Do not report a public Vercel demo');
   });
 });
