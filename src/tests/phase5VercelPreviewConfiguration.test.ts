@@ -121,6 +121,28 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     expect(check).toContain('CCTP receiveMessage ABI');
   });
 
+  it('defaults to English UI while preserving multilingual AI assistance', () => {
+    const agent = read('src/preview/PreviewLiveAgent.tsx');
+    const gate = read('src/preview/PreviewServiceStatus.tsx');
+    const fullAgent = read('src/components/pages/AgentPage.tsx');
+    const ai = read('api/agent/chat.ts');
+
+    // Rendered UI copy has no non-English hardcoded strings. Replies are
+    // dynamic model output, not embedded in the frontend.
+    const nonEnglishUi = /[\u00c0-\u024f\u1ea0-\u1ef9]/u;
+    for (const source of [agent, gate, fullAgent]) {
+      expect(source).not.toMatch(nonEnglishUi);
+    }
+    expect(agent).toContain('How do I send USDC on Arc Testnet?');
+    expect(agent).toContain('Ask Veyra');
+    expect(agent).toContain('Ask questions in any language.');
+    expect(fullAgent).toContain("title: 'Any language'");
+    expect(fullAgent).not.toContain('Gửi 20 USDC');
+    expect(ai).toContain("language of the user's LATEST message");
+    expect(ai).toContain('default to English');
+    expect(ai).toContain('Do not force Vietnamese');
+  });
+
   it('uses only a genuine server-side AI provider, never scripted fallback replies', () => {
     const app = read('src/preview/PreviewApp.tsx');
     const surfaces = read('src/preview/PreviewSurfaces.tsx');
@@ -133,7 +155,7 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     expect(surfaces).not.toContain('function explain(');
     expect(surfaces).not.toContain('export function PreviewAgent(');
     expect(agent).toContain("fetch('/api/agent/chat'");
-    expect(agent).toContain('Mã truy cập');
+    expect(agent).toContain('Private beta access code');
     expect(agent).not.toContain('createFallbackAgentResponse');
     expect(serverless).toContain('https://api.openai.com/v1/chat/completions');
     expect(serverless).toContain('VEYRA_AGENT_BETA_TOKEN');
@@ -148,8 +170,8 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     const app = read('src/preview/PreviewApp.tsx');
     const page = read('src/preview/PreviewServiceStatus.tsx');
     expect(app).toContain("import { PreviewServiceStatus }");
-    expect(page).toContain('Không hiển thị báo giá, mô phỏng thành công hoặc nút ký giả.');
-    expect(page).toContain('Chưa có dịch vụ giao dịch thật trên Vercel');
+    expect(page).toContain('No fabricated quotes, simulated success, or fake signing buttons.');
+    expect(page).toContain('Live execution is not available on this Preview');
     expect(page).not.toMatch(/depositForBurn|receiveMessage|eth_sendTransaction|useWalletClient|writeContract/);
     expect(page).not.toContain('Review preview');
   });

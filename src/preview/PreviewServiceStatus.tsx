@@ -21,11 +21,11 @@ export function PreviewServiceStatus({
           <h1 className="vp-page-title">{bridge ? 'Bridge USDC' : 'Convert assets'}</h1>
           <p className="vp-page-description">
             {bridge
-              ? 'Chuyển USDC xuyên chain thật cần Circle attestation, mint proof và trạng thái retry bền vững.'
-              : 'Đổi tài sản thật cần báo giá còn hạn, kiểm tra slippage và bộ xác minh giao dịch.'}
+              ? 'Cross-chain USDC requires verified Circle attestations, destination mint evidence, and crash-safe recovery.'
+              : 'Live asset conversion requires fresh quotes, bounded slippage, and independent transaction verification.'}
           </p>
         </div>
-        <span className="vp-chain-pill"><LockKeyhole size={15} /> Chưa được nghiệm thu</span>
+        <span className="vp-chain-pill"><LockKeyhole size={15} /> Awaiting live acceptance</span>
       </div>
       <div className="vp-card vp-card-pad" style={{ borderColor: 'rgba(232,182,98,.25)' }}>
         <div className="vp-balance-head" style={{ marginBottom: 18 }}>
@@ -34,29 +34,29 @@ export function PreviewServiceStatus({
           </span>
           <div>
             <strong className="vp-card-title" style={{ fontSize: 17 }}>
-              Chưa có dịch vụ giao dịch thật trên Vercel
+              Live execution is not available on this Preview
             </strong>
             <p className="vp-caption">
-              Không hiển thị báo giá, mô phỏng thành công hoặc nút ký giả.
+              No fabricated quotes, simulated success, or fake signing buttons.
             </p>
           </div>
         </div>
         <p className="vp-caption">
-          Code Express BFF đã có trong repository, nhưng Preview Vite hiện không tự
-          triển khai PostgreSQL hoặc kết nối Circle và dịch vụ xác thực. Bật giao dịch
-          khi chưa có những thành phần đó có thể tạo tiền bị kẹt hoặc báo thành công sai.
+          The Express BFF exists in the repository, but this static Vite Preview does not
+          deploy PostgreSQL, Circle integrations, or authenticated execution services.
+          Enabling transfers before those systems are verified risks stuck funds and false success reports.
         </p>
         <div className="vp-stack" style={{ marginTop: 20, gap: 12 }}>
           {(bridge
             ? [
-                'Triển khai HTTPS BFF và PostgreSQL; chạy migration và kiểm tra auth.',
-                'Nghiệm thu nguồn Arc → Circle attestation → mint đích bằng ví testnet.',
-                'Xác nhận chống burn trùng, retry không chắc chắn và ActivityReceipt.',
+                'Deploy the HTTPS BFF and PostgreSQL; run migrations and verify authentication.',
+                'Verify Arc source burn, Circle attestation, and destination mint with a testnet wallet.',
+                'Test duplicate-burn prevention, uncertain retries, and durable ActivityReceipts.',
               ]
             : [
-                'Kết nối nhà cung cấp báo giá FX thực qua BFF.',
-                'Xác minh expiry, phí, slippage và policy ở phía server.',
-                'Đối chiếu transaction receipt on-chain và lỗi thanh khoản.',
+                'Connect a real FX quote provider through the authenticated BFF.',
+                'Validate quote expiry, fees, slippage, and server-side policy.',
+                'Verify on-chain transaction receipts and liquidity failure handling.',
               ]
           ).map((item, i) => (
             <div className="vp-step" key={item}>
@@ -68,17 +68,17 @@ export function PreviewServiceStatus({
         <div className="vp-form-note" style={{ marginTop: 20 }}>
           <LockKeyhole size={18} style={{ flex: 'none' }} />
           <span>
-            Đây là tính năng bị khóa vì chưa đủ bằng chứng triển khai thực tế.
-            Không có request ký hay chuyển tài sản nào được tạo trên màn này.
+            This feature remains locked until its live deployment evidence is accepted.
+            This page never requests a wallet signature or moves funds.
           </span>
         </div>
         <div className="vp-hero-buttons">
           <button type="button" className="vp-primary" onClick={() => onNavigate('pay')}>
-            Mở Pay Arc Testnet thật <ArrowRight size={15} />
+            Open live Arc Testnet Pay <ArrowRight size={15} />
           </button>
           <a href="https://github.com/bearbaba/Veyra/pull/7"
             target="_blank" rel="noopener noreferrer" className="vp-secondary">
-            Theo dõi triển khai Bridge/FX <ExternalLink size={14} />
+            Track Bridge / FX progress <ExternalLink size={14} />
           </a>
         </div>
       </div>

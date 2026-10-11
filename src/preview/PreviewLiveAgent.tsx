@@ -11,9 +11,9 @@ import type { PreviewPage } from './PreviewApp';
 type ChatMessage = { role: 'user' | 'assistant'; text: string };
 type Status = { live: boolean; provider: string | null };
 const EXAMPLES = [
-  'Tôi muốn gửi USDC trên Arc Testnet thì làm sao?',
-  'Circle CCTP V2 khác chuyển USDC thông thường ở đâu?',
-  'Nếu ví không trả về tx hash thì xử lý thế nào?',
+  'How do I send USDC on Arc Testnet?',
+  'How is Circle CCTP V2 different from a regular USDC transfer?',
+  'What if my wallet never returns a transaction hash?',
 ];
 
 export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPage) => void }) {
@@ -46,7 +46,7 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
         provider: typeof data.provider === 'string' ? data.provider : null,
       });
     } catch {
-      setStatusError('Máy chủ AI chưa được triển khai hoặc không truy cập được. Không có câu trả lời giả lập.');
+      setStatusError('The AI service is not deployed or cannot be reached. No simulated replies are available.');
     }
   }, []);
 
@@ -77,16 +77,16 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
       if (!response.ok || payload.ok !== true || payload.live !== true ||
           typeof payload.reply !== 'string' || !payload.reply.trim()) {
         throw new Error(response.status === 401
-          ? 'Mã truy cập beta không đúng. Kiểm tra VEYRA_AGENT_BETA_TOKEN trên Vercel.'
+          ? 'Incorrect beta access code. Check VEYRA_AGENT_BETA_TOKEN in Vercel.'
           : response.status === 503
-            ? 'API AI thật chưa sẵn sàng. Kiểm tra OPENAI_API_KEY và biến môi trường Vercel.'
-            : 'API AI không trả về câu trả lời hợp lệ. Không sử dụng fallback giả lập.');
+            ? 'The live AI service is unavailable. Check OPENAI_API_KEY and Vercel environment variables.'
+            : 'The AI service did not return a valid reply. No simulated fallback is used.');
       }
       setMessages([...prior, { role: 'user', text: question },
         { role: 'assistant', text: payload.reply }]);
       setInput('');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không thể kết nối tới AI thật.');
+      setError(cause instanceof Error ? cause.message : 'Could not connect to the live AI service.');
     } finally {
       setBusy(false);
     }
@@ -98,12 +98,12 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
       <div className="vp-page-heading">
         <div>
           <p className="vp-eyebrow">VEYRA INTELLIGENCE · LIVE SERVER AI</p>
-          <h1 className="vp-page-title">Hỏi Veyra <Sparkles size={23} style={{ display: 'inline', color: '#c5fb71' }} /></h1>
-          <p className="vp-page-description">Trò chuyện với mô hình AI thật qua API được bảo vệ trên máy chủ. Không có câu trả lời viết sẵn.</p>
+          <h1 className="vp-page-title">Ask Veyra <Sparkles size={23} style={{ display: 'inline', color: '#c5fb71' }} /></h1>
+          <p className="vp-page-description">Ask questions in any language. Veyra responds in your language through a real, protected AI service — never with canned answers.</p>
         </div>
         <span className="vp-chain-pill">
           {ready ? <Wifi size={14} color="#b6f08c" /> : <WifiOff size={14} />}
-          {ready ? 'AI endpoint online' : status ? 'Chưa cấu hình AI' : 'Đang kiểm tra AI'}
+          {ready ? 'AI online' : status ? 'AI not configured' : 'Checking AI status'}
         </span>
       </div>
 
@@ -112,26 +112,26 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
           <span className="vp-quick-icon"><Bot size={21} /></span>
           <div style={{ flex: 1 }}>
             <strong className="vp-card-title">Veyra Assistant</strong>
-            <p className="vp-caption">{ready ? 'OpenAI · phản hồi qua Vercel Function thật' : 'AI thật cần API key máy chủ và mã beta riêng'}</p>
+            <p className="vp-caption">{ready ? 'OpenAI · live responses from a Vercel Function' : 'Requires a server-side API key and a private beta access code'}</p>
           </div>
           <button className="vp-icon-button" type="button" onClick={() => void checkStatus()}
-            aria-label="Kiểm tra lại trạng thái AI"><RefreshCw size={16} /></button>
+            aria-label="Refresh AI status"><RefreshCw size={16} /></button>
         </div>
 
         {!ready && (
           <div className="vp-form-note" role="status" style={{ marginBottom: 18 }}>
             <WifiOff size={19} style={{ flex: 'none' }} />
             <div>
-              <strong>{statusError ?? 'Chưa bật API AI thật trên Vercel.'}</strong>
+              <strong>{statusError ?? 'The live AI service is not enabled on Vercel.'}</strong>
               <p style={{ marginTop: 8 }}>
-                Trong Vercel → Project → Settings → Environment Variables, tạo
-                <code> OPENAI_API_KEY</code>, <code>VEYRA_AGENT_BETA_TOKEN</code> (tối thiểu 24 ký tự)
-                và <code>VEYRA_AGENT_ENABLED=1</code> cho Preview, rồi redeploy.
-                Không nhập API key OpenAI vào website hoặc biến VITE_*.
+                In Vercel → Project → Settings → Environment Variables, configure
+                <code> OPENAI_API_KEY</code>, <code>VEYRA_AGENT_BETA_TOKEN</code> (at least 24 characters)
+                and <code>VEYRA_AGENT_ENABLED=1</code> for Preview, then redeploy.
+                Never enter an OpenAI API key on the website or expose it through VITE_* variables.
               </p>
               <a href="https://vercel.com/docs/environment-variables" target="_blank" rel="noreferrer"
                 className="vp-text-button" style={{ display: 'inline-flex', gap: 5, marginTop: 8 }}>
-                Hướng dẫn Vercel Environment Variables <ExternalLink size={13}/>
+                Vercel environment variable guide <ExternalLink size={13}/>
               </a>
             </div>
           </div>
@@ -141,14 +141,14 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
           <div style={{ marginBottom: 19 }}>
             <label className="vp-form-label" htmlFor="vp-agent-beta-code">
               <KeyRound size={14} style={{ display: 'inline', marginRight: 6 }}/>
-              Mã truy cập riêng (VEYRA_AGENT_BETA_TOKEN)
+              Private beta access code (VEYRA_AGENT_BETA_TOKEN)
             </label>
             <input id="vp-agent-beta-code" className="vp-form-input"
               type="password" autoComplete="off" spellCheck={false} value={accessCode}
               onChange={(event) => setAccessCode(event.target.value)}
-              placeholder="Nhập mã beta bạn đã đặt trong Vercel" maxLength={160}/>
+              placeholder="Enter the beta access code configured in Vercel" maxLength={160}/>
             <p className="vp-caption" style={{ marginTop: 7 }}>
-              Mã chỉ giữ trong phiên trang này; không lưu vào localStorage. Không gửi private key hay seed phrase.
+              The access code stays in memory for this page only. Never enter a wallet private key or seed phrase.
             </p>
           </div>
         )}
@@ -157,10 +157,10 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
           {messages.length === 0 ? (
             <div className="vp-empty-state" style={{ paddingTop: 38 }}>
               {ready ? <Sparkles size={32} color="#c5fb71" /> : <LockKeyhole size={32} color="#a7acc7" />}
-              <h3>{ready ? 'Hỏi một câu thật — AI sẽ trả lời từ server.' : 'Chưa kết nối mô hình AI'}</h3>
+              <h3>{ready ? 'Ask a question in any language.' : 'Live AI is not connected'}</h3>
               <p>{ready
-                ? 'AI trả lời nội dung, nhưng không thể xem số dư riêng của bạn, ký ví hoặc tự chuyển USDC.'
-                : 'Không có kịch bản dự phòng. Bật API AI trên Vercel trước khi trò chuyện.'}</p>
+                ? 'Veyra replies in your language, but cannot see private balances, sign transactions, or move USDC for you.'
+                : 'No scripted fallback. Enable the live AI service on Vercel before chatting.'}</p>
             </div>
           ) : (
             <div className="vp-stack">
@@ -173,7 +173,7 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
               ))}
             </div>
           )}
-          {busy && <p className="vp-caption" style={{ marginTop: 15 }}>Đang gửi câu hỏi đến mô hình AI…</p>}
+          {busy && <p className="vp-caption" style={{ marginTop: 15 }}>Waiting for the AI response…</p>}
         </div>
 
         <div className="vp-agent-questions" style={{ marginBottom: 15 }}>
@@ -184,8 +184,8 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
         </div>
         {error && <p className="vp-form-error" role="alert" style={{ marginBottom: 12 }}>{error}</p>}
         <form onSubmit={(event) => void sendMessage(event)} style={{ display: 'flex', gap: 10 }}>
-          <input className="vp-form-input" aria-label="Hỏi Veyra" maxLength={1200} autoComplete="off"
-            placeholder={ready ? 'Hỏi AI thật về Arc, USDC, giao dịch…' : 'Chưa có backend AI'}
+          <input className="vp-form-input" aria-label="Ask Veyra" maxLength={1200} autoComplete="off"
+            placeholder={ready ? 'Ask about Arc, USDC, or wallet safety in any language…' : 'Live AI is unavailable'}
             disabled={!ready || busy} value={input} onChange={(event) => setInput(event.target.value)}/>
           <button className="vp-primary" type="submit"
             disabled={!ready || busy || accessCode.trim().length < 24 || !input.trim()}>
@@ -197,12 +197,12 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
       <div className="vp-form-note" style={{ marginTop: 18 }}>
         <ShieldCheck size={18} style={{ flex: 'none' }}/>
         <p>
-          AI thật chỉ trả lời văn bản. Gửi USDC testnet phải thực hiện trong <strong>Send & Pay</strong>,
-          qua màn hình review riêng và chữ ký xác nhận của chính bạn. Convert/Bridge vẫn cần backend và nghiệm thu E2E.
+          AI chat is informational only. To send testnet USDC, use <strong>Send & Pay</strong>,
+          review the transfer, and authorize it in your own wallet. Convert and Bridge remain disabled pending backend deployment and live end-to-end acceptance.
         </p>
       </div>
       <button type="button" className="vp-text-button" style={{ marginTop: 18 }}
-        onClick={() => onNavigate('pay')}>Mở thanh toán Arc Testnet <ArrowRight size={15} style={{ display: 'inline' }}/></button>
+        onClick={() => onNavigate('pay')}>Open Arc Testnet Pay <ArrowRight size={15} style={{ display: 'inline' }}/></button>
     </div>
   );
 }

@@ -37,7 +37,7 @@ export function PreviewHome({ onNavigate }: { onNavigate: (page: PreviewPage) =>
         <div className="vp-hero">
           <div className="vp-eyebrow" style={{ color: '#ccff92' }}><Sparkles size={13} style={{ display: 'inline', marginRight: 6 }} /> MEET THE BETTER WAY TO MOVE MONEY</div>
           <h2>Money moves.<br /><span>Veyra makes it simple.</span></h2>
-          <p>Send USDC by identity, discover the best routes and explore cross-chain transfers — without getting lost in chains or protocols.</p>
+          <p>Send capped testnet USDC directly between wallets today. Identity payments, live conversion, and cross-chain execution are still being validated.</p>
           <div className="vp-hero-buttons">
             <button type="button" className="vp-primary" onClick={() => onNavigate('pay')}>
               <SendHorizontal size={16} /> Explore Pay <ArrowRight size={16} />
@@ -85,8 +85,8 @@ export function PreviewHome({ onNavigate }: { onNavigate: (page: PreviewPage) =>
       <div className="vp-grid-3">
         {([
           { title: 'Send testnet USDC', desc: 'Real wallet signature · max 1 USDC.', id: 'pay', icon: ArrowUpRight },
-          { title: 'Convert assets', desc: 'Review before you swap.', id: 'convert', icon: ArrowLeftRight },
-          { title: 'Bridge USDC', desc: 'Move across networks.', id: 'bridge', icon: Route },
+          { title: 'Convert assets', desc: 'Execution not enabled yet.', id: 'convert', icon: ArrowLeftRight },
+          { title: 'Bridge USDC', desc: 'Live cross-chain transfers are not enabled yet.', id: 'bridge', icon: Route },
         ] as const).map(({ title, desc, id, icon: Icon }) => (
           <button type="button" onClick={() => onNavigate(id)} key={id} className="vp-card vp-quick">
             <span className="vp-quick-icon"><Icon size={21} /></span>

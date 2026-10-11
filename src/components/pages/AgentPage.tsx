@@ -296,10 +296,10 @@ function IntentGraphPreview({ graph }: { graph: CapabilityIntentGraph }) {
 
 function AgentWelcome({ onSelect }: { onSelect: (query: string) => void }) {
   const prompts = [
-    { title: 'Pay someone', text: 'Send 20 USDC to @bearcrypto2021', icon: <SendHorizontal className="size-4" /> },
+    { title: 'Plan a payment', text: 'Help me prepare a 20 USDC payment to @bearcrypto2021', icon: <SendHorizontal className="size-4" /> },
     { title: 'Ask naturally', text: 'What can Veyra do for me?', icon: <Bot className="size-4" /> },
-    { title: 'Vietnamese', text: 'Gửi 20 USDC cho @bearcrypto2021', icon: <Globe2 className="size-4" /> },
-    { title: 'Multi-step goal', text: 'Keep 300 USDC on Arc, send @bearcrypto2021 50 USDC, bridge 200 USDC to Arbitrum, then earn the rest', icon: <Sparkles className="size-4" /> },
+    { title: 'Any language', text: 'Can Veyra answer questions in my preferred language?', icon: <Globe2 className="size-4" /> },
+    { title: 'Multi-step planning', text: 'Keep 300 USDC on Arc, prepare a 50 USDC payment, and check whether a 200 USDC bridge to Base is available', icon: <Sparkles className="size-4" /> },
   ];
   return (
     <div className="mx-auto max-w-3xl py-6 md:py-12">
