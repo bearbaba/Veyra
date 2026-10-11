@@ -2,8 +2,8 @@
  * Phase 1 — migration-from-zero integration test.
  *
  * Creates a clean `veyra_migration_test` database, applies all migration
- * files in journal order (0000 through 0009), then verifies:
- *   - all 24 expected tables exist
+ * files in journal order (0000 through 0010), then verifies:
+ *   - all 26 expected tables exist
  *   - critical UNIQUE constraints are enforced
  *   - CHECK constraints reject invalid data
  *   - append-only triggers reject UPDATE/DELETE on execution_events
@@ -28,6 +28,11 @@ import {
   recordDestinationSubmission,
 } from '../../server/db/repositories/bridgeDestinationSubmissionRepository.js';
 import { recordVerifiedFirstDestinationRevert } from '../../server/db/repositories/bridgeDestinationRevertRepository.js';
+import {
+  claimSecondDestinationAttempt,
+  getSecondDestinationAttempt,
+  recordSecondDestinationAttemptHash,
+} from '../../server/db/repositories/bridgeDestinationRetryRepository.js';
 
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
@@ -117,6 +122,11 @@ beforeAll(async () => {
       client,
       loadMigration('0009_phase5_destination_revert_evidence.sql'),
     );
+    // 0010: Distinct second-attempt claim, first hash preserved and audit log.
+    await execMigration(
+      client,
+      loadMigration('0010_phase5_second_destination_attempt.sql'),
+    );
   } finally {
     client.release();
   }
@@ -143,7 +153,7 @@ function pgTest(name: string, fn: () => Promise<void>) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('migration-from-zero: all 24 tables exist', () => {
+describe('migration-from-zero: all 26 tables exist', () => {
   const EXPECTED_TABLES = [
     'veyra_users',
     'handle_history',
@@ -169,6 +179,8 @@ describe('migration-from-zero: all 24 tables exist', () => {
     'bridge_destination_submission_claims',
     'bridge_destination_attempt_events',
     'bridge_destination_attempt_resolutions',
+    'bridge_destination_retry_attempts',
+    'bridge_destination_retry_events',
   ];
 
   pgTest('all expected tables are created', async () => {
@@ -179,7 +191,7 @@ describe('migration-from-zero: all 24 tables exist', () => {
     for (const tbl of EXPECTED_TABLES) {
       expect(actual.has(tbl), `missing table: ${tbl}`).toBe(true);
     }
-    expect(res.rows.length).toBeGreaterThanOrEqual(24);
+    expect(res.rows.length).toBeGreaterThanOrEqual(26);
   });
 });
 
@@ -409,6 +421,130 @@ describe('migration-from-zero: append-only first destination revert proof', () =
     `);
     expect(events.rows).toHaveLength(1);
     expect(events.rows[0]?.receive_tx_hash).toBe(hash);
+  });
+});
+
+describe('migration-from-zero: second destination attempt safety', () => {
+  pgTest('cannot reserve before verified reverted first receive and never overwrites the original hash', async () => {
+    await testPool.query(`
+      INSERT INTO veyra_users (veyr_user_id, veyr_handle, identity_revision, status)
+      VALUES ('usr_retry_two', 'retrytwo', 1, 'ACTIVE')
+      ON CONFLICT DO NOTHING
+    `);
+    const planId = 'retry-two-plan';
+    const firstHash = `0x${'7'.repeat(64)}`;
+    const secondHash = `0x${'8'.repeat(64)}`;
+    const blockHash = `0x${'9'.repeat(64)}`;
+    await testPool.query(`
+      INSERT INTO bridge_recovery_checkpoints
+        (plan_id, owner_user_id, stage, burn_tx_hash, source_chain_id,
+         destination_chain_id, wallet_address, recipient_address,
+         amount_raw, token_address, balance_before_raw,
+         attestation_message, attestation_signature)
+      VALUES
+        ($1, 'usr_retry_two', 'ATTESTATION_READY',
+         '0x7777777777777777777777777777777777777777777777777777777777777777',
+         5042002, 11155111, '0x1111111111111111111111111111111111111111',
+         '0x2222222222222222222222222222222222222222', 1000000,
+         '0x3333333333333333333333333333333333333333', 0,
+         '0x1234', '0xabcd')
+    `, [planId]);
+    const db = drizzle(testPool, { schema });
+
+    await expect(claimSecondDestinationAttempt(
+      db, 'usr_retry_two', planId,
+    )).rejects.toThrow(/verified reverted FIRST/i);
+
+    expect(await claimDestinationSubmission(db, 'usr_retry_two', planId))
+      .toEqual({ mode: 'CLAIMED' });
+    await recordDestinationSubmission(db, 'usr_retry_two', planId, firstHash);
+
+    await expect(claimSecondDestinationAttempt(
+      db, 'usr_retry_two', planId,
+    )).rejects.toThrow(/verified reverted FIRST/i);
+
+    await recordVerifiedFirstDestinationRevert(db, 'usr_retry_two', planId, {
+      receiveTxHash: firstHash,
+      destinationChainId: 11155111,
+      destinationBlockNumber: 100,
+      destinationBlockHash: blockHash,
+      confirmations: 12,
+    });
+
+    const competing = await Promise.all([
+      claimSecondDestinationAttempt(db, 'usr_retry_two', planId),
+      claimSecondDestinationAttempt(db, 'usr_retry_two', planId),
+    ]);
+    expect(competing.map((r) => r.mode).sort())
+      .toEqual(['CLAIMED', 'UNCERTAIN']);
+    expect(await getSecondDestinationAttempt(db, 'usr_retry_two', planId))
+      .toEqual({ mode: 'UNCERTAIN' });
+
+    // Claim persists through a crash and cannot be reacquired.
+    expect(await claimSecondDestinationAttempt(db, 'usr_retry_two', planId))
+      .toEqual({ mode: 'UNCERTAIN' });
+    await expect(claimSecondDestinationAttempt(
+      db, 'usr_retry_intruder', planId,
+    )).rejects.toThrow(/Owned destination retry plan not found/i);
+
+    await expect(recordSecondDestinationAttemptHash(
+      db, 'usr_retry_two', planId, firstHash,
+    )).rejects.toThrow(/preserve the original first destination tx/i);
+    await recordSecondDestinationAttemptHash(
+      db, 'usr_retry_two', planId, secondHash,
+    );
+    await recordSecondDestinationAttemptHash(
+      db, 'usr_retry_two', planId, secondHash,
+    );
+    await expect(recordSecondDestinationAttemptHash(
+      db, 'usr_retry_two', planId, `0x${'a'.repeat(64)}`,
+    )).rejects.toThrow(/immutable once recorded/i);
+
+    expect(await getSecondDestinationAttempt(db, 'usr_retry_two', planId))
+      .toEqual({ mode: 'ALREADY_SUBMITTED', txHash: secondHash });
+    expect(await claimSecondDestinationAttempt(db, 'usr_retry_two', planId))
+      .toEqual({ mode: 'ALREADY_SUBMITTED', txHash: secondHash });
+
+    const original = await testPool.query<{
+      receive_tx_hash: string;
+      stage: string;
+    }>(`
+      SELECT receive_tx_hash, stage FROM bridge_recovery_checkpoints
+      WHERE plan_id = 'retry-two-plan'
+    `);
+    expect(original.rows[0]).toMatchObject({
+      receive_tx_hash: firstHash,
+      stage: 'DESTINATION_BROADCAST',
+    });
+    const legacy = await testPool.query<{ receive_tx_hash: string }>(`
+      SELECT receive_tx_hash FROM bridge_destination_submission_claims
+      WHERE plan_id = 'retry-two-plan'
+    `);
+    expect(legacy.rows[0]?.receive_tx_hash).toBe(firstHash);
+
+    const events = await testPool.query<{ event_type: string }>(`
+      SELECT event_type FROM bridge_destination_retry_events
+      WHERE plan_id = 'retry-two-plan'
+    `);
+    expect(events.rows.map((r) => r.event_type).sort())
+      .toEqual(['BROADCAST_RECORDED', 'SUBMISSION_STARTED']);
+
+    await expect(testPool.query(`
+      UPDATE bridge_destination_retry_attempts SET receive_tx_hash = $1
+      WHERE plan_id = 'retry-two-plan'
+    `, [`0x${'a'.repeat(64)}`])).rejects.toMatchObject({ code: 'P0001' });
+    await expect(testPool.query(`
+      DELETE FROM bridge_destination_retry_attempts
+      WHERE plan_id = 'retry-two-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+    await expect(testPool.query(`
+      UPDATE bridge_destination_retry_events SET event_type = 'BROADCAST_RECORDED'
+      WHERE plan_id = 'retry-two-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+    await expect(testPool.query(`
+      DELETE FROM bridge_destination_retry_events
+      WHERE plan_id = 'retry-two-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
   });
 });
 
