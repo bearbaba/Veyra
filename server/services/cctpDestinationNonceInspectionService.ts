@@ -177,6 +177,22 @@ export async function inspectCctpDestinationNonceFromNetwork(
   });
   const transmitter = MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER as `0x${string}`;
 
+  // A correctly configured chain object does not guarantee that a custom
+  // RPC URL serves that chain. Wrong-network nonce reads must fail closed.
+  let actualChainId: number;
+  try {
+    actualChainId = await client.getChainId();
+  } catch {
+    throw new BridgeRecoveryConflictError(
+      'Destination nonce RPC chain identity unavailable; do not authorize retry.',
+    );
+  }
+  if (actualChainId !== checkpoint.destinationChainId) {
+    throw new BridgeRecoveryConflictError(
+      'Destination nonce RPC chain does not match the reviewed CCTP route.',
+    );
+  }
+
   return inspectCctpDestinationNonce(
     checkpoint,
     () => client.getBlockNumber(),
