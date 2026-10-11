@@ -47,11 +47,6 @@ import { assertServerRuntimeConfig } from './config/runtimeConfig.js';
 import { getRateLimitPolicy } from './config/rateLimits.js';
 import { requestObservability } from './middleware/observability.js';
 import { PROVIDER_MANIFEST } from '../src/providers/registry/providerManifest.js';
-import {
-  extractUniqueCctpSourceMessage,
-  parseUniqueCctpAttestationResponse,
-  verifyCctpSourceReceiptEvidence,
-} from '../src/providers/cctp/cctpV2Adapter.js';
 import { evaluateMainnetReadiness } from './readiness/mainnetReadiness.js';
 import { probeSignerReadiness } from './readiness/signerReadiness.js';
 import { probeDatabaseReadiness } from './readiness/databaseReadiness.js';
@@ -78,7 +73,6 @@ import {
   getDestinationSubmissionClaim,
   recordDestinationSubmission,
 } from './db/repositories/bridgeDestinationSubmissionRepository.js';
-import type { Address } from 'viem';
 import {
   verifyRevertedCctpDestinationReceiveFromNetwork,
 } from './services/cctpDestinationRevertVerificationService.js';
@@ -1932,87 +1926,12 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
       parseAbi,
     } = await import('viem');
 
-    const arcRpc =
-      process.env.ARC_TESTNET_RPC_URL ?? 'https://rpc.testnet.arc.io';
-    const sourceClient = createPublicClient({
-      chain: {
-        id: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
-        name: 'Arc Testnet',
-        nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-        rpcUrls: { default: { http: [arcRpc] } },
-      },
-      transport: viemHttp(arcRpc),
-    });
-
-    const [sourceReceipt, sourceTransaction] = await Promise.all([
-      sourceClient.getTransactionReceipt({
-        hash: checkpoint.burnTxHash as `0x${string}`,
-      }),
-      sourceClient.getTransaction({
-        hash: checkpoint.burnTxHash as `0x${string}`,
-      }),
-    ]);
-
-    if (
-      sourceTransaction.from.toLowerCase() !==
-      checkpoint.walletAddress.toLowerCase()
-    ) {
-      throw new BridgeRecoveryConflictError(
-        'Persisted CCTP source burn was not sent by the owned recovery wallet',
-      );
-    }
-
-    const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt, {
-      burnToken: checkpoint.tokenAddress as Address,
-      amount: BigInt(checkpoint.amount),
-      depositor: checkpoint.walletAddress as Address,
-      mintRecipient: checkpoint.recipientAddress as Address,
-      destinationChainId: checkpoint.destinationChainId,
-    });
-    if (!sourceEvidence.verified) {
-      throw new BridgeRecoveryConflictError(sourceEvidence.detail);
-    }
-
-    const sourceDomain = MANIFEST_CONSTANTS.ARC_TESTNET_CCTP_DOMAIN;
-    const attestationResponse = await fetch(
-      `https://iris-api-sandbox.circle.com/v2/messages/${sourceDomain}?transactionHash=${checkpoint.burnTxHash}`,
-    );
-    if (!attestationResponse.ok) {
-      res.status(503).json({
-        ok: false,
-        error: 'ATTESTATION_REVALIDATION_UNAVAILABLE',
-      });
-      return;
-    }
-
-    let authoritativeAttestation;
-    try {
-      authoritativeAttestation = parseUniqueCctpAttestationResponse(
-        await attestationResponse.json(),
-      );
-    } catch {
-      throw new BridgeRecoveryConflictError(
-        'Circle returned malformed or multiple CCTP messages; destination relay requires unambiguous source attestation.',
-      );
-    }
-
-    const sourceMessage = extractUniqueCctpSourceMessage(sourceReceipt);
-    if (
-      authoritativeAttestation.status !== 'complete' ||
-      !authoritativeAttestation.message ||
-      !authoritativeAttestation.attestation ||
-      !sourceMessage ||
-      authoritativeAttestation.message.toLowerCase() !==
-        sourceMessage.toLowerCase() ||
-      authoritativeAttestation.message.toLowerCase() !==
-        checkpoint.attestationMessage?.toLowerCase() ||
-      authoritativeAttestation.attestation.toLowerCase() !==
-        checkpoint.attestationSignature?.toLowerCase()
-    ) {
-      throw new BridgeRecoveryConflictError(
-        'Circle CCTP attestation must match the single canonical MessageSent in the reviewed source burn and the persisted checkpoint.',
-      );
-    }
+    // Both server relay and wallet-signed self-relay now use the SAME
+    // independent proof: exact source tx hash/sender/TokenMessenger target,
+    // reviewed depositForBurn calldata and event, canonical single
+    // MessageSent, and unique Circle attestation matching the checkpoint.
+    // Do not start a destination signature/broadcast if ANY check fails.
+    await verifyCctpSourceCheckpointAttestationFromNetwork(checkpoint);
 
     const relay = evaluateBridgeRelayDecision(checkpoint);
 
