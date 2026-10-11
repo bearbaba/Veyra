@@ -1,17 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import { existsSync, readFileSync, renameSync } from 'node:fs'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 
 /**
- * The static Vercel preview has its OWN HTML entrypoint. Importing the live
- * App/main.tsx would include wallet transaction code in the published bundle
- * even if its buttons were hidden by an environment flag.
+ * Preview must be selected as Rollup's INITIAL HTML input, before Vite resolves
+ * any imports. An HTML transform hook is too late: it could include live
+ * src/main.tsx and wallet libraries in the output graph before transformation.
  *
- * Transforming the index HTML before Rollup graph construction means no live
- * wallet, identity, transaction or server API modules are imported at all.
+ * The source preview.html is emitted as dist/preview.html by Vite; after build,
+ * we atomically rename ONLY that entry to dist/index.html for Vercel hosting.
+ * No default live index.html is compiled in this mode.
  */
 const uiOnlyPreview = process.env.VITE_VEYRA_UI_ONLY === '1';
+const previewHtml = path.resolve(__dirname, 'preview.html');
+const outputDir = path.resolve(__dirname, 'dist');
 
 export default defineConfig({
   plugins: [
@@ -19,18 +23,25 @@ export default defineConfig({
     ...(!uiOnlyPreview ? [nodePolyfills()] : []),
     ...(uiOnlyPreview
       ? [{
-          name: 'veyra-static-preview-entry',
-          enforce: 'pre' as const,
-          transformIndexHtml(html: string) {
-            const liveEntry = 'src="/src/main.tsx"';
-            if (!html.includes(liveEntry)) {
-              throw new Error('[preview] index.html live entry missing; refuse unsafe preview build');
+          name: 'veyra-static-preview-only',
+          closeBundle() {
+            const index = path.join(outputDir, 'index.html');
+            const preview = path.join(outputDir, 'preview.html');
+            if (!existsSync(preview) || existsSync(index)) {
+              throw new Error('[preview] expected exclusively preview.html output; refusing unsafe deploy');
             }
-            return html.replace(liveEntry, 'src="/src/preview/main.tsx"');
+            const html = readFileSync(preview, 'utf8');
+            if (!html.includes('<title>Veyra Preview')) {
+              throw new Error('[preview] Vite produced an unexpected HTML entry');
+            }
+            renameSync(preview, index);
           },
         }]
       : []),
   ],
+  build: uiOnlyPreview
+    ? { rollupOptions: { input: previewHtml } }
+    : undefined,
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
