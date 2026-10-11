@@ -34,7 +34,7 @@ import { checkProviderEligibility } from '../providers/registry/providerRegistry
 import type { BridgeAction } from '../core/actions/actionSchema';
 import { generateExecutionReceiptId } from '../core/receipt/receiptId';
 import type { VeyraReceipt } from '../core/receipt/receiptTypes';
-import { VEYRA_ENV } from '../lib/env';
+import { IS_UI_ONLY_PREVIEW, VEYRA_ENV } from '../lib/env';
 import { assertExecutionReady } from '../core/execution/executionReadiness';
 import { saveReceipt } from '../core/receipt/receiptStore';
 import {
@@ -1085,6 +1085,14 @@ export function useBridgeExecution() {
   const resumeBridge = useCallback(async (
     checkpoint: BridgeRecoveryCheckpoint,
   ) => {
+    if (IS_UI_ONLY_PREVIEW) {
+      setState({
+        phase: 'FAILED',
+        error: 'Static Vercel preview cannot sign, relay or resume a bridge.',
+      });
+      return;
+    }
+
     abortRef.current = false;
 
     if (!walletClient || !sourcePublicClient) {
