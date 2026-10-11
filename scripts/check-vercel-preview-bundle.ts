@@ -28,7 +28,7 @@ if (scripts.length === 0 || !index.includes('/assets/')) {
 const all = scripts.map((file) => readFileSync(file, 'utf8')).join('\n');
 
 // The preview strings below are deliberately emitted by src/preview.
-for (const marker of ['interactive UI preview', 'No payment signatures', 'Ask Veyra']) {
+for (const marker of ['ARC TESTNET BETA', 'No payment signatures', 'Ask Veyra']) {
   if (!all.toLowerCase().includes(marker.toLowerCase())) {
     throw new Error(`[preview bundle] expected standalone preview UI not found: ${marker}`);
   }
@@ -39,7 +39,8 @@ for (const marker of ['interactive UI preview', 'No payment signatures', 'Ask Ve
 // Keeping this list explicit avoids falsely rejecting explanatory words such
 // as "wallet" or "CCTP".
 const blocked: Array<[string, RegExp]> = [
-  ['Ethereum transaction signing RPC', /eth_sendTransaction/i],
+  ['mainnet switching RPC', /wallet_addEthereumChain/],
+  ['wallet unlimited allowance selector', /0x095ea7b3/i],
   ['typed-data signing RPC', /eth_signTypedData/i],
   ['personal message signing RPC', /personal_sign/],
   ['wallet credential permission RPC', /wallet_requestPermissions/],
@@ -52,6 +53,26 @@ const blocked: Array<[string, RegExp]> = [
   ['BFF API path', /\/api\/(?:health|bridge|identity|cctp|agent|activity)/],
   ['BFF signed session', /veyra:session/],
 ];
+
+// The ONLY permitted financial RPC is the explicitly capped direct Arc
+// Testnet USDC.transfer() inside the isolated beta module. Reject missing
+// safeguards, duplicate RPC selector bundles, and any other signature path.
+const betaSource = readFileSync(join(process.cwd(), 'src/preview/arcTestnetPay.ts'), 'utf8');
+const betaPage = readFileSync(join(process.cwd(), 'src/preview/PreviewTestnetPayPage.tsx'), 'utf8');
+const envBuild = readFileSync(join(process.cwd(), 'vercel.json'), 'utf8');
+if (
+  !envBuild.includes('VITE_VEYRA_TESTNET_PAY=1') ||
+  !betaSource.includes('export const ARC_TESTNET_CHAIN_ID = 5042002;') ||
+  !betaSource.includes('export const MAX_TESTNET_PAYMENT_UNITS = 1_000_000n') ||
+  !betaSource.includes("functionName: 'transfer'") ||
+  !betaSource.includes("method: 'eth_sendTransaction'") ||
+  !betaSource.includes('await assertArcRpcChain()') ||
+  !betaSource.includes('await verifyWalletConnected(') && !betaSource.includes("provider.request({ method: 'eth_chainId'") ||
+  !betaPage.includes('I checked the chain, token, recipient and amount.') ||
+  (all.match(/eth_sendTransaction/g) ?? []).length !== 1
+) {
+  throw new Error('[preview bundle] capped wallet-approved Arc Testnet payment safety boundary missing.');
+}
 
 for (const [label, pattern] of blocked) {
   if (pattern.test(all)) {
