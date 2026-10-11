@@ -51,7 +51,7 @@ describe('Phase 5 live Vercel agent: NO mock or canned answers', () => {
 
   it('requires an unguessable beta token and rejects Unicode length tricks', async () => {
     configured();
-    for (const token of [null, '', 'wrong-token-too-short', '☃'.repeat(32)]) {
+    for (const token of [null, '', 'wrong-token-too-short', 'é'.repeat(32)]) {
       const response = await POST(request('Hello', token));
       expect(response.status).toBe(401);
     }
