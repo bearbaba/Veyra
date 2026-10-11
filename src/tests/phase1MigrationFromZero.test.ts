@@ -22,6 +22,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../server/db/schema/index.js';
+import { MANIFEST_CONSTANTS } from '../providers/registry/providerManifest';
 import {
   claimDestinationSubmission,
   getDestinationSubmissionClaim,
@@ -593,7 +594,7 @@ describe('migration-from-zero: second receive verified mint invariants', () => {
       destinationChainId: 11155111,
       destinationBlockNumber: 200,
       destinationBlockHash: `0x${'a'.repeat(64)}`,
-      mintToken: '0x3333333333333333333333333333333333333333',
+      mintToken: MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC.toLowerCase(),
       mintRecipient: '0x2222222222222222222222222222222222222222',
       mintAmountRaw: '1000000',
       confirmations: 12,
