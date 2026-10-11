@@ -13,7 +13,8 @@ import {
 } from 'lucide-react';
 import { UiOnlyPreviewPage } from '../components/pages/UiOnlyPreviewPage';
 import { PreviewTestnetPayPage } from './PreviewTestnetPayPage';
-import { PreviewHome, PreviewAgent, PreviewActivity, PreviewSettings } from './PreviewSurfaces';
+import { PreviewHome, PreviewActivity, PreviewSettings } from './PreviewSurfaces';
+import { PreviewLiveAgent } from './PreviewLiveAgent';
 import {
   PreviewWalletProvider, shortPreviewAddress, usePreviewWallet,
 } from './PreviewWallet';
@@ -211,7 +212,7 @@ function PreviewWorkspace() {
   function render() {
     switch (page) {
       case 'home': return <PreviewHome onNavigate={setPage} />;
-      case 'agent': return <PreviewAgent onNavigate={setPage} />;
+      case 'agent': return <PreviewLiveAgent onNavigate={setPage} />;
       case 'pay': return import.meta.env.VITE_VEYRA_TESTNET_PAY === '1'
         ? <PreviewTestnetPayPage /> : <UiOnlyPreviewPage surface="pay" />;
       case 'convert':
