@@ -5,6 +5,7 @@ import {
   index,
   numeric,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -97,5 +98,38 @@ export const bridgeDestinationAttemptEvents = pgTable(
     check('chk_destination_attempt_event_hash',
       sql`(${t.eventType} = 'SUBMISSION_STARTED' AND ${t.receiveTxHash} IS NULL)
         OR (${t.eventType} = 'BROADCAST_RECORDED' AND ${t.receiveTxHash} ~ '^0x[0-9a-fA-F]{64}$')`),
+  ],
+);
+
+/**
+ * Immutable server-verified proof for the first reverted destination receive.
+ * A persisted revert DOES NOT itself authorize an additional relay call.
+ * A separate future retry-claim gate must consume this proof.
+ */
+export const bridgeDestinationAttemptResolutions = pgTable(
+  'bridge_destination_attempt_resolutions',
+  {
+    planId: text('plan_id').notNull()
+      .references(() => bridgeDestinationSubmissionClaims.planId),
+    attemptNumber: integer('attempt_number').notNull(),
+    ownerUserId: text('owner_user_id').notNull()
+      .references(() => veyraUsers.veyraUserId),
+    receiveTxHash: text('receive_tx_hash').notNull(),
+    destinationChainId: bigint('destination_chain_id', { mode: 'number' }).notNull(),
+    destinationBlockNumber: bigint('destination_block_number', { mode: 'number' }).notNull(),
+    destinationBlockHash: text('destination_block_hash').notNull(),
+    confirmations: integer('confirmations').notNull(),
+    outcome: text('outcome').notNull().default('REVERTED'),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.planId, t.attemptNumber] }),
+    index('ix_destination_resolution_owner').on(t.ownerUserId, t.verifiedAt),
+    check('chk_destination_resolution_attempt', sql`${t.attemptNumber} = 1`),
+    check('chk_destination_resolution_outcome', sql`${t.outcome} = 'REVERTED'`),
+    check('chk_destination_resolution_hash', sql`${t.receiveTxHash} ~ '^0x[0-9a-fA-F]{64}$'`),
+    check('chk_destination_resolution_block_hash', sql`${t.destinationBlockHash} ~ '^0x[0-9a-fA-F]{64}$'`),
+    check('chk_destination_resolution_block_number', sql`${t.destinationBlockNumber} >= 0`),
+    check('chk_destination_resolution_confirmations', sql`${t.confirmations} >= 12`),
   ],
 );
