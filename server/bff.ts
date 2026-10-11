@@ -82,6 +82,7 @@ import {
 import { getOwnedDestinationAttemptHistory } from './db/repositories/bridgeDestinationRetryRepository.js';
 import { getSecondDestinationAttempt } from './db/repositories/bridgeDestinationRetryRepository.js';
 import { verifySecondCctpDestinationMintFromNetwork } from './services/cctpSecondDestinationVerificationService.js';
+import { inspectCctpDestinationNonceFromNetwork } from './services/cctpDestinationNonceInspectionService.js';
 import { recordVerifiedSecondDestinationMint } from './db/repositories/bridgeSecondDestinationVerificationRepository.js';
 import { finalizeVerifiedSecondCctpSettlement } from './db/repositories/bridgeSecondSettlementRepository.js';
 import { assertSelfRelayTransactionMatchesCheckpoint } from './services/cctpSelfRelayVerification.js';
@@ -1833,6 +1834,101 @@ app.post('/api/bridge/finalize-second-settlement', IDENTITY_RATE, async (req: Re
     }
     console.error('[BFF] /api/bridge/finalize-second-settlement error:', err);
     res.status(503).json({ ok: false, error: 'SECOND_SETTLEMENT_EVIDENCE_UNAVAILABLE' });
+  }
+});
+
+/**
+ * Read-only CCTP V2 usedNonces inspection for an owner's reverted FIRST
+ * destination receive. Observations are never authorization to sign a retry.
+ *
+ * IMPORTANT: usedNonces=0 at a recent block is not a mempool guarantee;
+ * another relayer can consume it before the next transaction. The second
+ * signing boundary must be separately designed and authorized.
+ */
+app.post('/api/bridge/inspect-destination-nonce', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const planId = typeof body?.planId === 'string' ? body.planId.trim() : '';
+    if (!planId || planId.length > 160) {
+      res.status(400).json({ ok: false, error: 'INVALID_BRIDGE_PLAN' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(db, userId, planId);
+    if (!checkpoint) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+
+    // An already claimed second submission may be stuck without a hash.
+    // Never treat an unused nonce as permission to reclaim or sign again.
+    const history = await getOwnedDestinationAttemptHistory(db, userId, planId);
+    if (
+      !history ||
+      history.first.state !== 'RECORDED' ||
+      history.first.reverted !== true ||
+      !history.first.receiveTxHash ||
+      !history.first.revertBlockHash ||
+      history.first.receiveTxHash.toLowerCase() !== checkpoint.receiveTxHash?.toLowerCase() ||
+      history.second.state !== 'UNCLAIMED'
+    ) {
+      throw new BridgeRecoveryConflictError(
+        'Nonce inspection requires a verified reverted first receive and no second submission reservation.',
+      );
+    }
+
+    // Reprove the FIRST attempt's exact recorded transaction/reorg safety,
+    // and match the append-only original block hash. Never trust its status
+    // from a browser or stale database snapshot alone.
+    const first = await verifyRevertedCctpDestinationReceiveFromNetwork(
+      checkpoint, history.first.receiveTxHash,
+    );
+    if (first.destinationBlockHash.toLowerCase() !== history.first.revertBlockHash.toLowerCase()) {
+      throw new BridgeRecoveryConflictError(
+        'Original destination revert proof is not canonical at the stored block.',
+      );
+    }
+
+    // The same source/Circle verifier used at the initial signing boundary.
+    await verifyCctpSourceCheckpointAttestationFromNetwork({
+      ...checkpoint,
+      stage: 'ATTESTATION_READY',
+    });
+    const observation = await inspectCctpDestinationNonceFromNetwork(checkpoint);
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      ok: true,
+      planId,
+      attemptNumber: 1,
+      firstRevertBlockHash: first.destinationBlockHash,
+      observation,
+      retryAuthorized: false,
+      caveat: 'Nonce was checked at one canonical destination block. It may change before any transaction.',
+    });
+  } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'DESTINATION_NONCE_NOT_VERIFIED',
+        message: err.message,
+        retryAuthorized: false,
+      });
+      return;
+    }
+    console.error('[BFF] /api/bridge/inspect-destination-nonce error:', err);
+    res.status(503).json({
+      ok: false,
+      error: 'DESTINATION_NONCE_RPC_UNAVAILABLE',
+      retryAuthorized: false,
+    });
   }
 });
 
