@@ -89,6 +89,47 @@ describe('Phase 5 ActivityReceipt lifecycle', () => {
     expect(isCctpBridgeReceiptTransitionAllowed('CONFIRMED', 'COMPLETE')).toBe(true);
   });
 
+  it('never terminalizes a CCTP bridge after wallet submission may have started', () => {
+    const inFlight: ReceiptStatus[] = [
+      'SIGNED',
+      'BROADCAST',
+      'SOURCE_CONFIRMED',
+      'ATTESTATION_PENDING',
+      'RECEIVE_PENDING',
+      'RECEIVE_FAILED_RETRYABLE',
+      'CONFIRMED',
+    ];
+    const unsafeTerminal: ReceiptStatus[] = [
+      'FAILED',
+      'CANCELLED',
+      'INVALIDATED',
+      'DUPLICATE_DETECTED',
+    ];
+
+    for (const from of inFlight) {
+      for (const to of unsafeTerminal) {
+        expect(
+          isCctpBridgeReceiptTransitionAllowed(from, to),
+          `${from} -> ${to} must remain recoverable`,
+        ).toBe(false);
+      }
+    }
+
+    // Failures *before* signing are still safe to terminalize.
+    expect(
+      isCctpBridgeReceiptTransitionAllowed('PREFLIGHT_PASSED', 'FAILED'),
+    ).toBe(true);
+    expect(
+      isCctpBridgeReceiptTransitionAllowed('PREFLIGHT_PASSED', 'CANCELLED'),
+    ).toBe(true);
+    expect(
+      isCctpBridgeReceiptTransitionAllowed('RECEIVE_PENDING', 'RECEIVE_FAILED_RETRYABLE'),
+    ).toBe(true);
+    expect(
+      isCctpBridgeReceiptTransitionAllowed('RECEIVE_FAILED_RETRYABLE', 'RECEIVE_PENDING'),
+    ).toBe(true);
+  });
+
   it('allows recovery to catch up through SIGNED before a burn hash is stored', () => {
     const current = evidenceState();
     expect(() =>
