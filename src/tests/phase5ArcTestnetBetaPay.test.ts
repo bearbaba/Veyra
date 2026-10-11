@@ -160,7 +160,11 @@ describe('real Arc Testnet-only wallet-signed USDC beta', () => {
     });
     expect(arcPayExplorerUrl(HASH)).toContain('/tx/');
     rpc({ ...good, eth_blockNumber: '0xc7' });
-    await expect(reconcileArcTestnetPay(p, HASH)).resolves.toMatchObject({ state: 'PENDING' });
+    await expect(reconcileArcTestnetPay(p, HASH)).resolves.toMatchObject({ state: 'PENDING', indexed: true });
+    rpc({ ...good, eth_getTransactionReceipt: null });
+    await expect(reconcileArcTestnetPay(p, HASH)).resolves.toMatchObject({ state: 'PENDING', indexed: true });
+    rpc({ ...good, eth_getTransactionByHash: null });
+    await expect(reconcileArcTestnetPay(p, HASH)).resolves.toMatchObject({ state: 'PENDING', indexed: false });
     rpc({ ...good, eth_getTransactionByHash: { ...tx, to: RECIPIENT } });
     await expect(reconcileArcTestnetPay(p, HASH)).rejects.toThrow(/does not match/);
     rpc({ ...good, eth_getTransactionReceipt: { ...receipt, logs: [] } });

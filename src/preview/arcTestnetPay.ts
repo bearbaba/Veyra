@@ -30,7 +30,7 @@ function assertConfig(): void {
 export type ArcPayPlan = { from: Address; to: Address; units: bigint; amount: string; token: Address; data: Hex };
 export type ArcPayProof = { txHash: Hex; blockHash: Hex; blockNumber: number; confirmations: number; explorerUrl: string };
 export type ArcPayStatus =
-  | { state: 'PENDING'; txHash: Hex }
+  | { state: 'PENDING'; txHash: Hex; indexed: boolean }
   | { state: 'VERIFIED'; proof: ArcPayProof }
   | { state: 'REVERTED'; txHash: Hex };
 
@@ -154,7 +154,7 @@ export async function reconcileArcTestnetPay(
   const reviewed = assertReviewedArcPayPlan(plan);
   await assertArcRpcChain();
   const rawTx = await arcTestnetRpc('eth_getTransactionByHash', [txHash]);
-  if (!rawTx) return { state: 'PENDING', txHash: txHash as Hex };
+  if (!rawTx) return { state: 'PENDING', txHash: txHash as Hex, indexed: false };
   const tx = rawTx as RpcTransaction;
   if (!tx.hash || tx.hash.toLowerCase() !== txHash.toLowerCase() ||
       tx.from?.toLowerCase() !== reviewed.from.toLowerCase() ||
@@ -163,7 +163,7 @@ export async function reconcileArcTestnetPay(
     fail('Indexed transaction does not match the originally reviewed USDC payment.');
   }
   const rawReceipt = await arcTestnetRpc('eth_getTransactionReceipt', [txHash]);
-  if (!rawReceipt) return { state: 'PENDING', txHash: txHash as Hex };
+  if (!rawReceipt) return { state: 'PENDING', txHash: txHash as Hex, indexed: true };
   const receipt = rawReceipt as RpcReceipt;
   if (receipt.transactionHash?.toLowerCase() !== txHash.toLowerCase() ||
       !HASH_RE.test(receipt.blockHash ?? '') || !HEX_RE.test(receipt.blockNumber ?? '')) {
@@ -195,7 +195,7 @@ export async function reconcileArcTestnetPay(
   }
   const head = BigInt(asHex(await arcTestnetRpc('eth_blockNumber', [])));
   if (head < number || head - number + 1n < ARC_PAY_FINALITY_CONFIRMATIONS) {
-    return { state: 'PENDING', txHash: txHash as Hex };
+    return { state: 'PENDING', txHash: txHash as Hex, indexed: true };
   }
   if (number > BigInt(Number.MAX_SAFE_INTEGER) ||
       head - number + 1n > BigInt(Number.MAX_SAFE_INTEGER)) {

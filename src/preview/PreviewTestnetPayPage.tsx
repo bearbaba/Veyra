@@ -5,48 +5,13 @@
  * A persisted intent blocks accidental repeat signatures after wallet/RPC
  * uncertainty. Resuming a known tx hash is read-only.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, CheckCircle2, ExternalLink, LockKeyhole, RefreshCw, SendHorizontal, ShieldAlert, ShieldCheck, Wallet } from 'lucide-react';
 import { usePreviewWallet, shortPreviewAddress, usePreviewArcBalance } from './PreviewWallet';
 import { ARC_TESTNET_CHAIN_ID, arcPayExplorerUrl, createArcTestnetPayPlan, reconcileArcTestnetPay, submitArcTestnetPay, type ArcPayPlan, type ArcPayStatus } from './arcTestnetPay';
 import { BrandLogo } from '../components/brand/BrandLogo';
+import { loadArcPayJournal, storeArcPayJournal, clearArcPayJournal, type ArcPayJournal as Journal } from './arcPayJournal';
 
-type JournalStage = 'AWAITING_WALLET' | 'UNKNOWN' | 'PENDING' | 'VERIFIED' | 'REVERTED';
-interface Journal {
-  from: string;
-  to: string;
-  amount: string;
-  stage: JournalStage;
-  hash: string | null;
-}
-function storageKey(account: string): string {
-  return `veyra:arc-testnet-payment:v1:${account.toLowerCase()}`;
-}
-function readJournal(account: string): Journal | null {
-  try {
-    const raw = localStorage.getItem(storageKey(account));
-    if (!raw) return null;
-    const x = JSON.parse(raw) as Partial<Journal>;
-    if (x.from?.toLowerCase() !== account.toLowerCase() ||
-        typeof x.to !== 'string' || typeof x.amount !== 'string' ||
-        !['AWAITING_WALLET', 'UNKNOWN', 'PENDING', 'VERIFIED', 'REVERTED'].includes(x.stage ?? '') ||
-        (x.hash !== null && x.hash !== undefined && (typeof x.hash !== 'string' || !/^0x[\da-fA-F]{64}$/.test(x.hash)))) return null;
-    createArcTestnetPayPlan(account, x.to, x.amount);
-    // Never trust a restored VERIFIED/REVERTED flag as current chain proof.
-    // Reconcile on-chain after reload before enabling another payment.
-    return { from: account, to: x.to, amount: x.amount,
-      stage: x.stage === 'VERIFIED' || x.stage === 'REVERTED' ? 'PENDING' : x.stage!,
-      hash: x.hash ?? null };
-  } catch { return null; }
-}
-function storeJournal(journal: Journal): boolean {
-  try {
-    localStorage.setItem(storageKey(journal.from), JSON.stringify(journal));
-    return localStorage.getItem(storageKey(journal.from)) === JSON.stringify(journal);
-  } catch {
-    return false;
-  }
-}
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Wallet or Arc Testnet RPC error. Do not repeat the transaction.';
 }
@@ -63,23 +28,41 @@ export function PreviewTestnetPayPage() {
   const [review, setReview] = useState<ArcPayPlan | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [journal, setJournal] = useState<Journal | null>(null);
+  const [loadedAccount, setLoadedAccount] = useState<string | null>(null);
+  const [recoveryBlocked, setRecoveryBlocked] = useState(false);
+  const signingInProgress = useRef(false);
   const [proof, setProof] = useState<ArcPayStatus | null>(null);
   const [manualHash, setManualHash] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setLoadedAccount(null);
     setReview(null);
     setConfirmed(false);
     setProof(null);
     setError(null);
-    setJournal(wallet.address ? readJournal(wallet.address) : null);
+    if (!wallet.address) {
+      setJournal(null);
+      setRecoveryBlocked(false);
+      return;
+    }
+    const loaded = loadArcPayJournal(wallet.address, localStorage);
+    setJournal(loaded.kind === 'active' ? loaded.journal : null);
+    setRecoveryBlocked(loaded.kind === 'blocked');
+    setLoadedAccount(wallet.address.toLowerCase());
   }, [wallet.address]);
 
   function preview() {
-    if (!wallet.address) return setError('Connect your browser wallet first.');
-    if (journal && journal.stage !== 'VERIFIED' && journal.stage !== 'REVERTED') {
-      return setError('An earlier payment remains unresolved. Reconcile it before creating another.');
+    if (!wallet.address || loadedAccount !== wallet.address.toLowerCase()) {
+      return setError('Connect your browser wallet and wait for payment recovery to load.');
+    }
+    // Re-read storage to detect a pending transaction from another tab.
+    const existing = loadArcPayJournal(wallet.address, localStorage);
+    if (existing.kind !== 'empty' || recoveryBlocked || journal) {
+      if (existing.kind === 'blocked') setRecoveryBlocked(true);
+      if (existing.kind === 'active') setJournal(existing.journal);
+      return setError('Payment recovery is locked or unresolved. Never start another transfer until verified.');
     }
     setError(null);
     setProof(null);
@@ -88,14 +71,23 @@ export function PreviewTestnetPayPage() {
   }
 
   async function signAndSend() {
-    if (!wallet.activeProvider || !wallet.address || !review || busy || !confirmed ||
-        wallet.address.toLowerCase() !== review.from.toLowerCase() || journal?.stage === 'PENDING' ||
-        journal?.stage === 'UNKNOWN' || journal?.stage === 'AWAITING_WALLET') return;
-
+    if (!wallet.activeProvider || !wallet.address || !review || busy || signingInProgress.current ||
+        !confirmed || recoveryBlocked || loadedAccount !== wallet.address.toLowerCase() ||
+        wallet.address.toLowerCase() !== review.from.toLowerCase() || journal) return;
+    // Reject an earlier attempt from another tab or an unreadable recovery lock.
+    const existing = loadArcPayJournal(wallet.address, localStorage);
+    if (existing.kind !== 'empty') {
+      if (existing.kind === 'blocked') setRecoveryBlocked(true);
+      if (existing.kind === 'active') setJournal(existing.journal);
+      setError('An earlier payment or unreadable recovery record exists. No wallet request was sent.');
+      return;
+    }
+    signingInProgress.current = true;
     // Record before invoking a wallet/RPC, fail-closed on any unknown result.
     const started: Journal = { from: review.from, to: review.to, amount: review.amount,
       stage: 'AWAITING_WALLET', hash: null };
-    if (!storeJournal(started)) {
+    if (!storeArcPayJournal(started, localStorage)) {
+      signingInProgress.current = false;
       setError('Local recovery storage unavailable. No wallet request sent; enable browser storage before trying a testnet payment.');
       return;
     }
@@ -108,27 +100,34 @@ export function PreviewTestnetPayPage() {
         walletRequestStarted = true;
       });
       const pending: Journal = { ...started, stage: 'PENDING', hash };
-      storeJournal(pending);
+      const saved = storeArcPayJournal(pending, localStorage);
       setJournal(pending);
-      setProof({ state: 'PENDING', txHash: hash });
+      setProof({ state: 'PENDING', txHash: hash, indexed: false });
+      if (!saved) {
+        setError('Payment submitted, but the recovery hash could not be saved. Copy the transaction hash from this page or your wallet before refreshing. Never resubmit.');
+      }
       setReview(null);
       setConfirmed(false);
       balance.refresh();
     } catch (cause) {
       if (!walletRequestStarted || walletRejected(cause)) {
-        try { localStorage.removeItem(storageKey(started.from)); } catch { /* no-op */ }
-        setJournal(null);
-        setError(walletRejected(cause)
-          ? 'Wallet rejected the transaction. Nothing was sent by this request.'
-          : `${errorMessage(cause)} No transaction submission was requested, so you can review again.`);
+        if (clearArcPayJournal(started.from, localStorage)) {
+          setJournal(null);
+          setError(walletRejected(cause)
+            ? 'Wallet rejected the transaction. Nothing was sent by this request.'
+            : `${errorMessage(cause)} No transaction submission was requested, so you can review again.`);
+        } else {
+          setJournal(started);
+          setError('Could not clear the recovery lock. Do not send again until browser storage is available.');
+        }
       } else {
         const uncertain: Journal = { ...started, stage: 'UNKNOWN' };
-        storeJournal(uncertain);
+        storeArcPayJournal(uncertain, localStorage);
         setJournal(uncertain);
         setReview(null);
         setError(`${errorMessage(cause)} If your wallet already submitted a transaction, paste its hash below. Never press Send again for an uncertain request.`);
       }
-    } finally { setBusy(false); }
+    } finally { signingInProgress.current = false; setBusy(false); }
   }
 
   async function checkHash(hash: string) {
@@ -141,11 +140,18 @@ export function PreviewTestnetPayPage() {
     try {
       const plan = createArcTestnetPayPlan(wallet.address, journal.to, journal.amount);
       const result = await reconcileArcTestnetPay(plan, hash);
+      if (journal.hash === null && result.state === 'PENDING' && !result.indexed) {
+        setError('Transaction hash not found on Arc yet. Check the hash in your wallet and try again. The original payment stays locked.');
+        return;
+      }
       setProof(result);
       const stage = result.state === 'VERIFIED' ? 'VERIFIED'
         : result.state === 'REVERTED' ? 'REVERTED' : 'PENDING';
       const next: Journal = { ...journal, hash, stage };
-      storeJournal(next);
+      if (!storeArcPayJournal(next, localStorage)) {
+        setError('Could not save the verified payment status. The original payment stays locked; restore browser storage and recheck.');
+        return;
+      }
       setJournal(next);
       if (stage === 'VERIFIED') balance.refresh();
     } catch (cause) {
@@ -157,7 +163,10 @@ export function PreviewTestnetPayPage() {
     if (!journal || (journal.stage !== 'VERIFIED' && journal.stage !== 'REVERTED')) return;
     // A completed/reverted journal is immutable elsewhere on-chain.
     // This removes only the local display record to allow a new review.
-    try { localStorage.removeItem(storageKey(journal.from)); } catch { /* no-op */ }
+    if (!clearArcPayJournal(journal.from, localStorage)) {
+      setError('Could not clear the completed recovery record. Browser storage must be available before another payment.');
+      return;
+    }
     setJournal(null);
     setProof(null);
     setReview(null);
@@ -168,7 +177,9 @@ export function PreviewTestnetPayPage() {
     setError(null);
   }
 
-  const locked = busy || Boolean(journal && journal.stage !== 'VERIFIED' && journal.stage !== 'REVERTED');
+  const locked = busy || recoveryBlocked || !wallet.address ||
+    loadedAccount !== wallet.address.toLowerCase() ||
+    Boolean(journal && journal.stage !== 'VERIFIED' && journal.stage !== 'REVERTED');
 
   return (
     <div className="vp-page" style={{ maxWidth: 1020 }}>
@@ -216,10 +227,16 @@ export function PreviewTestnetPayPage() {
             <ShieldAlert size={18} style={{ flex: 'none' }} />
             <span>Testnet tokens only, no monetary value intended. This sends an irreversible transaction on Arc Testnet if you approve in your wallet. Use a fresh testing wallet and check the recipient carefully. No automatic resubmission.</span>
           </div>
+          {recoveryBlocked && (
+            <p className="vp-form-error" role="alert">
+              Saved payment recovery data is unreadable. Sending is disabled to prevent accidental duplicate transfers.
+              Inspect your wallet history and original transactions before restoring your browser storage.
+            </p>
+          )}
           {error && <p className="vp-form-error" role="alert">{error}</p>}
           {!review && !journal && (
             <button className="vp-primary vp-full" type="button" onClick={preview}
-              disabled={!wallet.address || busy}><SendHorizontal size={17}/> Review real testnet payment <ArrowRight size={16}/></button>
+              disabled={locked}><SendHorizontal size={17}/> Review real testnet payment <ArrowRight size={16}/></button>
           )}
           {review && !journal && (
             <div className="vp-card" style={{ padding: 18, background: '#17242c', borderColor: 'rgba(197,251,113,.25)' }}>
@@ -234,7 +251,7 @@ export function PreviewTestnetPayPage() {
                   I checked the chain, token, recipient and amount. I want my wallet to sign this testnet transfer.
                 </label>
                 <button type="button" className="vp-primary vp-full" onClick={() => void signAndSend()}
-                  disabled={!confirmed || busy || wallet.chainId !== ARC_TESTNET_CHAIN_ID}>
+                  disabled={!confirmed || locked || wallet.chainId !== ARC_TESTNET_CHAIN_ID}>
                   <Wallet size={17}/> {busy ? 'Waiting for wallet…' : 'Open wallet to sign testnet transfer'}
                 </button>
                 <button type="button" className="vp-secondary vp-full" disabled={busy} onClick={() => { setReview(null); setConfirmed(false); }}>Cancel review</button>
