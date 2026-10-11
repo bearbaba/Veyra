@@ -29,7 +29,7 @@ import {
 } from '@/lib/api/activityReceiptApi';
 import { cctpV2BridgeProvider } from '@/providers/cctp/cctpBridgeProvider';
 
-export function ActivityPage() {
+export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
   const { isConnected } = useAccount();
   const { receipts, loading, reload } = useReceiptStore();
   const bridgeExecution = useBridgeExecution();
@@ -41,6 +41,10 @@ export function ActivityPage() {
   >([]);
 
   useEffect(() => {
+    // Static Vercel previews have no authoritative BFF. Never hydrate
+    // actionable recovery candidates from potentially stale local state.
+    if (readOnly) return;
+
     let active = true;
 
     void Promise.all([
@@ -55,9 +59,10 @@ export function ActivityPage() {
     return () => {
       active = false;
     };
-  }, [bridgeExecution.loadRecoveryCandidates]);
+  }, [bridgeExecution.loadRecoveryCandidates, readOnly]);
 
   async function resume(checkpoint: BridgeRecoveryCheckpoint) {
+    if (readOnly) return; // Prevents wallet-signing recovery in static preview.
     await bridgeExecution.resumeProviderCheckpoint(
       cctpV2BridgeProvider,
       checkpoint,
@@ -81,9 +86,17 @@ export function ActivityPage() {
           Activity
         </h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-          Receipts and in-flight actions that still need attention
+          {readOnly
+            ? 'Read-only preview · local receipts may be displayed; authenticated history requires the backend'
+            : 'Receipts and in-flight actions that still need attention'}
         </p>
       </div>
+
+      {readOnly && (
+        <div className="mb-5 rounded-xl px-4 py-3 text-xs" style={{ background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+          Static preview cannot resume bridges or authorize another receive. Signing and recovery stay locked.
+        </div>
+      )}
 
       {remoteReceipts.length > 0 && (
         <div className="mb-6 space-y-3">
@@ -107,7 +120,7 @@ export function ActivityPage() {
         </div>
       )}
 
-      {recoveryCandidates.length > 0 && (
+      {!readOnly && recoveryCandidates.length > 0 && (
         <div className="mb-6 space-y-3">
           {recoveryCandidates.map((checkpoint) => (
             <RecoveryCard
