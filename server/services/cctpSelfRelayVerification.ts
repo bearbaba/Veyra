@@ -52,3 +52,31 @@ export function assertSelfRelayTransactionMatchesCheckpoint(
     throw new Error('Self-relay transaction does not match the persisted CCTP message and attestation.');
   }
 }
+
+/**
+ * Bind a browser-supplied lost-response hash to the same chain and actual RPC
+ * transaction identity before checking destination CCTP calldata.
+ *
+ * A JSON-RPC URL can be accidentally pointed at a different network even
+ * when viem's client is configured with the expected chain. Never accept the
+ * configured chain alone as independent evidence.
+ */
+export function assertSelfRelayNetworkEvidence(
+  checkpoint: BridgeRecoveryInput,
+  requestedHash: string,
+  rpcChainId: number,
+  transaction: SelfRelayTransactionCall & { hash: string },
+): void {
+  if (
+    checkpoint.destinationChainId !== rpcChainId ||
+    !Number.isSafeInteger(rpcChainId) ||
+    !/^0x[0-9a-fA-F]{64}$/.test(requestedHash) ||
+    !/^0x[0-9a-fA-F]{64}$/.test(transaction.hash) ||
+    requestedHash.toLowerCase() !== transaction.hash.toLowerCase()
+  ) {
+    throw new Error(
+      'Self-relay transaction hash or independent destination RPC chain ID mismatch.',
+    );
+  }
+  assertSelfRelayTransactionMatchesCheckpoint(checkpoint, transaction);
+}
