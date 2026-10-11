@@ -1,6 +1,5 @@
 import {
   createPublicClient,
-  decodeEventLog,
   decodeFunctionData,
   getAddress,
   http,
@@ -18,7 +17,7 @@ import {
   type ReceiptSyncInput,
 } from '../db/repositories/receiptRepository.js';
 import { MANIFEST_CONSTANTS } from '../../src/providers/registry/providerManifest.js';
-import { chainIdToCctpDomain } from '../../src/providers/cctp/cctpV2Adapter.js';
+import { chainIdToCctpDomain, extractUniqueCctpSourceMessage, parseUniqueCctpAttestationResponse } from '../../src/providers/cctp/cctpV2Adapter.js';
 import {
   verifyCctpDestinationReceiptEvidence,
   verifyCctpSourceReceiptEvidence,
@@ -81,45 +80,18 @@ const RECEIVE_MESSAGE_ABI = parseAbi([
   'function receiveMessage(bytes message, bytes attestation) returns (bool success)',
 ]);
 
-const MESSAGE_SENT_ABI = parseAbi([
-  'event MessageSent(bytes message)',
-]);
-
 /**
- * Circle's tx-hash API can return a complete attestation without proving
- * which MessageSent in that source tx it belongs to. Require the *exact*
- * message passed to destination receiveMessage to appear in a canonical
- * source-chain MessageTransmitterV2 log.
+ * Only the one canonical, strictly decoded MessageSent in the reviewed
+ * source transaction can authorize the destination receive. Transactions
+ * with multiple CCTP messages are deliberately unsupported (fail closed).
  */
 export function sourceReceiptContainsCctpMessage(
   receipt: Pick<TransactionReceipt, 'status' | 'logs'>,
   message: `0x${string}`,
 ): boolean {
-  if (receipt.status !== 'success') return false;
-
-  return receipt.logs.some((log) => {
-    if (
-      log.address.toLowerCase() !==
-      MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER.toLowerCase()
-    ) {
-      return false;
-    }
-
-    try {
-      const decoded = decodeEventLog({
-        abi: MESSAGE_SENT_ABI,
-        topics: log.topics,
-        data: log.data,
-        strict: true,
-      });
-      return (
-        decoded.eventName === 'MessageSent' &&
-        decoded.args.message.toLowerCase() === message.toLowerCase()
-      );
-    } catch {
-      return false;
-    }
-  });
+  const sourceMessage = extractUniqueCctpSourceMessage(receipt);
+  return sourceMessage !== null &&
+    sourceMessage.toLowerCase() === message.toLowerCase();
 }
 
 function destinationUsdc(chainId: number): string | null {
@@ -676,20 +648,21 @@ function defaultAttestationFetcher(): ActivityReceiptAttestationFetcher {
       );
     }
 
-    const payload = (await response.json()) as {
-      messages?: Array<{
-        status?: string;
-        message?: string;
-        attestation?: string;
-      }>;
-    };
-    const message = payload.messages?.[0];
+    let authoritative;
+    try {
+      authoritative = parseUniqueCctpAttestationResponse(await response.json());
+    } catch {
+      throw new ActivityReceiptEvidenceError(
+        'ATTESTATION_EVIDENCE_AMBIGUOUS',
+        'Circle returned multiple or malformed messages for one source transaction; Veyra will not select an arbitrary attestation.',
+        409,
+      );
+    }
+
     if (
-      message?.status !== 'complete' ||
-      typeof message.message !== 'string' ||
-      !/^0x[0-9a-fA-F]+$/.test(message.message) ||
-      typeof message.attestation !== 'string' ||
-      !/^0x[0-9a-fA-F]+$/.test(message.attestation)
+      authoritative.status !== 'complete' ||
+      !authoritative.message ||
+      !authoritative.attestation
     ) {
       throw new ActivityReceiptEvidenceError(
         'ATTESTATION_EVIDENCE_INCOMPLETE',
@@ -699,8 +672,8 @@ function defaultAttestationFetcher(): ActivityReceiptAttestationFetcher {
     }
 
     return {
-      message: message.message as `0x${string}`,
-      attestation: message.attestation as `0x${string}`,
+      message: authoritative.message as `0x${string}`,
+      attestation: authoritative.attestation as `0x${string}`,
     };
   };
 }
