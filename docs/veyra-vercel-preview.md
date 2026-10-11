@@ -89,11 +89,61 @@ the UI displays an error rather than inventing a balance.
 Pay, Convert and Bridge now expose interactive input/review forms; the review is *non-signing* for Convert/Bridge. Pay has a separate,
 clearly labeled live testnet-only route with user-signed wallet transfer
 and on-chain verification, but no identity resolution.
-Agent has labeled deterministic explanations (not an LLM) and Activity
+Agent calls a token-gated server-side OpenAI model when configured (otherwise it explicitly fails); Activity
 shows an honest empty state (not fictional transactions for a connected
 wallet). Do not treat identities, remote receipts or bridge execution as
 functional without an independently verified BFF. Keep the
 first deployment private/restricted if testing with real accounts.
+
+## Live Veyra AI on Vercel (NO scripted answers)
+
+The Preview's Agent screen now calls a **real server-side Vercel Function**
+at `GET/POST /api/agent/chat`, implemented in `api/agent/chat.ts`.
+This is independent of the large Express BFF and **does not require
+PostgreSQL** just to get AI answers. The UI will no longer produce
+deterministic, canned or fallback responses.
+
+In **Vercel → veyra → Settings → Environment Variables**, configure
+all three variables in the **Preview** environment (server-only):
+
+| Name | Value / rule |
+|---|---|
+| `VEYRA_AGENT_ENABLED` | `1` |
+| `OPENAI_API_KEY` | your actual OpenAI API key, stored as a secret; **never** prefix with `VITE_` |
+| `VEYRA_AGENT_BETA_TOKEN` | a separate user-generated random access string, **at least 24 characters**, stored as a secret |
+
+Redeploy the latest **`phase5-production-bridge-flow` commit** as a
+Preview Deployment (environment changes require a redeploy). Test
+`/api/agent/chat` with GET: it must return
+`{"ok":true,"live":true,"provider":"openai",...}` before the
+UI accepts a chat. In Agent, enter the **beta token only** into the
+password field; **never** enter the OpenAI API key into any website
+input. Its value stays in page memory, not localStorage. The assistant
+then forwards the user's text to OpenAI from the Vercel Function and
+renders **only verified `live:true` replies**.
+
+The backend checks the bearer beta token with constant-time equality,
+rejects oversized messages, truncates history, caps completion tokens
+per request, has an upstream timeout, requests `store:false` from the
+provider, and does not expose API keys or upstream error details.
+Missing/wrong config, invalid beta access, API credit exhaustion,
+timeouts and upstream errors fail closed with an explicit error, not a
+pretend conversation. The model cannot execute transfers or fetch
+authenticated data.
+
+**Cost/security:** a beta access token protects the paid provider
+from random website visitors but is not distributed global rate
+limiting. Keep this deployment access-restricted, configure Vercel WAF
+rate limits and provider spending limits, share the beta token only
+with trusted testers, and rotate it if exposed. An OpenAI account/API
+key with credit is required; ChatGPT subscription access alone does
+not provide API billing. The Express BFF later supersedes this minimal
+AI-only function when independent identity/session validation is live.
+
+Convert and Bridge **no longer show simulated review/results**: their
+pages explain that the actual backend/settlement service is not deployed
+and do not offer transaction-signing or fabricated quotes. Direct capped
+Arc Testnet USDC Pay remains a separate real-wallet testnet feature.
 
 ## Live direct USDC payment beta (limited, opt-in testnet-only)
 
