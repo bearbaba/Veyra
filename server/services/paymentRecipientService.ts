@@ -17,10 +17,14 @@ export function chooseRecipientWallet(
   const primaryWalletId = typeof receivePreference.primaryWalletId === 'string'
     ? receivePreference.primaryWalletId
     : null;
+  const candidates = wallets.filter(wallet => wallet.chainId === desiredChainId);
   const preferred = primaryWalletId
-    ? wallets.find((wallet) => wallet.walletId === primaryWalletId && wallet.chainId === desiredChainId)
+    ? candidates.find(wallet => wallet.walletId === primaryWalletId)
     : undefined;
-  return preferred ?? wallets.find((wallet) => wallet.chainId === desiredChainId) ?? null;
+  // Never silently choose the first of multiple verified same-chain wallets:
+  // the receiver must set a primary wallet or the sender must re-review.
+  if (preferred) return preferred;
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 export async function preparePaymentRecipient(
@@ -49,6 +53,11 @@ export async function preparePaymentRecipient(
     snapshot.receivePreference as Record<string, unknown>,
   );
   if (!wallet) {
+    const sameChain = snapshot.resolvedWallets.filter((candidate) => candidate.chainId === desiredChainId);
+    if (sameChain.length > 1) {
+      throw new IdentityResolutionError('RECIPIENT_WALLET_AMBIGUOUS',
+        'Recipient has multiple verified wallets on this chain without an active primary. Ask the recipient to select one.');
+    }
     throw new IdentityResolutionError('RECIPIENT_CHAIN_UNSUPPORTED', 'Recipient has no verified wallet on the selected chain');
   }
   return {
