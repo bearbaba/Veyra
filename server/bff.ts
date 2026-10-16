@@ -1341,6 +1341,14 @@ app.post('/api/receipts/bridge', IDENTITY_RATE, async (req: Request, res: Respon
         typeof body.recipientSnapshotId === 'string'
           ? body.recipientSnapshotId
           : null,
+      recipientReviewToken:
+        typeof body.recipientReviewToken === 'string'
+          ? body.recipientReviewToken
+          : null,
+      recipientWalletId:
+        typeof body.recipientWalletId === 'string'
+          ? body.recipientWalletId
+          : null,
       policyResult:
         body.policyResult &&
         typeof body.policyResult === 'object' &&
