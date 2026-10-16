@@ -16,7 +16,16 @@ const EXAMPLES = [
   'What if my wallet never returns a transaction hash?',
 ];
 
-export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPage) => void }) {
+const MAINNET_EXAMPLES = [
+  'How do I check a USDC balance on Arc Mainnet?',
+  'Why are real Mainnet payments still locked in Veyra?',
+  'What should I verify before approving a blockchain transfer?',
+];
+
+export function PreviewLiveAgent({ onNavigate, network = 'testnet' }: {
+  onNavigate: (page: PreviewPage) => void;
+  network?: 'testnet' | 'mainnet';
+}) {
   const [status, setStatus] = useState<Status | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [accessCode, setAccessCode] = useState('');
@@ -111,7 +120,7 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
         <div>
           <p className="vp-eyebrow">VEYRA INTELLIGENCE · LIVE SERVER AI</p>
           <h1 className="vp-page-title">Ask Veyra <Sparkles size={23} style={{ display: 'inline', color: '#c5fb71' }} /></h1>
-          <p className="vp-page-description">Ask questions in any language. Veyra responds in your language through a real, protected AI service — never with canned answers.</p>
+          <p className="vp-page-description">Ask questions in any language. Veyra responds in your language through a real, protected AI service — never with canned answers. {network === 'mainnet' ? 'Mainnet questions are informational only; no AI-controlled signing or transfers.' : ''}</p>
         </div>
         <span className="vp-chain-pill">
           {ready ? <Wifi size={14} color="#b6f08c" /> : <WifiOff size={14} />}
@@ -187,7 +196,7 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
         </div>
 
         <div className="vp-agent-questions" style={{ marginBottom: 15 }}>
-          {EXAMPLES.map((question) => (
+          {(network === 'testnet' ? EXAMPLES : MAINNET_EXAMPLES).map((question) => (
             <button key={question} type="button" disabled={!ready || accessCode.trim().length < 24 || busy}
               onClick={() => void sendMessage(undefined, question)}>{question}</button>
           ))}
@@ -207,12 +216,16 @@ export function PreviewLiveAgent({ onNavigate }: { onNavigate: (page: PreviewPag
       <div className="vp-form-note" style={{ marginTop: 18 }}>
         <ShieldCheck size={18} style={{ flex: 'none' }}/>
         <p>
-          AI chat is informational only. To send testnet USDC, use <strong>Send & Pay</strong>,
-          review the transfer, and authorize it in your own wallet. Convert and Bridge remain disabled pending backend deployment and live end-to-end acceptance.
+          {network === 'testnet' ? <>
+            AI chat is informational only. To send testnet USDC, use <strong>Send & Pay</strong>,
+            review the transfer, and authorize it in your own wallet. Convert and Bridge remain disabled pending backend deployment and live end-to-end acceptance.
+          </> : <>
+            AI chat is informational only. <strong>Arc Mainnet Pay currently supports simulation only.</strong> Real-money signing, Convert and Bridge remain disabled until independently approved. Your wallet never signs on an AI instruction.
+          </>}
         </p>
       </div>
       <button type="button" className="vp-text-button" style={{ marginTop: 18 }}
-        onClick={() => onNavigate('pay')}>Open Arc Testnet Pay <ArrowRight size={15} style={{ display: 'inline' }}/></button>
+        onClick={() => onNavigate('pay')}>{network === 'testnet' ? 'Open Arc Testnet Pay' : 'Open Arc Mainnet Pay Lab'} <ArrowRight size={15} style={{ display: 'inline' }}/></button>
     </div>
   );
 }

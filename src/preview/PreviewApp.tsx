@@ -16,11 +16,13 @@ import { PreviewTestnetPayPage } from './PreviewTestnetPayPage';
 import { PreviewHome, PreviewActivity, PreviewSettings } from './PreviewSurfaces';
 import { PreviewLiveAgent } from './PreviewLiveAgent';
 import { PreviewServiceStatus } from './PreviewServiceStatus';
+import { PreviewMainnetHome, PreviewMainnetPay, PreviewMainnetGate } from './PreviewMainnetSurfaces';
 import {
   PreviewWalletProvider, shortPreviewAddress, usePreviewWallet,
 } from './PreviewWallet';
 
 export type PreviewPage = 'home' | 'pay' | 'convert' | 'bridge' | 'agent' | 'activity' | 'settings';
+export type PreviewNetwork = 'testnet' | 'mainnet';
 type NavigationItem = {
   id: PreviewPage;
   title: string;
@@ -51,7 +53,7 @@ function BrandMark({ size = 36 }: { size?: number }) {
   );
 }
 
-export function PreviewWalletButton({ fullWidth = false }: { fullWidth?: boolean }) {
+export function PreviewWalletButton({ fullWidth = false, network = 'testnet' }: { fullWidth?: boolean; network?: PreviewNetwork }) {
   const wallet = usePreviewWallet();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -90,14 +92,16 @@ export function PreviewWalletButton({ fullWidth = false }: { fullWidth?: boolean
               </div>
               <button className="vp-icon-button" aria-label="Close" onClick={() => setOpen(false)}><X size={18} /></button>
             </div>
-            <p className="vp-caption">Connect an injected wallet to view Arc Testnet balances. A real testnet USDC payment, if you later choose to initiate one, requires a separate explicit wallet approval.</p>
+            <p className="vp-caption">{network === 'testnet'
+              ? 'Connect an injected wallet to view Arc Testnet balances. A real testnet USDC payment, if you later choose to initiate one, requires a separate explicit wallet approval.'
+              : 'Connect an injected wallet to read Arc Mainnet public data. Mainnet Pay only simulates: signatures and real-money transfers are disabled.'}</p>
             {wallet.address ? (
               <div className="vp-modal-wallet">
                 <span className="vp-status-dot" />
                 <div style={{ minWidth: 0 }}>
                   <strong>{wallet.activeWalletName || 'Connected wallet'}</strong>
                   <p className="vp-mono vp-truncate">{wallet.address}</p>
-                  <span className="vp-muted">{wallet.chainId === 5042002 ? 'Arc Testnet' : `Wallet chain: ${wallet.chainId ?? 'Unknown'}`}</span>
+                  <span className="vp-muted">{wallet.chainId === (network === 'testnet' ? 5042002 : 5042) ? (network === 'testnet' ? 'Arc Testnet' : 'Arc Mainnet') : `Wallet chain: ${wallet.chainId ?? 'Unknown'}`}</span>
                 </div>
                 <button className="vp-text-button" onClick={() => void copyAddress()}>{copied ? 'Copied' : 'Copy'}</button>
               </div>
@@ -122,7 +126,9 @@ export function PreviewWalletButton({ fullWidth = false }: { fullWidth?: boolean
             {wallet.error && <p className="vp-form-error" role="alert">{wallet.error}</p>}
             {wallet.address && <button type="button" className="vp-secondary vp-full"
               onClick={() => { wallet.disconnect(); setOpen(false); }}>Hide wallet in Veyra</button>}
-            <div className="vp-modal-note"><LockKeyhole size={16} /> Connecting only shares your public address. Direct testnet USDC Pay separately requires your explicit wallet approval; other financial actions stay disabled.</div>
+            <div className="vp-modal-note"><LockKeyhole size={16} /> {network === 'testnet'
+              ? 'Connecting only shares your public address. Direct testnet USDC Pay separately requires your explicit wallet approval; other financial actions stay disabled.'
+              : 'Connecting only shares your public address. Mainnet signing and transfers are not available in this release. Switching Veyra environments does not switch the wallet network.'}</div>
           </div>
         </div>
       )}
@@ -130,8 +136,10 @@ export function PreviewWalletButton({ fullWidth = false }: { fullWidth?: boolean
   );
 }
 
-function PreviewShell({ page, onNavigate, children }: {
-  page: PreviewPage; onNavigate: (page: PreviewPage) => void; children: ReactNode;
+function PreviewShell({ page, onNavigate, network, onNetworkChange, children }: {
+  page: PreviewPage; onNavigate: (page: PreviewPage) => void;
+  network: PreviewNetwork; onNetworkChange: (network: PreviewNetwork) => void;
+  children: ReactNode;
 }) {
   const wallet = usePreviewWallet();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -154,6 +162,20 @@ function PreviewShell({ page, onNavigate, children }: {
           <BrandMark size={42} />
           <span className="vp-brand-text">veyra<span>.</span><small>YOUR MONEY, SIMPLIFIED</small></span>
         </button>
+        <div className="vp-network-box">
+          <div className="vp-network-title"><span>NETWORK</span><span>{network === 'testnet' ? 'DEVELOPMENT' : 'READ ONLY'}</span></div>
+          <div className="vp-network-segment" role="group" aria-label="Veyra network environment">
+            <button type="button" aria-pressed={network === 'testnet'}
+              className={network === 'testnet' ? 'vp-network-selected' : ''}
+              onClick={() => onNetworkChange('testnet')}>Testnet</button>
+            <button type="button" aria-pressed={network === 'mainnet'}
+              className={network === 'mainnet' ? 'vp-network-selected vp-network-mainnet-selected' : ''}
+              onClick={() => onNetworkChange('mainnet')}>Mainnet</button>
+          </div>
+          <p className="vp-network-description">{network === 'testnet'
+            ? 'Test tokens · Chain 5042002'
+            : 'Real network · Chain 5042 · Signing locked'}</p>
+        </div>
         <div className="vp-sidebar-section">WORKSPACE</div>
         <nav className="vp-main-nav" aria-label="Product navigation">
           {NAVIGATION.map(({ id, title, icon: Icon }) => (
@@ -169,9 +191,11 @@ function PreviewShell({ page, onNavigate, children }: {
         <div className="vp-sidebar-bottom">
           <div className="vp-sidebar-card">
             <div className="vp-card-mini-icon"><ShieldCheck size={18} /></div>
-            <strong>Explore safely</strong>
-            <p>Direct Arc Testnet USDC Pay: max 1 token per transfer. Bridge and Convert still locked.</p>
-            <span className="vp-safe-pill"><span /> TESTNET ONLY</span>
+            <strong>{network === 'testnet' ? 'Explore safely' : 'Mainnet safety preview'}</strong>
+            <p>{network === 'testnet'
+              ? 'Direct Arc Testnet USDC Pay: max 1 token per transfer. Bridge and Convert still locked.'
+              : 'Live Mainnet balances and Pay simulations only. Real-money signatures and cross-chain transfers remain locked.'}</p>
+            <span className="vp-safe-pill"><span /> {network === 'testnet' ? 'TESTNET ONLY' : 'MAINNET READ ONLY'}</span>
           </div>
           <button className={`vp-nav-link ${page === 'settings' ? 'vp-nav-active' : ''}`}
             onClick={() => select('settings')}>
@@ -190,18 +214,19 @@ function PreviewShell({ page, onNavigate, children }: {
             <span className="vp-header-breadcrumb">Workspace <span>/</span> <strong>{PAGE_LABEL[page]}</strong></span>
           </div>
           <div className="vp-header-actions">
-            <span className="vp-network-pill"><span className="vp-network-dot" /> Arc Testnet</span>
-            <PreviewWalletButton />
+            <span className="vp-network-pill"><span className="vp-network-dot" /> {network === 'testnet' ? 'Arc Testnet' : 'Arc Mainnet'}</span>
+            <PreviewWalletButton network={network} />
           </div>
         </header>
-        <div className="vp-preview-ribbon">
-          <div><ShieldCheck size={16} /><strong>ARC TESTNET BETA</strong><span>Real capped USDC Pay via your wallet; Convert and Bridge remain read-only until independently verified.</span></div>
-          <span className="vp-ribbon-tag">TESTNET</span>
+        <div className={`vp-preview-ribbon ${network === 'mainnet' ? 'vp-mainnet-ribbon' : ''}`}>
+          {network === 'testnet'
+            ? <><div><ShieldCheck size={16} /><strong>ARC TESTNET BETA</strong><span>Real capped USDC Pay via your wallet; Convert and Bridge remain read-only until independently verified.</span></div><span className="vp-ribbon-tag">TESTNET</span></>
+            : <><div><LockKeyhole size={16}/><strong>ARC MAINNET LAB</strong><span>Live onchain reads and USDC simulation only. Wallet signing and real-money transfers are disabled.</span></div><span className="vp-ribbon-tag">READ ONLY</span></>}
         </div>
         <main className="vp-content" id="content">{children}</main>
         <footer className="vp-footer">
           <span>© Veyra · Built for Arc</span>
-          <span>{wallet.address ? `Connected: ${shortPreviewAddress(wallet.address)}` : 'Connect a wallet to view live balances'} · Capped testnet Pay only</span>
+          <span>{wallet.address ? `Connected: ${shortPreviewAddress(wallet.address)}` : 'Connect a wallet to view live balances'} · {network === 'testnet' ? 'Capped testnet Pay only' : 'Mainnet signing locked'}</span>
         </footer>
       </div>
     </div>
@@ -210,7 +235,26 @@ function PreviewShell({ page, onNavigate, children }: {
 
 function PreviewWorkspace() {
   const [page, setPage] = useState<PreviewPage>('home');
+  const [network, setNetwork] = useState<PreviewNetwork>('testnet');
+  function switchNetwork(next: PreviewNetwork) {
+    if (next === network) return;
+    // Unmount every network-specific page and discard unsent form state.
+    // Wallet network changes still require an explicit action in the wallet.
+    setNetwork(next);
+    setPage('home');
+  }
   function render() {
+    if (network === 'mainnet') {
+      switch (page) {
+        case 'home': return <PreviewMainnetHome onNavigate={setPage}/>;
+        case 'pay': return <PreviewMainnetPay/>;
+        case 'agent': return <PreviewLiveAgent key="mainnet" network="mainnet" onNavigate={setPage}/>;
+        case 'bridge':
+        case 'convert':
+        case 'activity':
+        case 'settings': return <PreviewMainnetGate surface={page} onNavigate={setPage}/>;
+      }
+    }
     switch (page) {
       case 'home': return <PreviewHome onNavigate={setPage} />;
       case 'agent': return <PreviewLiveAgent onNavigate={setPage} />;
@@ -223,7 +267,9 @@ function PreviewWorkspace() {
       default: return <PreviewHome onNavigate={setPage} />;
     }
   }
-  return <PreviewShell page={page} onNavigate={setPage}>{render()}</PreviewShell>;
+  return <PreviewShell page={page} onNavigate={setPage} network={network} onNetworkChange={switchNetwork}>
+    {render()}
+  </PreviewShell>;
 }
 
 export function PreviewApp() {
