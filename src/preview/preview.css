@@ -267,3 +267,8 @@ body { background: var(--vp-bg); }
 .vp-unified-footnote a {color:#c6f9aa;text-decoration:none;display:inline-flex;align-items:center;gap:4px;}
 .vp-sr-only {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
 @media(max-width:680px){.vp-unified-toolbar{align-items:stretch;flex-direction:column;}.vp-unified-search{width:100%;}.vp-unified-row{gap:9px;}.vp-unified-tag{font-size:9px;padding:6px 8px;}}
+
+/* Phase 7D — clear, compact second-chain USDC observation, original UI intact. */
+.vp-unified-base { margin-bottom:24px; min-width:0; }
+.vp-unified-base .vp-balance-value {overflow-wrap:anywhere;}
+.vp-unified-base .vp-unified-notice {margin-top:11px;}

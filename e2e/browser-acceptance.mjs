@@ -73,6 +73,30 @@ async function mockPublicRpc(page) {
     await route.fulfill({ status: 200, contentType: 'application/json',
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, result }) });
   });
+  // Only vetted Base public USDC reads are mocked; never submit or sign.
+  await page.route(/https:\/\/(?:mainnet|sepolia)\.base\.org(?:\/|$)/, async route => {
+    const packet = route.request().postDataJSON();
+    const method = packet?.method;
+    const isSepolia = route.request().url().includes('sepolia.base.org');
+    let result;
+    if (method === 'eth_chainId') result = isSepolia ? '0x14a34' : '0x2105';
+    else if (method === 'eth_blockNumber') result = '0x2710';
+    else if (method === 'eth_getCode') result = '0x60016000';
+    else if (method === 'eth_call') {
+      const data = packet?.params?.[0]?.data;
+      const expected = isSepolia
+        ? '0x036cbd53842c5426634e7929541ec2318f3dcf7e'
+        : '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+      assert.equal(packet?.params?.[0]?.to?.toLowerCase(), expected,
+        'Base USDC reader called an unreviewed token');
+      if (data === '0x313ce567') result = '0x' + (6n).toString(16).padStart(64, '0');
+      else if (typeof data === 'string' && data.startsWith('0x70a08231'))
+        result = '0x' + (1_250_000n).toString(16).padStart(64, '0');
+      else throw new Error('Unexpected Base eth_call selector: ' + data);
+    } else throw new Error('Unexpected Base RPC method: ' + method);
+    await route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ jsonrpc: '2.0', id: packet.id, result }) });
+  });
   await page.route(/fonts\.(?:googleapis|gstatic)\.com/, route => route.abort());
   return calls;
 }
@@ -113,6 +137,15 @@ async function desktop(browser) {
     await page.getByLabel('Search assets or networks').fill('');
     await page.getByRole('button', { name: /Assets/ }).click();
     await page.getByText('Catalog only', { exact: true }).first().waitFor();
+    await page.getByText('Read at Base block', { exact: false }).waitFor();
+    await page.getByText('1.25', { exact: false }).first().waitFor();
+    // The network selector resets the entire Unified context; Base Sepolia
+    // must read its own chain/contract without switching the injected wallet.
+    await page.getByRole('button', { name: 'Testnet', exact: true }).click();
+    await page.getByRole('button', { name: 'Unified', exact: true }).click();
+    await page.getByText('Base Sepolia · USDC', { exact: true }).waitFor();
+    await page.getByText('Read at Base block', { exact: false }).waitFor();
+    await page.getByRole('button', { name: 'Mainnet', exact: true }).click();
     await page.getByRole('button', { name: 'Send & Pay' }).click();
     await page.getByText('Signing disabled', { exact: true }).first().waitFor();
 
@@ -178,6 +211,14 @@ async function mobile(browser) {
     }));
     assert(widths.scrollWidth <= widths.viewport + 2,
       `Mobile view overflows screen: ${JSON.stringify(widths)}`);
+    await page.getByRole('button', { name: 'Open navigation' }).click();
+    await page.getByRole('button', { name: 'Unified', exact: true }).click();
+    await page.getByText('Base · USDC', { exact: true }).waitFor();
+    const unifiedWidths = await page.evaluate(() => ({
+      viewport: window.innerWidth, scrollWidth: document.documentElement.scrollWidth,
+    }));
+    assert(unifiedWidths.scrollWidth <= unifiedWidths.viewport + 2,
+      'Unified Base UI overflows mobile screen: ' + JSON.stringify(unifiedWidths));
     await page.getByRole('button', { name: 'Open navigation' }).click();
     await page.getByRole('button', { name: 'Testnet', exact: true }).click();
     await page.getByText('ARC TESTNET BETA', { exact: true }).waitFor();

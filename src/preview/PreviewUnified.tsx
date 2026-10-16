@@ -8,14 +8,15 @@ import { formatUnits } from 'viem';
 import { BrandLogo } from '../components/brand/BrandLogo';
 import { usePreviewArcBalance, usePreviewWallet } from './PreviewWallet';
 import { readMainnetBalance } from './arcMainnetReadOnly';
+import { PreviewBaseUsdcBalance } from './PreviewBaseUsdcBalance';
 import {
   filterUnifiedCatalog, unifiedChains, UNIFIED_ASSETS,
   type UnifiedEnvironment, type UnifiedStatus,
 } from './unifiedAssetCatalog';
 
 function CapabilityTag({ status }: { status: UnifiedStatus }) {
-  return <span className={status === 'ARC_BALANCE_READ' ? 'vp-unified-tag vp-unified-live' : 'vp-unified-tag'}>
-    {status === 'ARC_BALANCE_READ' ? 'Arc balance read' : 'Catalog only'}
+  return <span className={status === 'USDC_BALANCE_READ' ? 'vp-unified-tag vp-unified-live' : 'vp-unified-tag'}>
+    {status === 'USDC_BALANCE_READ' ? 'USDC read only' : 'Catalog only'}
   </span>;
 }
 function UnifiedArcBalance({ environment }: { environment: UnifiedEnvironment }) {
@@ -81,8 +82,8 @@ export function PreviewUnified({ environment }: { environment: UnifiedEnvironmen
         <p className="vp-eyebrow">VEYRA / UNIFIED</p>
         <h1 className="vp-page-title">Your assets. One clear view.</h1>
         <p className="vp-page-description">
-          Explore recognized assets and networks in one place. Only Arc USDC has a verified live balance reader.
-          Catalog entries are not swap, bridge or spending permissions.
+          Explore supported USDC balances on Arc and Base, plus recognized asset and network metadata.
+          Other catalog entries do not imply live holdings, swap, bridge, or spending permissions.
         </p>
       </div>
       <span className="vp-chain-pill"><ShieldCheck size={15}/> {environment === 'testnet' ? 'Arc Testnet' : 'Arc Mainnet · Read only'}</span>
@@ -98,11 +99,12 @@ export function PreviewUnified({ environment }: { environment: UnifiedEnvironmen
         <div className="vp-stat-group">
           <div className="vp-stat"><span>ASSETS IN CATALOG</span><strong>{UNIFIED_ASSETS.length}</strong></div>
           <div className="vp-stat"><span>NETWORKS IN THIS ENVIRONMENT</span><strong>{unifiedChains(environment).length}</strong></div>
-          <div className="vp-stat"><span>LIVE BALANCE SOURCES</span><strong>Arc USDC only</strong></div>
+          <div className="vp-stat"><span>USDC READERS</span><strong>Arc + Base</strong></div>
         </div>
-        <p className="vp-unified-notice">Other coins and networks are discovery metadata. Their balances, prices, swaps, CCTP routes and identity-linked holdings are not indexed or enabled here.</p>
+        <p className="vp-unified-notice">Only native USDC on Arc and Base has a wallet-balance reader here. Failed or rate-limited reads are unavailable, never assumed to be zero. All other assets and chains remain catalog metadata.</p>
       </div>
     </div>
+    <PreviewBaseUsdcBalance environment={environment}/>
     <section className="vp-card vp-card-pad vp-unified-directory">
       <div className="vp-unified-toolbar">
         <div>
@@ -136,7 +138,7 @@ export function PreviewUnified({ environment }: { environment: UnifiedEnvironmen
           <div className="vp-empty-state"><Search size={22}/><h3>No matching results</h3>
             <p>Try another name, ticker, or chain ID. No unknown token contract is added automatically.</p></div>}
       </div>
-      <p className="vp-unified-footnote"><CheckCircle2 size={14}/> Live balances are pinned to Arc USDC only.
+      <p className="vp-unified-footnote"><CheckCircle2 size={14}/> Public wallet-held USDC reads are available on Arc and Base; other assets are not indexed.
         Cross-chain positions, fiat valuations and actionable swaps will require separately verified providers.
         <a href="https://github.com/bearbaba/Veyra" target="_blank" rel="noreferrer"> Review source <ExternalLink size={12}/></a>
       </p>
