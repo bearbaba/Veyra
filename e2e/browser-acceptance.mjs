@@ -127,6 +127,11 @@ async function desktop(browser) {
     // Wrong wallet chain: simulated Mainnet Pay must become disabled, and the
     // app must NOT automatically invoke wallet_switchEthereumChain.
     await page.evaluate(() => window.__veyraSmokeSetChain('0x1'));
+    // EIP-1193 events schedule a React update; do not read the pre-render
+    // button state in the same browser turn as the event.
+    await page.waitForFunction(() => Array.from(document.querySelectorAll('button'))
+      .some(button => button.textContent?.includes('Simulate & review') && button.disabled),
+      null, { timeout: 5_000 });
     assert.equal(await page.getByRole('button', { name: 'Simulate & review' }).isDisabled(), true);
 
     for (const title of ['Convert', 'Bridge USDC', 'Activity']) {
