@@ -11,6 +11,7 @@ import {
   type ReceiptStatus,
 } from '../db/repositories/receiptRepository.js';
 import { verifyPaymentRecipient } from './paymentRecipientService.js';
+import { PaymentReviewError } from './paymentReviewProof.js';
 import { MANIFEST_CONSTANTS } from '../../src/providers/registry/providerManifest.js';
 import { buildRouteId } from '../../src/core/router/routeEngine.js';
 import {
@@ -45,6 +46,8 @@ export interface CreateBridgeActivityReceiptInput {
   amountRaw: string;
   tokenAddress: string;
   recipientSnapshotId?: string | null;
+  recipientReviewToken?: string | null;
+  recipientWalletId?: string | null;
   policyResult?: Record<string, unknown>;
   preflightResults?: unknown[];
 }
@@ -151,17 +154,30 @@ export async function createBridgeActivityReceipt(
   );
 
   if (input.recipientSnapshotId) {
-    const snapshot = await verifyPaymentRecipient(db, {
-      snapshotId: input.recipientSnapshotId,
-      expectedWalletAddress: destinationAddress,
-      expectedChainId: input.destinationChainId,
-    });
-    if (!snapshot.ok) {
+    // Financial route receipts must never accept a snapshot without the
+    // authenticated sender-bound proof for the EXACT reviewed destination.
+    if (!input.recipientReviewToken || !input.recipientWalletId) {
       throw new ActivityReceiptInputError(
-        'RECIPIENT_SNAPSHOT_INVALID',
-        snapshot.reason,
-        409,
+        'RECIPIENT_REVIEW_REQUIRED', 'Recipient review proof and selected wallet ID are required.', 409,
       );
+    }
+    try {
+      const snapshot = await verifyPaymentRecipient(db, {
+        senderUserId: userId,
+        snapshotId: input.recipientSnapshotId,
+        expectedWalletId: input.recipientWalletId,
+        expectedWalletAddress: destinationAddress,
+        expectedChainId: input.destinationChainId,
+        reviewToken: input.recipientReviewToken,
+      });
+      if (!snapshot.ok) {
+        throw new ActivityReceiptInputError('RECIPIENT_SNAPSHOT_INVALID', snapshot.reason, 409);
+      }
+    } catch (error) {
+      if (error instanceof PaymentReviewError) {
+        throw new ActivityReceiptInputError(error.code, error.message, 409);
+      }
+      throw error;
     }
   }
 
