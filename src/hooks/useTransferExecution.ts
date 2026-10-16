@@ -90,7 +90,7 @@ export function useTransferExecution() {
   const { address, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
 
-  const execute = useCallback(async (action: TransferAction, recipientGuard?: { snapshotId: string; expectedWalletAddress: string; expectedChainId: number }) => {
+  const execute = useCallback(async (action: TransferAction, recipientGuard?: { snapshotId: string; expectedWalletId: string; expectedWalletAddress: string; expectedChainId: number; reviewToken: string }) => {
     if (!publicClient) {
       setState((s) => ({ ...s, step: 'FAILED', error: 'No public client available' }));
       return;
