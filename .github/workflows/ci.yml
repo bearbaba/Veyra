@@ -83,6 +83,22 @@ jobs:
       - name: Assert no wallet signing and BFF code in preview JavaScript
         run: bun run check:vercel-preview-bundle
 
+      - name: Build isolated Arc Mainnet safety preview (signing disabled)
+        run: VITE_VEYRA_ENV=mainnet VITE_VEYRA_MAINNET_MVP=1 VITE_VEYRA_MAINNET_PAY=0 bun run build
+
+      - name: Assert isolated Mainnet preview and production bundle safety
+        run: |
+          bun run check:prod-bundle
+          bun run scripts/check-mainnet-mvp-bundle.ts
+
+      - name: Refuse mainnet signing in the default Testnet Vercel build
+        run: |
+          if VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_MAINNET_PAY=1 bun run build >/tmp/veyra-unsafe-build.log 2>&1; then
+            echo "ERROR: unsafe dual-environment build was accepted"
+            exit 1
+          fi
+          grep -q 'Mainnet signing may only be requested' /tmp/veyra-unsafe-build.log
+
       - name: Build hosted testnet Express BFF container
         run: docker build -f Dockerfile.bff -t veyra-bff:ci .
 
