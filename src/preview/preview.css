@@ -220,3 +220,17 @@ body { background: var(--vp-bg); }
 .vp-mainnet-ribbon { background: rgba(98, 70, 35, .19); border-color: rgba(244, 194, 103, .24); }
 .vp-mainnet-ribbon strong, .vp-mainnet-ribbon .vp-ribbon-tag { color: #ffdc9e; }
 .vp-mainnet-ribbon .vp-ribbon-tag { background: rgba(171,117,48,.2); border-color: rgba(230,165,73,.36); }
+
+/* On small screens the selected financial network must remain legible.
+   Hiding the Arc Testnet/Mainnet label creates an avoidable money-safety risk. */
+@media (max-width: 680px) {
+  .vp-header .vp-network-pill {
+    font-size: 10px;
+    padding: 9px 8px;
+    gap: 5px;
+  }
+}
+@media (max-width: 430px) {
+  .vp-header-breadcrumb { display: none; }
+  .vp-header-actions { min-width: 0; }
+}
