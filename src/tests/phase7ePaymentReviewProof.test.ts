@@ -58,7 +58,7 @@ describe('Phase 7E — sender-bound exact Pay by Veyra ID review', () => {
   it('refuses tampering, signing by unknown secret, malformed and long tokens', () => {
     const t = token();
     const parts = t.split('.');
-    const replaced = parts[0] + '.' + parts[1]!.replace(/./, 'A');
+    const replaced = parts[0] + '.' + parts[1].replace(/^./, parts[1][0] === 'A' ? 'B' : 'A');
     expect(() => verifyPaymentReviewToken(replaced, reviewed, { now, secret: SECRET }))
       .toThrow(PaymentReviewError);
     expect(() => verifyPaymentReviewToken(t, reviewed, { now, secret: 'x'.repeat(64) }))
