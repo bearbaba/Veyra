@@ -103,6 +103,16 @@ async function desktop(browser) {
     await page.getByRole('button', { name: 'Mainnet', exact: true }).click();
     await page.getByText('ARC MAINNET LAB', { exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Mainnet', exact: true }).getAttribute('aria-pressed'), 'true');
+    // Phase 7A: one honest Unified directory shared across both environments.
+    await page.getByRole('button', { name: 'Unified', exact: true }).click();
+    await page.getByRole('heading', { name: 'Your assets. One clear view.' }).waitFor();
+    await page.getByRole('button', { name: /Networks/ }).click();
+    await page.getByText('Chain ID 5042', { exact: true }).waitFor();
+    await page.getByLabel('Search assets or networks').fill('8453');
+    await page.getByText('Base', { exact: true }).first().waitFor();
+    await page.getByLabel('Search assets or networks').fill('');
+    await page.getByRole('button', { name: /Assets/ }).click();
+    await page.getByText('Catalog only', { exact: true }).first().waitFor();
     await page.getByRole('button', { name: 'Send & Pay' }).click();
     await page.getByText('Signing disabled', { exact: true }).first().waitFor();
 
