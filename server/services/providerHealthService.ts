@@ -20,10 +20,11 @@ export interface ProviderHealthProbeReport {
 type FetchLike = typeof fetch;
 
 function classifyRpcCoverage(results: RpcProbeResult[]): ProviderHealthStatus {
-  const configured = results.filter((r) => r.configured);
-  if (configured.length === 0) return 'UNKNOWN';
-  const okCount = configured.filter((r) => r.ok).length;
-  if (okCount === configured.length) return 'OK';
+  if (results.length === 0 || results.every((r) => !r.configured)) return 'UNKNOWN';
+  const okCount = results.filter((r) => r.configured && r.ok).length;
+  // Missing endpoints are unhealthy too: a single working chain must never
+  // make a multichain money-moving provider look production-ready.
+  if (okCount === results.length) return 'OK';
   if (okCount === 0) return 'DOWN';
   return 'DEGRADED';
 }
@@ -39,6 +40,7 @@ export async function probeRpcEndpoint(
   }
   const startedAt = Date.now();
   try {
+    if (new URL(rpcUrl).protocol !== 'https:') throw new Error('RPC must use HTTPS.');
     const response = await fetchImpl(rpcUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -47,8 +49,11 @@ export async function probeRpcEndpoint(
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const body = await response.json() as { result?: string; error?: unknown };
-    const observed = body.result ? Number.parseInt(body.result, 16) : NaN;
-    if (observed !== chain.chainId) throw new Error(`chainId mismatch: expected ${chain.chainId}, got ${body.result ?? 'missing'}`);
+    if (body.error || typeof body.result !== 'string' || !/^0x[0-9a-fA-F]+$/.test(body.result)) {
+      throw new Error('RPC returned an invalid eth_chainId response.');
+    }
+    const observed = Number.parseInt(body.result, 16);
+    if (observed !== chain.chainId) throw new Error(`chainId mismatch: expected ${chain.chainId}.`);
     return { chainId: chain.chainId, name: chain.name, configured: true, ok: true, latencyMs: Date.now() - startedAt, detail: 'RPC responded with expected chainId.' };
   } catch (error) {
     return {
@@ -57,7 +62,9 @@ export async function probeRpcEndpoint(
       configured: true,
       ok: false,
       latencyMs: Date.now() - startedAt,
-      detail: error instanceof Error ? error.message : String(error),
+      // Do not echo provider URLs or thrown HTTP errors: RPC URLs often hold API keys.
+      detail: error instanceof Error && (error.message.startsWith('chainId mismatch:') || error.message === 'RPC must use HTTPS.' || error.message === 'RPC returned an invalid eth_chainId response.')
+        ? error.message : 'RPC health probe failed.',
     };
   }
 }
@@ -68,11 +75,18 @@ export async function refreshMainnetProviderHealth(
 ): Promise<ProviderHealthProbeReport> {
   const checkedAt = Date.now();
   const rpc = await Promise.all(MAINNET_CHAIN_CATALOG.map((chain) => probeRpcEndpoint(chain, env, fetchImpl)));
-  const status = classifyRpcCoverage(rpc);
-  const detail = `Mainnet RPC coverage ${rpc.filter((r) => r.ok).length}/${rpc.filter((r) => r.configured).length || 0} configured endpoints healthy.`;
+  const rpcByChain = new Map(rpc.map((record) => [record.chainId, record]));
   const providerRecords = getAllProviders()
     .filter((provider) => provider.environment === 'mainnet' || provider.environment === 'all')
-    .map<ProviderHealthRecord>((provider) => ({ providerId: provider.providerId, status, checkedAt, detail }));
+    .map<ProviderHealthRecord>((provider) => {
+      const requiredRpc = provider.supportedChainIds.map((chainId) => rpcByChain.get(chainId) ?? {
+        chainId, name: `chain ${chainId}`, configured: false, ok: false, detail: 'Unsupported mainnet RPC chain.',
+      });
+      const status = classifyRpcCoverage(requiredRpc);
+      const passing = requiredRpc.filter((record) => record.ok && record.configured).length;
+      return { providerId: provider.providerId, status, checkedAt,
+        detail: `Required mainnet RPC coverage ${passing}/${requiredRpc.length} healthy.` };
+    });
   for (const record of providerRecords) updateProviderHealth(record);
   return { checkedAt, rpc, providerRecords };
 }
