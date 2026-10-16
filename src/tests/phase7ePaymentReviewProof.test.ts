@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
 import {
   PaymentReviewError, issuePaymentReviewToken, verifyPaymentReviewToken,
+  type PaymentReviewClaim,
 } from '../../server/services/paymentReviewProof';
 import {
   chooseRecipientWallet, matchesReviewedRecipient,
@@ -39,13 +40,14 @@ describe('Phase 7E — sender-bound exact Pay by Veyra ID review', () => {
 
   it('cannot verify a valid token from someone else or a changed wallet, address or chain', () => {
     const t = token();
-    for (const expected of [
+    const mismatches: Array<Pick<PaymentReviewClaim, 'senderUserId' | 'snapshotId' | 'walletId' | 'walletAddress' | 'chainId'>> = [
       { ...reviewed, senderUserId: otherSender },
       { ...reviewed, snapshotId: 'snp_123456789ABCDEFGJ' },
       { ...reviewed, walletId: otherWalletId },
       { ...reviewed, walletAddress: otherAddress },
       { ...reviewed, chainId: 8453 },
-    ]) {
+    ];
+    for (const expected of mismatches) {
       expect(() => verifyPaymentReviewToken(t, expected, { now: now + 100, secret: SECRET }))
         .toThrow(PaymentReviewError);
       expect(() => verifyPaymentReviewToken(t, expected, { now: now + 100, secret: SECRET }))
