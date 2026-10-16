@@ -9,7 +9,7 @@ const read = (file: string) => readFileSync(new URL(`../../${file}`, import.meta
 describe('Phase 7A — honest wallet and Unified discovery', () => {
   it('uses the existing product registry and never upgrades catalog metadata to financial permission', () => {
     expect(UNIFIED_ASSETS.map(x => x.symbol)).toEqual(PRODUCT_ASSETS.map(x => x.symbol));
-    expect(UNIFIED_ASSETS.filter(x => x.status === 'ARC_BALANCE_READ').map(x => x.symbol)).toEqual(['USDC']);
+    expect(UNIFIED_ASSETS.filter(x => x.status === 'USDC_BALANCE_READ').map(x => x.symbol)).toEqual(['USDC']);
     expect(UNIFIED_ASSETS.filter(x => x.status === 'CATALOG_ONLY').length).toBe(PRODUCT_ASSETS.length - 1);
     for (const asset of UNIFIED_ASSETS) {
       expect(asset.logoKey).toBeTruthy();
@@ -29,8 +29,8 @@ describe('Phase 7A — honest wallet and Unified discovery', () => {
     expect(mainnet.find(x => x.id === 'base')?.chainId).toBe(8453);
     expect(testnet.every(x => x.network === 'testnet')).toBe(true);
     expect(mainnet.every(x => x.network === 'mainnet')).toBe(true);
-    expect(testnet.filter(x => x.status === 'ARC_BALANCE_READ').length).toBe(1);
-    expect(mainnet.filter(x => x.status === 'ARC_BALANCE_READ').length).toBe(1);
+    expect(testnet.filter(x => x.status === 'USDC_BALANCE_READ').length).toBe(2);
+    expect(mainnet.filter(x => x.status === 'USDC_BALANCE_READ').length).toBe(2);
   });
   it('filters using ticker, name or chain ID; does not add arbitrary tokens', () => {
     expect(filterUnifiedCatalog(UNIFIED_ASSETS, '  UsDc ', x => x.symbol).map(x => x.symbol)).toEqual(['USDC']);
