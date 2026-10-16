@@ -98,7 +98,7 @@ export function PreviewWalletProvider({ children }: { children: ReactNode }) {
     ) {
       const injected = rawInjected as InjectedPreviewProvider;
       setWallets((current) => current.some((w) => w.provider === injected)
-        ? current : sortWallets([...current, { id: 'injected', name: 'Injected wallet', icon: null, provider: injected }]);
+        ? current : sortWallets([...current, { id: 'injected', name: 'Injected wallet', icon: null, provider: injected }]));
     }
     return () => window.removeEventListener('eip6963:announceProvider', announced);
   }, []);
