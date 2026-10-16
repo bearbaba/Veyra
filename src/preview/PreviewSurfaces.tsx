@@ -98,7 +98,7 @@ export function PreviewHome({ onNavigate }: { onNavigate: (page: PreviewPage) =>
 
       <div className="vp-section-heading">
         <div><h2>Your Veyra network</h2><p>Connected assets and product safety at a glance.</p></div>
-        <button type="button" className="vp-text-button" onClick={() => onNavigate('settings')}>View details <ArrowRight size={13} style={{ display: 'inline' }} /></button>
+        <button type="button" className="vp-text-button" onClick={() => onNavigate('unified')}>Explore Unified <ArrowRight size={13} style={{ display: 'inline' }} /></button>
       </div>
       <section className="vp-grid-2">
         <div className="vp-card vp-card-pad">
@@ -116,11 +116,11 @@ export function PreviewHome({ onNavigate }: { onNavigate: (page: PreviewPage) =>
             <div className="vp-stat"><span>TOKEN</span><strong>USDC</strong></div>
           </div>
           <div className="vp-route">
-            <span className="vp-chain-logo vp-chain-arc">A</span>
+            <BrandLogo logoKey="arc" size={35}/>
             <div className="vp-route-line" />
-            <span className="vp-chain-logo vp-chain-eth">Ξ</span>
+            <BrandLogo logoKey="ethereum" size={35}/>
             <div className="vp-route-line" />
-            <span className="vp-chain-logo vp-chain-base">B</span>
+            <BrandLogo logoKey="base" size={35}/>
           </div>
           <p className="vp-caption">Bridge route previews: Arc → Ethereum Sepolia / Base Sepolia. Live CCTP submission is disabled here.</p>
         </div>
