@@ -1,11 +1,19 @@
 # Veyra — MetaMask website security classification review
 
-**Status:** review request not confirmed / **do not claim a clearance**.
-This is an operator-ready evidence package, not a request already submitted.
+**Status:** exact flagged URL and warning type are NOT independently confirmed;
+review request not confirmed / **do not claim a clearance**.
+This is an operator-ready evidence template, not a request already submitted.
+**Never submit a false-positive review for an assumed URL:** the blocked origin
+might be a Studio Preview URL rather than the canonical Vercel production URL.
 
-## Exact public website
+## Public website versus URL actually flagged
 
-- Canonical public URL: https://veyra-seven-beta.vercel.app
+- Intended canonical Veyra public URL: https://veyra-seven-beta.vercel.app
+- **Actual flagged URL: NOT YET VERIFIED. Copy it verbatim from the current
+  MetaMask warning screenshot before requesting a reclassification.**
+- A `*.preview.studio.arc.io` origin, a Vercel Preview and the Vercel
+  Production hostname are separate URL classifications. Do not assume one
+  warning applies to another domain or request delisting for all three.
 - Open-source repo: https://github.com/bearbaba/Veyra
 - Current stable branch: `develop` (older production bundle)
 - Tested upgrade branch: `phase5-production-bridge-flow`
@@ -33,7 +41,7 @@ These are claims about the candidate source and its static build tests,
 
 ## Reviewer evidence (complete before submitting)
 
-- [ ] Exact URL/domain and an unedited screenshot of the actual warning
+- [ ] **Exact flagged URL, not just the project website**, and an unedited screenshot of the actual warning
       including MetaMask version/platform, date and timestamp.
 - [ ] State if the warning occurs before connection, on request to connect,
       or specifically on signing/transaction simulation.
@@ -44,9 +52,12 @@ These are claims about the candidate source and its static build tests,
       `e2e/browser-acceptance.mjs`,
       `e2e/arc-mainnet-live-readonly.mjs`,
       `scripts/check-unified-production-release.ts`.
-- [ ] Explain if the warning happens on the public domain, the protected
-      Preview domain, or both. A shared `*.vercel.app` domain's reputation
-      might differ from a permanent custom domain; don't assume the cause.
+- [ ] Identify whether the warning is on `preview.studio.arc.io`, a Vercel
+      Preview, or the public Vercel hostname. A preview-owned subdomain may
+      require platform-owner investigation. Do not assume the cause.
+- [ ] Distinguish a URL-phishing classification from a **transaction or
+      token-approval security simulation alert**; both appear in wallet UX,
+      but the evidence and review channel may differ.
 - [ ] List **only verified** network/contract addresses and relevant
       explorer proofs. No unverifiable claims of being audited.
 
@@ -56,8 +67,13 @@ Subject: Request manual review of MetaMask website security classification — V
 
 Hello MetaMask Security Team,
 
-I'm requesting a manual review of the URL classification for:
+I'm requesting a manual review of the exact URL shown in my warning:
+**[PASTE EXACT FLAGGED URL FROM METAMASK WARNING]**
+
+The intended Veyra public website is:
 https://veyra-seven-beta.vercel.app
+
+Please do not assume these two URLs are identical.
 
 Veyra is an open-source, self-custodial app focused on USDC payments on Arc.
 Its source is available at:
@@ -72,8 +88,8 @@ The app does not request seed phrases or private keys, does not silently
 switch the wallet's network and does not authorize transactions through
 its AI assistant.
 
-We would appreciate a manual review of the exact flagged URL and any
-associated false-positive classification. We can provide the unedited
+We would appreciate a manual review of the exact flagged URL and the
+specific alert classification shown in the attached screenshot. We can provide the unedited
 MetaMask warning screenshot, public source, deterministic build checks and
 browser acceptance evidence as requested.
 
