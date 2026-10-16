@@ -19,7 +19,7 @@ import { PreviewServiceStatus } from './PreviewServiceStatus';
 import { PreviewMainnetHome, PreviewMainnetPay, PreviewMainnetGate } from './PreviewMainnetSurfaces';
 import { PreviewUnified } from './PreviewUnified';
 import {
-  PreviewWalletProvider, shortPreviewAddress, usePreviewWallet,
+  PreviewWalletProvider, shortPreviewAddress, usePreviewWallet, type DiscoveredWallet,
 } from './PreviewWallet';
 
 export type PreviewPage = 'home' | 'unified' | 'pay' | 'convert' | 'bridge' | 'agent' | 'activity' | 'settings';
@@ -53,6 +53,16 @@ function BrandMark({ size = 36 }: { size?: number }) {
       </svg>
     </div>
   );
+}
+
+function WalletIdentityMark({ wallet }: { wallet: DiscoveredWallet }) {
+  const [failed, setFailed] = useState(false);
+  return <span className="vp-wallet-option-icon">
+    {wallet.icon && !failed
+      ? <img src={wallet.icon} alt="" width={28} height={28} referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}/>
+      : <span className="vp-wallet-monogram" aria-hidden="true">{wallet.name.slice(0, 2).toUpperCase()}</span>}
+  </span>;
 }
 
 export function PreviewWalletButton({ fullWidth = false, network = 'testnet' }: { fullWidth?: boolean; network?: PreviewNetwork }) {
@@ -120,10 +130,7 @@ export function PreviewWalletButton({ fullWidth = false, network = 'testnet' }: 
                 {shownWallets.map(item => (
                   <button key={item.id} type="button" className="vp-wallet-option"
                     onClick={() => void choose(item.id)} disabled={wallet.busy}>
-                    <span className="vp-wallet-option-icon">
-                      {item.icon ? <img src={item.icon} alt="" width={28} height={28} referrerPolicy="no-referrer"/> :
-                        <span className="vp-wallet-monogram" aria-hidden="true">{item.name.slice(0, 2).toUpperCase()}</span>}
-                    </span>
+                    <WalletIdentityMark wallet={item}/>
                     <span>{item.name}</span>
                     <ArrowRight size={17} />
                   </button>
