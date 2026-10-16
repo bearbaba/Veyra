@@ -20,9 +20,26 @@ export interface InjectedPreviewProvider {
   removeListener?(event: string, listener: (...args: unknown[]) => void): void;
 }
 
-type DiscoveredWallet = { id: string; name: string; provider: InjectedPreviewProvider };
+export type DiscoveredWallet = { id: string; name: string; icon: string | null; provider: InjectedPreviewProvider };
+
+/** EIP-6963 icons are untrusted provider metadata. Permit small inline images
+ * only; never follow external icon URLs or render SVG as active DOM. */
+export function safeWalletIcon(icon: unknown): string | null {
+  if (typeof icon !== 'string' || icon.length > 100_000) return null;
+  return /^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[a-zA-Z0-9+/]+={0,2}$/.test(icon)
+    ? icon : null;
+}
+
+const WALLET_PRIORITY = ['metamask', 'rabby', 'coinbase wallet', 'phantom', 'trust wallet'];
+export function sortWallets(items: readonly DiscoveredWallet[]): DiscoveredWallet[] {
+  return [...items].sort((a,b) => {
+    const aRank = WALLET_PRIORITY.findIndex(x => a.name.toLowerCase().includes(x));
+    const bRank = WALLET_PRIORITY.findIndex(x => b.name.toLowerCase().includes(x));
+    return (aRank < 0 ? 100 : aRank) - (bRank < 0 ? 100 : bRank) || a.name.localeCompare(b.name);
+  });
+}
 type Eip6963Event = Event & {
-  detail?: { info?: { uuid?: string; name?: string }; provider?: InjectedPreviewProvider };
+  detail?: { info?: { uuid?: string; name?: string; icon?: string }; provider?: InjectedPreviewProvider };
 };
 
 interface PreviewWalletState {
@@ -63,9 +80,10 @@ export function PreviewWalletProvider({ children }: { children: ReactNode }) {
       if (!detail?.provider || typeof detail.provider.request !== 'function') return;
       const id = detail.info?.uuid || detail.info?.name || 'discovered-wallet';
       const name = detail.info?.name || 'Browser wallet';
-      setWallets((current) => current.some((w) => w.id === id)
+      const icon = safeWalletIcon(detail.info?.icon);
+      setWallets((current) => current.some((w) => w.id === id || w.provider === detail.provider)
         ? current
-        : [...current, { id, name, provider: detail.provider! }]);
+        : sortWallets([...current, { id, name, icon, provider: detail.provider! }]));
     }
     window.addEventListener('eip6963:announceProvider', announced);
     window.dispatchEvent(new Event('eip6963:requestProvider'));
@@ -80,7 +98,7 @@ export function PreviewWalletProvider({ children }: { children: ReactNode }) {
     ) {
       const injected = rawInjected as InjectedPreviewProvider;
       setWallets((current) => current.some((w) => w.provider === injected)
-        ? current : [...current, { id: 'injected', name: 'Injected wallet', provider: injected }]);
+        ? current : sortWallets([...current, { id: 'injected', name: 'Injected wallet', icon: null, provider: injected }]);
     }
     return () => window.removeEventListener('eip6963:announceProvider', announced);
   }, []);
