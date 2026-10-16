@@ -200,3 +200,62 @@ jobs:
           fi
           echo "Hosted testnet BFF HTTP startup / auth / CORS / public DB redaction gates: PASS"
 
+
+  browser:
+    name: Desktop and mobile network UX acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install repository dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build actual Vercel unified web entry (no Mainnet signing)
+        run: VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build
+
+      - name: Audit public bundle and release guards
+        run: |
+          bun run check:vercel-preview-bundle
+          bun run scripts/check-unified-production-release.ts
+
+      - name: Install pinned browser test harness outside repository
+        run: |
+          npm install --prefix /tmp/veyra-browser --no-save --package-lock=false playwright@1.56.1
+          node /tmp/veyra-browser/node_modules/playwright/cli.js install --with-deps chromium
+
+      - name: Start built Veyra web locally
+        run: |
+          bun run preview -- --host 127.0.0.1 --port 4173 > /tmp/veyra-vite-preview.log 2>&1 &
+          echo $! > /tmp/veyra-preview.pid
+          ready=0
+          for attempt in $(seq 1 35); do
+            if curl --silent --fail http://127.0.0.1:4173/ > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            cat /tmp/veyra-vite-preview.log
+            exit 1
+          fi
+
+      - name: Accept desktop/mobile Testnet and Mainnet safety behavior
+        env:
+          VEYRA_SMOKE_URL: http://127.0.0.1:4173
+          NODE_PATH: /tmp/veyra-browser/node_modules
+        run: node e2e/browser-acceptance.mjs
+
+      - name: Shut down test preview
+        if: always()
+        run: |
+          if [ -f /tmp/veyra-preview.pid ]; then
+            kill "$(cat /tmp/veyra-preview.pid)" || true
+          fi
