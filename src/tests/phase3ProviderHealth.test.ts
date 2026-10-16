@@ -15,7 +15,7 @@ function mockFetch(result: unknown, status = 200): typeof fetch {
 describe('Phase 3B provider runtime health', () => {
   it('verifies RPC chain identity before marking an endpoint healthy', async () => {
     const chain = MAINNET_CHAIN_CATALOG[0];
-    const result = await probeRpcEndpoint(chain, { [chain.rpcEnvKey]: 'https://rpc.example.com' }, mockFetch({ jsonrpc: '2.0', id: 1, result: '0x1' }));
+    const result = await probeRpcEndpoint(chain, { [chain.rpcEnvKey]: 'https://rpc.example.com' }, mockFetch({ jsonrpc: '2.0', id: 1, result: '0x' + chain.chainId.toString(16) }));
     expect(result.ok).toBe(true);
   });
 
@@ -54,7 +54,7 @@ describe('Phase 3B provider runtime health', () => {
     const env: NodeJS.ProcessEnv = {};
     for (const chain of MAINNET_CHAIN_CATALOG) env[chain.rpcEnvKey] = 'https://rpc-' + chain.chainId + '.example.com';
     const multiChainFetch = ((input: RequestInfo | URL) => {
-      const chainId = Number(String(input).match(/rpc-(\\d+)/)?.[1] ?? NaN);
+      const chainId = Number(String(input).match(/rpc-(\d+)/)?.[1] ?? NaN);
       return Promise.resolve(new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x' + chainId.toString(16) }), { status: 200 }));
     }) as typeof fetch;
     const report = await refreshMainnetProviderHealth(env, multiChainFetch);
