@@ -54,7 +54,8 @@ describe('Phase 3B provider runtime health', () => {
     const env: NodeJS.ProcessEnv = {};
     for (const chain of MAINNET_CHAIN_CATALOG) env[chain.rpcEnvKey] = 'https://rpc-' + chain.chainId + '.example.com';
     const multiChainFetch = ((input: RequestInfo | URL) => {
-      const chainId = Number(String(input).match(/rpc-(\d+)/)?.[1] ?? NaN);
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const chainId = Number(url.match(/rpc-(\d+)/)?.[1] ?? NaN);
       return Promise.resolve(new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x' + chainId.toString(16) }), { status: 200 }));
     }) as typeof fetch;
     const report = await refreshMainnetProviderHealth(env, multiChainFetch);
