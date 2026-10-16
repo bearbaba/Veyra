@@ -8,7 +8,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   Activity, ArrowLeftRight, ArrowRight, Bot, ChevronDown, Compass, CreditCard,
-  Github, LayoutDashboard, LockKeyhole, Menu, Route, Settings2, ShieldCheck,
+  Github, LayoutDashboard, Layers3, LockKeyhole, Menu, Route, Search, Settings2, ShieldCheck,
   Wallet, X,
 } from 'lucide-react';
 import { UiOnlyPreviewPage } from '../components/pages/UiOnlyPreviewPage';
@@ -17,11 +17,12 @@ import { PreviewHome, PreviewActivity, PreviewSettings } from './PreviewSurfaces
 import { PreviewLiveAgent } from './PreviewLiveAgent';
 import { PreviewServiceStatus } from './PreviewServiceStatus';
 import { PreviewMainnetHome, PreviewMainnetPay, PreviewMainnetGate } from './PreviewMainnetSurfaces';
+import { PreviewUnified } from './PreviewUnified';
 import {
   PreviewWalletProvider, shortPreviewAddress, usePreviewWallet,
 } from './PreviewWallet';
 
-export type PreviewPage = 'home' | 'pay' | 'convert' | 'bridge' | 'agent' | 'activity' | 'settings';
+export type PreviewPage = 'home' | 'unified' | 'pay' | 'convert' | 'bridge' | 'agent' | 'activity' | 'settings';
 export type PreviewNetwork = 'testnet' | 'mainnet';
 type NavigationItem = {
   id: PreviewPage;
@@ -30,6 +31,7 @@ type NavigationItem = {
 };
 const NAVIGATION: NavigationItem[] = [
   { id: 'home', title: 'Overview', icon: LayoutDashboard },
+  { id: 'unified', title: 'Unified', icon: Layers3 },
   { id: 'pay', title: 'Send & Pay', icon: CreditCard },
   { id: 'convert', title: 'Convert', icon: ArrowLeftRight },
   { id: 'bridge', title: 'Bridge USDC', icon: Route },
@@ -37,7 +39,7 @@ const NAVIGATION: NavigationItem[] = [
   { id: 'activity', title: 'Activity', icon: Activity },
 ];
 const PAGE_LABEL: Record<PreviewPage, string> = {
-  home: 'Overview', pay: 'Send & Pay', convert: 'Convert',
+  home: 'Overview', unified: 'Unified', pay: 'Send & Pay', convert: 'Convert',
   bridge: 'Bridge USDC', agent: 'AI Assistant', activity: 'Activity',
   settings: 'Settings',
 };
@@ -57,10 +59,13 @@ export function PreviewWalletButton({ fullWidth = false, network = 'testnet' }: 
   const wallet = usePreviewWallet();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [walletQuery, setWalletQuery] = useState('');
+  const [showAllWallets, setShowAllWallets] = useState(false);
+  const filteredWallets = wallet.wallets.filter(item => item.name.toLowerCase().includes(walletQuery.trim().toLowerCase()));
+  const shownWallets = walletQuery.trim() || showAllWallets ? filteredWallets : filteredWallets.slice(0, 4);
 
   async function choose(id: string) {
-    await wallet.connect(id);
-    setOpen(false);
+    if (await wallet.connect(id)) setOpen(false);
   }
   async function copyAddress() {
     if (!wallet.address) return;
@@ -107,20 +112,35 @@ export function PreviewWalletButton({ fullWidth = false, network = 'testnet' }: 
               </div>
             ) : (
               <div className="vp-wallet-list">
-                {wallet.wallets.length ? wallet.wallets.map((item) => (
+                {wallet.wallets.length > 4 && <label className="vp-wallet-search">
+                  <Search size={15}/>
+                  <input type="search" value={walletQuery} onChange={event => setWalletQuery(event.target.value)}
+                    placeholder="Search installed wallets" aria-label="Search installed wallets"/>
+                </label>}
+                {shownWallets.map(item => (
                   <button key={item.id} type="button" className="vp-wallet-option"
                     onClick={() => void choose(item.id)} disabled={wallet.busy}>
-                    <span className="vp-wallet-option-icon"><Wallet size={18} /></span>
+                    <span className="vp-wallet-option-icon">
+                      {item.icon ? <img src={item.icon} alt="" width={28} height={28} referrerPolicy="no-referrer"/> :
+                        <span className="vp-wallet-monogram" aria-hidden="true">{item.name.slice(0, 2).toUpperCase()}</span>}
+                    </span>
                     <span>{item.name}</span>
                     <ArrowRight size={17} />
                   </button>
-                )) : (
-                  <div className="vp-no-wallet">
-                    <Wallet size={27} />
-                    <strong>No browser wallet found</strong>
-                    <p>Install or enable MetaMask, Rabby, or Coinbase Wallet, then refresh this page.</p>
-                  </div>
-                )}
+                ))}
+                {wallet.wallets.length === 0 && <div className="vp-no-wallet">
+                  <Wallet size={27}/>
+                  <strong>No browser wallet found</strong>
+                  <p>Install or enable MetaMask, Rabby, or Coinbase Wallet, then refresh this page.</p>
+                </div>}
+                {wallet.wallets.length > 0 && shownWallets.length === 0 &&
+                  <p className="vp-caption">No installed wallet matches that name.</p>}
+                {wallet.wallets.length > 4 && !walletQuery.trim() && !showAllWallets &&
+                  <button type="button" className="vp-wallet-more"
+                    onClick={() => setShowAllWallets(true)}>Show {wallet.wallets.length - 4} more wallets</button>}
+                {showAllWallets && !walletQuery.trim() && wallet.wallets.length > 4 &&
+                  <button type="button" className="vp-wallet-more"
+                    onClick={() => setShowAllWallets(false)}>Show fewer wallets</button>}
               </div>
             )}
             {wallet.error && <p className="vp-form-error" role="alert">{wallet.error}</p>}
@@ -247,6 +267,7 @@ function PreviewWorkspace() {
     if (network === 'mainnet') {
       switch (page) {
         case 'home': return <PreviewMainnetHome onNavigate={setPage}/>;
+        case 'unified': return <PreviewUnified key="mainnet-unified" environment="mainnet"/>;
         case 'pay': return <PreviewMainnetPay/>;
         case 'agent': return <PreviewLiveAgent key="mainnet" network="mainnet" onNavigate={setPage}/>;
         case 'bridge':
@@ -257,6 +278,7 @@ function PreviewWorkspace() {
     }
     switch (page) {
       case 'home': return <PreviewHome onNavigate={setPage} />;
+      case 'unified': return <PreviewUnified key="testnet-unified" environment="testnet"/>;
       case 'agent': return <PreviewLiveAgent onNavigate={setPage} />;
       case 'pay': return import.meta.env.VITE_VEYRA_TESTNET_PAY === '1'
         ? <PreviewTestnetPayPage /> : <UiOnlyPreviewPage surface="pay" />;
