@@ -166,5 +166,18 @@ jobs:
             echo "ERROR: testnet health is claiming signed financial acceptance"
             exit 1
           fi
-          echo "Hosted testnet BFF HTTP startup / auth / CORS gates: PASS"
+          # The public database health API must never disclose the connection
+          # host, username, password, driver error or schema/table internals.
+          db_health_code=$(curl --silent --output /tmp/veyra-db-public-health.json \
+            --write-out '%{http_code}' "http://127.0.0.1:3001/api/health/database")
+          if [ "$db_health_code" != "503" ]; then
+            echo "ERROR: unconfigured production-shaped testnet DB reported HTTP $db_health_code"
+            exit 1
+          fi
+          grep -q '"scope":"database-infrastructure-only"' /tmp/veyra-db-public-health.json
+          if grep -Eqi 'pg\.testnet\.example|dummy|password|postgresql://|database_name|schema_name|error"\s*:' /tmp/veyra-db-public-health.json; then
+            echo "ERROR: public database health endpoint disclosed internal details"
+            exit 1
+          fi
+          echo "Hosted testnet BFF HTTP startup / auth / CORS / public DB redaction gates: PASS"
 

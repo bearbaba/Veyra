@@ -2535,7 +2535,14 @@ app.get('/api/health', (_req: Request, res: Response): void => {
 
 app.get('/api/health/database', async (_req: Request, res: Response): Promise<void> => {
   const report = await probeDatabaseReadiness(process.env.DATABASE_URL);
-  res.status(report.ready ? 200 : 503).json({ ok: report.ready, ...report, ts: Date.now() });
+  // Public health endpoints must never echo driver errors, database names,
+  // schema internals, connection strings or credentials in a failure response.
+  res.status(report.ready ? 200 : 503).json({
+    ok: report.ready,
+    scope: 'database-infrastructure-only',
+    checks: report.checks.map((check) => ({ id: check.id, ok: check.ok })),
+    ts: Date.now(),
+  });
 });
 
 app.get('/api/health/providers', async (_req: Request, res: Response): Promise<void> => {
