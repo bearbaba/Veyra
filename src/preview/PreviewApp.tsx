@@ -167,10 +167,10 @@ function PreviewShell({ page, onNavigate, network, onNetworkChange, children }: 
           <div className="vp-network-segment" role="group" aria-label="Veyra network environment">
             <button type="button" aria-pressed={network === 'testnet'}
               className={network === 'testnet' ? 'vp-network-selected' : ''}
-              onClick={() => onNetworkChange('testnet')}>Testnet</button>
+              onClick={() => { onNetworkChange('testnet'); setMenuOpen(false); }}>Testnet</button>
             <button type="button" aria-pressed={network === 'mainnet'}
               className={network === 'mainnet' ? 'vp-network-selected vp-network-mainnet-selected' : ''}
-              onClick={() => onNetworkChange('mainnet')}>Mainnet</button>
+              onClick={() => { onNetworkChange('mainnet'); setMenuOpen(false); }}>Mainnet</button>
           </div>
           <p className="vp-network-description">{network === 'testnet'
             ? 'Test tokens · Chain 5042002'
