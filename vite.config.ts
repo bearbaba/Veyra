@@ -47,9 +47,11 @@ export default defineConfig({
         }]
       : []),
   ],
-  build: uiOnlyPreview || mainnetMvp
-    ? { rollupOptions: { input: uiOnlyPreview ? previewHtml : mainnetHtml } }
-    : undefined,
+  build: uiOnlyPreview
+    ? { rollupOptions: { input: previewHtml } }
+    : mainnetMvp
+      ? { rollupOptions: { input: mainnetHtml } }
+      : undefined,
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
