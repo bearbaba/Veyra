@@ -22,8 +22,9 @@ function stub(environment: BaseUsdcEnvironment, overrides: StubOptions = {}) {
   const chain = getBaseUsdcNetwork(environment);
   const calls: Array<{ method: string; params: unknown[]; url: string }> = [];
   const fetchFn: typeof fetch = (request, init) => {
-    const url = String(request);
-    const packet = JSON.parse(String(init?.body)) as { method: string; params: unknown[]; id: number };
+    const url = typeof request === 'string' ? request : request instanceof URL ? request.href : request.url;
+    if (typeof init?.body !== 'string') throw new Error('Expected JSON-RPC POST request body');
+    const packet = JSON.parse(init.body) as { method: string; params: unknown[]; id: number };
     calls.push({ method: packet.method, params: packet.params, url });
     const result = packet.method === 'eth_chainId'
       ? overrides.chain ?? '0x' + chain.chainId.toString(16)
