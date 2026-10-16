@@ -50,7 +50,7 @@ interface PreviewWalletState {
   error: string | null;
   activeWalletName: string | null;
   activeProvider: InjectedPreviewProvider | null;
-  connect: (walletId?: string) => Promise<void>;
+  connect: (walletId?: string) => Promise<boolean>;
   disconnect: () => void;
 }
 
@@ -142,7 +142,7 @@ export function PreviewWalletProvider({ children }: { children: ReactNode }) {
     const selected = wallets.find((w) => w.id === walletId) ?? wallets[0];
     if (!selected) {
       setError('No injected wallet detected. Install MetaMask, Rabby, or Coinbase Wallet on this browser.');
-      return;
+      return false;
     }
     setBusy(true);
     setError(null);
@@ -154,8 +154,10 @@ export function PreviewWalletProvider({ children }: { children: ReactNode }) {
       setSelectedId(selected.id);
       setAddress(permitted);
       setChainId(chain);
+      return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Wallet connection declined.');
+      return false;
     } finally {
       setBusy(false);
     }
