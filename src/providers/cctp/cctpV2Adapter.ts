@@ -36,6 +36,7 @@ import {
   type WalletClient,
   type Hash,
   type TransactionReceipt,
+  decodeEventLog,
   getAddress,
 } from 'viem';
 import { MANIFEST_CONSTANTS } from '../registry/providerManifest';
@@ -68,6 +69,31 @@ const ERC20_BALANCE_ABI = [
 
 const TOKEN_MESSENGER_V2_ABI = [
   {
+    name: 'DepositForBurn',
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'burnToken', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'depositor', type: 'address', indexed: true },
+      { name: 'mintRecipient', type: 'bytes32', indexed: false },
+      { name: 'destinationDomain', type: 'uint32', indexed: false },
+      {
+        name: 'destinationTokenMessenger',
+        type: 'bytes32',
+        indexed: false,
+      },
+      { name: 'destinationCaller', type: 'bytes32', indexed: false },
+      { name: 'maxFee', type: 'uint256', indexed: false },
+      {
+        name: 'minFinalityThreshold',
+        type: 'uint32',
+        indexed: true,
+      },
+      { name: 'hookData', type: 'bytes', indexed: false },
+    ],
+  },
+  {
     name: 'depositForBurn',
     type: 'function',
     stateMutability: 'nonpayable',
@@ -86,6 +112,57 @@ const TOKEN_MESSENGER_V2_ABI = [
 
 const MESSAGE_SENT_TOPIC =
   '0x8c5261668696ce22758910d05bab8f186d6eb247ceac2af2e82c7dc17669b036';
+
+const MESSAGE_SENT_ABI = [
+  {
+    name: 'MessageSent',
+    type: 'event',
+    anonymous: false,
+    inputs: [{ name: 'message', type: 'bytes', indexed: false }],
+  },
+] as const;
+
+/**
+ * Fail closed for batched/malformed CCTP sends. Until Veyra binds each
+ * DepositForBurn log index to its message index, a source tx emitting multiple
+ * MessageSent logs cannot be safely represented by one ActivityReceipt.
+ */
+export function extractUniqueCctpSourceMessage(
+  receipt: Pick<TransactionReceipt, 'status' | 'logs'>,
+): `0x${string}` | null {
+  if (receipt.status !== 'success') return null;
+
+  const transmitter = MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER.toLowerCase();
+  let message: `0x${string}` | null = null;
+
+  for (const log of receipt.logs) {
+    if (
+      log.address.toLowerCase() !== transmitter ||
+      log.topics[0]?.toLowerCase() !== MESSAGE_SENT_TOPIC
+    ) {
+      continue;
+    }
+
+    if (message !== null) return null;
+
+    try {
+      const decoded = decodeEventLog({
+        abi: MESSAGE_SENT_ABI,
+        data: log.data,
+        topics: log.topics,
+        strict: true,
+      });
+      if (decoded.eventName !== 'MessageSent' || decoded.args.message.length <= 2) {
+        return null;
+      }
+      message = decoded.args.message;
+    } catch {
+      return null;
+    }
+  }
+
+  return message;
+}
 const ERC20_TRANSFER_TOPIC =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const ZERO_ADDRESS_TOPIC = `0x${'0'.repeat(64)}`;
@@ -144,6 +221,48 @@ export interface CctpAttestation {
   attestation?: string;  // hex-encoded attestation bytes
 }
 
+const NONEMPTY_HEX_BYTES = /^0x(?:[0-9a-fA-F]{2})+$/;
+
+/**
+ * Circle's transaction-hash endpoint is a *collection*. Selecting [0] is
+ * unsafe if a transaction emits more than one CCTP message. This single-bridge
+ * implementation supports exactly one message; reject ambiguous responses
+ * rather than guessing which attestation to use for the reviewed burn.
+ */
+export function parseUniqueCctpAttestationResponse(payload: unknown): CctpAttestation {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('[cctpV2] Invalid Circle attestation response.');
+  }
+  const messages = (payload as { messages?: unknown }).messages;
+  if (messages === undefined) {
+    throw new Error('[cctpV2] Circle attestation response has no messages field.');
+  }
+  if (!Array.isArray(messages)) {
+    throw new Error('[cctpV2] Circle messages must be an array.');
+  }
+  if (messages.length === 0) return { status: 'pending' };
+  if (messages.length !== 1) {
+    throw new Error('[cctpV2] Ambiguous Circle attestation: multiple messages for one source tx.');
+  }
+
+  const record: unknown = messages[0];
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
+    throw new Error('[cctpV2] Invalid Circle message record.');
+  }
+  const row = record as Record<string, unknown>;
+  if (row.status !== 'complete') return { status: 'pending' };
+  if (
+    typeof row.message !== 'string' ||
+    typeof row.attestation !== 'string' ||
+    !NONEMPTY_HEX_BYTES.test(row.message) ||
+    !NONEMPTY_HEX_BYTES.test(row.attestation)
+  ) {
+    throw new Error('[cctpV2] Complete Circle attestation has invalid message bytes.');
+  }
+
+  return { status: 'complete', message: row.message, attestation: row.attestation };
+}
+
 // ── Attestation polling (via BFF) ────────────────────────────────────────────
 
 export async function fetchCctpAttestation(sourceDomain: number, txHash: Hash): Promise<CctpAttestation> {
@@ -152,20 +271,11 @@ export async function fetchCctpAttestation(sourceDomain: number, txHash: Hash): 
   if (!res.ok) {
     throw new Error(`Attestation poll failed: ${res.status}`);
   }
-  const data = await res.json() as { ok: boolean; data: { messages?: Array<{ status: string; message?: string; attestation?: string }> } };
-  const messages = data.data.messages;
-  if (!messages || messages.length === 0) {
-    return { status: 'pending' };
+  const data = await res.json() as { ok?: boolean; data?: unknown };
+  if (data.ok !== true) {
+    throw new Error('[cctpV2] Invalid Circle attestation proxy response.');
   }
-  const msg = messages[0];
-  if (msg.status === 'complete' && msg.message && msg.attestation) {
-    return {
-      status: 'complete',
-      message: msg.message,
-      attestation: msg.attestation,
-    };
-  }
-  return { status: 'pending' };
+  return parseUniqueCctpAttestationResponse(data.data);
 }
 
 // ── Step 1: Approve ──────────────────────────────────────────────────────────
@@ -188,7 +298,10 @@ export async function approveTokenMessenger(
     chain: null,
   });
 
-  await publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') {
+    throw new Error(`[cctpV2] approve transaction reverted: ${hash}`);
+  }
   return hash;
 }
 
@@ -240,7 +353,10 @@ export async function depositForBurn(
   action: BridgeAction,
 ): Promise<Hash> {
   const hash = await broadcastDepositForBurn(walletClient, action);
-  await publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') {
+    throw new Error(`[cctpV2] depositForBurn transaction reverted: ${hash}`);
+  }
   return hash;
 }
 
@@ -290,7 +406,10 @@ export async function receiveMessage(
     messageHex,
     attestationHex,
   );
-  await publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') {
+    throw new Error(`[cctpV2] receiveMessage transaction reverted: ${hash}`);
+  }
   return hash;
 }
 
@@ -300,33 +419,99 @@ function addressToTopic(address: Address): string {
   return `0x${'0'.repeat(24)}${address.slice(2).toLowerCase()}`;
 }
 
+export interface CctpSourceReceiptExpectation {
+  burnToken: Address;
+  amount: bigint;
+  depositor: Address;
+  mintRecipient: Address;
+  destinationChainId: number;
+}
+
 export function verifyCctpSourceReceiptEvidence(
   receipt: Pick<TransactionReceipt, 'status' | 'logs'>,
+  expected?: CctpSourceReceiptExpectation,
 ): { verified: boolean; detail: string } {
   if (receipt.status !== 'success') {
-    return { verified: false, detail: 'Source CCTP transaction did not succeed.' };
-  }
-
-  const transmitter =
-    MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER.toLowerCase();
-  const hasMessageSent = receipt.logs.some(
-    (log) =>
-      log.address.toLowerCase() === transmitter &&
-      log.topics[0]?.toLowerCase() === MESSAGE_SENT_TOPIC,
-  );
-
-  if (!hasMessageSent) {
     return {
       verified: false,
-      detail:
-        'Source CCTP receipt is missing MessageSent from MessageTransmitterV2.',
+      detail: 'Source CCTP transaction did not succeed.',
     };
   }
 
+  if (!extractUniqueCctpSourceMessage(receipt)) {
+    return {
+      verified: false,
+      detail:
+        'Source CCTP receipt must contain exactly one valid MessageSent from MessageTransmitterV2; batched or malformed messages are not supported.',
+    };
+  }
+
+  if (!expected) {
+    return {
+      verified: true,
+      detail:
+        'Source CCTP receipt succeeded and contains MessageSent from MessageTransmitterV2.',
+    };
+  }
+
+  const messenger =
+    MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER.toLowerCase();
+  const expectedRecipient = addressToBytes32(
+    getAddress(expected.mintRecipient),
+  ).toLowerCase();
+  const expectedDomain = chainIdToCctpDomain(
+    expected.destinationChainId,
+  );
+  const expectedDestinationMessenger = addressToBytes32(
+    getAddress(MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER),
+  ).toLowerCase();
+  const zeroCaller = `0x${'0'.repeat(64)}`;
+
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== messenger) continue;
+
+    try {
+      const decoded = decodeEventLog({
+        abi: TOKEN_MESSENGER_V2_ABI,
+        data: log.data,
+        topics: log.topics,
+        strict: true,
+      });
+      if (decoded.eventName !== 'DepositForBurn') continue;
+
+      const args = decoded.args;
+
+      if (
+        args.burnToken.toLowerCase() ===
+          getAddress(expected.burnToken).toLowerCase() &&
+        args.amount === expected.amount &&
+        args.depositor.toLowerCase() ===
+          getAddress(expected.depositor).toLowerCase() &&
+        args.mintRecipient.toLowerCase() === expectedRecipient &&
+        Number(args.destinationDomain) === expectedDomain &&
+        args.destinationTokenMessenger.toLowerCase() ===
+          expectedDestinationMessenger &&
+        args.destinationCaller.toLowerCase() === zeroCaller &&
+        args.maxFee === 0n &&
+        Number(args.minFinalityThreshold) ===
+          MANIFEST_CONSTANTS.CCTP_STANDARD_FINALITY &&
+        args.hookData === '0x'
+      ) {
+        return {
+          verified: true,
+          detail:
+            'Source receipt contains exact CCTP DepositForBurn and MessageSent evidence for the reviewed bridge.',
+        };
+      }
+    } catch {
+      // Ignore unrelated/un-decodable TokenMessenger logs.
+    }
+  }
+
   return {
-    verified: true,
+    verified: false,
     detail:
-      'Source CCTP receipt succeeded and contains MessageSent from MessageTransmitterV2.',
+      'Source CCTP receipt does not contain the exact reviewed DepositForBurn event.',
   };
 }
 

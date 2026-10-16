@@ -1,0 +1,50 @@
+# Veyra hosted TESTNET BFF + disposable-acceptance PostgreSQL.
+# This file does NOT deploy by itself. Review Render plan pricing before
+# approving a Blueprint. Never attach a production wallet or mainnet keys.
+previews:
+  generation: off
+
+databases:
+  - name: veyra-testnet-postgres
+    databaseName: veyra_testnet
+    user: veyra_testnet
+    postgresMajorVersion: "16"
+    region: singapore
+    plan: 0.1c-256mb
+    ipAllowList: [] # Internal network only; no public database access.
+
+services:
+  - type: web
+    name: veyra-testnet-bff
+    runtime: docker
+    plan: 0.5c-512mb
+    region: singapore
+    branch: phase5-production-bridge-flow
+    autoDeployTrigger: off
+    dockerfilePath: ./Dockerfile.bff
+    dockerContext: .
+    preDeployCommand: bun server/db/hostedTestnetPredeploy.ts
+    healthCheckPath: /api/health/readiness
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: VEYRA_ENV
+        value: testnet
+      - key: VEYRA_HOSTED_BACKEND
+        value: "1"
+      - key: VEYRA_DATABASE_PRIVATE_NETWORK
+        value: "1"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: veyra-testnet-postgres
+          property: connectionString
+      - key: VEYRA_SESSION_SECRET
+        generateValue: true
+      - key: VEYRA_APP_ORIGIN
+        sync: false # Exact trusted HTTPS Vercel frontend origin, entered in Render.
+      - key: ARC_TESTNET_RPC_URL
+        value: https://rpc.testnet.arc.io
+      - key: ETH_SEPOLIA_RPC_URL
+        value: https://ethereum-sepolia-rpc.publicnode.com
+      - key: BASE_SEPOLIA_RPC_URL
+        value: https://sepolia.base.org

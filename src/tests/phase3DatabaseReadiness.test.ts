@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assessDatabaseSnapshot, REQUIRED_PRODUCTION_TABLES } from '../../server/readiness/databaseReadiness.js';
+import { assessDatabaseSnapshot, REQUIRED_PRODUCTION_TABLES, REQUIRED_PHASE5_RECEIPT_COLUMNS } from '../../server/readiness/databaseReadiness.js';
 
 describe('Phase 3B database readiness assessment', () => {
   it('passes only with connectivity, all tables, and migration history', () => {
@@ -8,7 +8,8 @@ describe('Phase 3B database readiness assessment', () => {
       databaseName: 'veyra',
       serverVersion: '16',
       tables: [...REQUIRED_PRODUCTION_TABLES],
-      drizzleMigrationCount: 6,
+      activityReceiptColumns: [...REQUIRED_PHASE5_RECEIPT_COLUMNS],
+      drizzleMigrationCount: 13,
       latencyMs: 4,
     });
     expect(report.ready).toBe(true);
@@ -18,7 +19,7 @@ describe('Phase 3B database readiness assessment', () => {
     const report = assessDatabaseSnapshot({
       connected: true,
       tables: REQUIRED_PRODUCTION_TABLES.slice(0, -1),
-      drizzleMigrationCount: 5,
+      drizzleMigrationCount: 12,
     });
     expect(report.ready).toBe(false);
     expect(report.checks.find((c) => c.id === 'database-schema')?.ok).toBe(false);

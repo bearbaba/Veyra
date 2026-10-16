@@ -23,36 +23,65 @@ import {
   nextBridgeResumeInstruction,
   type BridgeRecoveryCheckpoint,
 } from '@/core/execution/bridgeCheckpointStore';
+import {
+  loadActivityReceiptsRemote,
+  type ActivityReceiptRemoteRecord,
+} from '@/lib/api/activityReceiptApi';
+import { cctpV2BridgeProvider } from '@/providers/cctp/cctpBridgeProvider';
+import {
+  inspectDestinationNonceRemote,
+  recordSelfRelayDestinationRemote,
+  loadDestinationAttemptHistoryRemote,
+  reconcileSecondReceiveRemote,
+  type DestinationAttemptHistoryRemote,
+  type DestinationNonceObservation,
+} from '@/lib/api/bridgeRecoveryApi';
 
-export function ActivityPage() {
+export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
   const { isConnected } = useAccount();
   const { receipts, loading, reload } = useReceiptStore();
   const bridgeExecution = useBridgeExecution();
   const [recoveryCandidates, setRecoveryCandidates] = useState<
     BridgeRecoveryCheckpoint[]
   >([]);
+  const [remoteReceipts, setRemoteReceipts] = useState<
+    ActivityReceiptRemoteRecord[]
+  >([]);
 
   useEffect(() => {
+    // Static Vercel previews have no authoritative BFF. Never hydrate
+    // actionable recovery candidates from potentially stale local state.
+    if (readOnly) return;
+
     let active = true;
 
-    void bridgeExecution
-      .loadRecoveryCandidates()
-      .then((rows) => {
-        if (active) setRecoveryCandidates(rows);
-      })
-      .catch(() => {
-        if (active) setRecoveryCandidates([]);
-      });
+    void Promise.all([
+      bridgeExecution.loadRecoveryCandidates().catch(() => []),
+      loadActivityReceiptsRemote().catch(() => []),
+    ]).then(([recoveryRows, activityRows]) => {
+      if (!active) return;
+      setRecoveryCandidates(recoveryRows);
+      setRemoteReceipts(activityRows);
+    });
 
     return () => {
       active = false;
     };
-  }, [bridgeExecution.loadRecoveryCandidates]);
+  }, [bridgeExecution.loadRecoveryCandidates, readOnly]);
 
   async function resume(checkpoint: BridgeRecoveryCheckpoint) {
-    await bridgeExecution.resumeBridge(checkpoint);
+    if (readOnly) return; // Prevents wallet-signing recovery in static preview.
+    await bridgeExecution.resumeProviderCheckpoint(
+      cctpV2BridgeProvider,
+      checkpoint,
+    );
     await reload();
-    setRecoveryCandidates(await bridgeExecution.loadRecoveryCandidates());
+    const [recoveryRows, activityRows] = await Promise.all([
+      bridgeExecution.loadRecoveryCandidates(),
+      loadActivityReceiptsRemote().catch(() => []),
+    ]);
+    setRecoveryCandidates(recoveryRows);
+    setRemoteReceipts(activityRows);
   }
 
   return (
@@ -65,11 +94,41 @@ export function ActivityPage() {
           Activity
         </h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-          Receipts and in-flight actions that still need attention
+          {readOnly
+            ? 'Read-only preview · local receipts may be displayed; authenticated history requires the backend'
+            : 'Receipts and in-flight actions that still need attention'}
         </p>
       </div>
 
-      {recoveryCandidates.length > 0 && (
+      {readOnly && (
+        <div className="mb-5 rounded-xl px-4 py-3 text-xs" style={{ background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+          Static preview cannot resume bridges or authorize another receive. Signing and recovery stay locked.
+        </div>
+      )}
+
+      {remoteReceipts.length > 0 && (
+        <div className="mb-6 space-y-3">
+          <div>
+            <p
+              className="text-xs font-bold uppercase tracking-[0.16em]"
+              style={{ color: 'var(--muted)' }}
+            >
+              Durable activity
+            </p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>
+              Synced from Veyra's authenticated system of record.
+            </p>
+          </div>
+          {remoteReceipts.map((receipt) => (
+            <RemoteActivityCard
+              key={receipt.receiptId}
+              receipt={receipt}
+            />
+          ))}
+        </div>
+      )}
+
+      {!readOnly && recoveryCandidates.length > 0 && (
         <div className="mb-6 space-y-3">
           {recoveryCandidates.map((checkpoint) => (
             <RecoveryCard
@@ -78,6 +137,15 @@ export function ActivityPage() {
               connected={isConnected}
               busy={bridgeExecution.state.phase !== 'IDLE'}
               onResume={() => void resume(checkpoint)}
+              onReconciled={async () => {
+                const [recoveryRows, activityRows] = await Promise.all([
+                  bridgeExecution.loadRecoveryCandidates(),
+                  loadActivityReceiptsRemote().catch(() => []),
+                ]);
+                setRecoveryCandidates(recoveryRows);
+                setRemoteReceipts(activityRows);
+                await reload();
+              }}
             />
           ))}
         </div>
@@ -155,17 +223,256 @@ export function ActivityPage() {
   );
 }
 
+function RemoteActivityCard({
+  receipt,
+}: {
+  receipt: ActivityReceiptRemoteRecord;
+}) {
+  const terminal =
+    receipt.status === 'COMPLETE' ||
+    receipt.status === 'FAILED' ||
+    receipt.status === 'INVALIDATED' ||
+    receipt.status === 'DUPLICATE_DETECTED' ||
+    receipt.status === 'CANCELLED';
+
+  const statusColor =
+    receipt.status === 'COMPLETE'
+      ? 'var(--success)'
+      : receipt.status === 'FAILED' ||
+          receipt.status === 'INVALIDATED' ||
+          receipt.status === 'DUPLICATE_DETECTED'
+        ? 'var(--danger)'
+        : receipt.status === 'CANCELLED'
+          ? 'var(--muted)'
+          : 'var(--warning)';
+
+  return (
+    <div
+      className="rounded-2xl p-4"
+      style={{
+        background: 'var(--surface-strong)',
+        border: '1px solid var(--border)',
+      }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <span
+              className="text-sm font-semibold"
+              style={{ color: 'var(--ink)' }}
+            >
+              {receipt.action}
+            </span>
+            <span
+              className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+              style={{
+                color: statusColor,
+                background: 'var(--surface)',
+              }}
+            >
+              {receipt.status}
+            </span>
+          </div>
+          <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>
+            {receipt.providerId} · revision {receipt.revision}
+          </p>
+        </div>
+        {!terminal && receipt.resumable && (
+          <span
+            className="rounded-lg px-2 py-1 text-[10px] font-bold uppercase tracking-wider"
+            style={{
+              color: 'var(--warning)',
+              background: 'var(--warning-muted)',
+            }}
+          >
+            resumable
+          </span>
+        )}
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <DetailRow
+          label="Amount"
+          value={receipt.amountRaw}
+        />
+        <DetailRow
+          label="Route"
+          value={`${receipt.senderChainId} → ${receipt.recipientChainId}`}
+        />
+        {receipt.burnTxHash && (
+          <DetailRow
+            label="Source tx"
+            value={`${receipt.burnTxHash.slice(0, 10)}...`}
+            mono
+          />
+        )}
+        {receipt.receiveTxHash && (
+          <DetailRow
+            label={receipt.settlementReceiveTxHash ? 'First dest tx' : 'Destination tx'}
+            value={`${receipt.receiveTxHash.slice(0, 10)}...`}
+            mono
+          />
+        )}
+        {receipt.settlementReceiveTxHash && (
+          <DetailRow
+            label={`Settled tx (#${receipt.settlementAttemptNumber ?? '?'})`}
+            value={`${receipt.settlementReceiveTxHash.slice(0, 10)}...`}
+            mono
+          />
+        )}
+        {receipt.settlementReceiveBlockNumber !== null &&
+          receipt.settlementReceiveBlockNumber !== undefined && (
+          <DetailRow
+            label="Settlement block"
+            value={String(receipt.settlementReceiveBlockNumber)}
+            mono
+          />
+        )}
+      </div>
+
+      {receipt.status === 'SIGNED' && !receipt.burnTxHash && (
+        <p
+          className="mt-3 text-xs"
+          style={{ color: 'var(--warning)' }}
+        >
+          Submission outcome is uncertain. Veyra keeps this action locked and
+          will not replay it automatically.
+        </p>
+      )}
+
+      <div
+        className="mt-3 flex items-center gap-1.5 text-[11px]"
+        style={{ color: 'var(--subtle)' }}
+      >
+        <Clock className="size-3" />
+        Updated {new Date(receipt.updatedAt).toLocaleString()}
+      </div>
+    </div>
+  );
+}
+
 function RecoveryCard({
   checkpoint,
   connected,
   busy,
   onResume,
+  onReconciled,
 }: {
   checkpoint: BridgeRecoveryCheckpoint;
   connected: boolean;
   busy: boolean;
   onResume: () => void;
+  onReconciled: () => Promise<void>;
 }) {
+  const [attemptHistory, setAttemptHistory] = useState<DestinationAttemptHistoryRemote | null>(null);
+  const [attemptHistoryError, setAttemptHistoryError] = useState<string | null>(null);
+  const [secondTxHash, setSecondTxHash] = useState('');
+  const [secondBusy, setSecondBusy] = useState(false);
+  const [secondMessage, setSecondMessage] = useState<string | null>(null);
+  const [secondError, setSecondError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (checkpoint.stage !== 'DESTINATION_BROADCAST' || !connected) return;
+    let active = true;
+    void loadDestinationAttemptHistoryRemote(checkpoint.planId).then((history) => {
+      if (active) {
+        setAttemptHistory(history);
+        setAttemptHistoryError(null);
+      }
+    }).catch((error: unknown) => {
+      if (active) setAttemptHistoryError(
+        error instanceof Error ? error.message : 'Destination attempt history unavailable.',
+      );
+    });
+    return () => { active = false; };
+  }, [checkpoint.planId, checkpoint.stage, connected]);
+
+  async function reconcileKnownSecondReceive() {
+    const hash = secondTxHash.trim();
+    if (
+      !connected || busy || secondBusy ||
+      checkpoint.stage !== 'DESTINATION_BROADCAST' ||
+      attemptHistory?.second.state !== 'UNCERTAIN' ||
+      !/^0x[0-9a-fA-F]{64}$/.test(hash)
+    ) {
+      return;
+    }
+    setSecondBusy(true);
+    setSecondMessage(null);
+    setSecondError(null);
+    try {
+      await reconcileSecondReceiveRemote(checkpoint.planId, hash);
+      const history = await loadDestinationAttemptHistoryRemote(checkpoint.planId);
+      setAttemptHistory(history);
+      setSecondTxHash('');
+      setSecondMessage('Previously broadcast second receive hash was independently indexed and recorded. This does not prove a mint.');
+      await onReconciled();
+    } catch (error) {
+      setSecondError(
+        error instanceof Error ? error.message : 'Cannot verify the existing second receive. Retry remains locked.',
+      );
+    } finally {
+      setSecondBusy(false);
+    }
+  }
+
+  const [knownTxHash, setKnownTxHash] = useState('');
+  const [reconcileBusy, setReconcileBusy] = useState(false);
+  const [reconcileMessage, setReconcileMessage] = useState<string | null>(null);
+  const [reconcileError, setReconcileError] = useState<string | null>(null);
+
+  async function reconcilePreviouslySignedHash() {
+    const txHash = knownTxHash.trim();
+    if (
+      checkpoint.stage !== 'ATTESTATION_READY' ||
+      busy || reconcileBusy ||
+      !/^0x[0-9a-fA-F]{64}$/.test(txHash)
+    ) {
+      return;
+    }
+    setReconcileBusy(true);
+    setReconcileMessage(null);
+    setReconcileError(null);
+    try {
+      // This endpoint cannot sign: it only records a prior claimed
+      // submission after the BFF independently fetches the destination
+      // transaction, validates actual RPC chain + hash, sender, CCTP target
+      // and exact original message and attestation calldata.
+      await recordSelfRelayDestinationRemote(checkpoint.planId, txHash);
+      setReconcileMessage('Previously signed receive hash independently verified and recorded. No new transaction was sent.');
+      setKnownTxHash('');
+      await onReconciled();
+    } catch (error) {
+      setReconcileError(
+        error instanceof Error ? error.message : 'The original transaction cannot be verified. No new signature is allowed.',
+      );
+    } finally {
+      setReconcileBusy(false);
+    }
+  }
+
+  const [nonceStatus, setNonceStatus] = useState<
+    DestinationNonceObservation | null
+  >(null);
+  const [nonceBusy, setNonceBusy] = useState(false);
+  const [nonceError, setNonceError] = useState<string | null>(null);
+
+  async function checkNonce() {
+    if (!connected || busy || nonceBusy || checkpoint.stage !== 'DESTINATION_BROADCAST') {
+      return;
+    }
+    setNonceStatus(null);
+    setNonceError(null);
+    setNonceBusy(true);
+    try {
+      setNonceStatus(await inspectDestinationNonceRemote(checkpoint.planId));
+    } catch (error) {
+      setNonceError(error instanceof Error ? error.message : 'CCTP nonce verification unavailable');
+    } finally {
+      setNonceBusy(false);
+    }
+  }
+
   const instruction = nextBridgeResumeInstruction(checkpoint);
 
   return (
@@ -200,6 +507,168 @@ function RecoveryCard({
           </p>
         </div>
       </div>
+      {checkpoint.stage === 'ATTESTATION_READY' && (
+        <section className="mt-3 space-y-2 rounded-xl p-3"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+          <p className="text-xs font-semibold" style={{ color: 'var(--ink)' }}>
+            Reconcile a previously signed destination receive
+          </p>
+          <p className="text-xs leading-5" style={{ color: 'var(--muted)' }}>
+            If your wallet already broadcast the original CCTP receive but Veyra lost its response,
+            paste that transaction hash. This will ONLY check and record an existing
+            on-chain submission. It never signs, resends or burns USDC.
+            No prior durable claim or mismatched transaction means verification is refused.
+          </p>
+          <form className="space-y-2" onSubmit={(event) => {
+            event.preventDefault();
+            void reconcilePreviouslySignedHash();
+          }}>
+            <label htmlFor={`known-receive-${checkpoint.planId}`}
+              className="block text-xs font-semibold" style={{ color: 'var(--muted)' }}>
+              Original destination transaction hash (0x + 64 hex characters)
+            </label>
+            <input
+              id={`known-receive-${checkpoint.planId}`}
+              value={knownTxHash}
+              onChange={(event) => setKnownTxHash(event.target.value)}
+              placeholder="0x…"
+              maxLength={66}
+              autoComplete="off"
+              spellCheck={false}
+              className="w-full rounded-lg px-3 py-2 font-mono text-xs outline-none"
+              style={{ background: 'var(--surface-strong)', color: 'var(--ink)', border: '1px solid var(--border-strong)' }}
+              disabled={busy || reconcileBusy}
+            />
+            <button
+              type="submit"
+              disabled={busy || reconcileBusy || !/^0x[0-9a-fA-F]{64}$/.test(knownTxHash.trim())}
+              className="rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-40"
+              style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}
+            >
+              {reconcileBusy ? 'Verifying saved transaction…' : 'Verify existing hash (no signing)'}
+            </button>
+          </form>
+          {reconcileMessage && (
+            <p role="status" className="text-xs" style={{ color: 'var(--success)' }}>{reconcileMessage}</p>
+          )}
+          {reconcileError && (
+            <p role="alert" className="text-xs" style={{ color: 'var(--danger)' }}>
+              {reconcileError} · The submission remains locked.
+            </p>
+          )}
+        </section>
+      )}
+
+      {checkpoint.stage === 'DESTINATION_BROADCAST' && (
+        <section className="mt-3 space-y-3 rounded-xl p-3"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+          <p className="text-xs font-semibold" style={{ color: 'var(--ink)' }}>
+            Immutable CCTP destination attempt history
+          </p>
+          {attemptHistory && (
+            <div className="space-y-2 text-xs" style={{ color: 'var(--muted)' }}>
+              <p>First receive: {attemptHistory.first.state}
+                {attemptHistory.first.reverted ? ' · canonical revert recorded' : ''}
+              </p>
+              <p>Second receive: {attemptHistory.second.state}
+                {attemptHistory.second.verifiedMint ? ' · verified USDC mint' : ''}
+              </p>
+              {attemptHistory.second.receiveTxHash && (
+                <p className="break-all font-mono">Second hash: {attemptHistory.second.receiveTxHash}</p>
+              )}
+              {attemptHistory.second.mintBlockHash && (
+                <p className="break-all font-mono">
+                  Verified mint block: {attemptHistory.second.mintBlockHash}
+                </p>
+              )}
+              {attemptHistory.history.map((event) => (
+                <p key={`${event.attemptNumber}:${event.eventType}:${event.occurredAt}`}>
+                  Attempt #{event.attemptNumber} · {event.eventType}
+                </p>
+              ))}
+            </div>
+          )}
+          {attemptHistoryError && (
+            <p role="alert" className="text-xs leading-5" style={{ color: 'var(--warning)' }}>
+              {attemptHistoryError} · Existing submissions remain locked.
+            </p>
+          )}
+          {attemptHistory?.second.state === 'UNCERTAIN' && (
+            <form className="space-y-2" onSubmit={(event) => {
+              event.preventDefault();
+              void reconcileKnownSecondReceive();
+            }}>
+              <p className="text-xs leading-5" style={{ color: 'var(--muted)' }}>
+                Attempt #2 was previously reserved but has no recorded hash.
+                Paste ONLY an already broadcast transaction hash to verify on
+                the destination RPC; this form cannot create a transaction.
+              </p>
+              <label className="block text-xs font-semibold"
+                htmlFor={`retry-hash-${checkpoint.planId}`}
+                style={{ color: 'var(--ink)' }}>
+                Previously broadcast second receive hash
+              </label>
+              <input id={`retry-hash-${checkpoint.planId}`}
+                value={secondTxHash} onChange={(e) => setSecondTxHash(e.target.value)}
+                maxLength={66} placeholder="0x…" autoComplete="off" spellCheck={false}
+                disabled={!connected || busy || secondBusy}
+                className="w-full rounded-lg px-3 py-2 font-mono text-xs outline-none"
+                style={{ background: 'var(--surface-strong)', color: 'var(--ink)', border: '1px solid var(--border-strong)' }} />
+              <button type="submit"
+                disabled={!connected || busy || secondBusy || !/^0x[0-9a-fA-F]{64}$/.test(secondTxHash.trim())}
+                className="rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-40"
+                style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}>
+                {secondBusy ? 'Verifying existing transaction…' : 'Reconcile second hash (no signing)'}
+              </button>
+            </form>
+          )}
+          {secondMessage && <p role="status" className="text-xs" style={{ color: 'var(--success)' }}>{secondMessage}</p>}
+          {secondError && <p role="alert" className="text-xs" style={{ color: 'var(--danger)' }}>{secondError} · No new transaction was sent.</p>}
+          <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>
+            History is not authorization to sign or retry a transaction.
+          </p>
+        </section>
+      )}
+
+      {checkpoint.stage === 'DESTINATION_BROADCAST' && (
+        <section className="mt-3 space-y-2 rounded-xl p-3"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+          <p className="text-xs font-semibold" style={{ color: 'var(--ink)' }}>
+            CCTP destination nonce (read-only)
+          </p>
+          <p className="text-xs leading-5" style={{ color: 'var(--muted)' }}>
+            Check on-chain usage after a confirmed first receive revert. This never authorizes another burn, receive, or wallet signature.
+          </p>
+          <button
+            type="button"
+            onClick={() => void checkNonce()}
+            disabled={!connected || busy || nonceBusy}
+            className="rounded-lg px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}
+          >
+            {nonceBusy ? 'Checking canonical nonce…' : 'Inspect nonce without signing'}
+          </button>
+          {nonceStatus && (
+            <div aria-live="polite" className="space-y-1 text-xs" style={{ color: 'var(--muted)' }}>
+              <p>
+                {nonceStatus.usage === 'ALREADY_CONSUMED'
+                  ? 'Nonce already consumed on destination chain.'
+                  : 'Nonce unused at the observed block only — status may change.'}
+              </p>
+              <p className="font-mono">Block {nonceStatus.observedBlockNumber} · {nonceStatus.observedBlockHash.slice(0, 14)}…</p>
+              <p className="font-semibold" style={{ color: 'var(--warning)' }}>
+                Retry signing is NOT authorized.
+              </p>
+            </div>
+          )}
+          {nonceError && (
+            <p role="alert" className="text-xs leading-5" style={{ color: 'var(--danger)' }}>
+              {nonceError} · No new transaction is allowed.
+            </p>
+          )}
+        </section>
+      )}
+
       <button
         type="button"
         onClick={onResume}

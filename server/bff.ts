@@ -7,10 +7,12 @@
  * - Holds Circle API key (for StableFX quote fetching, server-side only)
  * - All LLM output is treated as untrusted text and validated before returning
  * - Browser receives only structured IntentResult — never raw LLM output
- * - BFF never signs for the user's wallet
- * - BFF never broadcasts user transactions
- * - BFF never returns trusted calldata
- * - BFF never receives or stores private keys
+ * - BFF never signs for the user's primary wallet
+ * - User-originated money actions remain wallet-authorized
+ * - The optional testnet CCTP relay may broadcast receiveMessage with a
+ *   dedicated gas-only relay key after owned checkpoint + chain evidence checks
+ * - Mainnet forbids RELAY_PRIVATE_KEY and requires the KMS/HSM signer boundary
+ * - BFF never returns LLM/provider-supplied calldata as trusted execution input
  * - All LLM-generated numbers, addresses, and amounts remain UntrustedString
  *   until deterministically resolved by the browser pipeline
  *
@@ -38,6 +40,7 @@ import { getAuthenticatedVeyraUserId } from './auth/session.js';
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
 import { beginXOAuthLink, completeXOAuthLink, XOAuthError } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
+import { PaymentReviewError } from './services/paymentReviewProof.js';
 import { upsertContact, removeContact, listContacts, ContactError } from './services/contactService.js';
 import { getReceivePreference, setReceivePreference, ReceivePreferenceError } from './services/receivePreferenceService.js';
 import { follow, unfollow, sendConnectionRequest, acceptConnection, rejectConnection } from './db/repositories/socialRepository.js';
@@ -45,15 +48,54 @@ import { assertServerRuntimeConfig } from './config/runtimeConfig.js';
 import { getRateLimitPolicy } from './config/rateLimits.js';
 import { requestObservability } from './middleware/observability.js';
 import { PROVIDER_MANIFEST } from '../src/providers/registry/providerManifest.js';
-import { verifyCctpSourceReceiptEvidence } from '../src/providers/cctp/cctpV2Adapter.js';
 import { evaluateMainnetReadiness } from './readiness/mainnetReadiness.js';
 import { probeSignerReadiness } from './readiness/signerReadiness.js';
 import { probeDatabaseReadiness } from './readiness/databaseReadiness.js';
+import { evaluateTestnetReadiness, probeTestnetRpcEndpoints } from './readiness/testnetReadiness.js';
 import { refreshMainnetProviderHealth } from './services/providerHealthService.js';
 import { getAllProviderHealthRecords } from '../src/providers/registry/providerRegistry.js';
 import {
+  ActivityReceiptInputError,
+  createBridgeActivityReceipt,
+} from './services/activityReceiptService.js';
+import {
+  ActivityReceiptEvidenceError,
+  verifyOwnedActivityReceiptTransitionEvidence,
+  finalizeOwnedRevertedCctpSource,
+} from './services/activityReceiptVerificationService.js';
+import {
+  getResumableReceipts as getResumableActivityReceipts,
+  listReceiptsForUser,
+  ReceiptTransitionError,
+  syncReceiptRevision,
+  type ReceiptStatus as ActivityReceiptStatus,
+} from './db/repositories/receiptRepository.js';
+import {
+  claimDestinationSubmission,
+  getDestinationSubmissionClaim,
+  recordDestinationSubmission,
+} from './db/repositories/bridgeDestinationSubmissionRepository.js';
+import {
+  verifyRevertedCctpDestinationReceiveFromNetwork,
+} from './services/cctpDestinationRevertVerificationService.js';
+import {
+  recordVerifiedFirstDestinationRevert,
+} from './db/repositories/bridgeDestinationRevertRepository.js';
+import { getOwnedDestinationAttemptHistory } from './db/repositories/bridgeDestinationRetryRepository.js';
+import { getSecondDestinationAttempt } from './db/repositories/bridgeDestinationRetryRepository.js';
+import { verifySecondCctpDestinationMintFromNetwork } from './services/cctpSecondDestinationVerificationService.js';
+import { inspectCctpDestinationNonceFromNetwork } from './services/cctpDestinationNonceInspectionService.js';
+import { recordVerifiedSecondDestinationMint } from './db/repositories/bridgeSecondDestinationVerificationRepository.js';
+import { finalizeVerifiedSecondCctpSettlement } from './db/repositories/bridgeSecondSettlementRepository.js';
+import { assertSelfRelayNetworkEvidence } from './services/cctpSelfRelayVerification.js';
+import { assertSecondReceiveTransactionMatchesCheckpoint } from './services/cctpSecondReceiveReconciliationService.js';
+import { recordSecondDestinationAttemptHash } from './db/repositories/bridgeDestinationRetryRepository.js';
+import { verifyCctpSourceCheckpointAttestationFromNetwork } from './services/cctpBridgeSourceAttestationService.js';
+import { receiptStatusEnum } from './db/schema/enums.js';
+import {
   BridgeRecoveryConflictError,
   assertBridgeRecoveryWalletOwnership,
+  assertBrowserBridgeCheckpointWritable,
   evaluateBridgeRelayDecision,
   getBridgeRecoveryCheckpointForOwner,
   loadPendingBridgeRecoveryCheckpoints,
@@ -65,7 +107,7 @@ import {
 const runtimeConfig = assertServerRuntimeConfig();
 const RATE_POLICY = getRateLimitPolicy();
 const app = express();
-app.set('trust proxy', runtimeConfig.environment === 'mainnet' ? 1 : false);
+app.set('trust proxy', runtimeConfig.environment === 'mainnet' || runtimeConfig.hostedBackend ? 1 : false);
 app.use(requestObservability);
 
 // ── Body parsing with size limits ────────────────────────────────────────────
@@ -73,7 +115,11 @@ app.use(express.json({ limit: '4kb' }));
 
 // ── CORS for local dev ───────────────────────────────────────────────────────
 app.use((req: Request, res: Response, next: NextFunction): void => {
-  const allowedOrigin = runtimeConfig.environment === 'mainnet' ? runtimeConfig.appOrigin : '*';
+  // Hosted testnet is public-facing and must never expose credentialed
+  // identity APIs through a wildcard CORS origin.
+  const allowedOrigin = runtimeConfig.environment === 'mainnet' || runtimeConfig.hostedBackend
+    ? runtimeConfig.appOrigin
+    : '*';
   if (allowedOrigin === '*' || req.header('origin') === allowedOrigin || !req.header('origin')) {
     res.setHeader('Access-Control-Allow-Origin', allowedOrigin ?? '');
   }
@@ -134,6 +180,11 @@ app.use('/api', GLOBAL_RATE);
 function identityError(res: Response, err: unknown): void {
   if (err instanceof WalletProofError || err instanceof IdentityRegistrationError) {
     res.status(err.httpStatus).json({ ok: false, error: err.code, message: err.message });
+    return;
+  }
+  if (err instanceof PaymentReviewError) {
+    res.status(err.code === 'PAYMENT_REVIEW_NOT_CONFIGURED' ? 503 : 409)
+      .json({ ok: false, error: err.code, message: err.message });
     return;
   }
   if (err instanceof IdentityResolutionError) {
@@ -416,15 +467,22 @@ app.post('/api/identity/verify-payment', IDENTITY_RATE, async (req: Request, res
     const body = req.body as Record<string, unknown>;
     const snapshotId = typeof body.snapshotId === 'string' ? body.snapshotId : '';
     const expectedWalletAddress = typeof body.expectedWalletAddress === 'string' ? body.expectedWalletAddress : '';
+    const expectedWalletId = typeof body.expectedWalletId === 'string' ? body.expectedWalletId : '';
     const expectedChainId = typeof body.expectedChainId === 'number' ? body.expectedChainId : Number.NaN;
+    const reviewToken = typeof body.reviewToken === 'string' ? body.reviewToken : '';
     if (!/^snp_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(snapshotId)
+      || !/^wlt_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(expectedWalletId)
       || !/^0x[0-9a-fA-F]{40}$/.test(expectedWalletAddress)
-      || !Number.isSafeInteger(expectedChainId) || expectedChainId <= 0) {
+      || !Number.isSafeInteger(expectedChainId) || expectedChainId <= 0
+      || !reviewToken || reviewToken.length > 4096) {
       res.status(400).json({ error: 'INVALID_SNAPSHOT_VERIFICATION' });
       return;
     }
     const { db } = await import('./db/client.js');
-    const verified = await verifyPaymentRecipient(db, { snapshotId, expectedWalletAddress, expectedChainId });
+    const verified = await verifyPaymentRecipient(db, {
+      senderUserId: veyraUserId,
+      snapshotId, expectedWalletId, expectedWalletAddress, expectedChainId, reviewToken,
+    });
     if (!verified.ok) {
       res.status(409).json(verified);
       return;
@@ -1170,6 +1228,33 @@ app.get('/api/stablefx/trade/:tradeId', STABLEFX_RATE, async (req: Request, res:
 // Polls Circle's CCTP V2 attestation API for a message.
 // Route: GET /api/cctp/attestation?sourceDomain=26&txHash=0x...
 
+app.get('/api/cctp/health', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const zeroHash = `0x${'0'.repeat(64)}`;
+    const url =
+      `https://iris-api-sandbox.circle.com/v2/messages/${MANIFEST_CONSTANTS.ARC_TESTNET_CCTP_DOMAIN}` +
+      `?transactionHash=${zeroHash}`;
+
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(4_000),
+    });
+
+    // A 404/400 for a deliberately unknown transaction still proves the
+    // attestation service is reachable. 5xx/network failures do not.
+    const reachable = response.status < 500;
+    res.status(reachable ? 200 : 503).json({
+      ok: reachable,
+      service: 'circle-cctp-attestation',
+      status: response.status,
+    });
+  } catch {
+    res.status(503).json({
+      ok: false,
+      service: 'circle-cctp-attestation',
+    });
+  }
+});
+
 app.get('/api/cctp/attestation', async (req: Request, res: Response): Promise<void> => {
   try {
     const { sourceDomain, txHash } = req.query;
@@ -1207,6 +1292,274 @@ app.get('/api/cctp/attestation', async (req: Request, res: Response): Promise<vo
   } catch (err) {
     console.error('[BFF] /api/cctp/attestation error:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── Activity receipts ──────────────────────────────────────────────────────
+
+const ACTIVITY_RECEIPT_STATUSES = new Set<string>(receiptStatusEnum.enumValues);
+
+function parseOptionalHash(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(value)) {
+    throw new ReceiptTransitionError('Invalid transaction hash in receipt sync.');
+  }
+  return value;
+}
+
+app.post('/api/receipts/bridge', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const input = {
+      clientIntentId:
+        typeof body.clientIntentId === 'string' ? body.clientIntentId : '',
+      routeId: typeof body.routeId === 'string' ? body.routeId : '',
+      senderAddress:
+        typeof body.senderAddress === 'string' ? body.senderAddress : '',
+      sourceChainId:
+        typeof body.sourceChainId === 'number'
+          ? body.sourceChainId
+          : Number.NaN,
+      destinationAddress:
+        typeof body.destinationAddress === 'string'
+          ? body.destinationAddress
+          : '',
+      destinationChainId:
+        typeof body.destinationChainId === 'number'
+          ? body.destinationChainId
+          : Number.NaN,
+      amountRaw: typeof body.amountRaw === 'string' ? body.amountRaw : '',
+      tokenAddress:
+        typeof body.tokenAddress === 'string' ? body.tokenAddress : '',
+      recipientSnapshotId:
+        typeof body.recipientSnapshotId === 'string'
+          ? body.recipientSnapshotId
+          : null,
+      recipientReviewToken:
+        typeof body.recipientReviewToken === 'string'
+          ? body.recipientReviewToken
+          : null,
+      recipientWalletId:
+        typeof body.recipientWalletId === 'string'
+          ? body.recipientWalletId
+          : null,
+      policyResult:
+        body.policyResult &&
+        typeof body.policyResult === 'object' &&
+        !Array.isArray(body.policyResult)
+          ? (body.policyResult as Record<string, unknown>)
+          : undefined,
+      preflightResults: Array.isArray(body.preflightResults)
+        ? body.preflightResults
+        : undefined,
+    };
+
+    const { db } = await import('./db/client.js');
+    const created = await createBridgeActivityReceipt(db, userId, input);
+    res.status(201).json({ ok: true, ...created });
+  } catch (err) {
+    if (err instanceof ActivityReceiptInputError) {
+      res.status(err.httpStatus).json({
+        ok: false,
+        error: err.code,
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/receipts/bridge error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+app.post('/api/receipts/sync', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const status =
+      typeof body.status === 'string' &&
+      ACTIVITY_RECEIPT_STATUSES.has(body.status)
+        ? (body.status as ActivityReceiptStatus)
+        : null;
+    const revision =
+      typeof body.revision === 'number' ? body.revision : Number.NaN;
+    const receiptId =
+      typeof body.receiptId === 'string' ? body.receiptId : '';
+
+    if (
+      !receiptId ||
+      !status ||
+      !Number.isSafeInteger(revision) ||
+      revision < 1
+    ) {
+      res.status(400).json({
+        ok: false,
+        error: 'INVALID_RECEIPT_SYNC',
+      });
+      return;
+    }
+
+    const input = {
+      receiptId,
+      revision,
+      status,
+      burnTxHash: parseOptionalHash(body.burnTxHash),
+      burnChainId:
+        typeof body.burnChainId === 'number' ? body.burnChainId : undefined,
+      burnBlockNumber:
+        typeof body.burnBlockNumber === 'number'
+          ? body.burnBlockNumber
+          : undefined,
+      receiveTxHash: parseOptionalHash(body.receiveTxHash),
+      receiveChainId:
+        typeof body.receiveChainId === 'number'
+          ? body.receiveChainId
+          : undefined,
+      receiveBlockNumber:
+        typeof body.receiveBlockNumber === 'number'
+          ? body.receiveBlockNumber
+          : undefined,
+      messageHash:
+        typeof body.messageHash === 'string' ? body.messageHash : undefined,
+      messageBytes:
+        typeof body.messageBytes === 'string' ? body.messageBytes : undefined,
+      attestationNonce:
+        typeof body.attestationNonce === 'string'
+          ? body.attestationNonce
+          : undefined,
+      failureReason:
+        typeof body.failureReason === 'string'
+          ? body.failureReason.slice(0, 1000)
+          : undefined,
+      resumable:
+        typeof body.resumable === 'boolean' ? body.resumable : undefined,
+      resumePayload:
+        body.resumePayload &&
+        typeof body.resumePayload === 'object' &&
+        !Array.isArray(body.resumePayload)
+          ? (body.resumePayload as Record<string, unknown>)
+          : undefined,
+    };
+
+    const { db } = await import('./db/client.js');
+    await verifyOwnedActivityReceiptTransitionEvidence(db, userId, input);
+    const result = await syncReceiptRevision(db, userId, input);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof ActivityReceiptEvidenceError) {
+      res.status(err.httpStatus).json({
+        ok: false,
+        error: err.code,
+        message: err.message,
+      });
+      return;
+    }
+    if (err instanceof ReceiptTransitionError) {
+      res.status(409).json({
+        ok: false,
+        error: 'RECEIPT_TRANSITION_CONFLICT',
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/receipts/sync error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+/**
+ * No browser-supplied status/hash/block is trusted here. The authenticated
+ * BFF independently verifies a canonical reverted CCTP source burn and
+ * atomically closes only its owner's matching BROADCAST receipt.
+ */
+app.post('/api/receipts/cctp/resolve-source-revert', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const receiptId =
+      typeof body?.receiptId === 'string' ? body.receiptId : '';
+    if (!receiptId || receiptId.length > 150) {
+      res.status(400).json({ ok: false, error: 'INVALID_RECEIPT_ID' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const resolved = await finalizeOwnedRevertedCctpSource(db, userId, receiptId);
+    res.json({ ok: true, ...resolved });
+  } catch (err) {
+    if (err instanceof ActivityReceiptEvidenceError) {
+      res.status(err.httpStatus).json({
+        ok: false,
+        error: err.code,
+        message: err.message,
+      });
+      return;
+    }
+    if (err instanceof ReceiptTransitionError) {
+      res.status(409).json({
+        ok: false,
+        error: 'RECEIPT_TRANSITION_CONFLICT',
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/receipts/cctp/resolve-source-revert error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+app.get('/api/receipts', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+
+    const rawLimit =
+      typeof req.query.limit === 'string' ? Number(req.query.limit) : 100;
+    const { db } = await import('./db/client.js');
+    const receipts = await listReceiptsForUser(
+      db,
+      userId,
+      Number.isFinite(rawLimit) ? rawLimit : 100,
+    );
+    res.json({ ok: true, receipts });
+  } catch (err) {
+    console.error('[BFF] /api/receipts error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+app.get('/api/receipts/resumable', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const receipts = await getResumableActivityReceipts(db, userId);
+    res.json({ ok: true, receipts });
+  } catch (err) {
+    console.error('[BFF] /api/receipts/resumable error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
   }
 });
 
@@ -1273,6 +1626,10 @@ app.post('/api/bridge/persist', IDENTITY_RATE, async (req: Request, res: Respons
       );
     }
 
+    // This endpoint only mirrors pre-destination recovery metadata.
+    // A browser cannot forge a destination tx hash or VERIFIED state here.
+    // Server-side relay and chain-verifying self-relay endpoints own that truth.
+    assertBrowserBridgeCheckpointWritable(input);
     const { db } = await import('./db/client.js');
     await assertBridgeRecoveryWalletOwnership(db, userId, input);
     const checkpoint = await persistBridgeRecoveryCheckpoint(db, userId, input);
@@ -1300,6 +1657,666 @@ app.get('/api/bridge/pending', IDENTITY_RATE, async (req: Request, res: Response
     res.json({ ok: true, pending });
   } catch (err) {
     console.error('[BFF] /api/bridge/pending error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+/**
+ * Read-only attempt history for authenticated cross-device recovery.
+ * A history response does not grant another signing or relay permission.
+ */
+app.get('/api/bridge/destination-attempts', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const planId = typeof req.query.planId === 'string'
+      ? req.query.planId.trim() : '';
+    if (!planId || planId.length > 160) {
+      res.status(400).json({ ok: false, error: 'INVALID_BRIDGE_PLAN' });
+      return;
+    }
+    const { db } = await import('./db/client.js');
+    const history = await getOwnedDestinationAttemptHistory(db, userId, planId);
+    if (!history) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    res.json({
+      ok: true,
+      history,
+      retryAuthorized: false,
+    });
+  } catch (err) {
+    console.error('[BFF] /api/bridge/destination-attempts error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+/**
+ * Reconcile the HASH of an already-broadcast second receive after an unknown
+ * wallet/relayer response. This route deliberately cannot claim, sign or
+ * broadcast attempt #2. The reservation must already be committed.
+ *
+ * A submitted hash is a locator only: RPC chain identity, transaction hash,
+ * exact attested CCTP calldata and the original canonical reverted attempt
+ * are verified by the server before the immutable retry hash is recorded.
+ */
+app.post('/api/bridge/reconcile-second-receive', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const planId = typeof body?.planId === 'string' ? body.planId.trim() : '';
+    const txHash = typeof body?.txHash === 'string' ? body.txHash.trim() : '';
+    if (!planId || planId.length > 160 || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+      res.status(400).json({ ok: false, error: 'INVALID_SECOND_RECEIVE_RECONCILIATION' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(db, userId, planId);
+    if (!checkpoint) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+
+    const history = await getOwnedDestinationAttemptHistory(db, userId, planId);
+    const second = await getSecondDestinationAttempt(db, userId, planId);
+    if (
+      !history ||
+      history.first.state !== 'RECORDED' ||
+      !history.first.reverted ||
+      !history.first.receiveTxHash ||
+      !history.first.revertBlockHash ||
+      history.first.receiveTxHash.toLowerCase() !== checkpoint.receiveTxHash?.toLowerCase() ||
+      !second ||
+      (second.mode !== 'UNCERTAIN' &&
+        !(second.mode === 'ALREADY_SUBMITTED' &&
+          second.txHash.toLowerCase() === txHash.toLowerCase()))
+    ) {
+      throw new BridgeRecoveryConflictError(
+        'Second hash reconciliation requires an existing reserved retry and independently reverted first receive.',
+      );
+    }
+
+    // The historical first revert is rechecked, never assumed from a cached
+    // verdict; this detects chain reorganizations before accepting a hash.
+    const revert = await verifyRevertedCctpDestinationReceiveFromNetwork(
+      checkpoint, history.first.receiveTxHash,
+    );
+    if (revert.destinationBlockHash.toLowerCase() !== history.first.revertBlockHash.toLowerCase()) {
+      throw new BridgeRecoveryConflictError(
+        'Stored first revert proof is no longer canonical on the destination chain.',
+      );
+    }
+    await verifyCctpSourceCheckpointAttestationFromNetwork({
+      ...checkpoint, stage: 'ATTESTATION_READY',
+    });
+
+    const { createPublicClient, http: viemHttp } = await import('viem');
+    const { sepolia, baseSepolia } = await import('viem/chains');
+    if (
+      checkpoint.destinationChainId !== MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID &&
+      checkpoint.destinationChainId !== MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID
+    ) {
+      throw new BridgeRecoveryConflictError('Unsupported second-receive destination chain.');
+    }
+    const ethDestination = checkpoint.destinationChainId === MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID;
+    const client = createPublicClient({
+      chain: ethDestination ? sepolia : baseSepolia,
+      transport: viemHttp(ethDestination
+        ? (process.env.ETH_SEPOLIA_RPC_URL ?? 'https://ethereum-sepolia-rpc.publicnode.com')
+        : (process.env.BASE_SEPOLIA_RPC_URL ?? 'https://sepolia.base.org')),
+    });
+    let indexed;
+    let rpcChainId: number;
+    try {
+      [indexed, rpcChainId] = await Promise.all([
+        client.getTransaction({ hash: txHash as `0x${string}` }),
+        client.getChainId(),
+      ]);
+    } catch {
+      res.status(503).json({
+        ok: false,
+        error: 'SECOND_RECEIVE_TRANSACTION_NOT_INDEXED',
+        message: 'Cannot inspect the original second transaction. Its reserved slot remains locked.',
+        retryAuthorized: false,
+      });
+      return;
+    }
+
+    assertSecondReceiveTransactionMatchesCheckpoint(checkpoint, txHash, rpcChainId, {
+      hash: indexed.hash,
+      from: indexed.from,
+      to: indexed.to,
+      input: indexed.input,
+    });
+    await recordSecondDestinationAttemptHash(db, userId, planId, txHash);
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      ok: true,
+      planId,
+      attemptNumber: 2,
+      txHash: txHash.toLowerCase(),
+      alreadyRecorded: second.mode === 'ALREADY_SUBMITTED',
+      verifiedMint: false, // recording a broadcast does not imply mint success
+      retryAuthorized: false,
+    });
+  } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'SECOND_RECEIVE_RECONCILIATION_CONFLICT',
+        message: err.message,
+        retryAuthorized: false,
+      });
+      return;
+    }
+    console.error('[BFF] /api/bridge/reconcile-second-receive error:', err);
+    res.status(503).json({ ok: false, error: 'SECOND_RECEIVE_RECONCILIATION_UNAVAILABLE', retryAuthorized: false });
+  }
+});
+
+/**
+ * Verifies successful SECOND receive without requesting a new signature.
+ * Only an owned, already-recorded attempt #2 hash can be verified. Source
+ * burn and Circle evidence are independently rechecked from Arc and Circle.
+ *
+ * Never overwrites the original ActivityReceipt's first receive tx hash.
+ */
+app.post('/api/bridge/verify-second-destination', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const planId = typeof body?.planId === 'string' ? body.planId.trim() : '';
+    if (!planId || planId.length > 160) {
+      res.status(400).json({ ok: false, error: 'INVALID_BRIDGE_PLAN' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(db, userId, planId);
+    if (!checkpoint) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+
+    const attempt = await getSecondDestinationAttempt(db, userId, planId);
+    if (!attempt || attempt.mode !== 'ALREADY_SUBMITTED') {
+      throw new BridgeRecoveryConflictError(
+        'No immutable second destination receive hash is available for verification.',
+      );
+    }
+
+    if (checkpoint.stage !== 'DESTINATION_BROADCAST') {
+      throw new BridgeRecoveryConflictError(
+        'Second receive verification requires an unresolved first destination checkpoint.',
+      );
+    }
+
+    // The shared source+CIRCLE verifier expects a pre-signature stage.
+    // Adapt ONLY that field for proof checking; the original DB checkpoint
+    // is independently checked again with row locks when recording the proof.
+    await verifyCctpSourceCheckpointAttestationFromNetwork({
+      ...checkpoint,
+      stage: 'ATTESTATION_READY',
+    });
+
+    const proof = await verifySecondCctpDestinationMintFromNetwork(
+      checkpoint,
+      attempt.txHash,
+    );
+    const token = checkpoint.destinationChainId ===
+      MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID
+      ? MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC
+      : MANIFEST_CONSTANTS.BASE_SEPOLIA_USDC;
+    const verified = await recordVerifiedSecondDestinationMint(
+      db, userId, planId, proof, token,
+    );
+
+    res.json({
+      ok: true,
+      planId,
+      attemptNumber: 2,
+      outcome: 'VERIFIED_MINT',
+      evidence: verified,
+      activityReceiptCompleted: false,
+      retryAuthorized: false,
+    });
+  } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'SECOND_DESTINATION_MINT_NOT_VERIFIED',
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/bridge/verify-second-destination error:', err);
+    res.status(503).json({ ok: false, error: 'SECOND_DESTINATION_EVIDENCE_UNAVAILABLE' });
+  }
+});
+
+/**
+ * Server-only terminal ActivityReceipt gate for a VERIFIED second CCTP mint.
+ * The first receive hash remains immutable; separate settlement fields and
+ * audit event identify the actual successful second destination transaction.
+ */
+app.post('/api/bridge/finalize-second-settlement', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const planId = typeof body?.planId === 'string' ? body.planId.trim() : '';
+    if (!planId || planId.length > 160) {
+      res.status(400).json({ ok: false, error: 'INVALID_BRIDGE_PLAN' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(db, userId, planId);
+    if (!checkpoint) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+    if (checkpoint.stage !== 'DESTINATION_BROADCAST') {
+      throw new BridgeRecoveryConflictError(
+        'Second settlement requires the original destination broadcast checkpoint.',
+      );
+    }
+
+    const retry = await getSecondDestinationAttempt(db, userId, planId);
+    if (!retry || retry.mode !== 'ALREADY_SUBMITTED') {
+      throw new BridgeRecoveryConflictError(
+        'No recorded second destination receive can be settled.',
+      );
+    }
+
+    // Revalidate independent Arc/Circle and destination finality NOW, rather
+    // than only relying on a previously observed browser or DB status.
+    await verifyCctpSourceCheckpointAttestationFromNetwork({
+      ...checkpoint,
+      stage: 'ATTESTATION_READY',
+    });
+    const proof = await verifySecondCctpDestinationMintFromNetwork(
+      checkpoint,
+      retry.txHash,
+    );
+    const token = checkpoint.destinationChainId ===
+      MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID
+      ? MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC
+      : MANIFEST_CONSTANTS.BASE_SEPOLIA_USDC;
+    await recordVerifiedSecondDestinationMint(
+      db, userId, planId, proof, token,
+    );
+    const settled = await finalizeVerifiedSecondCctpSettlement(
+      db, userId, planId,
+    );
+
+    res.json({
+      ok: true,
+      planId,
+      receiptId: settled.receiptId,
+      status: settled.status,
+      firstReceiveTxHash: settled.receiveTxHash,
+      settlementReceiveTxHash: settled.settlementReceiveTxHash,
+      settlementReceiveBlockNumber: settled.settlementReceiveBlockNumber,
+      settlementAttemptNumber: settled.settlementAttemptNumber,
+      retryAuthorized: false,
+    });
+  } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'SECOND_CCTP_SETTLEMENT_NOT_VERIFIED',
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/bridge/finalize-second-settlement error:', err);
+    res.status(503).json({ ok: false, error: 'SECOND_SETTLEMENT_EVIDENCE_UNAVAILABLE' });
+  }
+});
+
+/**
+ * Read-only CCTP V2 usedNonces inspection for an owner's reverted FIRST
+ * destination receive. Observations are never authorization to sign a retry.
+ *
+ * IMPORTANT: usedNonces=0 at a recent block is not a mempool guarantee;
+ * another relayer can consume it before the next transaction. The second
+ * signing boundary must be separately designed and authorized.
+ */
+app.post('/api/bridge/inspect-destination-nonce', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const planId = typeof body?.planId === 'string' ? body.planId.trim() : '';
+    if (!planId || planId.length > 160) {
+      res.status(400).json({ ok: false, error: 'INVALID_BRIDGE_PLAN' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(db, userId, planId);
+    if (!checkpoint) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+
+    // An already claimed second submission may be stuck without a hash.
+    // Never treat an unused nonce as permission to reclaim or sign again.
+    const history = await getOwnedDestinationAttemptHistory(db, userId, planId);
+    if (
+      !history ||
+      history.first.state !== 'RECORDED' ||
+      history.first.reverted !== true ||
+      !history.first.receiveTxHash ||
+      !history.first.revertBlockHash ||
+      history.first.receiveTxHash.toLowerCase() !== checkpoint.receiveTxHash?.toLowerCase() ||
+      history.second.state !== 'UNCLAIMED'
+    ) {
+      throw new BridgeRecoveryConflictError(
+        'Nonce inspection requires a verified reverted first receive and no second submission reservation.',
+      );
+    }
+
+    // Reprove the FIRST attempt's exact recorded transaction/reorg safety,
+    // and match the append-only original block hash. Never trust its status
+    // from a browser or stale database snapshot alone.
+    const first = await verifyRevertedCctpDestinationReceiveFromNetwork(
+      checkpoint, history.first.receiveTxHash,
+    );
+    if (first.destinationBlockHash.toLowerCase() !== history.first.revertBlockHash.toLowerCase()) {
+      throw new BridgeRecoveryConflictError(
+        'Original destination revert proof is not canonical at the stored block.',
+      );
+    }
+
+    // The same source/Circle verifier used at the initial signing boundary.
+    await verifyCctpSourceCheckpointAttestationFromNetwork({
+      ...checkpoint,
+      stage: 'ATTESTATION_READY',
+    });
+    const observation = await inspectCctpDestinationNonceFromNetwork(checkpoint);
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      ok: true,
+      planId,
+      attemptNumber: 1,
+      firstRevertBlockHash: first.destinationBlockHash,
+      observation,
+      retryAuthorized: false,
+      caveat: 'Nonce was checked at one canonical destination block. It may change before any transaction.',
+    });
+  } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'DESTINATION_NONCE_NOT_VERIFIED',
+        message: err.message,
+        retryAuthorized: false,
+      });
+      return;
+    }
+    console.error('[BFF] /api/bridge/inspect-destination-nonce error:', err);
+    res.status(503).json({
+      ok: false,
+      error: 'DESTINATION_NONCE_RPC_UNAVAILABLE',
+      retryAuthorized: false,
+    });
+  }
+});
+
+/**
+ * Authenticated read-only on-chain resolution of a FIRST destination revert.
+ * No browser-supplied tx hash, block, status or confirmations are accepted.
+ * Recording this append-only evidence NEVER authorizes a second receiveMessage.
+ */
+app.post('/api/bridge/resolve-destination-revert', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const planId = typeof body?.planId === 'string' ? body.planId : '';
+    if (!planId || planId.length > 160) {
+      res.status(400).json({ ok: false, error: 'INVALID_BRIDGE_PLAN' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(db, userId, planId);
+    if (!checkpoint) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+    const claim = await getDestinationSubmissionClaim(db, userId, planId);
+    if (!claim || claim.mode !== 'ALREADY_SUBMITTED') {
+      throw new BridgeRecoveryConflictError(
+        'A canonical first destination receive hash must be recorded before revert resolution.',
+      );
+    }
+
+    const proof = await verifyRevertedCctpDestinationReceiveFromNetwork(
+      checkpoint,
+      claim.txHash,
+    );
+    const recorded = await recordVerifiedFirstDestinationRevert(
+      db,
+      userId,
+      planId,
+      proof,
+    );
+
+    res.json({
+      ok: true,
+      planId,
+      outcome: 'REVERTED',
+      attemptNumber: 1,
+      evidence: recorded,
+      retryAuthorized: false,
+    });
+  } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'DESTINATION_REVERT_NOT_VERIFIED',
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/bridge/resolve-destination-revert error:', err);
+    res.status(503).json({ ok: false, error: 'DESTINATION_REVERT_EVIDENCE_UNAVAILABLE' });
+  }
+});
+
+// ── Shared destination claim for user-signed self-relay ────────────────────
+// The server and the browser compete for the SAME durable plan claim. No user
+// signature may be requested before this transaction commits. If the browser
+// crashes or the wallet RPC loses the broadcast response, do not reopen it.
+app.post('/api/bridge/claim-self-receive', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const planId = typeof body?.planId === 'string' ? body.planId : '';
+    if (!planId || planId.length > 160) {
+      res.status(400).json({ ok: false, error: 'INVALID_BRIDGE_PLAN' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(db, userId, planId);
+    if (!checkpoint) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
+
+    // Claiming grants permission to request the user's destination wallet
+    // signature. Revalidate reviewed source calldata and Circle's sole
+    // canonical MessageSent before granting that permission.
+    await verifyCctpSourceCheckpointAttestationFromNetwork(checkpoint);
+
+    const claim = await claimDestinationSubmission(db, userId, planId);
+    if (claim.mode !== 'CLAIMED') {
+      res.status(409).json({
+        ok: false,
+        error: 'DESTINATION_SUBMISSION_ALREADY_CLAIMED',
+        message:
+          'A destination submission was already started; reconcile the original transaction before signing another.',
+      });
+      return;
+    }
+
+    res.json({ ok: true, mode: 'CLAIMED' });
+  } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'BRIDGE_RECOVERY_CONFLICT',
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/bridge/claim-self-receive error:', err);
+    res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
+  }
+});
+
+/**
+ * The browser can report a self-relay tx hash, but it cannot choose receipt
+ * truth. Verify the *actual* chain transaction sender, target and calldata
+ * before writing it to the immutable destination submission ledger.
+ */
+app.post('/api/bridge/record-self-receive', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const planId = typeof body?.planId === 'string' ? body.planId : '';
+    const txHash = typeof body?.txHash === 'string' ? body.txHash : '';
+    if (
+      !planId ||
+      planId.length > 160 ||
+      !/^0x[0-9a-fA-F]{64}$/.test(txHash)
+    ) {
+      res.status(400).json({ ok: false, error: 'INVALID_DESTINATION_SUBMISSION' });
+      return;
+    }
+
+    const { db } = await import('./db/client.js');
+    const checkpoint = await getBridgeRecoveryCheckpointForOwner(db, userId, planId);
+    if (!checkpoint) {
+      res.status(404).json({ ok: false, error: 'BRIDGE_RECOVERY_NOT_FOUND' });
+      return;
+    }
+    const claim = await getDestinationSubmissionClaim(db, userId, planId);
+    if (!claim) {
+      throw new BridgeRecoveryConflictError(
+        'Self-relay transaction cannot be recorded without a committed destination claim.',
+      );
+    }
+    if (claim.mode === 'ALREADY_SUBMITTED') {
+      if (claim.txHash.toLowerCase() !== txHash.toLowerCase()) {
+        throw new BridgeRecoveryConflictError('A different destination tx hash is already immutable.');
+      }
+      res.json({ ok: true, txHash: claim.txHash, alreadyRecorded: true });
+      return;
+    }
+
+    if (
+      checkpoint.destinationChainId !== MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID &&
+      checkpoint.destinationChainId !== MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID
+    ) {
+      throw new BridgeRecoveryConflictError('Unsupported self-relay destination chain.');
+    }
+
+    const { createPublicClient, http: viemHttp } = await import('viem');
+    const { sepolia, baseSepolia } = await import('viem/chains');
+    const destination = checkpoint.destinationChainId === MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID
+      ? sepolia
+      : baseSepolia;
+    const rpcUrl = checkpoint.destinationChainId === MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID
+      ? (process.env.ETH_SEPOLIA_RPC_URL ?? 'https://ethereum-sepolia-rpc.publicnode.com')
+      : (process.env.BASE_SEPOLIA_RPC_URL ?? 'https://sepolia.base.org');
+
+    const client = createPublicClient({
+      chain: destination,
+      transport: viemHttp(rpcUrl),
+    });
+    let transaction;
+    try {
+      transaction = await client.getTransaction({ hash: txHash as `0x${string}` });
+    } catch {
+      res.status(503).json({
+        ok: false,
+        error: 'SELF_RELAY_TRANSACTION_NOT_INDEXED',
+        message: 'The destination RPC has not indexed this hash. The claim remains locked; reconcile later.',
+      });
+      return;
+    }
+
+    try {
+      // A configured viem chain is not proof that an external RPC URL is
+      // actually serving that chain. Hash reconciliation must verify BOTH.
+      const rpcChainId = await client.getChainId();
+      assertSelfRelayNetworkEvidence(checkpoint, txHash, rpcChainId, {
+        hash: transaction.hash,
+        from: transaction.from,
+        to: transaction.to,
+        input: transaction.input,
+      });
+    } catch (err) {
+      throw new BridgeRecoveryConflictError(
+        err instanceof Error ? err.message : 'Self-relay call mismatch.',
+      );
+    }
+
+    await recordDestinationSubmission(db, userId, planId, txHash);
+    res.json({ ok: true, txHash, alreadyRecorded: false });
+  } catch (err) {
+    if (err instanceof BridgeRecoveryConflictError) {
+      res.status(409).json({
+        ok: false,
+        error: 'BRIDGE_RECOVERY_CONFLICT',
+        message: err.message,
+      });
+      return;
+    }
+    console.error('[BFF] /api/bridge/record-self-receive error:', err);
     res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
   }
 });
@@ -1349,6 +2366,26 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
 
     await assertBridgeRecoveryWalletOwnership(db, userId, checkpoint);
 
+    // A separate durable claim is committed before any wallet broadcast.
+    // Crashed/missing-hash submissions remain UNCERTAIN, never auto-retry.
+    const previousClaim = await getDestinationSubmissionClaim(
+      db, userId, planId,
+    );
+    if (previousClaim?.mode === 'ALREADY_SUBMITTED') {
+      res.json({
+        ok: true,
+        alreadySubmitted: true,
+        alreadyReceived: false,
+        txHash: previousClaim.txHash,
+      });
+      return;
+    }
+    if (previousClaim?.mode === 'UNCERTAIN') {
+      throw new BridgeRecoveryConflictError(
+        'Destination submission is uncertain after a prior relay claim. Reconcile chain/provider evidence before any retry.',
+      );
+    }
+
     const {
       createWalletClient,
       createPublicClient,
@@ -1356,72 +2393,12 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
       parseAbi,
     } = await import('viem');
 
-    const arcRpc =
-      process.env.ARC_TESTNET_RPC_URL ?? 'https://rpc.testnet.arc.io';
-    const sourceClient = createPublicClient({
-      chain: {
-        id: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
-        name: 'Arc Testnet',
-        nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-        rpcUrls: { default: { http: [arcRpc] } },
-      },
-      transport: viemHttp(arcRpc),
-    });
-
-    const [sourceReceipt, sourceTransaction] = await Promise.all([
-      sourceClient.getTransactionReceipt({
-        hash: checkpoint.burnTxHash as `0x${string}`,
-      }),
-      sourceClient.getTransaction({
-        hash: checkpoint.burnTxHash as `0x${string}`,
-      }),
-    ]);
-
-    if (
-      sourceTransaction.from.toLowerCase() !==
-      checkpoint.walletAddress.toLowerCase()
-    ) {
-      throw new BridgeRecoveryConflictError(
-        'Persisted CCTP source burn was not sent by the owned recovery wallet',
-      );
-    }
-
-    const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt);
-    if (!sourceEvidence.verified) {
-      throw new BridgeRecoveryConflictError(sourceEvidence.detail);
-    }
-
-    const sourceDomain = MANIFEST_CONSTANTS.ARC_TESTNET_CCTP_DOMAIN;
-    const attestationResponse = await fetch(
-      `https://iris-api-sandbox.circle.com/v2/messages/${sourceDomain}?transactionHash=${checkpoint.burnTxHash}`,
-    );
-    if (!attestationResponse.ok) {
-      res.status(503).json({
-        ok: false,
-        error: 'ATTESTATION_REVALIDATION_UNAVAILABLE',
-      });
-      return;
-    }
-
-    const attestationPayload = await attestationResponse.json() as {
-      messages?: Array<{
-        status?: string;
-        message?: string;
-        attestation?: string;
-      }>;
-    };
-    const authoritativeAttestation = attestationPayload.messages?.[0];
-    if (
-      authoritativeAttestation?.status !== 'complete' ||
-      !authoritativeAttestation.message ||
-      !authoritativeAttestation.attestation ||
-      authoritativeAttestation.message !== checkpoint.attestationMessage ||
-      authoritativeAttestation.attestation !== checkpoint.attestationSignature
-    ) {
-      throw new BridgeRecoveryConflictError(
-        'Persisted CCTP attestation does not match Circle for the owned source burn',
-      );
-    }
+    // Both server relay and wallet-signed self-relay now use the SAME
+    // independent proof: exact source tx hash/sender/TokenMessenger target,
+    // reviewed depositForBurn calldata and event, canonical single
+    // MessageSent, and unique Circle attestation matching the checkpoint.
+    // Do not start a destination signature/broadcast if ANY check fails.
+    await verifyCctpSourceCheckpointAttestationFromNetwork(checkpoint);
 
     const relay = evaluateBridgeRelayDecision(checkpoint);
 
@@ -1514,6 +2491,26 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
       return;
     }
 
+    // Atomic, crash-safe claim BEFORE opening the wallet broadcast boundary.
+    // Two requests that passed simulation concurrently still cannot both send.
+    const claim = await claimDestinationSubmission(db, userId, planId);
+    if (claim.mode === 'ALREADY_SUBMITTED') {
+      res.json({
+        ok: true,
+        alreadySubmitted: true,
+        alreadyReceived: false,
+        txHash: claim.txHash,
+      });
+      return;
+    }
+    if (claim.mode === 'UNCERTAIN') {
+      throw new BridgeRecoveryConflictError(
+        'Destination submission already claimed; the tx hash is not yet known. No automatic duplicate relay is allowed.',
+      );
+    }
+
+    // A failure after this line leaves the durable claim UNCERTAIN, even when
+    // the client reports a timeout. Never release it based on RPC errors.
     const txHash = await walletClient.writeContract({
       address: transmitter,
       abi: RECEIVE_ABI,
@@ -1521,15 +2518,9 @@ app.post('/api/bridge/relay-receive', IDENTITY_RATE, async (req: Request, res: R
       args: [message as `0x${string}`, attestation as `0x${string}`],
     });
 
-    // Persist immediately after broadcast and before responding. Repeating the
-    // same planId then returns this exact destination tx rather than submitting
-    // receiveMessage again.
-    await persistBridgeRecoveryCheckpoint(db, userId, {
-      ...checkpoint,
-      stage: 'DESTINATION_BROADCAST',
-      receiveTxHash: txHash,
-      updatedAt: Date.now(),
-    });
+    // The hash, the canonical checkpoint and the immutable broadcast event
+    // are committed together. A crash before commit remains fail-closed.
+    await recordDestinationSubmission(db, userId, planId, txHash);
 
     res.json({
       ok: true,
@@ -1565,7 +2556,14 @@ app.get('/api/health', (_req: Request, res: Response): void => {
 
 app.get('/api/health/database', async (_req: Request, res: Response): Promise<void> => {
   const report = await probeDatabaseReadiness(process.env.DATABASE_URL);
-  res.status(report.ready ? 200 : 503).json({ ok: report.ready, ...report, ts: Date.now() });
+  // Public health endpoints must never echo driver errors, database names,
+  // schema internals, connection strings or credentials in a failure response.
+  res.status(report.ready ? 200 : 503).json({
+    ok: report.ready,
+    scope: 'database-infrastructure-only',
+    checks: report.checks.map((check) => ({ id: check.id, ok: check.ok })),
+    ts: Date.now(),
+  });
 });
 
 app.get('/api/health/providers', async (_req: Request, res: Response): Promise<void> => {
@@ -1580,6 +2578,23 @@ app.get('/api/health/signer', async (_req: Request, res: Response): Promise<void
 });
 
 app.get('/api/health/readiness', async (_req: Request, res: Response): Promise<void> => {
+  // Testnet and mainnet are distinct release paths. Previously this route
+  // applied the mainnet KMS/provider requirements to testnet and could never
+  // truthfully report hosted Arc/Sepolia infrastructure availability.
+  if (runtimeConfig.environment === 'testnet') {
+    const [database, rpc] = await Promise.all([
+      probeDatabaseReadiness(process.env.DATABASE_URL),
+      probeTestnetRpcEndpoints(process.env),
+    ]);
+    const report = evaluateTestnetReadiness(process.env, database, rpc);
+    res.status(report.ready ? 200 : 503).json({
+      ok: report.ready,
+      ...report,
+      ts: Date.now(),
+    });
+    return;
+  }
+
   const [database, signer] = await Promise.all([
     probeDatabaseReadiness(process.env.DATABASE_URL),
     probeSignerReadiness(process.env),
@@ -1595,6 +2610,7 @@ app.get('/api/health/readiness', async (_req: Request, res: Response): Promise<v
   res.status(report.ready ? 200 : 503).json({
     ok: report.ready,
     environment: runtimeConfig.environment,
+    scope: 'mainnet-release-gates',
     checks: report.checks,
     ts: Date.now(),
   });
@@ -1602,7 +2618,10 @@ app.get('/api/health/readiness', async (_req: Request, res: Response): Promise<v
 
 // ── Start ────────────────────────────────────────────────────────────────────
 
-const PORT = parseInt(process.env.BFF_PORT ?? '3001', 10);
+const PORT = Number(process.env.PORT ?? process.env.BFF_PORT ?? '3001');
+if (!Number.isSafeInteger(PORT) || PORT < 1 || PORT > 65535) {
+  throw new Error('[BFF] PORT/BFF_PORT must be a valid TCP port.');
+}
 app.listen(PORT, () => {
   console.log(`[BFF] Listening on port ${PORT}`);
   console.log(`[BFF] LLM provider: ${LLM_PROVIDER} (model: ${LLM_MODEL})`);

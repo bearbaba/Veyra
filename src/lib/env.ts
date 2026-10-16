@@ -100,6 +100,15 @@ export function validateEnv(): void {
   }
 }
 
+/**
+ * Compile-time hard lock for static Vercel UI preview builds.
+ * This cannot be toggled by query params, localStorage or a runtime API.
+ * The Vercel build command always sets VITE_VEYRA_UI_ONLY=1. A real authenticated
+ * testnet release requires its own reviewed build and API readiness gates.
+ */
+export const IS_UI_ONLY_PREVIEW =
+  (import.meta.env as Record<string, string | undefined>).VITE_VEYRA_UI_ONLY === '1';
+
 /** Convenience: true when running in any testnet environment. */
 export const IS_TESTNET = VEYRA_ENV === 'testnet' || VEYRA_ENV === 'local';
 

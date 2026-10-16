@@ -2,8 +2,8 @@
  * Phase 1 — migration-from-zero integration test.
  *
  * Creates a clean `veyra_migration_test` database, applies all migration
- * files in journal order (0000 through 0006), then verifies:
- *   - all 21 expected tables exist
+ * files in journal order (0000 through 0012), then verifies:
+ *   - all 27 expected tables exist
  *   - critical UNIQUE constraints are enforced
  *   - CHECK constraints reject invalid data
  *   - append-only triggers reject UPDATE/DELETE on execution_events
@@ -20,6 +20,28 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import * as schema from '../../server/db/schema/index.js';
+import { MANIFEST_CONSTANTS } from '../providers/registry/providerManifest';
+import {
+  claimDestinationSubmission,
+  getDestinationSubmissionClaim,
+  recordDestinationSubmission,
+} from '../../server/db/repositories/bridgeDestinationSubmissionRepository.js';
+import { recordVerifiedFirstDestinationRevert } from '../../server/db/repositories/bridgeDestinationRevertRepository.js';
+import {
+  recordVerifiedSecondDestinationMint,
+} from '../../server/db/repositories/bridgeSecondDestinationVerificationRepository.js';
+import {
+  finalizeVerifiedSecondCctpSettlement,
+} from '../../server/db/repositories/bridgeSecondSettlementRepository.js';
+import {
+  claimSecondDestinationAttempt,
+  getSecondDestinationAttempt,
+  getOwnedDestinationAttemptHistory,
+  recordSecondDestinationAttemptHash,
+} from '../../server/db/repositories/bridgeDestinationRetryRepository.js';
+
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -73,7 +95,8 @@ beforeAll(async () => {
   await adminPool.query(`CREATE DATABASE ${TEST_DB}`);
 
   const testUrl = ADMIN_URL.replace(/\/[^/]+$/, `/${TEST_DB}`);
-  testPool = new Pool({ connectionString: testUrl, max: 1 });
+  // Multiple connections are required to exercise simultaneous relay claims.
+  testPool = new Pool({ connectionString: testUrl, max: 3 });
 
   // Apply migrations in order.
   const client = await testPool.connect();
@@ -92,17 +115,47 @@ beforeAll(async () => {
     await execMigration(client, loadMigration('0005_phase2d_social_contacts.sql'));
     // 0006: Phase 4C durable bridge recovery
     await execMigration(client, loadMigration('0006_phase4c_bridge_recovery.sql'));
+    // 0007: Phase 5 ActivityReceipt lifecycle
+    await execMigration(
+      client,
+      loadMigration('0007_phase5_activity_receipt_lifecycle.sql'),
+    );
+    // 0008: Phase 5 first destination relay claim and append-only audit.
+    await execMigration(
+      client,
+      loadMigration('0008_phase5_destination_submission_claims.sql'),
+    );
+    // 0009: Chain-verified and append-only destination attempt resolution.
+    await execMigration(
+      client,
+      loadMigration('0009_phase5_destination_revert_evidence.sql'),
+    );
+    // 0010: Distinct second-attempt claim, first hash preserved and audit log.
+    await execMigration(
+      client,
+      loadMigration('0010_phase5_second_destination_attempt.sql'),
+    );
+    // 0011: Independently verified successful second receive, append-only.
+    await execMigration(
+      client,
+      loadMigration('0011_phase5_second_destination_verification.sql'),
+    );
+    // 0012: Explicit immutable verified settlement fields in ActivityReceipt.
+    await execMigration(
+      client,
+      loadMigration('0012_phase5_second_settlement_receipt.sql'),
+    );
   } finally {
     client.release();
   }
-});
+}, 60_000); // 13 PostgreSQL migrations and DB recreation can exceed the default hook timeout under parallel CI.
 
 afterAll(async () => {
   if (pgSkipped) return;
   await testPool?.end().catch(() => undefined);
   await adminPool?.query(`DROP DATABASE IF EXISTS ${TEST_DB}`).catch(() => undefined);
   await adminPool?.end().catch(() => undefined);
-});
+}, 30_000);
 
 // ── Helper to skip individual tests when PG is unavailable ──────────────────
 
@@ -118,7 +171,7 @@ function pgTest(name: string, fn: () => Promise<void>) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('migration-from-zero: all 21 tables exist', () => {
+describe('migration-from-zero: all 27 tables exist', () => {
   const EXPECTED_TABLES = [
     'veyra_users',
     'handle_history',
@@ -141,6 +194,12 @@ describe('migration-from-zero: all 21 tables exist', () => {
     'post_interactions',
     'post_tips',
     'bridge_recovery_checkpoints',
+    'bridge_destination_submission_claims',
+    'bridge_destination_attempt_events',
+    'bridge_destination_attempt_resolutions',
+    'bridge_destination_retry_attempts',
+    'bridge_destination_retry_events',
+    'bridge_destination_retry_verifications',
   ];
 
   pgTest('all expected tables are created', async () => {
@@ -151,7 +210,558 @@ describe('migration-from-zero: all 21 tables exist', () => {
     for (const tbl of EXPECTED_TABLES) {
       expect(actual.has(tbl), `missing table: ${tbl}`).toBe(true);
     }
-    expect(res.rows.length).toBeGreaterThanOrEqual(21);
+    expect(res.rows.length).toBeGreaterThanOrEqual(27);
+  });
+});
+
+describe('migration-from-zero: destination relay claim integrity', () => {
+  pgTest('destination claims are unique and audit events are immutable', async () => {
+    await testPool.query(`
+      INSERT INTO veyra_users (veyr_user_id, veyr_handle, identity_revision, status)
+      VALUES ('usr_relaymig', 'relaymig', 1, 'ACTIVE')
+      ON CONFLICT DO NOTHING
+    `);
+    await testPool.query(`
+      INSERT INTO bridge_recovery_checkpoints
+        (plan_id, owner_user_id, stage, burn_tx_hash, source_chain_id,
+         destination_chain_id, wallet_address, recipient_address,
+         amount_raw, token_address, balance_before_raw)
+      VALUES
+        ('migration-relay-plan', 'usr_relaymig', 'ATTESTATION_READY',
+         '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+         5042002, 11155111, '0x1111111111111111111111111111111111111111',
+         '0x2222222222222222222222222222222222222222', 1000000,
+         '0x3333333333333333333333333333333333333333', 0)
+      ON CONFLICT DO NOTHING
+    `);
+    await testPool.query(`
+      INSERT INTO bridge_destination_submission_claims (plan_id, owner_user_id)
+      VALUES ('migration-relay-plan', 'usr_relaymig')
+    `);
+    await expect(
+      testPool.query(`
+        INSERT INTO bridge_destination_submission_claims (plan_id, owner_user_id)
+        VALUES ('migration-relay-plan', 'usr_relaymig')
+      `),
+    ).rejects.toMatchObject({ code: '23505' });
+
+    await testPool.query(`
+      INSERT INTO bridge_destination_attempt_events (event_id, plan_id, event_type)
+      VALUES ('relay-event-1', 'migration-relay-plan', 'SUBMISSION_STARTED')
+    `);
+    await expect(
+      testPool.query(`
+        UPDATE bridge_destination_attempt_events SET event_type = 'BROADCAST_RECORDED'
+        WHERE event_id = 'relay-event-1'
+      `),
+    ).rejects.toMatchObject({ code: 'P0001' });
+    await expect(
+      testPool.query(`
+        DELETE FROM bridge_destination_attempt_events WHERE event_id = 'relay-event-1'
+      `),
+    ).rejects.toMatchObject({ code: 'P0001' });
+  });
+});
+
+describe('migration-from-zero: destination relay exactly-once submission', () => {
+  pgTest('concurrent requests claim once and keep the exact first destination tx', async () => {
+    await testPool.query(`
+      INSERT INTO veyra_users (veyr_user_id, veyr_handle, identity_revision, status)
+      VALUES ('usr_relay_claims', 'relayclaims', 1, 'ACTIVE')
+      ON CONFLICT DO NOTHING
+    `);
+    await testPool.query(`
+      INSERT INTO bridge_recovery_checkpoints
+        (plan_id, owner_user_id, stage, burn_tx_hash, source_chain_id,
+         destination_chain_id, wallet_address, recipient_address,
+         amount_raw, token_address, balance_before_raw,
+         attestation_message, attestation_signature)
+      VALUES
+        ('claims-concurrency-plan', 'usr_relay_claims', 'ATTESTATION_READY',
+         '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+         5042002, 11155111, '0x1111111111111111111111111111111111111111',
+         '0x2222222222222222222222222222222222222222', 1000000,
+         '0x3333333333333333333333333333333333333333', 0,
+         '0x1234', '0xabcd')
+    `);
+
+    const db = drizzle(testPool, { schema });
+    const claims = await Promise.all([
+      claimDestinationSubmission(db, 'usr_relay_claims', 'claims-concurrency-plan'),
+      claimDestinationSubmission(db, 'usr_relay_claims', 'claims-concurrency-plan'),
+    ]);
+
+    expect(claims.map((r) => r.mode).sort()).toEqual(['CLAIMED', 'UNCERTAIN']);
+    expect(await getDestinationSubmissionClaim(
+      db, 'usr_relay_claims', 'claims-concurrency-plan',
+    )).toEqual({ mode: 'UNCERTAIN' });
+
+    const hash = `0x${'c'.repeat(64)}`;
+    await recordDestinationSubmission(
+      db, 'usr_relay_claims', 'claims-concurrency-plan', hash,
+    );
+    // Persisting the SAME hash is idempotent; a second hash must fail.
+    await recordDestinationSubmission(
+      db, 'usr_relay_claims', 'claims-concurrency-plan', hash,
+    );
+    await expect(recordDestinationSubmission(
+      db, 'usr_relay_claims', 'claims-concurrency-plan', `0x${'d'.repeat(64)}`,
+    )).rejects.toThrow(/already recorded/i);
+
+    expect(await claimDestinationSubmission(
+      db, 'usr_relay_claims', 'claims-concurrency-plan',
+    )).toEqual({ mode: 'ALREADY_SUBMITTED', txHash: hash });
+
+    const events = await testPool.query<{
+      event_type: string;
+      receive_tx_hash: string | null;
+    }>(`
+      SELECT event_type, receive_tx_hash FROM bridge_destination_attempt_events
+      WHERE plan_id = 'claims-concurrency-plan' ORDER BY occurred_at
+    `);
+    expect(events.rows).toHaveLength(2);
+    expect(events.rows.map((x) => x.event_type).sort())
+      .toEqual(['BROADCAST_RECORDED', 'SUBMISSION_STARTED']);
+
+    await expect(testPool.query(`
+      UPDATE bridge_destination_submission_claims
+        SET receive_tx_hash = '0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
+        WHERE plan_id = 'claims-concurrency-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+    await expect(testPool.query(`
+      DELETE FROM bridge_destination_submission_claims
+        WHERE plan_id = 'claims-concurrency-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+
+    const checkpoint = await testPool.query<{ stage: string; receive_tx_hash: string }>(`
+      SELECT stage, receive_tx_hash FROM bridge_recovery_checkpoints
+      WHERE plan_id = 'claims-concurrency-plan'
+    `);
+    expect(checkpoint.rows[0]).toMatchObject({
+      stage: 'DESTINATION_BROADCAST',
+      receive_tx_hash: hash,
+    });
+  });
+});
+
+describe('migration-from-zero: self-relay cross-device hash reconciliation', () => {
+  pgTest('accepts exact RPC-verified hash after browser checkpoint mirroring, never another hash', async () => {
+    await testPool.query(`
+      INSERT INTO veyra_users (veyr_user_id, veyr_handle, identity_revision, status)
+      VALUES ('usr_self_relay', 'selfrelay', 1, 'ACTIVE')
+      ON CONFLICT DO NOTHING
+    `);
+    await testPool.query(`
+      INSERT INTO bridge_recovery_checkpoints
+        (plan_id, owner_user_id, stage, burn_tx_hash, source_chain_id,
+         destination_chain_id, wallet_address, recipient_address,
+         amount_raw, token_address, balance_before_raw,
+         attestation_message, attestation_signature)
+      VALUES
+        ('claims-self-relay-plan', 'usr_self_relay', 'ATTESTATION_READY',
+         '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+         5042002, 11155111, '0x1111111111111111111111111111111111111111',
+         '0x2222222222222222222222222222222222222222', 1000000,
+         '0x3333333333333333333333333333333333333333', 0,
+         '0x1234', '0xabcd')
+    `);
+
+    const db = drizzle(testPool, { schema });
+    expect(await claimDestinationSubmission(
+      db, 'usr_self_relay', 'claims-self-relay-plan',
+    )).toEqual({ mode: 'CLAIMED' });
+    const original = `0x${'f'.repeat(64)}`;
+
+    // The client's best-effort checkpoint mirror may beat RPC indexing.
+    await testPool.query(`
+      UPDATE bridge_recovery_checkpoints
+      SET stage = 'DESTINATION_BROADCAST', receive_tx_hash = $1
+      WHERE plan_id = 'claims-self-relay-plan'
+    `, [original]);
+
+    await recordDestinationSubmission(
+      db, 'usr_self_relay', 'claims-self-relay-plan', original,
+    );
+    expect(await getDestinationSubmissionClaim(
+      db, 'usr_self_relay', 'claims-self-relay-plan',
+    )).toEqual({ mode: 'ALREADY_SUBMITTED', txHash: original });
+
+    await expect(recordDestinationSubmission(
+      db, 'usr_self_relay', 'claims-self-relay-plan', `0x${'1'.repeat(64)}`,
+    )).rejects.toThrow(/already recorded/i);
+    const events = await testPool.query<{ event_type: string }>(
+      `SELECT event_type FROM bridge_destination_attempt_events
+       WHERE plan_id = 'claims-self-relay-plan'`,
+    );
+    expect(events.rows).toHaveLength(2);
+  });
+});
+
+describe('migration-from-zero: append-only first destination revert proof', () => {
+  pgTest('writes immutable evidence once and rejects changed blocks or deletions', async () => {
+    const hash = `0x${'c'.repeat(64)}`;
+    const block = `0x${'d'.repeat(64)}`;
+    const proof = {
+      receiveTxHash: hash,
+      destinationChainId: 11155111,
+      destinationBlockNumber: 100,
+      destinationBlockHash: block,
+      confirmations: 12,
+    };
+    const db = drizzle(testPool, { schema });
+
+    const first = await recordVerifiedFirstDestinationRevert(
+      db, 'usr_relay_claims', 'claims-concurrency-plan', proof,
+    );
+    expect(first).toMatchObject(proof);
+    expect(await recordVerifiedFirstDestinationRevert(
+      db, 'usr_relay_claims', 'claims-concurrency-plan', proof,
+    )).toMatchObject(proof);
+
+    await expect(recordVerifiedFirstDestinationRevert(
+      db,
+      'usr_relay_claims',
+      'claims-concurrency-plan',
+      { ...proof, destinationBlockHash: `0x${'e'.repeat(64)}` },
+    )).rejects.toThrow(/conflicts with newly verified evidence/i);
+
+    await expect(testPool.query(`
+      UPDATE bridge_destination_attempt_resolutions SET confirmations = 13
+      WHERE plan_id = 'claims-concurrency-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+    await expect(testPool.query(`
+      DELETE FROM bridge_destination_attempt_resolutions
+      WHERE plan_id = 'claims-concurrency-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+
+    const events = await testPool.query<{ receive_tx_hash: string }>(`
+      SELECT receive_tx_hash FROM bridge_destination_attempt_resolutions
+      WHERE plan_id = 'claims-concurrency-plan' AND attempt_number = 1
+    `);
+    expect(events.rows).toHaveLength(1);
+    expect(events.rows[0]?.receive_tx_hash).toBe(hash);
+  });
+});
+
+describe('migration-from-zero: second destination attempt safety', () => {
+  pgTest('cannot reserve before verified reverted first receive and never overwrites the original hash', async () => {
+    await testPool.query(`
+      INSERT INTO veyra_users (veyr_user_id, veyr_handle, identity_revision, status)
+      VALUES ('usr_retry_two', 'retrytwo', 1, 'ACTIVE')
+      ON CONFLICT DO NOTHING
+    `);
+    const planId = 'retry-two-plan';
+    const firstHash = `0x${'7'.repeat(64)}`;
+    const secondHash = `0x${'8'.repeat(64)}`;
+    const blockHash = `0x${'9'.repeat(64)}`;
+    await testPool.query(`
+      INSERT INTO bridge_recovery_checkpoints
+        (plan_id, owner_user_id, stage, burn_tx_hash, source_chain_id,
+         destination_chain_id, wallet_address, recipient_address,
+         amount_raw, token_address, balance_before_raw,
+         attestation_message, attestation_signature)
+      VALUES
+        ($1, 'usr_retry_two', 'ATTESTATION_READY',
+         '0x7777777777777777777777777777777777777777777777777777777777777777',
+         5042002, 11155111, '0x1111111111111111111111111111111111111111',
+         '0x2222222222222222222222222222222222222222', 1000000,
+         '0x3333333333333333333333333333333333333333', 0,
+         '0x1234', '0xabcd')
+    `, [planId]);
+    const db = drizzle(testPool, { schema });
+
+    await expect(claimSecondDestinationAttempt(
+      db, 'usr_retry_two', planId,
+    )).rejects.toThrow(/verified reverted FIRST/i);
+
+    expect(await claimDestinationSubmission(db, 'usr_retry_two', planId))
+      .toEqual({ mode: 'CLAIMED' });
+    await recordDestinationSubmission(db, 'usr_retry_two', planId, firstHash);
+
+    await expect(claimSecondDestinationAttempt(
+      db, 'usr_retry_two', planId,
+    )).rejects.toThrow(/verified reverted FIRST/i);
+
+    await recordVerifiedFirstDestinationRevert(db, 'usr_retry_two', planId, {
+      receiveTxHash: firstHash,
+      destinationChainId: 11155111,
+      destinationBlockNumber: 100,
+      destinationBlockHash: blockHash,
+      confirmations: 12,
+    });
+
+    const competing = await Promise.all([
+      claimSecondDestinationAttempt(db, 'usr_retry_two', planId),
+      claimSecondDestinationAttempt(db, 'usr_retry_two', planId),
+    ]);
+    expect(competing.map((r) => r.mode).sort())
+      .toEqual(['CLAIMED', 'UNCERTAIN']);
+    expect(await getSecondDestinationAttempt(db, 'usr_retry_two', planId))
+      .toEqual({ mode: 'UNCERTAIN' });
+
+    // Claim persists through a crash and cannot be reacquired.
+    expect(await claimSecondDestinationAttempt(db, 'usr_retry_two', planId))
+      .toEqual({ mode: 'UNCERTAIN' });
+    await expect(claimSecondDestinationAttempt(
+      db, 'usr_retry_intruder', planId,
+    )).rejects.toThrow(/Owned destination retry plan not found/i);
+
+    await expect(recordSecondDestinationAttemptHash(
+      db, 'usr_retry_two', planId, firstHash,
+    )).rejects.toThrow(/preserve the original first destination tx/i);
+    await recordSecondDestinationAttemptHash(
+      db, 'usr_retry_two', planId, secondHash,
+    );
+    await recordSecondDestinationAttemptHash(
+      db, 'usr_retry_two', planId, secondHash,
+    );
+    await expect(recordSecondDestinationAttemptHash(
+      db, 'usr_retry_two', planId, `0x${'a'.repeat(64)}`,
+    )).rejects.toThrow(/immutable once recorded/i);
+
+    expect(await getSecondDestinationAttempt(db, 'usr_retry_two', planId))
+      .toEqual({ mode: 'ALREADY_SUBMITTED', txHash: secondHash });
+    expect(await claimSecondDestinationAttempt(db, 'usr_retry_two', planId))
+      .toEqual({ mode: 'ALREADY_SUBMITTED', txHash: secondHash });
+
+    const original = await testPool.query<{
+      receive_tx_hash: string;
+      stage: string;
+    }>(`
+      SELECT receive_tx_hash, stage FROM bridge_recovery_checkpoints
+      WHERE plan_id = 'retry-two-plan'
+    `);
+    expect(original.rows[0]).toMatchObject({
+      receive_tx_hash: firstHash,
+      stage: 'DESTINATION_BROADCAST',
+    });
+    const legacy = await testPool.query<{ receive_tx_hash: string }>(`
+      SELECT receive_tx_hash FROM bridge_destination_submission_claims
+      WHERE plan_id = 'retry-two-plan'
+    `);
+    expect(legacy.rows[0]?.receive_tx_hash).toBe(firstHash);
+
+    const events = await testPool.query<{ event_type: string }>(`
+      SELECT event_type FROM bridge_destination_retry_events
+      WHERE plan_id = 'retry-two-plan'
+    `);
+    expect(events.rows.map((r) => r.event_type).sort())
+      .toEqual(['BROADCAST_RECORDED', 'SUBMISSION_STARTED']);
+
+    const history = await getOwnedDestinationAttemptHistory(
+      db, 'usr_retry_two', planId,
+    );
+    expect(history).toMatchObject({
+      planId,
+      first: {
+        receiveTxHash: firstHash,
+        state: 'RECORDED',
+        reverted: true,
+        revertBlockHash: blockHash,
+      },
+      second: { receiveTxHash: secondHash, state: 'RECORDED' },
+    });
+    expect(history?.history).toHaveLength(4);
+    expect(await getOwnedDestinationAttemptHistory(
+      db, 'usr_self_relay', planId,
+    )).toBeNull();
+
+    await expect(testPool.query(`
+      UPDATE bridge_destination_retry_attempts SET receive_tx_hash = $1
+      WHERE plan_id = 'retry-two-plan'
+    `, [`0x${'a'.repeat(64)}`])).rejects.toMatchObject({ code: 'P0001' });
+    await expect(testPool.query(`
+      DELETE FROM bridge_destination_retry_attempts
+      WHERE plan_id = 'retry-two-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+    await expect(testPool.query(`
+      UPDATE bridge_destination_retry_events SET event_type = 'BROADCAST_RECORDED'
+      WHERE plan_id = 'retry-two-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+    await expect(testPool.query(`
+      DELETE FROM bridge_destination_retry_events
+      WHERE plan_id = 'retry-two-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+  });
+});
+
+describe('migration-from-zero: second receive verified mint invariants', () => {
+  pgTest('inserts unique finality proof, rejects changed mint evidence, and preserves immutable first tx', async () => {
+    const db = drizzle(testPool, { schema });
+    const planId = 'retry-two-plan';
+    const proof = {
+      receiveTxHash: `0x${'8'.repeat(64)}`,
+      destinationChainId: 11155111,
+      destinationBlockNumber: 200,
+      destinationBlockHash: `0x${'a'.repeat(64)}`,
+      mintToken: MANIFEST_CONSTANTS.ETH_SEPOLIA_USDC.toLowerCase(),
+      mintRecipient: '0x2222222222222222222222222222222222222222',
+      mintAmountRaw: '1000000',
+      confirmations: 12,
+    };
+
+    const verified = await recordVerifiedSecondDestinationMint(
+      db, 'usr_retry_two', planId, proof, proof.mintToken,
+    );
+    expect(verified).toEqual(proof);
+
+    expect(await recordVerifiedSecondDestinationMint(
+      db, 'usr_retry_two', planId, proof, proof.mintToken,
+    )).toMatchObject(proof);
+
+    for (const invalid of [
+      { ...proof, receiveTxHash: `0x${'7'.repeat(64)}` },
+      { ...proof, mintAmountRaw: '999999' },
+      { ...proof, mintRecipient: '0x1111111111111111111111111111111111111111' },
+      { ...proof, confirmations: 11 },
+    ]) {
+      await expect(recordVerifiedSecondDestinationMint(
+        db, 'usr_retry_two', planId, invalid, proof.mintToken,
+      )).rejects.toThrow(/Second mint proof must match/i);
+    }
+
+    await expect(recordVerifiedSecondDestinationMint(
+      db, 'usr_self_relay', planId, proof, proof.mintToken,
+    )).rejects.toThrow(/Owned second-mint checkpoint/i);
+
+    const firstCheckpoint = await testPool.query<{ receive_tx_hash: string }>(`
+      SELECT receive_tx_hash FROM bridge_recovery_checkpoints
+      WHERE plan_id = 'retry-two-plan'
+    `);
+    expect(firstCheckpoint.rows[0]?.receive_tx_hash).toBe(`0x${'7'.repeat(64)}`);
+
+    const minted = await testPool.query<{
+      mint_amount_raw: string;
+      receive_tx_hash: string;
+    }>(`
+      SELECT receive_tx_hash, mint_amount_raw
+      FROM bridge_destination_retry_verifications
+      WHERE plan_id = 'retry-two-plan' AND attempt_number = 2
+    `);
+    expect(minted.rows).toHaveLength(1);
+    expect(minted.rows[0]).toEqual({
+      receive_tx_hash: proof.receiveTxHash,
+      mint_amount_raw: proof.mintAmountRaw,
+    });
+
+    const history = await getOwnedDestinationAttemptHistory(
+      db, 'usr_retry_two', planId,
+    );
+    expect(history?.second).toMatchObject({
+      receiveTxHash: proof.receiveTxHash,
+      state: 'RECORDED',
+      verifiedMint: true,
+      mintBlockHash: proof.destinationBlockHash,
+      confirmations: 12,
+    });
+    expect(await getOwnedDestinationAttemptHistory(
+      db, 'usr_self_relay', planId,
+    )).toBeNull();
+
+    await expect(testPool.query(`
+      UPDATE bridge_destination_retry_verifications
+      SET confirmations = 13 WHERE plan_id = 'retry-two-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+    await expect(testPool.query(`
+      DELETE FROM bridge_destination_retry_verifications
+      WHERE plan_id = 'retry-two-plan'
+    `)).rejects.toMatchObject({ code: 'P0001' });
+  });
+});
+
+describe('migration-from-zero: second CCTP settlement ActivityReceipt', () => {
+  pgTest('finalizes only the owner, preserves reverted first hash, appends audit once and locks settlement tx', async () => {
+    await testPool.query(`
+      INSERT INTO wallet_bindings
+        (wallet_id, veyr_user_id, wallet_address, chain_id, wallet_type,
+         proof_scheme, proof_version, proof_challenge_id, proof_nonce,
+         proof_signature, proof_message_hash, issued_at, verified_at, status)
+      VALUES
+        ('wlt_retry_two','usr_retry_two','0x1111111111111111111111111111111111111111',
+         5042002,'EOA','EIP_712','1','retry-challenge','retry-nonce',
+         'retry-signature','retry-msg-hash',NOW(),NOW(),'ACTIVE')
+      ON CONFLICT DO NOTHING
+    `);
+    const firstHash = `0x${'7'.repeat(64)}`;
+    const secondHash = `0x${'8'.repeat(64)}`;
+    await testPool.query(`
+      INSERT INTO activity_receipts
+        (receipt_id, client_intent_id, sender_user_id, sender_wallet_id,
+         sender_address, sender_chain_id, recipient_address, recipient_chain_id,
+         amount_raw, amount_decimals, asset_id, token_address,
+         provider_id, route_id, dedup_key, environment, action, status,
+         burn_tx_hash, burn_chain_id, burn_block_number,
+         receive_tx_hash, receive_chain_id, resumable)
+      VALUES
+        ('rec_retry_two','intent-retry-two','usr_retry_two','wlt_retry_two',
+         '0x1111111111111111111111111111111111111111',5042002,
+         '0x2222222222222222222222222222222222222222',11155111,
+         1000000,6,'usdc','0x3333333333333333333333333333333333333333',
+         'cctp-v2-bridge','retry-two-plan','dedup_retry_two','testnet',
+         'BRIDGE','RECEIVE_FAILED_RETRYABLE',
+         $1,5042002,100,$1,11155111,true)
+    `, [firstHash]);
+
+    const db = drizzle(testPool, { schema });
+    const settled = await finalizeVerifiedSecondCctpSettlement(
+      db, 'usr_retry_two', 'retry-two-plan',
+    );
+    expect(settled).toMatchObject({
+      status: 'COMPLETE',
+      burnTxHash: firstHash,
+      receiveTxHash: firstHash,
+      settlementReceiveTxHash: secondHash,
+      settlementReceiveBlockNumber: 200,
+      settlementAttemptNumber: 2,
+      resumable: false,
+      failureReason: null,
+    });
+    expect(settled.revision).toBe(2);
+    const replayed = await finalizeVerifiedSecondCctpSettlement(
+      db, 'usr_retry_two', 'retry-two-plan',
+    );
+    expect(replayed.revision).toBe(2);
+    await expect(finalizeVerifiedSecondCctpSettlement(
+      db, 'usr_self_relay', 'retry-two-plan',
+    )).rejects.toThrow(/Owned settlement checkpoint not found/i);
+
+    const events = await testPool.query<{ payload: Record<string, unknown> }>(`
+      SELECT payload FROM execution_events
+      WHERE receipt_id = 'rec_retry_two' AND event_type = 'STATUS_TRANSITION'
+    `);
+    expect(events.rows).toHaveLength(1);
+    expect(events.rows[0]?.payload).toMatchObject({
+      fromStatus: 'RECEIVE_FAILED_RETRYABLE',
+      toStatus: 'COMPLETE',
+      firstAttemptRevertedHash: firstHash,
+      settlementReceiveTxHash: secondHash,
+      settlementAttemptNumber: 2,
+    });
+
+    for (const update of [
+      `UPDATE activity_receipts SET settlement_receive_tx_hash =
+         '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        WHERE receipt_id = 'rec_retry_two'`,
+      `UPDATE activity_receipts SET settlement_receive_tx_hash = NULL
+        WHERE receipt_id = 'rec_retry_two'`,
+      `UPDATE activity_receipts SET settlement_receive_block_number = 201
+        WHERE receipt_id = 'rec_retry_two'`,
+    ]) {
+      await expect(testPool.query(update))
+        .rejects.toMatchObject({ code: 'P0001' });
+    }
+
+    const first = await testPool.query<{
+      receive_tx_hash: string;
+      settlement_receive_tx_hash: string;
+    }>(`
+      SELECT receive_tx_hash, settlement_receive_tx_hash
+      FROM activity_receipts WHERE receipt_id = 'rec_retry_two'
+    `);
+    expect(first.rows[0]).toEqual({
+      receive_tx_hash: firstHash,
+      settlement_receive_tx_hash: secondHash,
+    });
   });
 });
 

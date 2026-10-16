@@ -8,6 +8,7 @@ export type SignerBackend = 'none' | 'dev-private-key' | 'kms';
 export interface ServerRuntimeConfig {
   environment: ServerEnvironment;
   nodeEnv: string;
+  hostedBackend: boolean;
   databaseUrl?: string;
   appOrigin?: string;
   sessionSecretConfigured: boolean;
@@ -44,6 +45,7 @@ export function readServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env): S
   return {
     environment: resolveServerEnvironment(env),
     nodeEnv: env.NODE_ENV ?? 'development',
+    hostedBackend: env.VEYRA_HOSTED_BACKEND === '1' || (env.NODE_ENV === 'production' && env.VEYRA_ENV === 'testnet'),
     databaseUrl: env.DATABASE_URL,
     appOrigin: env.VEYRA_APP_ORIGIN,
     sessionSecretConfigured: Boolean(env.VEYRA_SESSION_SECRET && env.VEYRA_SESSION_SECRET.length >= 32),
@@ -75,10 +77,60 @@ export function validateServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env
   const errors: string[] = [];
   const warnings: string[] = [];
 
+  // A non-container invocation must not accidentally turn an unsafe
+  // localhost/development BFF into a publicly reachable production process.
+  if (config.nodeEnv === 'production' && config.environment === 'local') {
+    errors.push('Production BFF cannot start with VEYRA_ENV=local.');
+  }
+
   if (config.environment !== 'mainnet') {
+    if (config.hostedBackend) {
+      // The local/dev testnet BFF stays usable without infrastructure. Only
+      // a public hosted backend is required to pass these non-negotiable
+      // identity, transport, database and relay-signing preflight gates.
+      if (config.environment !== 'testnet') {
+        errors.push('Hosted BFF requires VEYRA_ENV=testnet; mainnet has a separate deployment gate.');
+      }
+      if (config.nodeEnv !== 'production') {
+        errors.push('Hosted BFF requires NODE_ENV=production, disabling dev identity headers.');
+      }
+      if (!config.databaseUrl) {
+        errors.push('Hosted BFF requires DATABASE_URL.');
+      } else {
+        try {
+          const db = new URL(config.databaseUrl);
+          if (!['postgres:', 'postgresql:'].includes(db.protocol) || !db.hostname ||
+              /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(db.hostname)) {
+            errors.push('Hosted BFF requires a non-local PostgreSQL database URL.');
+          }
+          const sslMode = db.searchParams.get('sslmode');
+          const tlsConfigured = ['require', 'verify-ca', 'verify-full'].includes(sslMode ?? '');
+          if (!tlsConfigured && env.VEYRA_DATABASE_PRIVATE_NETWORK !== '1') {
+            errors.push('Hosted BFF requires PostgreSQL TLS (sslmode=require/verify-full) or an explicitly private database network.');
+          }
+        } catch {
+          errors.push('Hosted BFF DATABASE_URL is not a valid PostgreSQL URL.');
+        }
+      }
+      if (!config.sessionSecretConfigured) {
+        errors.push('Hosted BFF requires VEYRA_SESSION_SECRET of at least 32 characters.');
+      }
+      if (!isHttpsUrl(config.appOrigin)) {
+        errors.push('Hosted BFF requires VEYRA_APP_ORIGIN with HTTPS.');
+      } else {
+        const origin = new URL(config.appOrigin!);
+        if (origin.origin !== config.appOrigin || origin.username || origin.password) {
+          errors.push('Hosted BFF VEYRA_APP_ORIGIN must be an exact HTTPS origin without path, userinfo or trailing slash.');
+        }
+      }
+      if (env.RELAY_PRIVATE_KEY && env.VEYRA_ENABLE_TESTNET_RELAY !== '1') {
+        errors.push('Hosted BFF forbids RELAY_PRIVATE_KEY unless VEYRA_ENABLE_TESTNET_RELAY=1 is explicitly configured.');
+      }
+      return { ok: errors.length === 0, errors, warnings };
+    }
     if (!config.databaseUrl) warnings.push('DATABASE_URL is not configured; DB-backed routes will fail.');
     if (config.signerBackend === 'dev-private-key') warnings.push('Dev relay private key is configured; never reuse it for mainnet.');
-    return { ok: true, errors, warnings };
+    return { ok: errors.length === 0, errors, warnings };
   }
 
   if (config.nodeEnv !== 'production') errors.push('Mainnet requires NODE_ENV=production.');
