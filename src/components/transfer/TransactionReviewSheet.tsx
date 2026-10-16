@@ -116,10 +116,10 @@ export function TransactionReviewSheet({ action, recipient, onClose }: Transacti
                   {recipient?.snapshot ? (
                     <>
                       <DetailRow label="Recipient" value={recipient.snapshot.displayName || `@${recipient.snapshot.veyraHandle}`} />
-                      <DetailRow label="Veyra" value={`@${recipient.snapshot.veyraHandle}`} />
+                      <DetailRow label="Veyra ID" value={`@${recipient.snapshot.veyraHandle}.veyra`} />
                     </>
                   ) : null}
-                  <DetailRow label="To" value={`${action.to.slice(0, 8)}...${action.to.slice(-6)}`} mono />
+                  <DetailRow label="To" value={recipient?.snapshot ? action.to : `${action.to.slice(0, 8)}...${action.to.slice(-6)}`} mono />
                   <DetailRow label="From" value={`${action.from.slice(0, 8)}...${action.from.slice(-6)}`} mono />
                   <DetailRow label="Network" value="Arc Testnet" />
                   <DetailRow label="Source" value={action.provenance.source} />
@@ -184,6 +184,8 @@ export function TransactionReviewSheet({ action, recipient, onClose }: Transacti
                   <button
                     onClick={() => void execute(action, recipient?.snapshot ? {
                       snapshotId: recipient.snapshot.snapshotId,
+                      expectedWalletId: recipient.snapshot.walletId,
+                      reviewToken: recipient.snapshot.reviewToken,
                       expectedWalletAddress: action.to,
                       expectedChainId: action.chainId,
                     } : undefined)}
@@ -269,9 +271,10 @@ export function TransactionReviewSheet({ action, recipient, onClose }: Transacti
 
 function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="flex items-center justify-between text-sm">
-      <span style={{ color: 'var(--muted)' }}>{label}</span>
-      <span className={mono ? 'mono text-xs' : 'text-xs font-medium'} style={{ color: 'var(--ink-2)' }}>
+    <div className="flex items-start justify-between gap-3 text-sm">
+      <span className="shrink-0" style={{ color: 'var(--muted)' }}>{label}</span>
+      <span className={mono ? 'mono text-xs break-all text-right' : 'text-xs font-medium text-right'}
+        style={{ color: 'var(--ink-2)' }}>
         {value}
       </span>
     </div>
