@@ -67,7 +67,7 @@ export class BaseUsdcReadError extends Error {
 }
 
 function parseQuantity(value: unknown, label: string): bigint {
-  if (typeof value !== 'string' || !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(value) ||
+  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{1,64}$/.test(value) ||
       value.length > 66) throw new BaseUsdcReadError('Invalid ' + label + ' response from Base RPC.');
   return BigInt(value);
 }
