@@ -28,6 +28,19 @@ export function chooseRecipientWallet(
   return candidates.length === 1 ? candidates[0] : null;
 }
 
+/** Deterministic final check of the exact reviewed destination. */
+export function matchesReviewedRecipient(
+  wallets: FrozenWallet[],
+  receivePreference: Record<string, unknown>,
+  expected: { walletId: string; walletAddress: string; chainId: number },
+): boolean {
+  const selected = chooseRecipientWallet(wallets, expected.chainId, receivePreference);
+  return Boolean(selected &&
+    selected.walletId === expected.walletId &&
+    selected.chainId === expected.chainId &&
+    selected.walletAddress.toLowerCase() === expected.walletAddress.toLowerCase());
+}
+
 export async function preparePaymentRecipient(
   db: DbClient,
   senderUserId: string,
@@ -116,15 +129,14 @@ export async function verifyPaymentRecipient(
     .limit(1);
   if (!snapshot) return { ok: false as const, reason: 'SNAPSHOT_NOT_FOUND' as const };
 
-  const wallets = snapshot.resolvedWallets as FrozenWallet[];
-  const selected = chooseRecipientWallet(wallets, input.expectedChainId,
-    snapshot.receivePreference as Record<string, unknown>);
-  // Do not accept *any* wallet from the frozen list. It must be the same
+  // Do not accept *any* wallet from the frozen list. It must be the exact
   // primary or uniquely selected destination returned by prepare-payment.
-  if (!selected ||
-      selected.walletId !== input.expectedWalletId ||
-      selected.chainId !== input.expectedChainId ||
-      selected.walletAddress.toLowerCase() !== input.expectedWalletAddress.toLowerCase()) {
+  if (!matchesReviewedRecipient(snapshot.resolvedWallets as FrozenWallet[],
+    snapshot.receivePreference as Record<string, unknown>, {
+      walletId: input.expectedWalletId,
+      walletAddress: input.expectedWalletAddress,
+      chainId: input.expectedChainId,
+    })) {
     return { ok: false as const, reason: 'RECIPIENT_MISMATCH' as const };
   }
   return { ok: true as const, snapshotId: input.snapshotId, verifiedAt: verified.verifiedAt };
