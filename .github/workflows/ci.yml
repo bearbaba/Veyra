@@ -258,6 +258,11 @@ jobs:
           VEYRA_SMOKE_URL: http://127.0.0.1:4173
         run: node e2e/arc-mainnet-live-readonly.mjs
 
+      - name: Verify live Base Mainnet and Sepolia USDC reads from Chromium (no wallet)
+        env:
+          VEYRA_SMOKE_URL: http://127.0.0.1:4173
+        run: node e2e/base-usdc-live-readonly.mjs
+
       - name: Shut down test preview
         if: always()
         run: |
