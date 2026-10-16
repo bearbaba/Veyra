@@ -48,7 +48,7 @@ describe('Phase 7A — honest wallet and Unified discovery', () => {
     expect(safeWalletIcon('')).toBeNull();
   });
   it('sorts wallet choices deterministically without removing installed providers', () => {
-    const provider: DiscoveredWallet['provider'] = { request: async () => [] };
+    const provider: DiscoveredWallet['provider'] = { request: () => Promise.resolve([]) };
     const names = ['Phantom', 'MetaMask', 'Keplr', 'Coinbase Wallet', 'Rabby'];
     const choices: DiscoveredWallet[] = names.map((name, i) => ({ id: String(i), name, icon: null, provider }));
     expect(sortWallets(choices).map(x => x.name)).toEqual(['MetaMask', 'Rabby', 'Coinbase Wallet', 'Phantom', 'Keplr']);
