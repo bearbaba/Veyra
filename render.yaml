@@ -10,14 +10,14 @@ databases:
     user: veyra_testnet
     postgresMajorVersion: "16"
     region: singapore
-    plan: basic-256mb
+    plan: 0.1c-256mb
     ipAllowList: [] # Internal network only; no public database access.
 
 services:
   - type: web
     name: veyra-testnet-bff
     runtime: docker
-    plan: starter
+    plan: 0.5c-512mb
     region: singapore
     branch: phase5-production-bridge-flow
     autoDeployTrigger: off
