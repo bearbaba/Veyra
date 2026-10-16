@@ -39,7 +39,7 @@ export function readMainnetJournal(from: string, storage: Pick<StorageLike, 'get
     if ((value.stage === 'AWAITING_WALLET' || value.stage === 'UNKNOWN') && value.hash !== null) return { kind: 'blocked' };
     // Terminal state is always rechecked with the public RPC after reload.
     return { kind: 'active', value: { from, to: value.to, amount: value.amount,
-      stage: value.stage === 'VERIFIED' || value.stage === 'REVERTED' ? 'PENDING' : value.stage,
+      stage: value.stage === 'VERIFIED' || value.stage === 'REVERTED' ? 'PENDING' : value.stage as MainnetStage,
       hash: value.hash } };
   } catch {
     return { kind: 'blocked' };
