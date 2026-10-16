@@ -34,15 +34,19 @@ export default defineConfig({
           name: 'veyra-isolated-financial-preview',
           closeBundle() {
             const index = path.join(outputDir, 'index.html');
-            const htmlFile = path.join(outputDir, mainnetMvp ? 'mainnet.html' : 'preview.html');
-            if (!existsSync(htmlFile) || existsSync(index)) {
-              throw new Error('[preview] expected exclusively the selected isolated HTML entry');
+            const preview = path.join(outputDir, 'preview.html');
+            const mainnet = path.join(outputDir, 'mainnet.html');
+            const selected = mainnetMvp ? mainnet : preview;
+            if (!existsSync(selected) || existsSync(index) ||
+                existsSync(mainnetMvp ? preview : mainnet)) {
+              throw new Error('[preview] expected exactly one isolated HTML entry; refusing mixed build');
             }
-            const html = readFileSync(htmlFile, 'utf8');
+            const html = readFileSync(selected, 'utf8');
             if (!html.includes('<title>Veyra —')) {
               throw new Error('[preview] unexpected HTML entry; refusing unsafe deploy');
             }
-            renameSync(htmlFile, index);
+            if (uiOnlyPreview) renameSync(preview, index);
+            else renameSync(mainnet, index);
           },
         }]
       : []),
