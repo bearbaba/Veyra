@@ -87,8 +87,8 @@ export async function arcMainnetRpc(method: string, params: unknown[]): Promise<
   }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('Untrusted Arc Mainnet RPC response.');
   const json = raw as Record<string, unknown>;
-  if (json.jsonrpc !== '2.0' || json.id !== 1 || Object.hasOwn(json, 'error') ||
-    !Object.hasOwn(json, 'result')) fail('Untrusted Arc Mainnet RPC response.');
+  if (json.jsonrpc !== '2.0' || json.id !== 1 || Object.prototype.hasOwnProperty.call(json, 'error') ||
+    !Object.prototype.hasOwnProperty.call(json, 'result')) fail('Untrusted Arc Mainnet RPC response.');
   return json.result;
 }
 export async function assertArcMainnetNetwork(): Promise<void> {
