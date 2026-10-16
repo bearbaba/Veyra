@@ -234,3 +234,36 @@ body { background: var(--vp-bg); }
   .vp-header-breadcrumb { display: none; }
   .vp-header-actions { min-width: 0; }
 }
+
+
+/* Phase 7A: preserve existing Veyra design while making asset/wallet identity clear. */
+.vp-wallet-search,.vp-unified-search { display:flex;align-items:center;gap:9px;border:1px solid var(--vp-borderstrong);background:#101a28;color:#9caabd;border-radius:10px;padding:0 12px;min-height:40px;min-width:0; }
+.vp-wallet-search input,.vp-unified-search input { border:0;outline:0;background:transparent;color:#eaf2ff;font:500 12px 'DM Sans',sans-serif;width:100%;min-width:0; }
+.vp-wallet-search input::placeholder,.vp-unified-search input::placeholder {color:#8e9eb2;}
+.vp-wallet-option-icon {overflow:hidden;flex:none;}
+.vp-wallet-option-icon img {width:28px;height:28px;object-fit:contain;border-radius:7px;}
+.vp-wallet-monogram {color:#d2ffad;font:800 13px/1 'Space Grotesk',sans-serif;}
+.vp-wallet-more {width:100%;border:1px dashed #445367;border-radius:10px;padding:10px 12px;background:#172131;color:#c8d3e1;font-size:11px;font-weight:750;text-align:center;}
+.vp-wallet-more:hover {border-color:#c5fb71;color:#e7ffcf;}
+.vp-unified-intro { margin-top:20px;margin-bottom:24px; }
+.vp-unified-balance,.vp-unified-overview {min-width:0;}
+.vp-unified-notice {color:#a4b7c9;background:#152232;border:1px solid #304354;border-radius:10px;padding:12px;font-size:11px;line-height:1.7;margin:15px 0 0;}
+.vp-unified-toolbar {display:flex;align-items:center;justify-content:space-between;gap:18px;}
+.vp-unified-toolbar .vp-caption {margin-top:6px;}
+.vp-unified-search {width:min(330px,100%);}
+.vp-unified-tabs {display:flex;gap:6px;border-bottom:1px solid var(--vp-border);padding:15px 0 11px;margin:5px 0 0;}
+.vp-unified-tabs button {border:1px solid transparent;border-radius:9px;color:#aebcce;background:transparent;padding:9px 13px;font-size:12px;font-weight:750;display:flex;gap:9px;align-items:center;}
+.vp-unified-tabs button span {color:#91a1b6;font-weight:600;}
+.vp-unified-tabs .vp-unified-tab-active {border-color:#526d54;background:#253a30;color:#d6ffbe;}
+.vp-unified-list {display:grid;}
+.vp-unified-row {min-height:67px;display:flex;align-items:center;gap:13px;border-bottom:1px solid var(--vp-border);padding:12px 2px;min-width:0;}
+.vp-unified-row:last-child {border-bottom:0;}
+.vp-unified-row-copy {min-width:0;flex:1;display:grid;gap:4px;}
+.vp-unified-row-copy strong {color:#e8f1fa;font:700 13px 'Space Grotesk',sans-serif;}
+.vp-unified-row-copy span {font-size:11px;color:#98a9bb;overflow-wrap:anywhere;}
+.vp-unified-tag {flex:none;border:1px solid #526070;background:#233041;color:#b9c5d4;padding:7px 10px;border-radius:20px;font-size:10px;font-weight:750;white-space:nowrap;}
+.vp-unified-live {border-color:#477052;color:#c9f6aa;background:#203628;}
+.vp-unified-footnote {display:flex;align-items:flex-start;gap:7px;flex-wrap:wrap;color:#97a8ba;font-size:11px;line-height:1.65;margin-top:20px;}
+.vp-unified-footnote a {color:#c6f9aa;text-decoration:none;display:inline-flex;align-items:center;gap:4px;}
+.vp-sr-only {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+@media(max-width:680px){.vp-unified-toolbar{align-items:stretch;flex-direction:column;}.vp-unified-search{width:100%;}.vp-unified-row{gap:9px;}.vp-unified-tag{font-size:9px;padding:6px 8px;}}
