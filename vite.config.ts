@@ -14,34 +14,48 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills'
  * No default live index.html is compiled in this mode.
  */
 const uiOnlyPreview = process.env.VITE_VEYRA_UI_ONLY === '1';
+const mainnetMvp = process.env.VITE_VEYRA_MAINNET_MVP === '1';
+if (uiOnlyPreview && mainnetMvp) {
+  throw new Error('[build] Testnet Preview and Arc Mainnet MVP must have separate bundles.');
+}
+if (process.env.VITE_VEYRA_MAINNET_PAY === '1' && !mainnetMvp) {
+  throw new Error('[build] Mainnet signing may only be requested in its isolated Mainnet MVP bundle.');
+}
 const previewHtml = path.resolve(__dirname, 'preview.html');
+const mainnetHtml = path.resolve(__dirname, 'mainnet.html');
 const outputDir = path.resolve(__dirname, 'dist');
 
 export default defineConfig({
   plugins: [
     react(),
-    ...(!uiOnlyPreview ? [nodePolyfills()] : []),
-    ...(uiOnlyPreview
+    ...(!uiOnlyPreview && !mainnetMvp ? [nodePolyfills()] : []),
+    ...((uiOnlyPreview || mainnetMvp)
       ? [{
-          name: 'veyra-static-preview-only',
+          name: 'veyra-isolated-financial-preview',
           closeBundle() {
             const index = path.join(outputDir, 'index.html');
             const preview = path.join(outputDir, 'preview.html');
-            if (!existsSync(preview) || existsSync(index)) {
-              throw new Error('[preview] expected exclusively preview.html output; refusing unsafe deploy');
+            const mainnet = path.join(outputDir, 'mainnet.html');
+            const selected = mainnetMvp ? mainnet : preview;
+            if (!existsSync(selected) || existsSync(index) ||
+                existsSync(mainnetMvp ? preview : mainnet)) {
+              throw new Error('[preview] expected exactly one isolated HTML entry; refusing mixed build');
             }
-            const html = readFileSync(preview, 'utf8');
+            const html = readFileSync(selected, 'utf8');
             if (!html.includes('<title>Veyra —')) {
-              throw new Error('[preview] Vite produced an unexpected HTML entry');
+              throw new Error('[preview] unexpected HTML entry; refusing unsafe deploy');
             }
-            renameSync(preview, index);
+            if (uiOnlyPreview) renameSync(preview, index);
+            else renameSync(mainnet, index);
           },
         }]
       : []),
   ],
   build: uiOnlyPreview
     ? { rollupOptions: { input: previewHtml } }
-    : undefined,
+    : mainnetMvp
+      ? { rollupOptions: { input: mainnetHtml } }
+      : undefined,
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
