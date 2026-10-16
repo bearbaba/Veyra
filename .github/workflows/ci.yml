@@ -251,7 +251,7 @@ jobs:
         env:
           VEYRA_SMOKE_URL: http://127.0.0.1:4173
           NODE_PATH: /tmp/veyra-browser/node_modules
-        run: node scripts/browser-acceptance.cjs
+        run: node e2e/browser-acceptance.cjs
 
       - name: Shut down test preview
         if: always()
