@@ -4,6 +4,7 @@ import { newContactId } from '../db/ids.js';
 import { contacts, veyraUsers } from '../db/schema/index.js';
 import { linkedIdentities } from '../db/schema/index.js';
 import { isBlockedEither } from '../db/repositories/socialRepository.js';
+import { parseRecipientHandle, VeyraIdLookupError } from './veyraIdNamespace.js';
 
 export class ContactError extends Error {
   constructor(public readonly code: string, message: string) { super(message); this.name = 'ContactError'; }
@@ -17,12 +18,19 @@ function cleanAlias(alias: string | undefined): string | null {
 }
 
 export async function upsertContact(db: DbClient, ownerUserId: string, rawRecipient: string, alias?: string, favorite = false) {
-  const input = rawRecipient.trim().replace(/^@/, '');
-  if (!input || /^0x[0-9a-fA-F]{40}$/.test(input)) throw new ContactError('CONTACT_REQUIRES_VEYRA_IDENTITY', 'Contacts must resolve to a Veyra identity');
+  let parsed: ReturnType<typeof parseRecipientHandle>;
+  try {
+    parsed = parseRecipientHandle(rawRecipient);
+  } catch (error) {
+    if (error instanceof VeyraIdLookupError) throw new ContactError('INVALID_VEYRA_ID', error.message);
+    throw error;
+  }
+  const { handle: input, explicitVeyraId } = parsed;
+  if (/^0x[0-9a-fA-F]{40}$/.test(input)) throw new ContactError('CONTACT_REQUIRES_VEYRA_IDENTITY', 'Contacts must resolve to a Veyra identity');
   const [byVeyra] = await db.select({ veyraUserId: veyraUsers.veyraUserId }).from(veyraUsers)
     .where(and(sql`lower(${veyraUsers.veyraHandle}) = lower(${input})`, eq(veyraUsers.status, 'ACTIVE'), isNull(veyraUsers.deletedAt))).limit(1);
   let contactUserId = byVeyra?.veyraUserId;
-  if (!contactUserId) {
+  if (!contactUserId && !explicitVeyraId) {
     const [byX] = await db.select({ veyraUserId: linkedIdentities.veyraUserId }).from(linkedIdentities)
       .where(and(eq(linkedIdentities.provider, 'X'), sql`lower(${linkedIdentities.externalHandle}) = lower(${input})`, eq(linkedIdentities.status, 'ACTIVE'), isNull(linkedIdentities.revokedAt))).limit(1);
     contactUserId = byX?.veyraUserId;

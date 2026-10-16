@@ -3,6 +3,7 @@ import type { DbClient } from '../db/client.js';
 import { newSnapshotId } from '../db/ids.js';
 import { isBlockedEither } from '../db/repositories/socialRepository.js';
 import { resolveContactAlias } from './contactService.js';
+import { parseRecipientHandle, VeyraIdLookupError } from './veyraIdNamespace.js';
 import {
   identitySnapshots,
   linkedIdentities,
@@ -28,10 +29,20 @@ export async function resolveRecipient(db: DbClient, rawInput: string, senderUse
   const input = rawInput.trim();
   if (/^0x[0-9a-fA-F]{40}$/.test(input)) return { kind: 'WALLET', walletAddress: input };
 
-  const handle = input.startsWith('@') ? input.slice(1) : input;
-  if (!handle) throw new IdentityResolutionError('INVALID_RECIPIENT', 'Recipient is empty');
+  let lookup: ReturnType<typeof parseRecipientHandle>;
+  try {
+    lookup = parseRecipientHandle(input);
+  } catch (error) {
+    if (error instanceof VeyraIdLookupError) {
+      throw new IdentityResolutionError('INVALID_RECIPIENT', error.message);
+    }
+    throw error;
+  }
+  const { handle, explicitVeyraId } = lookup;
 
-  if (senderUserId) {
+  // Explicit @handle.veyra always resolves the canonical Veyra identity.
+  // Contact nicknames and X handles can never hijack this namespace.
+  if (senderUserId && !explicitVeyraId) {
     const contactUserId = await resolveContactAlias(db, senderUserId, handle);
     if (contactUserId) {
       if (await isBlockedEither(db, senderUserId, contactUserId)) {
@@ -51,6 +62,10 @@ export async function resolveRecipient(db: DbClient, rawInput: string, senderUse
       throw new IdentityResolutionError('RECIPIENT_BLOCKED', 'Payment cannot be initiated because a block relationship exists');
     }
     return { kind: 'VEYRA_IDENTITY', veyraUserId: veyra.veyraUserId };
+  }
+
+  if (explicitVeyraId) {
+    throw new IdentityResolutionError('RECIPIENT_NOT_FOUND', 'No verified Veyra ID matched this recipient.');
   }
 
   const [linked] = await db
