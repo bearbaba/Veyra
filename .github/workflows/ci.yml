@@ -83,6 +83,9 @@ jobs:
       - name: Assert no wallet signing and BFF code in preview JavaScript
         run: bun run check:vercel-preview-bundle
 
+      - name: Verify single-domain production release candidate safety
+        run: bun run scripts/check-unified-production-release.ts
+
       - name: Build isolated Arc Mainnet safety preview (signing disabled)
         run: VITE_VEYRA_ENV=mainnet VITE_VEYRA_MAINNET_MVP=1 VITE_VEYRA_MAINNET_PAY=0 bun run build
 
