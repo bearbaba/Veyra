@@ -40,6 +40,7 @@ import { getAuthenticatedVeyraUserId } from './auth/session.js';
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
 import { beginXOAuthLink, completeXOAuthLink, XOAuthError } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
+import { PaymentReviewError } from './services/paymentReviewProof.js';
 import { upsertContact, removeContact, listContacts, ContactError } from './services/contactService.js';
 import { getReceivePreference, setReceivePreference, ReceivePreferenceError } from './services/receivePreferenceService.js';
 import { follow, unfollow, sendConnectionRequest, acceptConnection, rejectConnection } from './db/repositories/socialRepository.js';
@@ -179,6 +180,11 @@ app.use('/api', GLOBAL_RATE);
 function identityError(res: Response, err: unknown): void {
   if (err instanceof WalletProofError || err instanceof IdentityRegistrationError) {
     res.status(err.httpStatus).json({ ok: false, error: err.code, message: err.message });
+    return;
+  }
+  if (err instanceof PaymentReviewError) {
+    res.status(err.code === 'PAYMENT_REVIEW_NOT_CONFIGURED' ? 503 : 409)
+      .json({ ok: false, error: err.code, message: err.message });
     return;
   }
   if (err instanceof IdentityResolutionError) {
@@ -461,15 +467,22 @@ app.post('/api/identity/verify-payment', IDENTITY_RATE, async (req: Request, res
     const body = req.body as Record<string, unknown>;
     const snapshotId = typeof body.snapshotId === 'string' ? body.snapshotId : '';
     const expectedWalletAddress = typeof body.expectedWalletAddress === 'string' ? body.expectedWalletAddress : '';
+    const expectedWalletId = typeof body.expectedWalletId === 'string' ? body.expectedWalletId : '';
     const expectedChainId = typeof body.expectedChainId === 'number' ? body.expectedChainId : Number.NaN;
+    const reviewToken = typeof body.reviewToken === 'string' ? body.reviewToken : '';
     if (!/^snp_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(snapshotId)
+      || !/^wlt_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(expectedWalletId)
       || !/^0x[0-9a-fA-F]{40}$/.test(expectedWalletAddress)
-      || !Number.isSafeInteger(expectedChainId) || expectedChainId <= 0) {
+      || !Number.isSafeInteger(expectedChainId) || expectedChainId <= 0
+      || !reviewToken || reviewToken.length > 4096) {
       res.status(400).json({ error: 'INVALID_SNAPSHOT_VERIFICATION' });
       return;
     }
     const { db } = await import('./db/client.js');
-    const verified = await verifyPaymentRecipient(db, { snapshotId, expectedWalletAddress, expectedChainId });
+    const verified = await verifyPaymentRecipient(db, {
+      senderUserId: veyraUserId,
+      snapshotId, expectedWalletId, expectedWalletAddress, expectedChainId, reviewToken,
+    });
     if (!verified.ok) {
       res.status(409).json(verified);
       return;
@@ -1327,6 +1340,14 @@ app.post('/api/receipts/bridge', IDENTITY_RATE, async (req: Request, res: Respon
       recipientSnapshotId:
         typeof body.recipientSnapshotId === 'string'
           ? body.recipientSnapshotId
+          : null,
+      recipientReviewToken:
+        typeof body.recipientReviewToken === 'string'
+          ? body.recipientReviewToken
+          : null,
+      recipientWalletId:
+        typeof body.recipientWalletId === 'string'
+          ? body.recipientWalletId
           : null,
       policyResult:
         body.policyResult &&

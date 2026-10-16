@@ -32,6 +32,7 @@ export interface PreparedRecipient {
     avatarUrl: string | null;
     expiresAt: string;
     walletId: string;
+    reviewToken: string;
   };
 }
 
@@ -45,8 +46,10 @@ export async function preparePaymentRecipient(recipient: string, chainId: number
 
 export async function verifyPaymentRecipient(input: {
   snapshotId: string;
+  expectedWalletId: string;
   expectedWalletAddress: string;
   expectedChainId: number;
+  reviewToken: string;
 }): Promise<void> {
   const result = await postJson<{ ok: boolean; reason?: string }>('/api/identity/verify-payment', input);
   if (!result.ok) throw new Error(result.reason ?? 'Recipient identity changed since review');
