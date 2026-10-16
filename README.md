@@ -339,3 +339,11 @@ Veyra's rule is:
 Production runtime validation rejects unsafe mainnet configuration, including a
 raw `RELAY_PRIVATE_KEY`. Mainnet signing requires the KMS/HSM signer boundary
 and separately promoted providers.
+
+Arc Mainnet (chain 5042, CCTP domain 26) is now recorded in the **metadata-only**
+mainnet catalog. Its USDC ERC-20 facade is `0x3600...0000` (6 decimals),
+while native gas units use 18 decimals. The mainnet providers remain disabled;
+adding metadata is **not** a production activation. RPC health and release
+readiness fail closed on missing or degraded chains. See the
+[Arc Mainnet release gate checklist](docs/veyra-mainnet-release-gates.md)
+for independent infrastructure, real transaction and security acceptance.
