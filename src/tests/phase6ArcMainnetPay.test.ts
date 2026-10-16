@@ -107,6 +107,35 @@ describe('Phase 6 — isolated Arc Mainnet USDC canary', () => {
     await expect(requestMainnetCanaryTransfer(w.provider, plan(), () => undefined)).rejects.toThrow('disabled');
     expect(w.calls).not.toContain('eth_sendTransaction');
   });
+  it('when explicitly release-enabled, requests exactly one pinned transfer after fresh preflight', async () => {
+    vi.stubEnv('VITE_VEYRA_MAINNET_PAY', '1');
+    const { calls: rpcCalls } = rpc();
+    const walletCalls: Array<{ method: string; params?: readonly unknown[] }> = [];
+    const provider: MainnetWallet = {
+      request: (args) => {
+        walletCalls.push(args);
+        if (args.method === 'eth_chainId') return Promise.resolve('0x13b2');
+        if (args.method === 'eth_accounts') return Promise.resolve([FROM]);
+        if (args.method === 'eth_sendTransaction') return Promise.resolve(HASH);
+        return Promise.reject(new Error('unexpected wallet method'));
+      },
+    };
+    let prompts = 0;
+    await expect(requestMainnetCanaryTransfer(provider, plan(), () => { prompts++; })).resolves.toBe(HASH);
+    expect(prompts).toBe(1);
+    expect(walletCalls.map(x => x.method)).toEqual([
+      'eth_chainId', 'eth_accounts', 'eth_chainId', 'eth_accounts', 'eth_sendTransaction',
+    ]);
+    expect(walletCalls.filter(x => x.method === 'eth_sendTransaction')).toEqual([{
+      method: 'eth_sendTransaction',
+      params: [{ from: FROM, to: ARC_MAINNET_USDC, data: DATA, value: '0x0' }],
+    }]);
+    expect(rpcCalls.filter(x => x === 'eth_chainId')).toHaveLength(2);
+    // Chain/account replacement is detected before the wallet can submit.
+    const other = wallet({ accounts: [TO] });
+    await expect(requestMainnetCanaryTransfer(other.provider, plan(), () => undefined)).rejects.toThrow('changed');
+    expect(other.calls).not.toContain('eth_sendTransaction');
+  });
   it('rejects tampered reviewed plans before any wallet request', async () => {
     const original = plan();
     for (const changed of [
