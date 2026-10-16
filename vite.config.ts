@@ -14,33 +14,41 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills'
  * No default live index.html is compiled in this mode.
  */
 const uiOnlyPreview = process.env.VITE_VEYRA_UI_ONLY === '1';
+const mainnetMvp = process.env.VITE_VEYRA_MAINNET_MVP === '1';
+if (uiOnlyPreview && mainnetMvp) {
+  throw new Error('[build] Testnet Preview and Arc Mainnet MVP must have separate bundles.');
+}
+if (process.env.VITE_VEYRA_MAINNET_PAY === '1' && !mainnetMvp) {
+  throw new Error('[build] Mainnet signing may only be requested in its isolated Mainnet MVP bundle.');
+}
 const previewHtml = path.resolve(__dirname, 'preview.html');
+const mainnetHtml = path.resolve(__dirname, 'mainnet.html');
 const outputDir = path.resolve(__dirname, 'dist');
 
 export default defineConfig({
   plugins: [
     react(),
-    ...(!uiOnlyPreview ? [nodePolyfills()] : []),
-    ...(uiOnlyPreview
+    ...(!uiOnlyPreview && !mainnetMvp ? [nodePolyfills()] : []),
+    ...((uiOnlyPreview || mainnetMvp)
       ? [{
-          name: 'veyra-static-preview-only',
+          name: 'veyra-isolated-financial-preview',
           closeBundle() {
             const index = path.join(outputDir, 'index.html');
-            const preview = path.join(outputDir, 'preview.html');
-            if (!existsSync(preview) || existsSync(index)) {
-              throw new Error('[preview] expected exclusively preview.html output; refusing unsafe deploy');
+            const htmlFile = path.join(outputDir, mainnetMvp ? 'mainnet.html' : 'preview.html');
+            if (!existsSync(htmlFile) || existsSync(index)) {
+              throw new Error('[preview] expected exclusively the selected isolated HTML entry');
             }
-            const html = readFileSync(preview, 'utf8');
+            const html = readFileSync(htmlFile, 'utf8');
             if (!html.includes('<title>Veyra —')) {
-              throw new Error('[preview] Vite produced an unexpected HTML entry');
+              throw new Error('[preview] unexpected HTML entry; refusing unsafe deploy');
             }
-            renameSync(preview, index);
+            renameSync(htmlFile, index);
           },
         }]
       : []),
   ],
-  build: uiOnlyPreview
-    ? { rollupOptions: { input: previewHtml } }
+  build: uiOnlyPreview || mainnetMvp
+    ? { rollupOptions: { input: uiOnlyPreview ? previewHtml : mainnetHtml } }
     : undefined,
   resolve: {
     alias: {
