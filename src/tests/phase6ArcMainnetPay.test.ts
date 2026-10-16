@@ -79,7 +79,7 @@ describe('Phase 6 — isolated Arc Mainnet USDC canary', () => {
     expect(buildMainnetPayPlan(FROM, TO, '1').units).toBe(MAX_MAINNET_CANARY_UNITS);
   });
   it('enforces the native 18 / ERC-20 6 decimals gas reserve against ONE shared balance', () => {
-    expect(reserveGasInUsdcUnits(50_000n, 1_000_000_000n)).toBe(100_000n);
+    expect(reserveGasInUsdcUnits(50_000n, 1_000_000_000n)).toBe(100n);
     expect(() => reserveGasInUsdcUnits(0n, 1n)).toThrow();
   });
   it('requires correct public RPC chain, real token decimals, gas and simulation', async () => {
@@ -87,7 +87,7 @@ describe('Phase 6 — isolated Arc Mainnet USDC canary', () => {
     const w = wallet();
     const good = await mainnetPreflight(w.provider, plan());
     expect(good.balance).toBe(10_000_000n);
-    expect(good.feeReserveUnits).toBe(100_000n);
+    expect(good.feeReserveUnits).toBe(100n);
     rpc({ eth_chainId: '0x1' });
     await expect(assertArcMainnetNetwork()).rejects.toThrow('RPC network mismatch');
     const wrong = wallet({ chain: '0x1' });
