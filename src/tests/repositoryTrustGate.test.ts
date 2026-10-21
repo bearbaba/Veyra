@@ -43,7 +43,7 @@ describe('Veyra repository safety / README provenance contract', () => {
   });
   it('fails if a source-linked milestone or the open Production PR status is concealed', () => {
     const erased = modified('docs/DEVELOPMENT_HISTORY.md', value =>
-      value.replaceAll('https://github.com/bearbaba/Veyra/pull/19', 'https://example.com/fictional-pr'));
+      value.split('https://github.com/bearbaba/Veyra/pull/19').join('https://example.com/fictional-pr'));
     expect(validateRepositoryTrust(erased)).toContain(
       'Missing verifiable original GitHub PR #19 in development history.');
     const relabelled = modified('docs/DEVELOPMENT_HISTORY.md', value =>
@@ -52,11 +52,11 @@ describe('Veyra repository safety / README provenance contract', () => {
       'History must disclose that Production promotion PR #7 remains open.');
   });
   it('fails if private vulnerability reporting guidance or CI wiring disappears', () => {
-    const removed = modified('SECURITY.md', value => value.replaceAll('Private vulnerability reporting', 'Public exploits only'));
+    const removed = modified('SECURITY.md', value => value.split('Private vulnerability reporting').join('Public exploits only'));
     expect(validateRepositoryTrust(removed)).toContain(
       'SECURITY.md must explain a private disclosure route.');
     const ciMissing = modified('.github/workflows/ci.yml', value =>
-      value.replaceAll('check:repository-trust', 'check:repo-temporarily-disabled'));
+      value.split('check:repository-trust').join('check:repo-temporarily-disabled'));
     expect(validateRepositoryTrust(ciMissing)).toContain(
       'GitHub Actions must actually run the repository documentation/safety trust gate.');
   });
