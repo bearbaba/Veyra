@@ -113,6 +113,14 @@ const app = express();
 app.set('trust proxy', runtimeConfig.environment === 'mainnet' || runtimeConfig.hostedBackend ? 1 : false);
 app.use(requestObservability);
 
+// Private, authenticated and error responses must not be stored by browsers
+// or intermediate caches. Apply this before Origin/auth/rate-limit handling,
+// not only to successful endpoint responses.
+app.use('/api', (_req: Request, res: Response, next: NextFunction): void => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+
 // ── Body parsing with size limits ────────────────────────────────────────────
 app.use(express.json({ limit: '4kb' }));
 

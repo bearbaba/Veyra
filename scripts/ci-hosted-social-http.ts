@@ -99,10 +99,12 @@ async function verify() {
 
   const anonymous = await http('/api/social/friends');
   assert.equal(anonymous.status, 401);
+  assert.equal(anonymous.headers.get('cache-control'), 'no-store', '401 identity response must not be cached');
   const spoofed = await http('/api/social/friends', undefined, undefined, { mockHeader: USER_A });
   assert.equal(spoofed.status, 401, 'Hosted BFF must never trust development identity headers');
   const hostile = await http('/api/social/friends', alice, undefined, { origin: 'https://evil.example' });
   assert.equal(hostile.status, 403, 'Hostile Origin must be rejected before route execution');
+  assert.equal(hostile.headers.get('cache-control'), 'no-store', '403 Origin rejection must not be cached');
 
   const initial = await http('/api/social/friends', alice);
   assert.equal(initial.status, 200, JSON.stringify(initial.data));
