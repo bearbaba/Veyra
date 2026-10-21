@@ -1,0 +1,24 @@
+name: Hosted Identity Beta HTTP Acceptance
+
+on:
+  pull_request:
+    branches:
+      - 'phase*'
+    paths:
+      - 'scripts/check-live-identity-beta.mjs'
+      - '.github/workflows/identity-beta-live-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-http:
+    name: Stable HTTPS / CORS / Auth Boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout PR source
+        uses: actions/checkout@v4
+      - name: Confirm live Beta and BFF only (no signing)
+        run: node scripts/check-live-identity-beta.mjs
