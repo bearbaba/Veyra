@@ -1,16 +1,23 @@
 # Veyra — MetaMask website security classification review
 
-**Status:** exact flagged URL and warning type are NOT independently confirmed;
-review request not confirmed / **do not claim a clearance**.
-This is an operator-ready evidence template, not a request already submitted.
-**Never submit a false-positive review for an assumed URL:** the blocked origin
-might be a Studio Preview URL rather than the canonical Vercel production URL.
+**Status (21 October 2026):** the project owner reports that the earlier
+MetaMask warning has been lifted. This is **owner-reported**, not independently
+verified in the repository or a blanket clearance of all Vercel domains.
+The text below is an **archived reviewer evidence template**, not a claim that
+a particular MetaMask issue was accepted, that the site was audited, or that
+a new Preview URL is safe. Do not file a duplicate case without a fresh alert.
+
+**Never submit a false-positive review for an assumed URL:** a development
+Preview origin is separate from the canonical Vercel production hostname.
 
 ## Public website versus URL actually flagged
 
 - Intended canonical Veyra public URL: https://veyra-seven-beta.vercel.app
-- **Actual flagged URL: NOT YET VERIFIED. Copy it verbatim from the current
-  MetaMask warning screenshot before requesting a reclassification.**
+- **Historical issue:** a specific development Preview hostname was
+  reportedly flagged and subsequently cleared according to the project owner.
+  Refer to the original MetaMask report for its exact origin. For any *new*
+  warning, copy the URL directly from an unedited screenshot and investigate
+  that specific origin independently.
 - A `*.preview.studio.arc.io` origin, a Vercel Preview and the Vercel
   Production hostname are separate URL classifications. Do not assume one
   warning applies to another domain or request delisting for all three.
