@@ -38,6 +38,7 @@ import { createWalletChallenge, verifyWalletChallenge, WalletProofError } from '
 import { beginIdentityRegistration, completeIdentityRegistration, IdentityRegistrationError } from './services/identityRegistrationService.js';
 import { freezeSnapshot, resolveRecipient, verifySnapshot, IdentityResolutionError } from './services/identityResolver.js';
 import { getAuthenticatedVeyraUserId } from './auth/session.js';
+import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } from './services/friendInboxService.js';
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
 import { beginXOAuthLink, completeXOAuthLink, XOAuthError } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
@@ -308,6 +309,27 @@ app.post('/api/social/unfollow', IDENTITY_RATE, async (req: Request, res: Respon
     const { db } = await import('./db/client.js');
     await unfollow(db, userId, target); res.json({ ok: true });
   } catch (err) { identityError(res, err); }
+});
+
+// Owner-authenticated read-only Friends inbox. Blocked or historical
+// disconnected relationships are excluded at the PostgreSQL query layer.
+// No wallet addresses, balance data, private profiles, or signing abilities.
+app.get('/api/social/friends', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const owner = getAuthenticatedVeyraUserId(req);
+    if (!owner) { res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' }); return; }
+    const pagination = parseFriendInboxPagination(req.query.limit, req.query.offset);
+    const { db } = await import('./db/client.js');
+    const inbox = await listFriendInbox(db, owner, pagination);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, ...inbox });
+  } catch (err) {
+    if (err instanceof FriendInboxInputError) {
+      res.status(400).json({ ok: false, error: 'INVALID_PAGINATION' });
+      return;
+    }
+    identityError(res, err);
+  }
 });
 
 app.post('/api/social/friend/request', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
