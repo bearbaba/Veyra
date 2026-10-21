@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { BETA_HTTP_TIMEOUT_MS } from '../identity-beta/api';
 import {
   ARC_TESTNET_CHAIN_ID, normalizeBetaHandle, parseArcChainId, requireArcWallet,
   verifiedTypedData, type SignedChallenge,
@@ -42,6 +43,10 @@ function mutate(mode: 'register'|'login', key: string, value: unknown) {
   return challenge;
 }
 describe('isolated identity-only EIP-712 browser gate', () => {
+  it('allows a slow Render Free cold start without replaying mutations automatically', () => {
+    expect(BETA_HTTP_TIMEOUT_MS).toBeGreaterThanOrEqual(90_000);
+    expect(BETA_HTTP_TIMEOUT_MS).toBeLessThanOrEqual(180_000);
+  });
   it('approves only reviewed registration and login typed data', () => {
     expect(verifiedTypedData(base('register'), 'register', address, origin).primaryType).toBe('IdentityClaim');
     expect(verifiedTypedData(base('login'), 'login', address, origin).primaryType).toBe('WalletLogin');
