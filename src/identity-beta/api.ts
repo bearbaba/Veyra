@@ -1,6 +1,6 @@
 /**
  * Public, fixed HTTPS Render Testnet origin. No runtime-configurable URLs,
- * credentials, cookies, localStorage or sessionStorage.
+ * credentials, cookies or persisted browser sessions.
  */
 import { BFF_ORIGIN, type Friend, type IdentityProfile, type SignedChallenge } from './protocol';
 
