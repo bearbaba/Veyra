@@ -30,7 +30,7 @@ interface Challenge {
   };
 }
 interface Profile { veyraUserId: string; veyraHandle: string; }
-interface Reply { ok?: boolean; error?: string; message?: string; challenge?: Challenge; profile?: Profile; sessionToken?: string; items?: Array<{veyraUserId: string; state: string}>; }
+interface Reply { ok?: boolean; error?: string; message?: string; challenge?: Challenge; profile?: Profile; sessionToken?: string; veyraUserId?: string; items?: Array<{veyraUserId: string; state: string}>; }
 
 async function http(
   method: 'GET' | 'POST',
@@ -195,7 +195,7 @@ async function loginChallenge(walletAddress: string): Promise<WalletLoginChallen
     walletAddress, chainId: ARC_TESTNET,
   });
   assert.equal(response.status, 201, 'registered owner should obtain login challenge');
-  const challenge = (response.payload as {challenge: WalletLoginChallenge}).challenge;
+  const challenge = (response.payload as unknown as {challenge: WalletLoginChallenge}).challenge;
   assert.equal(challenge.typedData.domain.name, 'Veyra Login');
   assert.equal(challenge.typedData.domain.chainId, ARC_TESTNET);
   assert.equal(challenge.typedData.message.appOrigin, ORIGIN);
