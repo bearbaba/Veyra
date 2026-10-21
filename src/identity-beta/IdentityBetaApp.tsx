@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowRight, CheckCircle2, CircleHelp, Copy, Fingerprint, Github, LockKeyhole,
   LogOut, RefreshCcw, ShieldCheck, UserPlus, Users, Wallet, XCircle,
@@ -25,7 +25,7 @@ function humanError(error: unknown) {
 }
 function ActionButton({
   children, onClick, disabled = false, secondary = false,
-}: { children: React.ReactNode; onClick: () => void; disabled?: boolean; secondary?: boolean }) {
+}: { children: ReactNode; onClick: () => void; disabled?: boolean; secondary?: boolean }) {
   return <button type="button" disabled={disabled} className={secondary ? 'vi-button vi-outline' : 'vi-button vi-primary'} onClick={onClick}>{children}</button>;
 }
 
