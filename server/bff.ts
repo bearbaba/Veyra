@@ -43,7 +43,7 @@ import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paym
 import { PaymentReviewError } from './services/paymentReviewProof.js';
 import { upsertContact, removeContact, listContacts, ContactError } from './services/contactService.js';
 import { getReceivePreference, setReceivePreference, ReceivePreferenceError } from './services/receivePreferenceService.js';
-import { follow, unfollow, sendConnectionRequest, acceptConnection, rejectConnection } from './db/repositories/socialRepository.js';
+import { follow, unfollow, sendConnectionRequest, acceptConnection, rejectConnection, getConnectionStatus, blockUser, unblockUser } from './db/repositories/socialRepository.js';
 import { assertServerRuntimeConfig } from './config/runtimeConfig.js';
 import { getRateLimitPolicy } from './config/rateLimits.js';
 import { requestObservability } from './middleware/observability.js';
@@ -322,6 +322,52 @@ app.post('/api/social/friend/respond', IDENTITY_RATE, async (req: Request, res: 
     const { db } = await import('./db/client.js');
     if (decision === 'ACCEPT') await acceptConnection(db, userId, target); else await rejectConnection(db, userId, target);
     res.json({ ok: true });
+  } catch (err) { identityError(res, err); }
+});
+
+// Phase 8A — owner-scoped friendship state & privacy controls.
+// No wallet signatures, payments, private profile fields or balance reads.
+app.get('/api/social/friend/status', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) { res.status(401).json({ error: 'AUTH_REQUIRED' }); return; }
+    const target = typeof req.query.veyraUserId === 'string' ? req.query.veyraUserId : '';
+    if (!/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(target) || target === userId) {
+      res.status(400).json({ error: 'INVALID_TARGET' }); return;
+    }
+    const { db } = await import('./db/client.js');
+    res.json({ ok: true, status: await getConnectionStatus(db, userId, target) });
+  } catch (err) { identityError(res, err); }
+});
+
+app.post('/api/social/block', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) { res.status(401).json({ error: 'AUTH_REQUIRED' }); return; }
+    const target = typeof (req.body as Record<string, unknown>).veyraUserId === 'string'
+      ? String((req.body as Record<string, unknown>).veyraUserId) : '';
+    if (!/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(target) || target === userId) {
+      res.status(400).json({ error: 'INVALID_TARGET' }); return;
+    }
+    const { db } = await import('./db/client.js');
+    await blockUser(db, userId, target);
+    res.json({ ok: true, status: 'BLOCKED' });
+  } catch (err) { identityError(res, err); }
+});
+
+app.post('/api/social/unblock', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = getAuthenticatedVeyraUserId(req);
+    if (!userId) { res.status(401).json({ error: 'AUTH_REQUIRED' }); return; }
+    const target = typeof (req.body as Record<string, unknown>).veyraUserId === 'string'
+      ? String((req.body as Record<string, unknown>).veyraUserId) : '';
+    if (!/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(target) || target === userId) {
+      res.status(400).json({ error: 'INVALID_TARGET' }); return;
+    }
+    const { db } = await import('./db/client.js');
+    await unblockUser(db, userId, target);
+    // Unblocking never silently restores a formerly accepted friendship.
+    res.json({ ok: true, status: await getConnectionStatus(db, userId, target) });
   } catch (err) { identityError(res, err); }
 });
 
