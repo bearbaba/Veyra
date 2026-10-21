@@ -2,8 +2,8 @@
  * Phase 1 — migration-from-zero integration test.
  *
  * Creates a clean `veyra_migration_test` database, applies all migration
- * files in journal order (0000 through 0012), then verifies:
- *   - all 27 expected tables exist
+ * files in journal order (0000 through 0013), then verifies:
+ *   - all 28 expected tables exist
  *   - critical UNIQUE constraints are enforced
  *   - CHECK constraints reject invalid data
  *   - append-only triggers reject UPDATE/DELETE on execution_events
@@ -151,10 +151,12 @@ beforeAll(async () => {
       client,
       loadMigration('0012_phase5_second_settlement_receipt.sql'),
     );
+    // 0013: Purpose-separated, single-use EIP-712 wallet login challenges.
+    await execMigration(client, loadMigration('0013_phase8g_wallet_login.sql'));
   } finally {
     client.release();
   }
-}, 60_000); // 13 PostgreSQL migrations and DB recreation can exceed the default hook timeout under parallel CI.
+}, 60_000); // 14 PostgreSQL migrations and DB recreation can exceed the default hook timeout under parallel CI.
 
 afterAll(async () => {
   if (pgSkipped) return;
@@ -177,13 +179,14 @@ function pgTest(name: string, fn: () => Promise<void>) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('migration-from-zero: all 27 tables exist', () => {
+describe('migration-from-zero: all 28 tables exist', () => {
   const EXPECTED_TABLES = [
     'veyra_users',
     'handle_history',
     'linked_identities',
     'wallet_bindings',
     'proof_challenges',
+    'wallet_login_challenges',
     'oauth_link_states',
     'contacts',
     'identity_snapshots',
@@ -216,7 +219,7 @@ describe('migration-from-zero: all 27 tables exist', () => {
     for (const tbl of EXPECTED_TABLES) {
       expect(actual.has(tbl), `missing table: ${tbl}`).toBe(true);
     }
-    expect(res.rows.length).toBeGreaterThanOrEqual(27);
+    expect(res.rows.length).toBeGreaterThanOrEqual(28);
   });
 });
 
