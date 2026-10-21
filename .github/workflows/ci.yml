@@ -60,6 +60,9 @@ jobs:
       - name: DEV source isolation
         run: bun run check:dev-isolation
 
+      - name: Verify repository README, security, release and PR provenance
+        run: bun run check:repository-trust
+
       - name: Lint
         run: |
           bunx oxlint --type-aware --quiet src scripts

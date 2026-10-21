@@ -1,349 +1,150 @@
 # Veyra
 
-**The Intelligent Money Layer on Arc**
+**Your Identity. Your Friends. Your Money.**
 
-> Tell your money what to do.
+Veyra is an open-source, **self-custodial** Web3 application for paying people in USDC. Its distinguishing idea is **Veyra ID**: a human-readable identity that can connect verified wallets, friends, and payments without forcing people to memorize long wallet addresses.
 
-Veyra turns human intent into deterministic, reviewable financial actions. Arc is
-the home network, not the product boundary.
+Arc is Veyra's home network. Circle USDC and its infrastructure are useful building blocks, **not** an endorsement or a guarantee of swaps, yields, or third-party protocols.
 
-The core execution model is:
+> **Release status (21 October 2026):** active development. The current Vercel Production branch (`develop`) is older than the **Phase 5 release candidate** (`phase5-production-bridge-flow`, PR [#7](https://github.com/bearbaba/Veyra/pull/7)). Testnet-first Preview features are not equivalent to a deployed authenticated full-stack product, and **Mainnet financial execution is not enabled**. There is **no claim of an independent security audit**.
 
-```text
-Identity → Intent → Route → Safety → Sign → Receipt
-```
+## What can I do today?
 
-The Agent may help interpret intent, but it never signs, chooses authoritative
-financial values, or bypasses the deterministic execution pipeline.
+This table describes the **Phase 5 candidate**, not a promise that every feature is present on the older Production deployment.
 
-## Current product surfaces
+| Experience | Current implementation | Important limit |
+| --- | --- | --- |
+| **Wallet Connect** | Detect EIP-6963/EIP-1193 browser wallets; explicit account permission | Wallet connection **does not** authorize payment |
+| **Send & Pay** | Direct wallet-approved **Arc Testnet USDC** transfer and independent onchain receipt check | Maximum **1 testnet USDC per transfer**, not Veyra-ID Pay |
+| **Unified** | Public, read-only wallet-held **USDC on Arc and Base** in Testnet/Mainnet views | Not Circle Gateway pooled balance; RPC failures show unavailable; other assets are catalog metadata |
+| **Veyra ID** | Server-side signed ownership claims, profiles, X linking, contacts, friendship graph, exact recipient review tokens | Full login, Friends and Pay-by-ID require a hosted authenticated backend and PostgreSQL; **not live** on static Vercel Preview |
+| **AI Assistant** | Informational endpoint via a separately protected Vercel function if configured | Not a signer, financial executor, or substitute for an exact quote |
+| **Activity** | Local Testnet payment journal and recovery in public Preview; durable owner-scoped receipts in backend source | Cross-device backend receipts **not hosted** in static Preview |
+| **Bridge / Convert / Swap / Earn** | Provider adapters and isolated recovery, verification, or simulation code exist | **Not active** public financial routes; Earn/Borrow/Onramp are deferred |
 
-Primary navigation:
+Only **Testnet** is intended for wallet-approved transfers in the current Preview. The **Mainnet tab is read-only**, with public onchain USDC observations and simulations that never submit transactions. Browsing a catalog never enables a token, provider, or chain for trading.
 
-- Home
-- Pay
-- Agent
-- Activity
-
-Advanced execution surfaces such as Convert and Bridge are reached through the
-same deterministic action, provider, policy, risk, review, and receipt layers.
-
-## Safety model
-
-Veyra follows these invariants:
-
-- the LLM never signs transactions
-- the LLM is not trusted for balances, prices, APY, decimals, contract
-  addresses, calldata, provider state, risk, or transaction success
-- every money-moving provider is registered and lifecycle-gated
-- unknown or ambiguous execution state fails closed
-- wallet signatures happen only after deterministic review
-- provider SDK success alone is not a VERIFIED Veyra receipt
-- chain/provider state is authoritative for final verification
-- duplicate action/quote execution is blocked
-- in-flight bridge recovery never creates a second source burn
-- mainnet is enabled by separate production evidence, never by a testnet flag
-
-## Provider lifecycle
-
-Every provider moves through:
+## How Veyra ID works
 
 ```text
-DISCOVERED → VERIFIED → IMPLEMENTED → TESTED → ENABLED
+Create @alice.veyra
+       ↓
+Prove wallet ownership (separate authentication signature)
+       ↓
+Find a friend → Request connection → Accept
+       ↓
+Send USDC → Resolve verified wallet & exact destination chain
+       ↓
+Review full address, amount, token and fees
+       ↓
+Confirm in your own wallet → Verify the onchain receipt
 ```
 
-An adapter existing in the repository does **not** make that provider
-execution-ready. Real E2E evidence and explicit promotion are required.
+The `.veyra` suffix is a **Veyra application handle**, **not** a registered DNS or ENS domain. Behind the handle is an immutable internal user ID. One account may connect several verified wallets, but Veyra must **refuse** ambiguous same-chain recipient wallets. Payment reviews bind an authenticated sender to the selected wallet ID/address, chain and a short-lived, **30-second** identity snapshot. Friend status, messages and the AI Assistant confer **no signing authority**.
 
-At the current testnet baseline:
+**Currently available:** the server-side foundation and its tests. **Still needed:** deployed BFF/PostgreSQL, real two-wallet Testnet integration, session/replay tests and browser evidence before presenting Pay-by-ID as live.
 
-- Arc ERC-20 transfer: enabled according to provider registry policy
-- viem simulation: enabled
-- Arc portfolio read: enabled
-- CCTP V2 bridge: enabled for the reviewed testnet route; authenticated
-  production-UI end-to-end acceptance is still **pending**
-- CCTP destination retry #2: immutable claim, chain evidence, and second
-  settlement finalizer implemented; **new signing/broadcast is disabled**
-- Circle StableFX: implemented, disabled pending real E2E
-- Circle App Kit Bridge / Swap / Earn / Unified Balance: implemented, disabled
-  pending real E2E and promotion evidence
-- mainnet providers: separate production activation path
-
-## Persistence
-
-The approved architecture uses PostgreSQL as the system of record.
-
-Browser IndexedDB stores local cache/recovery state, including:
-
-- receipts
-- quote replay state
-- action execution replay locks
-- bridge recovery checkpoints
-
-Authenticated bridge recovery also has an advancement-only PostgreSQL mirror.
-Chain/provider state remains the execution source of truth.
-
-## Crash-safe bridge execution
-
-CCTP V2 execution persists transaction hashes immediately after broadcast and
-**before** receipt waits. The source action is locked before the irreversible
-burn request.
-
-Recovery stages are:
+## Architecture at a glance
 
 ```text
-SOURCE_BROADCAST
-→ SOURCE_CONFIRMED
-→ ATTESTATION_READY
-→ DESTINATION_BROADCAST
-→ VERIFIED
+Veyra Web (React + Vite + TypeScript)
+  ├─ Wallet access via EIP-6963 / EIP-1193
+  ├─ Direct capped Arc Testnet USDC Pay (isolated public Preview)
+  ├─ Arc + Base public USDC balance readers (no signatures)
+  └─ Review and status UI
+             │ separately deployed HTTPS API (NOT in static Preview)
+             ▼
+Express BFF (Bun) ─ Authenticated sessions / Veyra ID / Friends
+             │       Signed recipient review / Financial policy gates
+             ▼
+        PostgreSQL ─ Immutable receipt & recovery records
+             │
+             ▼
+     Reviewed RPC, USDC & Circle service integrations
 ```
 
-Recovery never contains a re-burn transition.
+Money-moving design invariant: **Identity → Intent → Route → Safety → Sign → Receipt**. The wallet holds the authority to sign. An SDK result or a successful UI animation is **not** proof that settlement completed.
 
-Source confirmation requires exactly one canonical ABI-decoded CCTP
-`MessageSent` event, the reviewed source `depositForBurn` proof, and a single
-matching Circle attestation. Destination verification requires the exact
-USDC mint event to the reviewed recipient plus exact destination balance
-delta.
+Veyra does not copy wallet-held USDC into a Circle Gateway balance. Gateway `deposit()` and `spend()` involve fund movement and would require separate, explicit user consent and audited release gates. See [Core Four product priorities](docs/veyra-core-four-circle-kits.md).
 
-Phase 5 additionally keeps distinct, append-only destination attempts:
+## Run locally
 
-- `0008`: first destination submission claim and events
-- `0009`: canonical first destination revert resolution (12+ confirmations)
-- `0010`: independent attempt #2 claim and immutable history; the attempt
-  is never auto-reclaimed if broadcast status is uncertain
-- `0011`: chain-verified second receive, unique exact USDC mint and finality
-- `0012`: separate immutable settlement hash/block/attempt fields in the
-  ActivityReceipt; the original first destination hash remains unchanged
-- **Lost-response first receive recovery:** Activity can accept the
-  hash of a destination `receiveMessage` transaction that was ALREADY
-  signed and broadcast. The authenticated server requires the pre-existing
-  first-attempt claim and independently verifies the RPC chain ID, returned
-  transaction hash, recipient signer, canonical transmitter, message and
-  Circle attestation before recording it. This never signs or resends.
-- **Second receive lost-response recovery:** previously reserved attempt #2
-  can now be matched to an *already indexed* destination transaction hash
-  using the authenticated `POST /api/bridge/reconcile-second-receive`
-  endpoint. The BFF revalidates the original reverted first attempt and
-  Arc/Circle source, the actual destination RPC chain, immutable hash and
-  exact original any-caller CCTP receive calldata. No claim, signing,
-  resubmission or mint-success claim occurs. Activity can display the
-  owner-scoped append-only attempt history across devices and show the
-  second-hash reconciliation form only for an existing `UNCERTAIN` slot.
-- **Read-only CCTP V2 nonce inspection:** authenticated
-  `POST /api/bridge/inspect-destination-nonce` independently rechecks the
-  first revert and original Arc/Circle source, parses the 32-byte nonce from
-  the attested V2 message and reads destination `usedNonces` against one
-  block with canonical hash checks. Activity shows `UNUSED_AT_OBSERVED_BLOCK`
-  or `ALREADY_CONSUMED`; neither authorizes another transaction.
-
-**Important:** observing an unused nonce is NOT authorization to submit retry
-#2. Another relayer can consume it at any moment. The second-attempt
-signing/broadcast pathway remains disabled pending an atomic server-authorized
-signing boundary, unknown-submission reconciliation and live testnet
-acceptance. The app does not silently retry a source burn.
-
-## App Kit execution boundary
-
-Circle App Kit money-moving wrappers are bound to canonical Veyra actions before
-provider execution. The raw App Kit instance is not exported.
-
-Phase 4E includes:
-
-- Bridge review/action binding and recovery gate
-- Swap amount/asset/slippage and Veyra fee/Treasury binding
-- Earn deposit/withdrawal explainability and action binding
-- Unified forwarded-spend action binding
-- persistent `actionId` replay protection
-- authoritative receipt verification
-
-Raw Unified Balance deposits remain intentionally blocked until Veyra has an
-unambiguous canonical action for that flow.
-
-## Development
-
-Requirements:
-
-- Bun version from `.bun-version`
-- a browser wallet for wallet flows
-- PostgreSQL for DB-backed integration tests/routes
-- environment-specific credentials only for the integrations being exercised
-
-Install dependencies, then run the BFF and frontend in **separate
-terminals**:
+Requirements: Bun version in [`.bun-version`](.bun-version), a supported browser, and a disposable PostgreSQL instance **only** for identity/backend integration.
 
 ```bash
+git clone https://github.com/bearbaba/Veyra.git
+cd Veyra
+git checkout phase5-production-bridge-flow
 bun install --frozen-lockfile
-# terminal A: set the backend environment and start Express
+bun run typecheck
+bun run lint
+bun run test
+```
+
+For the isolated, Testnet-first UI:
+
+```bash
+VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build
+bun run check:vercel-preview-bundle
+bun run preview
+```
+
+For local full-stack development (two terminals, **no Mainnet funds**):
+
+```bash
+# Terminal 1: configure a local disposable DB and server-only env first
 bun run server
-# terminal B: launch the local Vite dev server (with /api → localhost:3001)
+# Terminal 2
 bun run dev
 ```
 
-Authenticated identity, server ActivityReceipt/recovery and CCTP API routes
-need a running PostgreSQL instance with current schema migrations. Provision
-a disposable local/testnet database, configure `DATABASE_URL` **only in the
-backend**, then run migrations through `bun run db:migrate` from a trusted
-administrative environment. Validate with `bun run db:verify` and
-`GET /api/health/database`. Never use real mainnet funds for preview tests.
+Running `bun run server` without the required secrets/database does not activate identity. Migrations are **an explicit administrative step**, not a side effect of the frontend or container starting. Follow the [hosted Testnet deployment guide](docs/veyra-hosted-testnet-deployment.md) before connecting the public web to the BFF.
 
-The production app does not import DEV E2E tooling. CCTP developer tooling uses
-the separate `dev.html` entry and requires:
+Do not put secrets in `VITE_*` variables, frontend code, PR comments, screenshots or logs.
 
-```text
-VITE_DEV_TOOLS=true
-```
+## Quality and security gates
 
-## Validation
-
-GitHub CI is the canonical repository gate. It runs on phase branches, PRs to
-`develop`, and `develop` pushes.
-
-The gate runs:
+CI checks TypeScript, static analysis, Vitest with PostgreSQL integration, production bundle isolation, the capped Testnet signer, disabled Mainnet signing, hosted BFF startup/auth/CORS/secret failure, and desktop/mobile Chromium acceptance. It also probes **real Arc and Base public RPCs** in a **read-only browser**, without using a funded wallet or executing transactions.
 
 ```bash
-bun install --frozen-lockfile
 bun run typecheck
-bun run check:dev-isolation
-bunx oxlint --type-aware --quiet src scripts
-bunx oxlint --quiet .
-bun run test -- --run
+bun run lint
+bun run test
 bun run build
+bun run check:dev-isolation
 bun run check:prod-bundle
+bun run check:repository-trust
 ```
 
-PostgreSQL integration tests skip when no database is available; production DB
-readiness is checked separately.
+A **green CI check is not an audit** and not evidence of a signed, live, end-to-end transfer. For critical paths, we separately require a real Testnet wallet acceptance and independently verified receipt, plus a hosted backend where needed.
 
-## Important docs
+**Threats we explicitly design against:** chain mismatch, wrong recipient, forged identity or contact alias, tampered review/quote, unexpected token contract, malicious network metadata, replay or duplicate bridge burn, stale/double-submitted transaction, and a frontend unintentionally importing Mainnet signing.
 
-- `docs/veyra-architecture-v2.md` — approved architecture
-- `docs/veyra-phase4d-provider-activation.md` — activation evidence/promotion
-- `docs/veyra-phase4e-appkit-execution-safety.md` — App Kit execution safety
-- `docs/veyra-phase4f-crash-safe-cctp-recovery.md` — CCTP crash/recovery hardening
-- `docs/veyra-phase5-production-bridge-flow.md` — Phase 5 CCTP source
-  verification, durable relay, retry attempt #2 and verified mint settlement
-- `docs/veyra-vercel-preview.md` — static Vite preview vs full-stack testnet,
-  BFF/PostgreSQL deployment, required environment and release gates
+Read [Security policy and incident reporting](SECURITY.md) and the [release gate checklist](docs/veyra-testnet-release-gates.md). Please **do not bypass MetaMask or other wallet security warnings**; treat any new warning as a separate blocking incident until checked.
 
-## Full testnet backend / release policy
+## Release status and roadmap
 
-**Development continues without requesting repeated manual Vercel Preview
-deployments.** The target is a real authenticated Veyra Testnet app; the
-current static Preview is **not** the finished submission or YouTube demo.
+1. **Now:** stabilize Testnet Pay and honest Arc/Base Unified balances; finish security, README and reproducible evidence.
+2. **Next:** deploy authenticated **Veyra ID + Friends + Pay by ID** on Testnet after PostgreSQL and wallet-signed acceptance.
+3. **Then:** independently accept Circle CCTP Bridge and same-chain Swap; Convert remains a distinct StableFX capability.
+4. **Later:** optional messaging, friend QR/code, Onramp, Earn and Borrow only where safe, legally available and genuinely useful.
 
-The repository includes a separately deployable `Dockerfile.bff` pinned to
-Bun `1.3.14`, running the real Express + PostgreSQL backend with
-`VEYRA_ENV=testnet`, `NODE_ENV=production`, and hosted-mode security.
-Even if the hosted-mode flag is omitted, a production testnet backend
-requires a non-local PostgreSQL URL with TLS or a trusted private network,
-a 32+-character `VEYRA_SESSION_SECRET` and exact HTTPS
-`VEYRA_APP_ORIGIN`. The testnet relay private key is forbidden in a
-hosted deployment unless explicitly authorized, and an unsafe local
-environment cannot masquerade as production. The BFF uses the hosting
-platform's `PORT` when provided and restricts CORS to its declared
-application origin. **Do not commit secrets.**
+The current **Production** deployment is intentionally not automatically advanced with each development PR. Promotion requires the operator's reviewed release plan, a rollback path, domain/wallet safety review, and separate Mainnet controls. Never infer that the entire Phase 5 branch is running on the public Production hostname.
 
-GitHub CI now builds this Docker image and verifies that it refuses
-to launch without required configuration. It also boots the real
-production-shaped BFF and checks HTTP health, disabled development identity
-headers and restricted CORS. Migrations are a **separate authorized release
-step**, not a side effect of container startup.
+## Documentation and contribution history
 
-**Full release and final YouTube recording criteria:**
-`docs/veyra-testnet-release-gates.md` records the exact remaining
-frontend, backend, authenticated identity, Pay, Agent, Convert, CCTP Bridge,
-ActivityReceipt and security/evidence gates. A mock UI, mocked-wallet unit
-test, or CI green result must never be represented as an independently
-completed, wallet-signed cross-chain transaction. The final video will
-be recorded only from the accepted, actually running testnet release.
+- [Technical architecture](docs/veyra-architecture-v2.md)
+- [Security policy](SECURITY.md) · [Contribution guide](CONTRIBUTING.md)
+- [Development history — verified PRs #1–#19](docs/DEVELOPMENT_HISTORY.md) · [Changelog](CHANGELOG.md)
+- [Veyra ID / Friends design](docs/veyra-id-friends-pay-foundation.md) · [Pay-by-ID exact review binding](docs/veyra-phase7e-payment-review-binding.md)
+- [Arc/Base balance acceptance](docs/veyra-phase7d-arc-base-usdc-portfolio.md)
+- [Testnet release criteria](docs/veyra-testnet-release-gates.md) · [Mainnet release criteria](docs/veyra-mainnet-release-gates.md)
+- [Vercel Preview deployment and limitations](docs/veyra-vercel-preview.md) · [CI workflows](.github/workflows/ci.yml) · [Open release PR #7](https://github.com/bearbaba/Veyra/pull/7)
 
-## Vercel preview deployment
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), keep all changes reviewable on a feature branch, and **do not publish private security vulnerabilities as public GitHub issues**.
 
-**Frontend deployment configuration is now checked in:** `vercel.json`
-sets Vite, the locked Bun install, the forced
-`VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build` command and static `dist` output.
-In this build, Vite selects the **separate** `src/preview/main.tsx`
-React tree. The connected-preview dashboard now supports **real injected
-MetaMask/Rabby/Coinbase wallet account connection** via EIP-6963/EIP-1193
-(`eth_requestAccounts`), displays the wallet address and reads its
-**real Arc Testnet USDC balance** through read-only public RPC calls
-(`eth_chainId` + `eth_call`). **Direct Arc Testnet wallet-to-wallet USDC Pay
-is executable**, with a **hard 1 testnet USDC per-transaction cap**, explicit
-wallet review/signature, independent on-chain receipt and ERC-20 Transfer
-log verification, and browser-local pending/unknown-hash recovery. Convert,
-Bridge and Veyra ID Pay are NOT live financial services yet.
-**The scripted Agent has been deleted.** A real standalone Vercel Function
-(`api/agent/chat.ts`) can call OpenAI with server-only API credentials
-when `VEYRA_AGENT_ENABLED=1`, `OPENAI_API_KEY`, and an access-control
-`VEYRA_AGENT_BETA_TOKEN` (>=24 characters) are configured in Vercel
-Preview Settings. It does NOT execute actions or authenticate payments.
-If unconfigured, Agent **shows unavailable** rather than fake answers.
-Convert/Bridge now expose **no simulated quote or transaction review**.
-No server private key, message-signature-based identity, Express BFF,
-Circle relay or CCTP transfer code is bundled in browser JavaScript. The full application separately retains its
-canonical financial execution-time lock. This is build-time isolation, not
-a UI toggle; wallet connect is NOT payment authorization.
+---
 
-CI separately builds the exact Vercel preview and runs
-`bun run check:vercel-preview-bundle` against the emitted JavaScript to
-allow exactly the capped Arc USDC testnet transfer signer while continuing
-to reject all other signing RPCs, CCTP transaction ABI entrypoints and
-backend financial paths. The single stateless, token-protected
-`/api/agent/chat` Vercel Function is explicitly allowed. Vercel can publish this **connected UI Preview** independently
-of CCTP E2E. A user-created Preview deployment has been reported, but public
-availability and hosted behavior have not been independently verified.
+**Veyra — Your Identity. Your Friends. Your Money.**
 
-**A frontend-only deployment is not a working full-stack demo.** The local
-Vite `/api` development proxy does not run on Vercel. Veyra uses a
-separately hosted, authenticated Express BFF plus PostgreSQL and Circle/RPC
-integrations; without that backend, Veyra ID Pay, authenticated agent actions, identity,
-CCTP recovery and cross-device Activity API-dependent features cannot be
-treated as functional. **Standalone AI chat** can function with its separately
-configured Vercel API key and private beta access token, but it cannot
-move funds, check private account history or settle a bridge.
-Direct testnet USDC payments only are browser-driven; they are not backed
-by Veyra IDs or server receipts. Never use mainnet funds, a production wallet or a mainnet chain to test
-this capped testnet-only payment beta.
-
-For the first Preview build, import `bearbaba/Veyra` in Vercel, select the
-Phase 5 branch/PR as a preview target, and set the **non-secret**
-`VITE_VEYRA_ENV=testnet` for Preview. Keep the Vercel production branch
-unchanged. Do not set `VITE_DEV_TOOLS=true` or put API keys/private keys
-in `VITE_*` variables. Validate the static URL and verify
-`/api/health` reports offline until a reviewed backend is connected.
-
-For exact instructions, server-only variables, approved HTTPS API routing,
-PostgreSQL migrations, test cases and launch/no-launch gates, see
-**[Vercel preview deployment runbook](docs/veyra-vercel-preview.md)**.
-
-### Release gates
-
-| Milestone | Current state |
-|---|---|
-| Vite frontend build + GitHub CI | Working on PR #7 |
-| Vercel static preview configuration | Added; actual Vercel URL not verified |
-| Integrated HTTPS BFF + PostgreSQL on deployed preview | Not verified |
-| Authenticated wallet-signed Arc testnet CCTP E2E | Not verified |
-| Reload/cross-device replay prevention in a live browser | Not independently verified |
-| Retry #2 signing after canonical nonce/revert recheck | Disabled |
-| Mainnet provider/signer activation | Not approved |
-
-## Mainnet
-
-Veyra's rule is:
-
-> Mainnet by design, enabled by evidence.
-
-Production runtime validation rejects unsafe mainnet configuration, including a
-raw `RELAY_PRIVATE_KEY`. Mainnet signing requires the KMS/HSM signer boundary
-and separately promoted providers.
-
-Arc Mainnet (chain 5042, CCTP domain 26) is now recorded in the **metadata-only**
-mainnet catalog. Its USDC ERC-20 facade is `0x3600...0000` (6 decimals),
-while native gas units use 18 decimals. The mainnet providers remain disabled;
-adding metadata is **not** a production activation. RPC health and release
-readiness fail closed on missing or degraded chains. See the
-[Arc Mainnet release gate checklist](docs/veyra-mainnet-release-gates.md)
-for independent infrastructure, real transaction and security acceptance.
+*Built for understandable, user-reviewed payments. Testnet-first. No custody and no promised yields.*
