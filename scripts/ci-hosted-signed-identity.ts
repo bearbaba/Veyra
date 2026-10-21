@@ -142,33 +142,33 @@ const registeredB = await http('POST', '/api/identity/register/complete', {
 assert.equal(registeredB.status, 201, 'valid Bob signature should register: ' + registeredB.payload.error);
 assert.ok(registeredB.payload.sessionToken);
 assert.ok(registeredB.payload.profile?.veyraUserId);
-assert.notEqual(registeredA.payload.profile!.veyraUserId, registeredB.payload.profile!.veyraUserId);
+assert.notEqual(registeredA.payload.profile.veyraUserId, registeredB.payload.profile.veyraUserId);
 
-const tokenA = registeredA.payload.sessionToken!;
-const tokenB = registeredB.payload.sessionToken!;
+const tokenA = registeredA.payload.sessionToken;
+const tokenB = registeredB.payload.sessionToken;
 const profileA = await http('GET', '/api/profile/me', undefined, tokenA);
 assert.equal(profileA.status, 200);
-assert.equal(profileA.payload.profile?.veyraUserId, registeredA.payload.profile!.veyraUserId);
+assert.equal(profileA.payload.profile?.veyraUserId, registeredA.payload.profile.veyraUserId);
 const profileB = await http('GET', '/api/profile/me', undefined, tokenB);
 assert.equal(profileB.status, 200);
-assert.equal(profileB.payload.profile?.veyraUserId, registeredB.payload.profile!.veyraUserId);
+assert.equal(profileB.payload.profile?.veyraUserId, registeredB.payload.profile.veyraUserId);
 
 const anon = await http('GET', '/api/social/friends');
 assert.equal(anon.status, 401);
 
 const request = await http('POST', '/api/social/friend/request', {
-  veyraUserId: registeredB.payload.profile!.veyraUserId,
+  veyraUserId: registeredB.payload.profile.veyraUserId,
 }, tokenA);
 assert.equal(request.status, 200, 'signed identity owner can request friendship');
 
 const inboxB = await http('GET', '/api/social/friends', undefined, tokenB);
 assert.equal(inboxB.status, 200);
 assert.deepEqual(inboxB.payload.items?.map(x => [x.veyraUserId, x.state]), [
-  [registeredA.payload.profile!.veyraUserId, 'INCOMING_PENDING'],
+  [registeredA.payload.profile.veyraUserId, 'INCOMING_PENDING'],
 ]);
 
 const accept = await http('POST', '/api/social/friend/respond', {
-  veyraUserId: registeredA.payload.profile!.veyraUserId, decision: 'ACCEPT',
+  veyraUserId: registeredA.payload.profile.veyraUserId, decision: 'ACCEPT',
 }, tokenB);
 assert.equal(accept.status, 200, 'Bob can accept the real signed-session friendship');
 const finalA = await http('GET', '/api/social/friends', undefined, tokenA);
