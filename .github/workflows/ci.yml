@@ -273,6 +273,51 @@ jobs:
           echo "Hosted-shaped authenticated HTTP / real Postgres social acceptance: PASS"
 
 
+      - name: Accept guarded Free bootstrap against disposable PostgreSQL and real Docker HTTP
+        env:
+          VEYRA_SESSION_SECRET: '01234567890123456789012345678901'
+        run: |
+          # All resources below exist solely inside this GitHub Actions job.
+          # This database name must match the explicit acceptance guard.
+          bun -e 'import { Client } from "pg"; const db = new Client({ connectionString: process.env.DATABASE_ADMIN_URL }); await db.connect(); try { await db.query("CREATE DATABASE veyra_testnet_acceptance_db"); } finally { await db.end(); }'
+          docker run --detach --name veyra-free-acceptance-ci --network host \
+            --add-host pg.testnet.internal:127.0.0.1 \
+            -e VEYRA_ENV=testnet \
+            -e NODE_ENV=production \
+            -e VEYRA_HOSTED_BACKEND=1 \
+            -e VEYRA_ACCEPTANCE_BOOTSTRAP=1 \
+            -e VEYRA_DATABASE_PRIVATE_NETWORK=1 \
+            -e VEYRA_SIGNER_BACKEND=none \
+            -e VEYRA_APP_ORIGIN=https://veyra.example \
+            -e VEYRA_SESSION_SECRET \
+            -e DATABASE_URL=postgres://postgres:postgres@pg.testnet.internal:5432/veyra_testnet_acceptance_db \
+            -e PORT=3002 \
+            veyra-bff:ci bun server/db/freeAcceptanceBootstrap.ts
+          trap 'docker rm --force veyra-free-acceptance-ci >/dev/null 2>&1 || true' EXIT
+
+          db_code=000
+          for attempt in $(seq 1 35); do
+            db_code=$(curl --silent --output /tmp/veyra-free-db-health.json --write-out '%{http_code}' \
+              http://127.0.0.1:3002/api/health/database || true)
+            if [ "$db_code" = "200" ]; then break; fi
+            sleep 1
+          done
+          if [ "$db_code" != "200" ]; then
+            echo "ERROR: isolated migration-before-start BFF did not become database-ready"
+            docker logs veyra-free-acceptance-ci
+            exit 1
+          fi
+          grep -q '"scope":"database-infrastructure-only"' /tmp/veyra-free-db-health.json
+          anon_code=$(curl --silent --output /tmp/veyra-free-anon.json --write-out '%{http_code}' \
+            "http://127.0.0.1:3002/api/social/friends")
+          [ "$anon_code" = "401" ] || { echo "Expected 401 on unsigned Friends inbox, got $anon_code"; exit 1; }
+          hostile_code=$(curl --silent --output /tmp/veyra-free-origin.json --write-out '%{http_code}' \
+            --header 'Origin: https://hostile.example' \
+            "http://127.0.0.1:3002/api/social/friends")
+          [ "$hostile_code" = "403" ] || { echo "Expected 403 on hostile Origin, got $hostile_code"; exit 1; }
+          echo "Disposable Free bootstrap migrations, BFF startup, owner auth and Origin gates: PASS"
+
+
   browser:
     name: Desktop and mobile network UX acceptance
     runs-on: ubuntu-latest
