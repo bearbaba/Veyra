@@ -47,7 +47,7 @@ describe('Veyra repository safety / README provenance contract', () => {
     expect(validateRepositoryTrust(erased)).toContain(
       'Missing verifiable original GitHub PR #19 in development history.');
     const relabelled = modified('docs/DEVELOPMENT_HISTORY.md', value =>
-      value.replace('**OPEN** → `develop`', '**MERGED** → `develop`'));
+      value.split('OPEN').join('MERGED'));
     expect(validateRepositoryTrust(relabelled)).toContain(
       'History must disclose that Production promotion PR #7 remains open.');
   });
