@@ -977,9 +977,9 @@ describe('migration-from-zero: identity_revision trigger', () => {
   });
 });
 
-\n// Phase 8A: PostgreSQL-backed Veyra ID → Friends → Pay recipient review.
-\n// These are real migrated-DB service integration tests, NOT hosted HTTP,
-\n// a signed wallet transfer, or a claim that backend production is deployed.
+// Phase 8A: PostgreSQL-backed Veyra ID → Friends → Pay recipient review.
+// These are real migrated-DB service integration tests, NOT hosted HTTP,
+// a signed wallet transfer, or a claim that backend production is deployed.
 describe('Phase 8A: real PostgreSQL Friends and Pay-by-ID review boundaries', () => {
   pgTest('friend request → accept → exact recipient review → block revokes old review and friendship', async () => {
     const sender = 'usr_123456789ABCDEFGH';
