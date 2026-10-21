@@ -106,6 +106,20 @@ jobs:
           fi
           grep -q 'Mainnet signing may only be requested' /tmp/veyra-unsafe-build.log
 
+      - name: Build separate wallet-owned Identity Beta (no payment paths)
+        run: VITE_VEYRA_ENV=testnet VITE_VEYRA_IDENTITY_BETA=1 bun run build
+
+      - name: Reject transaction signing and Mainnet in Identity Beta bundle
+        run: bun run scripts/check-identity-beta-bundle.ts
+
+      - name: Refuse mixing Identity Beta with financial Preview
+        run: |
+          if VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_IDENTITY_BETA=1 bun run build >/tmp/veyra-beta-mixed-build.log 2>&1; then
+            echo "ERROR: identity-signature and financial-preview bundles were mixed"
+            exit 1
+          fi
+          grep -q 'Identity Beta, Testnet Preview and Mainnet must have separate bundles' /tmp/veyra-beta-mixed-build.log
+
       - name: Build hosted testnet Express BFF container
         run: docker build -f Dockerfile.bff -t veyra-bff:ci .
 
