@@ -270,7 +270,8 @@ jobs:
           fi
 
           bun scripts/ci-hosted-social-http.ts verify
-          echo "Hosted-shaped authenticated HTTP / real Postgres social acceptance: PASS"
+          bun scripts/ci-hosted-signed-identity.ts
+          echo "Hosted-shaped authenticated HTTP / signed Arc Testnet ownership / real Postgres social acceptance: PASS"
 
 
       - name: Accept guarded Free bootstrap against disposable PostgreSQL and real Docker HTTP
