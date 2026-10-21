@@ -30,6 +30,7 @@
  */
 
 import express, { type Request, type Response, type NextFunction } from 'express';
+import { evaluateBrowserOrigin } from './middleware/browserOriginPolicy.js';
 import { validateIntentResponse } from '../src/core/intent/intentSchema';
 import { createFallbackAgentResponse, validateAgentChatResponse, type AgentHistoryMessage } from '../src/core/agent/agentV2';
 import { MANIFEST_CONSTANTS } from '../src/providers/registry/providerManifest';
@@ -120,10 +121,19 @@ app.use((req: Request, res: Response, next: NextFunction): void => {
   const allowedOrigin = runtimeConfig.environment === 'mainnet' || runtimeConfig.hostedBackend
     ? runtimeConfig.appOrigin
     : '*';
-  if (allowedOrigin === '*' || req.header('origin') === allowedOrigin || !req.header('origin')) {
-    res.setHeader('Access-Control-Allow-Origin', allowedOrigin ?? '');
-  }
+  const originDecision = evaluateBrowserOrigin(
+    req.header('origin'),
+    allowedOrigin,
+    runtimeConfig.environment === 'mainnet' || runtimeConfig.hostedBackend,
+  );
   res.setHeader('Vary', 'Origin');
+  if (!originDecision.allowed) {
+    res.status(403).json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' });
+    return;
+  }
+  if (originDecision.responseOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', originDecision.responseOrigin);
+  }
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Veyra-User-Id, X-Request-Id');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }

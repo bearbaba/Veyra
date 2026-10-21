@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - develop
+      - 'phase*'
   workflow_dispatch:
 
 permissions:
@@ -150,8 +151,8 @@ jobs:
             --header "Origin: https://untrusted.example" \
             --header "X-Veyra-User-Id: usr_111111111111" \
             "http://127.0.0.1:3001/api/bridge/destination-attempts?planId=example")
-          if [ "$result" != "401" ]; then
-            echo "ERROR: unsigned development identity bypass returned HTTP $result"
+          if [ "$result" != "403" ]; then
+            echo "ERROR: hostile browser Origin was not rejected before auth (HTTP $result)"
             cat /tmp/veyra-bff-unauth.json
             exit 1
           fi
