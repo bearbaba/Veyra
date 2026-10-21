@@ -219,6 +219,16 @@ jobs:
               exit 1
             fi
           done
+          # Friends inbox is private: anonymous clients must never learn IDs,
+          # requests, or connection state, and must fail before DB access.
+          inbox_code=$(curl --silent --output /tmp/veyra-friends-unauth.json --write-out '%{http_code}' \
+            "http://127.0.0.1:3001/api/social/friends")
+          if [ "$inbox_code" != "401" ]; then
+            echo "ERROR: unauthenticated Friends inbox returned HTTP $inbox_code"
+            cat /tmp/veyra-friends-unauth.json
+            exit 1
+          fi
+          echo "Hosted Testnet Friends inbox anonymous privacy gate: PASS"
           echo "Hosted Testnet Friends status/block/unblock session gate: PASS"
           echo "Hosted testnet BFF HTTP startup / auth / CORS / public DB redaction gates: PASS"
 
