@@ -48,7 +48,10 @@ export default defineConfig({
             if (!html.includes('<title>Veyra —')) {
               throw new Error('[preview] unexpected HTML entry; refusing unsafe deploy');
             }
-            renameSync(selected, index);
+            // Preserve the established financial-preview rename invariant.
+            if (uiOnlyPreview) renameSync(preview, index);
+            else if (mainnetMvp) renameSync(mainnet, index);
+            else renameSync(identity, index);
           },
         }]
       : []),
