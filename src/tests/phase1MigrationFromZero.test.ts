@@ -22,6 +22,11 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../server/db/schema/index.js';
+import { preparePaymentRecipient, verifyPaymentRecipient } from '../../server/services/paymentRecipientService.js';
+import {
+  sendConnectionRequest, acceptConnection, getConnectionStatus, blockUser, unblockUser,
+} from '../../server/db/repositories/socialRepository.js';
+
 import { MANIFEST_CONSTANTS } from '../providers/registry/providerManifest';
 import {
   claimDestinationSubmission,
@@ -969,5 +974,85 @@ describe('migration-from-zero: identity_revision trigger', () => {
     const revAfter = Number(after.rows[0]?.identity_revision ?? 0);
 
     expect(revAfter).toBe(revBefore + 1);
+  });
+});
+
+\n// Phase 8A: PostgreSQL-backed Veyra ID → Friends → Pay recipient review.
+\n// These are real migrated-DB service integration tests, NOT hosted HTTP,
+\n// a signed wallet transfer, or a claim that backend production is deployed.
+describe('Phase 8A: real PostgreSQL Friends and Pay-by-ID review boundaries', () => {
+  pgTest('friend request → accept → exact recipient review → block revokes old review and friendship', async () => {
+    const sender = 'usr_123456789ABCDEFGH';
+    const recipient = 'usr_123456789ABCDEFGJ';
+    const walletId = 'wlt_123456789ABCDEFGH';
+    const walletAddress = '0x2222222222222222222222222222222222222222';
+    const chainId = 5042002;
+
+    await testPool.query(`
+      INSERT INTO veyra_users (veyr_user_id, veyr_handle, display_name, status)
+      VALUES ($1, 'flow_sender8', 'Sender', 'ACTIVE'),
+             ($2, 'flow_alice8', 'Alice', 'ACTIVE')
+      ON CONFLICT (veyr_user_id) DO NOTHING
+    `, [sender, recipient]);
+    await testPool.query(`
+      INSERT INTO wallet_bindings
+        (wallet_id, veyr_user_id, wallet_address, chain_id, wallet_type,
+         proof_scheme, proof_version, proof_challenge_id, proof_nonce,
+         proof_signature, proof_message_hash, issued_at, verified_at, status)
+      VALUES
+        ($1,$2,$3,$4,'EOA','EIP_712','1','claim-flow','nonce-flow',
+         'sig-flow','hash-flow',NOW(),NOW(),'ACTIVE')
+      ON CONFLICT (wallet_id) DO NOTHING
+    `, [walletId, recipient, walletAddress, chainId]);
+
+    const db = drizzle(testPool, { schema });
+    await sendConnectionRequest(db, sender, recipient);
+    expect(await getConnectionStatus(db, sender, recipient)).toBe('PENDING_INITIATOR');
+    await expect(sendConnectionRequest(db, recipient, sender)).rejects.toThrow('already pending');
+    await expect(acceptConnection(db, sender, recipient)).rejects.toThrow('initiator cannot');
+    await acceptConnection(db, recipient, sender);
+    expect(await getConnectionStatus(db, sender, recipient)).toBe('CONNECTED');
+    await expect(sendConnectionRequest(db, sender, recipient)).rejects.toThrow('already friends');
+
+    const priorSecret = process.env.VEYRA_SESSION_SECRET;
+    process.env.VEYRA_SESSION_SECRET = 'test-only-phase8a-PG-review-secret-32-chars-minimum';
+    try {
+      const prepared = await preparePaymentRecipient(db, sender, '@flow_alice8.veyra', chainId);
+      expect(prepared.kind).toBe('VEYRA_IDENTITY');
+      if (prepared.kind !== 'VEYRA_IDENTITY') throw new Error('Expected Veyra identity review');
+      expect(prepared.snapshot.walletId).toBe(walletId);
+      expect(prepared.resolvedAddress.toLowerCase()).toBe(walletAddress.toLowerCase());
+      expect(prepared.snapshot.reviewToken).toBeTruthy();
+
+      const verifyInput = {
+        senderUserId: sender,
+        snapshotId: prepared.snapshot.snapshotId,
+        expectedWalletId: prepared.snapshot.walletId,
+        expectedWalletAddress: prepared.resolvedAddress,
+        expectedChainId: chainId,
+        reviewToken: prepared.snapshot.reviewToken,
+      };
+      const beforeBlock = await verifyPaymentRecipient(db, verifyInput);
+      expect(beforeBlock.ok).toBe(true);
+
+      // This block is created AFTER the review token & snapshot existed.
+      // Its social-policy revocation must override otherwise-valid HMAC.
+      await blockUser(db, recipient, sender);
+      expect(await getConnectionStatus(db, sender, recipient)).toBe('DISCONNECTED');
+      const afterBlock = await verifyPaymentRecipient(db, verifyInput);
+      expect(afterBlock).toEqual({ ok: false, reason: 'RECIPIENT_BLOCKED' });
+      await expect(preparePaymentRecipient(db, sender, '@flow_alice8.veyra', chainId))
+        .rejects.toThrow('block relationship');
+
+      // Unblocking cannot resurrect the OLD connected state or bypass
+      // a fresh friend request.
+      await unblockUser(db, recipient, sender);
+      expect(await getConnectionStatus(db, sender, recipient)).toBe('DISCONNECTED');
+      await sendConnectionRequest(db, sender, recipient);
+      expect(await getConnectionStatus(db, sender, recipient)).toBe('PENDING_INITIATOR');
+    } finally {
+      if (priorSecret === undefined) delete process.env.VEYRA_SESSION_SECRET;
+      else process.env.VEYRA_SESSION_SECRET = priorSecret;
+    }
   });
 });
