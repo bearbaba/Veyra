@@ -201,6 +201,24 @@ jobs:
             echo "ERROR: public database health endpoint disclosed internal details"
             exit 1
           fi
+          # New friend/block endpoints require a signed session. They must
+          # return 401 before touching Postgres or any public profile data.
+          for endpoint in '/api/social/friend/status?veyraUserId=usr_123456789ABCDEFGJ' '/api/social/block' '/api/social/unblock'; do
+            if [ "${endpoint%%\?*}" = '/api/social/friend/status' ]; then
+              code=$(curl --silent --output /tmp/veyra-social-unauth.json --write-out '%{http_code}' \
+                "http://127.0.0.1:3001${endpoint}")
+            else
+              code=$(curl --silent --output /tmp/veyra-social-unauth.json --write-out '%{http_code}' \
+                --request POST --header 'Content-Type: application/json' --data '{"veyraUserId":"usr_123456789ABCDEFGJ"}' \
+                "http://127.0.0.1:3001${endpoint}")
+            fi
+            if [ "$code" != "401" ]; then
+              echo "ERROR: unauthenticated social endpoint accepted request: $endpoint ($code)"
+              cat /tmp/veyra-social-unauth.json
+              exit 1
+            fi
+          done
+          echo "Hosted Testnet Friends status/block/unblock session gate: PASS"
           echo "Hosted testnet BFF HTTP startup / auth / CORS / public DB redaction gates: PASS"
 
 

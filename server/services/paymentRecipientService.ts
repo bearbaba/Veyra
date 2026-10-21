@@ -3,6 +3,7 @@ import { identitySnapshots } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
 import { freezeSnapshot, resolveRecipient, verifySnapshot, IdentityResolutionError } from './identityResolver.js';
 import { issuePaymentReviewToken, verifyPaymentReviewToken } from './paymentReviewProof.js';
+import { isBlockedEither } from '../db/repositories/socialRepository.js';
 
 export interface FrozenWallet {
   walletId: string;
@@ -122,6 +123,7 @@ export async function verifyPaymentRecipient(
   if (!verified.ok) return verified;
 
   const [snapshot] = await db.select({
+    recipientUserId: identitySnapshots.veyraUserId,
     resolvedWallets: identitySnapshots.resolvedWallets,
     receivePreference: identitySnapshots.receivePreference,
   }).from(identitySnapshots)
@@ -138,6 +140,13 @@ export async function verifyPaymentRecipient(
       chainId: input.expectedChainId,
     })) {
     return { ok: false as const, reason: 'RECIPIENT_MISMATCH' as const };
+  }
+  // Blocks can be created AFTER a valid 30-second review token was issued.
+  // They do not modify the recipient's identity revision, so verifying the
+  // snapshot and HMAC alone must never grant permission to proceed.
+  // Re-read the latest bidirectional block state at the final review boundary.
+  if (await isBlockedEither(db, input.senderUserId, snapshot.recipientUserId)) {
+    return { ok: false as const, reason: 'RECIPIENT_BLOCKED' as const };
   }
   return { ok: true as const, snapshotId: input.snapshotId, verifiedAt: verified.verifiedAt };
 }
