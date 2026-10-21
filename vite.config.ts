@@ -15,47 +15,54 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills'
  */
 const uiOnlyPreview = process.env.VITE_VEYRA_UI_ONLY === '1';
 const mainnetMvp = process.env.VITE_VEYRA_MAINNET_MVP === '1';
-if (uiOnlyPreview && mainnetMvp) {
-  throw new Error('[build] Testnet Preview and Arc Mainnet MVP must have separate bundles.');
+const identityBeta = process.env.VITE_VEYRA_IDENTITY_BETA === '1';
+if (Number(uiOnlyPreview) + Number(mainnetMvp) + Number(identityBeta) > 1) {
+  throw new Error('[build] Identity Beta, Testnet Preview and Mainnet must have separate bundles.');
 }
 if (process.env.VITE_VEYRA_MAINNET_PAY === '1' && !mainnetMvp) {
   throw new Error('[build] Mainnet signing may only be requested in its isolated Mainnet MVP bundle.');
 }
 const previewHtml = path.resolve(__dirname, 'preview.html');
 const mainnetHtml = path.resolve(__dirname, 'mainnet.html');
+const identityHtml = path.resolve(__dirname, 'identity-beta.html');
 const outputDir = path.resolve(__dirname, 'dist');
 
 export default defineConfig({
   plugins: [
     react(),
-    ...(!uiOnlyPreview && !mainnetMvp ? [nodePolyfills()] : []),
-    ...((uiOnlyPreview || mainnetMvp)
+    ...(!uiOnlyPreview && !mainnetMvp && !identityBeta ? [nodePolyfills()] : []),
+    ...((uiOnlyPreview || mainnetMvp || identityBeta)
       ? [{
           name: 'veyra-isolated-financial-preview',
           closeBundle() {
             const index = path.join(outputDir, 'index.html');
             const preview = path.join(outputDir, 'preview.html');
             const mainnet = path.join(outputDir, 'mainnet.html');
-            const selected = mainnetMvp ? mainnet : preview;
+            const identity = path.join(outputDir, 'identity-beta.html');
+            const selected = identityBeta ? identity : mainnetMvp ? mainnet : preview;
             if (!existsSync(selected) || existsSync(index) ||
-                existsSync(mainnetMvp ? preview : mainnet)) {
+                [preview, mainnet, identity].filter(item => item !== selected).some(existsSync)) {
               throw new Error('[preview] expected exactly one isolated HTML entry; refusing mixed build');
             }
             const html = readFileSync(selected, 'utf8');
             if (!html.includes('<title>Veyra —')) {
               throw new Error('[preview] unexpected HTML entry; refusing unsafe deploy');
             }
+            // Preserve the established financial-preview rename invariant.
             if (uiOnlyPreview) renameSync(preview, index);
-            else renameSync(mainnet, index);
+            else if (mainnetMvp) renameSync(mainnet, index);
+            else renameSync(identity, index);
           },
         }]
       : []),
   ],
-  build: uiOnlyPreview
-    ? { rollupOptions: { input: previewHtml } }
-    : mainnetMvp
-      ? { rollupOptions: { input: mainnetHtml } }
-      : undefined,
+  build: identityBeta
+    ? { rollupOptions: { input: identityHtml } }
+    : uiOnlyPreview
+      ? { rollupOptions: { input: previewHtml } }
+      : mainnetMvp
+        ? { rollupOptions: { input: mainnetHtml } }
+        : undefined,
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
