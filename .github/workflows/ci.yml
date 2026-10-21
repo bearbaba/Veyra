@@ -236,7 +236,7 @@ jobs:
       - name: Verify signed-session Friends lifecycle over real hosted-shaped HTTP and PostgreSQL
         env:
           # Test-only fixture secret, never used outside GitHub's disposable CI database.
-          VEYRA_SESSION_SECRET: 01234567890123456789012345678901
+          VEYRA_SESSION_SECRET: '01234567890123456789012345678901'
         run: |
           # Bootstrap a fresh, isolated database and apply the real migration runner.
           bun scripts/ci-hosted-social-http.ts bootstrap
