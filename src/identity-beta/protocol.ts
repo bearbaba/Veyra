@@ -3,6 +3,8 @@
  * No chain switching, USDC transfers, payment signatures or transaction RPCs.
  * The ONLY wallet signature is an explicitly verified EIP-712 identity/login.
  */
+import { getAddress, recoverTypedDataAddress, zeroAddress, type Address, type Hex } from 'viem';
+
 export const ARC_TESTNET_CHAIN_ID = 5042002;
 export const BFF_ORIGIN = 'https://veyra-testnet-acceptance-bff.onrender.com';
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -147,6 +149,92 @@ export function readProvider(): BrowserProvider | null {
   return null;
 }
 
+/**
+ * Independently recover the signer in the browser before POSTing a signature.
+ * This detects wallets/extensions signing under a different EOA or an
+ * unexpected EIP-712 hash. We do not print the signature or recovered address.
+ *
+ * The backend remains the only authority that can issue a Veyra ID.
+ */
+export async function assertBrowserSignedIdentityOwner(
+  challenge: SignedChallenge,
+  mode: 'register' | 'login',
+  address: string,
+  origin: string,
+  signature: `0x${string}`,
+): Promise<void> {
+  const data = verifiedTypedData(challenge, mode, address, origin);
+  const message = obj(data.message);
+  const domain = {
+    name: mode === 'register' ? 'Veyra' : 'Veyra Login',
+    version: '1',
+    chainId: ARC_TESTNET_CHAIN_ID,
+    verifyingContract: zeroAddress,
+  } as const;
+  const walletAddress = valueString(message, 'walletAddress') as Address;
+  const shared = {
+    walletAddress,
+    chainId: BigInt(valueInteger(message, 'chainId')),
+    nonce: valueString(message, 'nonce') as Hex,
+    issuedAt: BigInt(valueInteger(message, 'issuedAt')),
+    expiresAt: BigInt(valueInteger(message, 'expiresAt')),
+  };
+  let recovered: Address;
+  try {
+    if (mode === 'register') {
+      recovered = await recoverTypedDataAddress({
+        domain,
+        types: {
+          IdentityClaim: [
+            { name: 'handle', type: 'string' },
+            { name: 'walletAddress', type: 'address' },
+            { name: 'chainId', type: 'uint256' },
+            { name: 'nonce', type: 'bytes32' },
+            { name: 'issuedAt', type: 'uint256' },
+            { name: 'expiresAt', type: 'uint256' },
+          ],
+        },
+        primaryType: 'IdentityClaim',
+        message: { handle: valueString(message, 'handle'), ...shared },
+        signature,
+      });
+    } else {
+      recovered = await recoverTypedDataAddress({
+        domain,
+        types: {
+          WalletLogin: [
+            { name: 'veyraUserId', type: 'string' },
+            { name: 'walletAddress', type: 'address' },
+            { name: 'chainId', type: 'uint256' },
+            { name: 'nonce', type: 'bytes32' },
+            { name: 'issuedAt', type: 'uint256' },
+            { name: 'expiresAt', type: 'uint256' },
+            { name: 'appOrigin', type: 'string' },
+            { name: 'purpose', type: 'string' },
+          ],
+        },
+        primaryType: 'WalletLogin',
+        message: {
+          veyraUserId: valueString(message, 'veyraUserId'),
+          ...shared,
+          appOrigin: valueString(message, 'appOrigin'),
+          purpose: valueString(message, 'purpose'),
+        },
+        signature,
+      });
+    }
+  } catch {
+    throw new Error(
+      'The wallet signature could not be independently verified. Reconnect one wallet extension and request a fresh challenge.',
+    );
+  }
+  if (getAddress(recovered) !== getAddress(address)) {
+    throw new Error(
+      'The wallet signed with a different account than the connected address. Check your active MetaMask/Rabby account and disable conflicting wallet extensions before trying again.',
+    );
+  }
+}
+
 export async function requireMatchingAccount(provider: BrowserProvider, address: string): Promise<void> {
   const accounts = await provider.request({ method: 'eth_accounts' });
   const chain = parseArcChainId(await provider.request({ method: 'eth_chainId' }));
@@ -174,5 +262,6 @@ export async function signReviewedIdentity(
     throw new Error('The wallet did not return a valid signature.');
   }
   await requireMatchingAccount(provider, address);
+  await assertBrowserSignedIdentityOwner(challenge, mode, address, origin, result as `0x${string}`);
   return result as `0x${string}`;
 }
