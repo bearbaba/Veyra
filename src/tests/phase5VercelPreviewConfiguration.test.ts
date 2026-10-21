@@ -192,11 +192,15 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     expect(config.env?.VITE_VEYRA_ENV).not.toBe('mainnet');
   });
 
-  it('documents BFF, database, missing deployment URL and safety gates', () => {
+  it('documents the real Preview versus older Production and BFF/database gates', () => {
     const readme = read('README.md');
     const runbook = read('docs/veyra-vercel-preview.md');
     expect(readme).toContain('docs/veyra-vercel-preview.md');
-    expect(readme).toContain('actual Vercel URL not verified');
+    // Old README asserted the Preview URL was not verified. Vercel READY
+    // evidence exists, but that does not mean the full-stack BFF is deployed.
+    expect(readme).toContain('Production branch (`develop`) is older');
+    expect(readme).toContain('require a hosted authenticated backend');
+    expect(readme).toContain('Mainnet financial execution is not enabled');
     expect(runbook).toContain('DATABASE_URL');
     expect(runbook).toContain('UI-only preview');
     expect(runbook).toContain('second wallet-signing/broadcast boundary remains');
