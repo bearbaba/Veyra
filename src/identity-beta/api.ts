@@ -4,6 +4,10 @@
  */
 import { BFF_ORIGIN, type Friend, type IdentityProfile, type SignedChallenge } from './protocol';
 
+// Render Free can sleep and take 50+ seconds to wake. Never silently retry
+// POST after a timeout: an identity action may already have succeeded.
+export const BETA_HTTP_TIMEOUT_MS = 120_000;
+
 interface ErrorPayload {
   ok?: boolean;
   error?: string;
@@ -26,14 +30,22 @@ async function api<T>(
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (body) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(BFF_ORIGIN + path, {
-    method,
-    headers,
-    credentials: 'omit',
-    cache: 'no-store',
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(20_000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(BFF_ORIGIN + path, {
+      method,
+      headers,
+      credentials: 'omit',
+      cache: 'no-store',
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(BETA_HTTP_TIMEOUT_MS),
+    });
+  } catch (cause) {
+    if (cause instanceof Error && (cause.name === 'TimeoutError' || cause.name === 'AbortError')) {
+      throw new Error('The Testnet service took too long to respond. If you were registering an ID, try signing in before repeating registration.');
+    }
+    throw cause;
+  }
   const result = await response.json() as ErrorPayload;
   if (!response.ok || result.ok === false) {
     if (response.status === 401) throw new Error('Session expired or unauthorized. Sign in again.');
