@@ -86,7 +86,7 @@ export function IdentityBetaApp() {
       const candidate = readProvider();
       if (!candidate) throw new Error('Install or enable MetaMask/Rabby in this browser, then reload.');
       const accounts = await candidate.request({ method: 'eth_requestAccounts' });
-      const next = Array.isArray(accounts) ? accounts[0] : undefined;
+      const next: unknown = Array.isArray(accounts) ? accounts[0] : undefined;
       const network = parseArcChainId(await candidate.request({ method: 'eth_chainId' }));
       if (typeof next !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(next)) {
         throw new Error('Your browser wallet did not provide an EVM account.');
