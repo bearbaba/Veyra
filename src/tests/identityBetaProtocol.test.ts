@@ -66,7 +66,7 @@ describe('isolated identity-only EIP-712 browser gate', () => {
   it('rejects extra message field type appended by attacker', () => {
     const challenge = base('login');
     const types = challenge.typedData.types as Record<string, unknown[]>;
-    types.WalletLogin!.push({name:'spender',type:'address'});
+    types.WalletLogin.push({name:'spender',type:'address'});
     expect(() => verifiedTypedData(challenge,'login',address,origin)).toThrow();
   });
   it('rejects a mismatched identity login attempt', () => {
