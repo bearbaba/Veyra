@@ -52,7 +52,7 @@ function expectedTypes(value: unknown, fields: readonly string[]): void {
   }
   for (let i = 0; i < fields.length; i++) {
     const field = obj(value[i]);
-    const [name, type] = fields[i]!.split(':');
+    const [name, type] = fields[i].split(':');
     if (field.name !== name || field.type !== type) {
       throw new Error('Unrecognized wallet signature request.');
     }
@@ -150,7 +150,7 @@ export function readProvider(): BrowserProvider | null {
 export async function requireMatchingAccount(provider: BrowserProvider, address: string): Promise<void> {
   const accounts = await provider.request({ method: 'eth_accounts' });
   const chain = parseArcChainId(await provider.request({ method: 'eth_chainId' }));
-  const current = Array.isArray(accounts) ? accounts[0] : undefined;
+  const current: unknown = Array.isArray(accounts) ? accounts[0] : undefined;
   requireArcWallet(current, chain);
   if (typeof current !== 'string' || current.toLowerCase() !== address.toLowerCase()) {
     throw new Error('Your connected wallet changed during signing. Please reconnect.');
