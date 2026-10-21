@@ -74,7 +74,7 @@ describe('isolated identity-only EIP-712 browser gate', () => {
     expect(() => verifiedTypedData(base('login'),'register',address,origin)).toThrow();
   });
   it('requires manual Arc Testnet and valid wallet address', () => {
-    expect(parseArcChainId('0x4cef52')).not.toBe(ARC_TESTNET_CHAIN_ID);
+    expect(parseArcChainId('0x4cef52')).toBe(ARC_TESTNET_CHAIN_ID);
     expect(parseArcChainId('not-a-chain')).toBeNull();
     expect(requireArcWallet(address,ARC_TESTNET_CHAIN_ID)).toBe(address);
     expect(() => requireArcWallet(address,1)).toThrow();
