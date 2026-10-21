@@ -65,11 +65,27 @@ export async function blockUser(
   blockerUserId: string,
   blockedUserId: string,
 ): Promise<void> {
-  await db.insert(socialBlocks).values({
-    blockId:       newBlockId(),
-    blockerUserId,
-    blockedUserId,
-    status:        'BLOCKED',
+  if (blockerUserId === blockedUserId) throw new Error('You cannot block your own Veyra ID.');
+  // A block revokes the friendship itself. Without this append-only
+  // DISCONNECTED event, unblocking would silently restore an old CONNECTED
+  // edge and its social visibility without a new friend request.
+  await db.transaction(async tx => {
+    await tx.insert(socialBlocks).values({
+      blockId: newBlockId(),
+      blockerUserId,
+      blockedUserId,
+      status: 'BLOCKED',
+    });
+    const [userAId, userBId] = canonicalPair(blockerUserId, blockedUserId);
+    const [latest] = await tx.select().from(socialConnections)
+      .where(and(eq(socialConnections.userAId, userAId), eq(socialConnections.userBId, userBId)))
+      .orderBy(desc(socialConnections.createdAt), desc(socialConnections.connectionId)).limit(1);
+    if (latest && ['PENDING_INITIATOR', 'PENDING_TARGET', 'CONNECTED'].includes(latest.status)) {
+      await tx.insert(socialConnections).values({
+        connectionId: newConnectionId(), userAId, userBId,
+        initiatorUserId: latest.initiatorUserId, status: 'DISCONNECTED',
+      });
+    }
   });
 }
 
@@ -162,7 +178,13 @@ export async function sendConnectionRequest(
   const blocked = await isBlockedEither(db, initiatorUserId, targetUserId);
   if (blocked) throw new Error('Cannot send connection request: a block relationship exists.');
 
+  if (initiatorUserId === targetUserId) throw new Error('You cannot send yourself a friend request.');
   const [userAId, userBId] = canonicalPair(initiatorUserId, targetUserId);
+  const current = await getConnectionStatus(db, initiatorUserId, targetUserId);
+  if (current === 'CONNECTED') throw new Error('These Veyra IDs are already friends.');
+  if (current === 'PENDING_INITIATOR' || current === 'PENDING_TARGET') {
+    throw new Error('A friend request is already pending for this pair.');
+  }
 
   // Determine PENDING_INITIATOR vs PENDING_TARGET based on canonical order.
   const status =
@@ -223,6 +245,9 @@ export async function getConnectionStatus(
   userB: string,
 ): Promise<typeof socialConnections.$inferSelect['status'] | 'NONE'> {
   const [a, b] = canonicalPair(userA, userB);
+  // A block must never be represented as an active friendship even if the
+  // connection log has not yet recorded DISCONNECTED.
+  if (await isBlockedEither(db, userA, userB)) return 'DISCONNECTED';
   const [latest] = await db
     .select({ status: socialConnections.status })
     .from(socialConnections)
