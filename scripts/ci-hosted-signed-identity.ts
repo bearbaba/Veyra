@@ -176,4 +176,85 @@ const finalB = await http('GET', '/api/social/friends', undefined, tokenB);
 assert.equal(finalA.payload.items?.[0]?.state, 'CONNECTED');
 assert.equal(finalB.payload.items?.[0]?.state, 'CONNECTED');
 
-console.log('Arc Testnet EIP-712 cryptographic registration + two owner sessions + Friends HTTP: PASS (CI only, no blockchain funding or signing transaction)');
+// Re-login uses a DIFFERENT one-use EIP-712 purpose and a durable PostgreSQL
+// challenge. It must not allow binding proofs or stale login prompts.
+interface WalletLoginChallenge {
+  challengeId: string;
+  typedData: {
+    domain: { name: string; version: string; chainId: number; verifyingContract: `0x${string}` };
+    primaryType: 'WalletLogin';
+    message: {
+      veyraUserId: string; walletAddress: `0x${string}`;
+      chainId: number; nonce: `0x${string}`;
+      issuedAt: number; expiresAt: number; appOrigin: string; purpose: string;
+    };
+  };
+}
+async function loginChallenge(walletAddress: string): Promise<WalletLoginChallenge> {
+  const response = await http('POST', '/api/auth/wallet-login/challenge', {
+    walletAddress, chainId: ARC_TESTNET,
+  });
+  assert.equal(response.status, 201, 'registered owner should obtain login challenge');
+  const challenge = (response.payload as {challenge: WalletLoginChallenge}).challenge;
+  assert.equal(challenge.typedData.domain.name, 'Veyra Login');
+  assert.equal(challenge.typedData.domain.chainId, ARC_TESTNET);
+  assert.equal(challenge.typedData.message.appOrigin, ORIGIN);
+  assert.equal(challenge.typedData.message.purpose, 'Sign in to Veyra Testnet. No payments or transfers.');
+  return challenge;
+}
+async function signLogin(challenge: WalletLoginChallenge, privateKey: `0x${string}`) {
+  return privateKeyToAccount(privateKey).signTypedData({
+    domain: challenge.typedData.domain,
+    types: {
+      WalletLogin: [
+        { name: 'veyraUserId', type: 'string' },
+        { name: 'walletAddress', type: 'address' },
+        { name: 'chainId', type: 'uint256' },
+        { name: 'nonce', type: 'bytes32' },
+        { name: 'issuedAt', type: 'uint256' },
+        { name: 'expiresAt', type: 'uint256' },
+        { name: 'appOrigin', type: 'string' },
+        { name: 'purpose', type: 'string' },
+      ],
+    },
+    primaryType: 'WalletLogin',
+    message: {
+      ...challenge.typedData.message,
+      chainId: BigInt(challenge.typedData.message.chainId),
+      issuedAt: BigInt(challenge.typedData.message.issuedAt),
+      expiresAt: BigInt(challenge.typedData.message.expiresAt),
+    },
+  });
+}
+const wrongChainLogin = await http('POST', '/api/auth/wallet-login/challenge', {
+  walletAddress: alice.address, chainId: 5042,
+});
+assert.equal(wrongChainLogin.status, 400);
+const loginA = await loginChallenge(alice.address);
+const impersonation = await http('POST', '/api/auth/wallet-login/complete', {
+  challengeId: loginA.challengeId, signature: await signLogin(loginA, bobKey),
+});
+assert.equal(impersonation.status, 401);
+const loggedInA = await http('POST', '/api/auth/wallet-login/complete', {
+  challengeId: loginA.challengeId, signature: await signLogin(loginA, aliceKey),
+});
+assert.equal(loggedInA.status, 200, 'valid previously registered wallet re-login must succeed');
+assert.ok(loggedInA.payload.sessionToken);
+assert.equal(loggedInA.payload.veyraUserId, registeredA.payload.profile.veyraUserId);
+const reprofileA = await http('GET', '/api/profile/me', undefined, loggedInA.payload.sessionToken);
+assert.equal(reprofileA.status, 200);
+assert.equal(reprofileA.payload.profile?.veyraUserId, registeredA.payload.profile.veyraUserId);
+const replayLogin = await http('POST', '/api/auth/wallet-login/complete', {
+  challengeId: loginA.challengeId, signature: await signLogin(loginA, aliceKey),
+});
+assert.equal(replayLogin.status, 409, 'a previously consumed login proof cannot mint another session');
+
+const loginB = await loginChallenge(bob.address);
+const loggedInB = await http('POST', '/api/auth/wallet-login/complete', {
+  challengeId: loginB.challengeId, signature: await signLogin(loginB, bobKey),
+});
+assert.equal(loggedInB.status, 200);
+assert.equal((await http('GET', '/api/social/friends', undefined, loggedInB.payload.sessionToken))
+  .payload.items?.[0]?.state, 'CONNECTED');
+
+console.log('Arc Testnet EIP-712 signed ownership, two-wallet Friends and persisted single-use wallet re-login: PASS (isolated CI only)');
