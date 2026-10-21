@@ -140,7 +140,14 @@ export function getAuthenticatedVeyraUserId(req: AuthRequestLike): string | null
     }
   }
 
-  if (process.env.NODE_ENV === 'production') return null;
+  // The unverified identity header is strictly for isolated local E2E.
+  // This defense-in-depth check also rejects it if a hosted process is
+  // accidentally run with NODE_ENV=development or other inconsistent flags.
+  if (
+    process.env.NODE_ENV === 'production' ||
+    process.env.VEYRA_HOSTED_BACKEND === '1' ||
+    (process.env.VEYRA_ENV ?? 'local') !== 'local'
+  ) return null;
   const raw = req.header('x-veyra-user-id');
   if (!raw || !USER_ID_RE.test(raw)) return null;
   return raw;
