@@ -36,6 +36,7 @@ import { createFallbackAgentResponse, validateAgentChatResponse, type AgentHisto
 import { MANIFEST_CONSTANTS } from '../src/providers/registry/providerManifest';
 import { createWalletChallenge, verifyWalletChallenge, WalletProofError } from './services/walletProofService.js';
 import { beginIdentityRegistration, completeIdentityRegistration, IdentityRegistrationError } from './services/identityRegistrationService.js';
+import { beginWalletLogin, completeWalletLogin, WalletLoginError } from './services/walletLoginService.js';
 import { freezeSnapshot, resolveRecipient, verifySnapshot, IdentityResolutionError } from './services/identityResolver.js';
 import { getAuthenticatedVeyraUserId } from './auth/session.js';
 import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } from './services/friendInboxService.js';
@@ -189,7 +190,7 @@ app.use('/api', GLOBAL_RATE);
 // remains available only outside production for local E2E.
 
 function identityError(res: Response, err: unknown): void {
-  if (err instanceof WalletProofError || err instanceof IdentityRegistrationError) {
+  if (err instanceof WalletProofError || err instanceof IdentityRegistrationError || err instanceof WalletLoginError) {
     res.status(err.httpStatus).json({ ok: false, error: err.code, message: err.message });
     return;
   }
@@ -217,6 +218,33 @@ function identityError(res: Response, err: unknown): void {
   console.error('[BFF] identity route error:', err);
   res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
 }
+
+// ── Existing verified wallet login ──────────────────────────────────────────
+// Sign in is NOT the wallet-binding proof or an on-chain financial approval.
+// The EIP-712 claim has a distinct purpose and a consumed-once DB record.
+app.post('/api/auth/wallet-login/challenge', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const address = typeof body.walletAddress === 'string' ? body.walletAddress : '';
+    const chainId = typeof body.chainId === 'number' ? body.chainId : Number.NaN;
+    const { db } = await import('./db/client.js');
+    const challenge = await beginWalletLogin(db, address, chainId);
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(201).json({ ok: true, challenge });
+  } catch (err) { identityError(res, err); }
+});
+
+app.post('/api/auth/wallet-login/complete', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const challengeId = typeof body.challengeId === 'string' ? body.challengeId : '';
+    const signature = typeof body.signature === 'string' ? body.signature : '';
+    const { db } = await import('./db/client.js');
+    const login = await completeWalletLogin(db, challengeId, signature);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, ...login });
+  } catch (err) { identityError(res, err); }
+});
 
 // ── Veyra ID registration ────────────────────────────────────────────────────
 // Registration is wallet-owned: the server issues a short-lived, HMAC-bound
