@@ -23,6 +23,7 @@ import { Pool, type PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../server/db/schema/index.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from '../../server/services/paymentRecipientService.js';
+import { listFriendInbox } from '../../server/services/friendInboxService.js';
 import {
   sendConnectionRequest, acceptConnection, getConnectionStatus, blockUser, unblockUser,
 } from '../../server/db/repositories/socialRepository.js';
@@ -1054,5 +1055,49 @@ describe('Phase 8A: real PostgreSQL Friends and Pay-by-ID review boundaries', ()
       if (priorSecret === undefined) delete process.env.VEYRA_SESSION_SECRET;
       else process.env.VEYRA_SESSION_SECRET = priorSecret;
     }
+  });
+});
+
+
+describe('migration-from-zero: private Friends inbox', () => {
+  pgTest('returns only current owner-scoped friend and request states, revokes on block', async () => {
+    const alice = 'usr_inbox_phase8c_a';
+    const bob = 'usr_inbox_phase8c_b';
+    const stranger = 'usr_inbox_phase8c_c';
+    await testPool.query(`
+      INSERT INTO veyra_users (veyr_user_id, veyr_handle, identity_revision, status)
+      VALUES
+        ('usr_inbox_phase8c_a', 'phase8calice', 1, 'ACTIVE'),
+        ('usr_inbox_phase8c_b', 'phase8cbob', 1, 'ACTIVE'),
+        ('usr_inbox_phase8c_c', 'phase8cother', 1, 'ACTIVE')
+    `);
+    const db = drizzle(testPool, { schema });
+    expect((await listFriendInbox(db, alice, { limit: 20, offset: 0 })).items).toEqual([]);
+
+    await sendConnectionRequest(db, alice, bob);
+    const incoming = await listFriendInbox(db, bob, { limit: 20, offset: 0 });
+    expect(incoming.items).toHaveLength(1);
+    expect(incoming.items[0]?.veyraUserId).toBe(alice);
+    expect(incoming.items[0]?.state).toBe('INCOMING_PENDING');
+    const outgoing = await listFriendInbox(db, alice, { limit: 20, offset: 0 });
+    expect(outgoing.items[0]?.state).toBe('OUTGOING_PENDING');
+
+    await acceptConnection(db, bob, alice);
+    expect((await listFriendInbox(db, alice, { limit: 20, offset: 0 }))
+      .items.map(item => item.state)).toEqual(['CONNECTED']);
+    expect((await listFriendInbox(db, stranger, { limit: 20, offset: 0 })).items).toEqual([]);
+
+    await blockUser(db, bob, alice);
+    expect((await listFriendInbox(db, alice, { limit: 20, offset: 0 })).items).toEqual([]);
+    expect((await listFriendInbox(db, bob, { limit: 20, offset: 0 })).items).toEqual([]);
+    await unblockUser(db, bob, alice);
+    // The previous CONNECTED event must not reappear after unblock.
+    expect((await listFriendInbox(db, alice, { limit: 20, offset: 0 })).items).toEqual([]);
+
+    await sendConnectionRequest(db, bob, alice);
+    expect((await listFriendInbox(db, alice, { limit: 20, offset: 0 }))
+      .items[0]?.state).toBe('INCOMING_PENDING');
+    expect((await listFriendInbox(db, bob, { limit: 20, offset: 0 }))
+      .items[0]?.state).toBe('OUTGOING_PENDING');
   });
 });
