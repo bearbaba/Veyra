@@ -18,7 +18,7 @@ export async function runDatabaseMigrations(
   const db = drizzle(pool);
   const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
   try {
-    logger.log(`[migrate] connecting to ${databaseUrl.replace(/:[^:@]+@/, ':***@')}`);
+    logger.log('[migrate] connecting to configured PostgreSQL endpoint (credentials and host redacted)');
     logger.log(`[migrate] applying migrations from ${migrationsDir}`);
     await migrate(db, { migrationsFolder: migrationsDir });
     logger.log('[migrate] all migrations applied successfully');
