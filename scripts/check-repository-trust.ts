@@ -82,7 +82,7 @@ export function validateRepositoryTrust(evidence: TrustEvidence): string[] {
   // Disclosure and provenance docs must not be empty badges or made-up dates.
   requireMatch('SECURITY.md', /Private vulnerability reporting/,
     'SECURITY.md must explain a private disclosure route.');
-  requireMatch('SECURITY.md', /does not.*independent audit/i,
+  requireMatch('SECURITY.md', /do \*\*not\*\* constitute an independent audit|does not.*independent audit/i,
     'Security policy must not imply source tests are an independent audit.');
   requireMatch('SECURITY.md', /do not recommend disabling phishing checks/i,
     'Security policy must not ask users to bypass wallet phishing warnings.');
