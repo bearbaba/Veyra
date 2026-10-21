@@ -1,0 +1,2 @@
+api/
+# Identity Beta ships static browser assets only. No Vercel Agent API routes.
