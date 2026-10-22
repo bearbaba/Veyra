@@ -13,8 +13,8 @@ describe('Veyra repository safety / README provenance contract', () => {
   });
   it('fails if the marketing homepage stops warning about disabled real-money Mainnet signing', () => {
     const broken = modified('README.md', value =>
-      value.replace('Mainnet financial execution is not enabled',
-        'Mainnet financial execution is enabled'));
+      value.replace('Mainnet financial execution disabled',
+        'Mainnet financial execution enabled'));
     expect(validateRepositoryTrust(broken)).toContain(
       'README must disclose disabled Mainnet financial execution.');
   });
