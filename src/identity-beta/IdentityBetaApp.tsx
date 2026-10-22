@@ -9,7 +9,7 @@ import {
   type BrowserProvider, type Friend, type IdentityProfile,
 } from './protocol';
 import {
-  beginXAccountLink, changeBlock, loginChallenge, loginComplete, readFriends, readProfile,
+  VeyraSessionExpiredError, beginXAccountLink, changeBlock, loginChallenge, loginComplete, readFriends, readProfile,
   registerChallenge, registerComplete, respondRequest, sendRequest,
 } from './api';
 
@@ -114,7 +114,7 @@ export function IdentityBetaApp() {
     catch (cause) {
       const text = humanError(cause);
       setError(text);
-      if (/session expired|unauthorized/i.test(text)) clearAuth();
+      if (cause instanceof VeyraSessionExpiredError) clearAuth();
     } finally { setBusy(false); }
   }
 
