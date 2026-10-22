@@ -8,6 +8,14 @@ acceptance.
 For original GitHub sources and commit SHAs see
 [Development history](docs/DEVELOPMENT_HISTORY.md).
 
+## 2026-10-22 — Identity Beta hosted, wallet-proof checks, X OAuth link (not financial Mainnet)
+
+- **Infrastructure:** standalone Testnet Identity & Friends Beta deployed to Vercel (production alias isolated from financial Vercel Production); Render Testnet BFF/PostgreSQL hosting is live. Deployment is **not** acceptance of real-wallet registration or financial transfers.
+- **Wallet proof:** classify backend HTTP 401 accurately and independently recover EIP-712 signer in the browser before submitting signed identity claims.
+- **One Veyra ID:** optional authenticated X OAuth PKCE link is attached to the same immutable `veyr_user_id`; X sign-in/proof does not grant wallet/payment authorization. Live X consent remains unaccepted until configured and verified.
+- **Mainnet boundary:** Mainnet payment signing stays disabled; Testnet Pay-by-ID E2E and production durability/security gates remain blockers.
+- Evidence: PRs [#38](https://github.com/bearbaba/Veyra/pull/38), [#39](https://github.com/bearbaba/Veyra/pull/39), [#40](https://github.com/bearbaba/Veyra/pull/40).
+
 ## Unreleased — Phase 8 documentation & repository integrity
 
 - Rewrite README around **Veyra ID, friends, safe USDC Pay, Unified** and the
