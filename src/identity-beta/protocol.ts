@@ -16,10 +16,20 @@ export interface BrowserProvider {
   on?(name: string, listener: (...args: unknown[]) => void): void;
   removeListener?(name: string, listener: (...args: unknown[]) => void): void;
 }
+/** Linked X social proof belongs to the existing Veyra ID; it never signs payments. */
+export interface LinkedXProfile {
+  xAccountId: string;
+  xHandle: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  bio: string | null;
+  lastRefreshedAt: string | null;
+}
 export interface IdentityProfile {
   veyraUserId: string;
   veyraHandle: string;
   displayName: string;
+  x?: LinkedXProfile | null;
 }
 export interface Friend {
   veyraUserId: string;
@@ -138,6 +148,29 @@ export function verifiedTypedData(
     throw new Error('Unexpected registration claim. Signature cancelled.');
   }
   return data;
+}
+
+/**
+ * Hosted pilot accepts only X's official OAuth authorization endpoint, with
+ * a callback pinned to this Testnet BFF. Never open an unchecked server URL.
+ */
+export function verifyXAuthorizationUrl(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.length > 4096) {
+    throw new Error('Invalid X authorization URL. No redirect opened.');
+  }
+  let url: URL;
+  try { url = new URL(raw); }
+  catch { throw new Error('Invalid X authorization URL. No redirect opened.'); }
+  if (url.protocol !== 'https:' || url.hostname !== 'x.com' || url.port ||
+      url.username || url.password || url.hash || url.pathname !== '/i/oauth2/authorize' ||
+      url.searchParams.get('response_type') !== 'code' ||
+      url.searchParams.get('code_challenge_method') !== 'S256' ||
+      !/^[-_A-Za-z0-9]{20,}$/.test(url.searchParams.get('state') ?? '') ||
+      !/^[-_A-Za-z0-9]{20,}$/.test(url.searchParams.get('code_challenge') ?? '') ||
+      url.searchParams.get('redirect_uri') !== BFF_ORIGIN + '/api/auth/x/callback') {
+    throw new Error('Unexpected X OAuth destination or callback. Authorization blocked.');
+  }
+  return url.toString();
 }
 
 export function readProvider(): BrowserProvider | null {
