@@ -44,17 +44,17 @@ export function validateRepositoryTrust(evidence: TrustEvidence): string[] {
   // Marketing text must say what exists today, not what is planned.
   requireMatch('README.md', /Your Identity\. Your Friends\. Your Money\./,
     'README must state the approved Veyra ID social-payment identity.');
-  requireMatch('README.md', /Mainnet financial execution is not enabled/i,
+  requireMatch('README.md', /Mainnet financial execution is disabled/i,
     'README must disclose disabled Mainnet financial execution.');
-  requireMatch('README.md', /full login, Friends and Pay-by-ID require a hosted authenticated backend/i,
-    'README must distinguish source-level Veyra ID from a live hosted identity service.');
+  requireMatch('README.md', /hosted signed-session backend.*Pay by Veyra ID is not live/i,
+    'README must distinguish the hosted identity acceptance beta from live Pay by Veyra ID.');
   requireMatch('README.md', /not a promise that every feature is present on the older Production deployment/i,
     'README must distinguish active Phase 5 candidate from older Production.');
   requireMatch('README.md', /Circle Gateway pooled balance/i,
     'README must distinguish observed USDC from Gateway custody.');
   requireMatch('README.md', /1 testnet USDC per transfer/i,
     'README must explicitly disclose the capped browser Testnet payment.');
-  requireMatch('README.md', /no claim of an independent security audit/i,
+  requireMatch('README.md', /No independent security audit has been completed/i,
     'README must not imply an independent audit.');
 
   // A source-level financial boundary must agree with those claims.
