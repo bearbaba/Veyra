@@ -120,6 +120,13 @@ export async function loginComplete(challengeId: string, signature: string) {
     '/api/auth/wallet-login/complete', 'POST', { challengeId, signature },
   );
 }
+/** Begin a signed-session social link. Never creates a new Veyra identity. */
+export async function beginXAccountLink(token: string) {
+  return api<{ok: true; authorizeUrl: string; expiresAt: string}>(
+    '/api/auth/x/start', 'POST', { returnPath: '/' }, token,
+  );
+}
+
 export async function readProfile(token: string) {
   const value = await api<{ok: true; profile: IdentityProfile}>('/api/profile/me', 'GET', undefined, token);
   return value.profile;
