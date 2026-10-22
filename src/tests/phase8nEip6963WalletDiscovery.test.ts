@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { parseAnnouncedIdentityWallet } from '../identity-beta/walletDiscovery';
 
 const uid = 'eec5f19b-cf2a-4e02-82fa-50d5d34aa620';
-const one = { async request({method}: {method:string}) { return method === 'eth_chainId' ? '0x4cef52' : []; } };
-const two = { async request({method}: {method:string}) { return method === 'eth_chainId' ? '0x4cef52' : []; } };
+const one = { request({method}: {method:string}) { return Promise.resolve(method === 'eth_chainId' ? '0x4cef52' : []); } };
+const two = { request({method}: {method:string}) { return Promise.resolve(method === 'eth_chainId' ? '0x4cef52' : []); } };
 function announcement(provider: unknown = one, info: unknown = {uuid:uid,name:'MetaMask',rdns:'io.metamask'}) {
   return {info,provider};
 }
