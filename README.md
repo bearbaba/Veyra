@@ -6,7 +6,7 @@ Veyra is an open-source, **self-custodial** Web3 application for paying people i
 
 Arc is Veyra's home network. Circle USDC and its infrastructure are useful building blocks, **not** an endorsement or a guarantee of swaps, yields, or third-party protocols.
 
-> **Release status (21 October 2026):** active development. The current Vercel Production branch (`develop`) is older than the **Phase 5 release candidate** (`phase5-production-bridge-flow`, PR [#7](https://github.com/bearbaba/Veyra/pull/7)). Testnet-first Preview features are not equivalent to a deployed authenticated full-stack product, and **Mainnet financial execution is not enabled**. There is **no claim of an independent security audit**.
+> **Release status (22 October 2026):** active development, **not Mainnet payment-ready**. The dedicated [Identity & Friends Beta](https://veyra-identity-friends-beta.vercel.app) has a Vercel **READY** deployment (Phase 8M isolated branch), and the Testnet BFF/PostgreSQL run on Render; that does **not** prove real-wallet EIP-712 registration, X OAuth consent, Friends or Pay by ID end-to-end acceptance. A real-browser registration has returned `INVALID_SIGNATURE`; the new client-side signer check is deployed but still needs independent wallet acceptance. The older financial Vercel Production release from `develop` remains separate, with Mainnet financial execution disabled. There is **no independent security audit**.
 
 ## What can I do today?
 
@@ -17,7 +17,7 @@ This table describes the **Phase 5 candidate**, not a promise that every feature
 | **Wallet Connect** | Detect EIP-6963/EIP-1193 browser wallets; explicit account permission | Wallet connection **does not** authorize payment |
 | **Send & Pay** | Direct wallet-approved **Arc Testnet USDC** transfer and independent onchain receipt check | Maximum **1 testnet USDC per transfer**, not Veyra-ID Pay |
 | **Unified** | Public, read-only wallet-held **USDC on Arc and Base** in Testnet/Mainnet views | Not Circle Gateway pooled balance; RPC failures show unavailable; other assets are catalog metadata |
-| **Veyra ID** | Server-side signed ownership claims, profiles, X linking, contacts, friendship graph, exact recipient review tokens | Full login, Friends and Pay-by-ID require a hosted authenticated backend and PostgreSQL; **not live** on static Vercel Preview |
+| **Veyra ID** | Hosted Testnet BFF + PostgreSQL and separate Identity & Friends Beta with wallet-signed claims, Friends and optional X OAuth linking | BFF and Vercel deployed; **real wallet/consent browser acceptance pending**; Pay by ID is **not** a deployed signed payment flow |
 | **AI Assistant** | Informational endpoint via a separately protected Vercel function if configured | Not a signer, financial executor, or substitute for an exact quote |
 | **Activity** | Local Testnet payment journal and recovery in public Preview; durable owner-scoped receipts in backend source | Cross-device backend receipts **not hosted** in static Preview |
 | **Bridge / Convert / Swap / Earn** | Provider adapters and isolated recovery, verification, or simulation code exist | **Not active** public financial routes; Earn/Borrow/Onramp are deferred |
@@ -42,7 +42,7 @@ Confirm in your own wallet → Verify the onchain receipt
 
 The `.veyra` suffix is a **Veyra application handle**, **not** a registered DNS or ENS domain. Behind the handle is an immutable internal user ID. One account may connect several verified wallets, but Veyra must **refuse** ambiguous same-chain recipient wallets. Payment reviews bind an authenticated sender to the selected wallet ID/address, chain and a short-lived, **30-second** identity snapshot. Friend status, messages and the AI Assistant confer **no signing authority**.
 
-**Currently available:** the server-side foundation and its tests. **Still needed:** deployed BFF/PostgreSQL, real two-wallet Testnet integration, session/replay tests and browser evidence before presenting Pay-by-ID as live.
+**Currently available:** the Testnet BFF/PostgreSQL infrastructure and an isolated browser Identity & Friends Beta. CI exercises disposable signed wallets and sessions. **Still needed:** genuine two-wallet browser acceptance, exact X OAuth callback/consent configuration and evidence, and a real signed Testnet Pay-by-ID transaction with verified receipt. No Mainnet payment execution is enabled.
 
 ## Architecture at a glance
 
@@ -122,10 +122,23 @@ A **green CI check is not an audit** and not evidence of a signed, live, end-to-
 
 Read [Security policy and incident reporting](SECURITY.md) and the [release gate checklist](docs/veyra-testnet-release-gates.md). Please **do not bypass MetaMask or other wallet security warnings**; treat any new warning as a separate blocking incident until checked.
 
+## Acceptance ledger (different claims must never be merged)
+
+| Boundary | Evidence present | Missing before calling it accepted |
+| --- | --- | --- |
+| **CI / source** | PRs #38–#40 and test suites covering registration error mapping, local EIP-712 signer recovery and same-user X link URL validation | CI cannot prove an actual browser wallet or X consent |
+| **Deployed Identity Beta** | Vercel deployment `dpl_3PgJiAcoNJW6WRrfQ9tEDVyF5Pzz` **READY**, source SHA `15392a55147464286fcb70bbf6a19eb1878a4b7d` | Real wallet sign-in/registration and second-wallet Friends evidence |
+| **Deployed API/database** | Render Testnet BFF live, PostgreSQL migrations/readiness previously checked | Hosted durable-identity browser acceptance; Render Free database is temporary and has no backups |
+| **X social identity** | Server PKCE implementation and optional client flow binding X to the existing `veyraUserId` | X developer client credentials, exact callback registration, actual user consent and refreshed verified profile; no assertion that a 503 means success |
+| **Financial Testnet** | Strict wallet/payment guards and source-level integrations | Real signed Pay-by-ID transaction, canonical USDC log/receipt, recipient/chain and failure/retry acceptance |
+| **Financial Mainnet** | Read-only public balance observations and release readiness gates | Security review/audit, production backup & restore drill, provider/chain approvals, sender/recipient anti-replay/finality and rollback, explicit signed-off go-live |
+
+The dedicated Identity Beta must never be mistaken for the financial Vercel Production deployment. Its X consent is **social authentication only** and cannot authorize any wallet payment. No human identity or real-money transfer has been claimed accepted merely from GitHub CI or a Vercel READY status.
+
 ## Release status and roadmap
 
 1. **Now:** stabilize Testnet Pay and honest Arc/Base Unified balances; finish security, README and reproducible evidence.
-2. **Next:** deploy authenticated **Veyra ID + Friends + Pay by ID** on Testnet after PostgreSQL and wallet-signed acceptance.
+2. **Next:** independently accept already-deployed **Veyra ID + Friends + X OAuth** with real Testnet wallets and X consent; implement and accept **Pay by ID** with exact wallet-reviewed recipient/amount/chain and real onchain Testnet receipts.
 3. **Then:** independently accept Circle CCTP Bridge and same-chain Swap; Convert remains a distinct StableFX capability.
 4. **Later:** optional messaging, friend QR/code, Onramp, Earn and Borrow only where safe, legally available and genuinely useful.
 
