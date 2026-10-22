@@ -197,10 +197,10 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     const runbook = read('docs/veyra-vercel-preview.md');
     expect(readme).toContain('docs/veyra-vercel-preview.md');
     // Old README asserted the Preview URL was not verified. Vercel READY
-    // evidence exists, but that does not mean the full-stack BFF is deployed.
-    expect(readme).toContain('Production branch (`develop`) is older');
-    expect(readme).toContain('require a hosted authenticated backend');
-    expect(readme).toContain('Mainnet financial execution is not enabled');
+    // evidence exists. The separate Identity BFF is now hosted, but financial Pay by ID is NOT accepted.
+    expect(readme).toContain('Existing financial Production on `develop` remains isolated');
+    expect(readme).toContain('Pay by Veyra ID is not live');
+    expect(readme).toContain('Mainnet financial execution is disabled');
     expect(runbook).toContain('DATABASE_URL');
     expect(runbook).toContain('UI-only preview');
     expect(runbook).toContain('second wallet-signing/broadcast boundary remains');

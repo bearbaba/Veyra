@@ -6,7 +6,7 @@ Veyra is an open-source, **self-custodial** Web3 application for paying people i
 
 Arc is Veyra's home network. Circle USDC and its infrastructure are useful building blocks, **not** an endorsement or a guarantee of swaps, yields, or third-party protocols.
 
-> **Release status (21 October 2026):** active development. The current Vercel Production branch (`develop`) is older than the **Phase 5 release candidate** (`phase5-production-bridge-flow`, PR [#7](https://github.com/bearbaba/Veyra/pull/7)). Testnet-first Preview features are not equivalent to a deployed authenticated full-stack product, and **Mainnet financial execution is not enabled**. There is **no claim of an independent security audit**.
+> **Release status (22 October 2026):** active development; **Mainnet financial execution is disabled**. A dedicated **[Identity & Friends Beta](https://veyra-identity-friends-beta.vercel.app)** is connected to a separate Render Testnet BFF and private PostgreSQL, but it is **not** a live financial app and a real-wallet registration failure (`INVALID_SIGNATURE`) remains unaccepted. The Beta currently runs an older commit than the latest merged identity/X fixes; Vercel quota has blocked promotion. Existing financial Production on `develop` remains isolated from Phase 5. **No independent security audit has been completed.** See [the actual release/deployment status](docs/veyra-release-status.md).
 
 ## What can I do today?
 
@@ -17,7 +17,7 @@ This table describes the **Phase 5 candidate**, not a promise that every feature
 | **Wallet Connect** | Detect EIP-6963/EIP-1193 browser wallets; explicit account permission | Wallet connection **does not** authorize payment |
 | **Send & Pay** | Direct wallet-approved **Arc Testnet USDC** transfer and independent onchain receipt check | Maximum **1 testnet USDC per transfer**, not Veyra-ID Pay |
 | **Unified** | Public, read-only wallet-held **USDC on Arc and Base** in Testnet/Mainnet views | Not Circle Gateway pooled balance; RPC failures show unavailable; other assets are catalog metadata |
-| **Veyra ID** | Server-side signed ownership claims, profiles, X linking, contacts, friendship graph, exact recipient review tokens | Full login, Friends and Pay-by-ID require a hosted authenticated backend and PostgreSQL; **not live** on static Vercel Preview |
+| **Veyra ID** | Server-side signed ownership claims, profiles, X linking, contacts, friendship graph, exact recipient review tokens | The dedicated Testnet Identity Beta has a hosted signed-session backend, but real two-wallet identity acceptance remains incomplete; **Pay by Veyra ID is not live** and the existing financial Production website is separate |
 | **AI Assistant** | Informational endpoint via a separately protected Vercel function if configured | Not a signer, financial executor, or substitute for an exact quote |
 | **Activity** | Local Testnet payment journal and recovery in public Preview; durable owner-scoped receipts in backend source | Cross-device backend receipts **not hosted** in static Preview |
 | **Bridge / Convert / Swap / Earn** | Provider adapters and isolated recovery, verification, or simulation code exist | **Not active** public financial routes; Earn/Borrow/Onramp are deferred |
@@ -31,6 +31,8 @@ Create @alice.veyra
        ↓
 Prove wallet ownership (separate authentication signature)
        ↓
+Optionally link X by OAuth 2.0 PKCE to the SAME Veyra ID
+       ↓
 Find a friend → Request connection → Accept
        ↓
 Send USDC → Resolve verified wallet & exact destination chain
@@ -42,7 +44,7 @@ Confirm in your own wallet → Verify the onchain receipt
 
 The `.veyra` suffix is a **Veyra application handle**, **not** a registered DNS or ENS domain. Behind the handle is an immutable internal user ID. One account may connect several verified wallets, but Veyra must **refuse** ambiguous same-chain recipient wallets. Payment reviews bind an authenticated sender to the selected wallet ID/address, chain and a short-lived, **30-second** identity snapshot. Friend status, messages and the AI Assistant confer **no signing authority**.
 
-**Currently available:** the server-side foundation and its tests. **Still needed:** deployed BFF/PostgreSQL, real two-wallet Testnet integration, session/replay tests and browser evidence before presenting Pay-by-ID as live.
+**Current distinction:** isolated Testnet BFF/PostgreSQL are hosted for **Identity & Friends acceptance**, with signed-session and replay defenses covered by CI. The deployed Beta remains older than newer source fixes; two real wallets, X consent on an actual X account and a signed real Pay-by-ID Testnet receipt still need independent live acceptance. A hosted backend is not proof that Pay by ID is live.
 
 ## Architecture at a glance
 
@@ -125,7 +127,7 @@ Read [Security policy and incident reporting](SECURITY.md) and the [release gate
 ## Release status and roadmap
 
 1. **Now:** stabilize Testnet Pay and honest Arc/Base Unified balances; finish security, README and reproducible evidence.
-2. **Next:** deploy authenticated **Veyra ID + Friends + Pay by ID** on Testnet after PostgreSQL and wallet-signed acceptance.
+2. **Next:** finish **Veyra ID + Friends + optional linked X** acceptance on the dedicated hosted Testnet Beta; then prove separately signed **Pay by Veyra ID** receipts before announcing payments live.
 3. **Then:** independently accept Circle CCTP Bridge and same-chain Swap; Convert remains a distinct StableFX capability.
 4. **Later:** optional messaging, friend QR/code, Onramp, Earn and Borrow only where safe, legally available and genuinely useful.
 
@@ -138,7 +140,7 @@ The current **Production** deployment is intentionally not automatically advance
 - [Development history — verified PRs #1–#19](docs/DEVELOPMENT_HISTORY.md) · [Changelog](CHANGELOG.md)
 - [Veyra ID / Friends design](docs/veyra-id-friends-pay-foundation.md) · [Pay-by-ID exact review binding](docs/veyra-phase7e-payment-review-binding.md)
 - [Arc/Base balance acceptance](docs/veyra-phase7d-arc-base-usdc-portfolio.md)
-- [Testnet release criteria](docs/veyra-testnet-release-gates.md) · [Mainnet release criteria](docs/veyra-mainnet-release-gates.md)
+- [Live release truth / Mainnet promotion matrix](docs/veyra-release-status.md) · [Testnet release criteria](docs/veyra-testnet-release-gates.md) · [Mainnet release criteria](docs/veyra-mainnet-release-gates.md)
 - [Vercel Preview deployment and limitations](docs/veyra-vercel-preview.md) · [CI workflows](.github/workflows/ci.yml) · [Open release PR #7](https://github.com/bearbaba/Veyra/pull/7)
 
 Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), keep all changes reviewable on a feature branch, and **do not publish private security vulnerabilities as public GitHub issues**.

@@ -5,15 +5,17 @@ Preview is **Testnet-first**; real-money **Mainnet signing is disabled** in the
 reviewed release candidate. Source-level protections and passing CI tests do
 **not** constitute an independent audit or a financial guarantee.
 
+**Snapshot warning (22 October 2026):** new identity, wallet selection and X-link PRs may be merged but **not deployed** to the stable Identity Beta URL. Check the [release status ledger](docs/veyra-release-status.md) before claiming a fix is live.
+
 ## Supported scope and disclosure boundaries
 
 | Surface | State | Security expectations |
 | --- | --- | --- |
 | `develop` / current Vercel Production | Older static release, not current Phase 5 candidate | No automatic rollout of new financial features |
 | `phase5-production-bridge-flow` (PR #7) | Under development/review | Default Testnet, capped Arc USDC Pay, Mainnet public observations and simulation only |
-| Testnet Express BFF / PostgreSQL | Source and deployment blueprint available; public hosted acceptance pending | Requires correctly configured secrets, exact HTTPS origin, migrations, session & DB ownership checks |
+| Testnet Express BFF / PostgreSQL | Dedicated Render BFF and private Postgres hosted as an **experimental acceptance pilot**; financial E2E **not** accepted | Free database is not production-durable; exact origin, secrets, session ownership, backup/restore and operational monitoring gates remain |
 | Provider adapters / Circle App Kit | Some implementation and simulated validation available | Presence of adapter does not mean live provider activation |
-| Veyra ID / Friends / Pay by ID | Cryptographic and database logic implemented; hosted UX pending | Ownership proof, immutable user ID, address review token, short-lived snapshot, block policy |
+| Veyra ID / Friends / Pay by ID | Isolated hosted Identity Beta exists, but `INVALID_SIGNATURE` occurred with a real wallet; X OAuth and real two-wallet Friends not yet accepted; Pay by ID disabled | Require real signer, verified X link to **same** Veyra ID, immutable identity, address review token and fail-closed block policy |
 | Mainnet financial execution | **Disabled** | Requires independent operational, provider, wallet, replay, gas/finality and signer acceptance |
 
 **Never test with funded production wallets, private keys, seed phrases or
