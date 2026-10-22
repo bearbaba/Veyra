@@ -400,21 +400,32 @@ jobs:
             exit 1
           fi
 
-      - name: Accept desktop/mobile Testnet and Mainnet safety behavior
+      - name: Accept desktop/mobile safety for actual Vercel surface
         env:
           VEYRA_SMOKE_URL: http://127.0.0.1:4173
           NODE_PATH: /tmp/veyra-browser/node_modules
-        run: node e2e/browser-acceptance.mjs
+        run: |
+          if grep -q 'VITE_VEYRA_IDENTITY_BETA=1' vercel.json; then
+            node e2e/identity-beta-browser-acceptance.mjs
+          else
+            node e2e/browser-acceptance.mjs
+          fi
 
-      - name: Verify live Arc Mainnet RPC from Chromium (read-only; no wallet)
+      - name: Verify live Arc Mainnet RPC from financial preview only
         env:
           VEYRA_SMOKE_URL: http://127.0.0.1:4173
-        run: node e2e/arc-mainnet-live-readonly.mjs
+        run: |
+          if ! grep -q 'VITE_VEYRA_IDENTITY_BETA=1' vercel.json; then
+            node e2e/arc-mainnet-live-readonly.mjs
+          fi
 
-      - name: Verify live Base Mainnet and Sepolia USDC reads from Chromium (no wallet)
+      - name: Verify live Base Mainnet and Sepolia USDC only in financial preview
         env:
           VEYRA_SMOKE_URL: http://127.0.0.1:4173
-        run: node e2e/base-usdc-live-readonly.mjs
+        run: |
+          if ! grep -q 'VITE_VEYRA_IDENTITY_BETA=1' vercel.json; then
+            node e2e/base-usdc-live-readonly.mjs
+          fi
 
       - name: Shut down test preview
         if: always()
