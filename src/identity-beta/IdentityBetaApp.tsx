@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  ArrowRight, CheckCircle2, CircleHelp, Copy, Fingerprint, Github, LockKeyhole,
+  ArrowRight, AtSign, CheckCircle2, CircleHelp, Copy, ExternalLink, Fingerprint, Github, LockKeyhole,
   LogOut, RefreshCcw, ShieldCheck, UserPlus, Users, Wallet, XCircle,
 } from 'lucide-react';
 import {
   ARC_TESTNET_CHAIN_ID, parseArcChainId, readProvider, requireArcWallet,
-  requireMatchingAccount, normalizeBetaHandle, signReviewedIdentity,
+  requireMatchingAccount, normalizeBetaHandle, signReviewedIdentity, verifyXAuthorizationUrl,
   type BrowserProvider, type Friend, type IdentityProfile,
 } from './protocol';
 import {
-  changeBlock, loginChallenge, loginComplete, readFriends, readProfile,
+  beginXAccountLink, changeBlock, loginChallenge, loginComplete, readFriends, readProfile,
   registerChallenge, registerComplete, respondRequest, sendRequest,
 } from './api';
 
@@ -39,6 +39,7 @@ export function IdentityBetaApp() {
   const [hasMore, setHasMore] = useState(false);
   const [handle, setHandle] = useState('');
   const [friendId, setFriendId] = useState('');
+  const [xAuthorization, setXAuthorization] = useState<{ url: string; owner: string; expiresAt: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -47,6 +48,7 @@ export function IdentityBetaApp() {
   const clearAuth = useCallback(() => {
     generation.current += 1;
     setSession(null);
+    setXAuthorization(null);
     setFriends([]);
     setOffset(0);
     setHasMore(false);
@@ -179,6 +181,41 @@ export function IdentityBetaApp() {
     });
   }
 
+  function beginXLink() {
+    void runAction(async () => {
+      const current = mustSession();
+      await requireMatchingAccount(mustWallet().selected, current.address);
+      if (current.profile.x) {
+        throw new Error('An X account is already linked to this Veyra ID.');
+      }
+      const created = await beginXAccountLink(current.token);
+      // Authorization is a separate, explicit step. Do not navigate or open
+      // popups after a network callback. Keep the active Veyra session in memory.
+      const url = verifyXAuthorizationUrl(created.authorizeUrl);
+      const expiresAt = Date.parse(created.expiresAt);
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        throw new Error('X authorization expired. Generate a fresh link.');
+      }
+      setXAuthorization({ url, owner: current.profile.veyraUserId, expiresAt });
+      setMessage('X authorization is ready. Continue with X in a new tab, then refresh your linked profile here.');
+    });
+  }
+
+  function refreshLinkedProfile() {
+    void runAction(async () => {
+      const current = mustSession();
+      await requireMatchingAccount(mustWallet().selected, current.address);
+      const rev = generation.current;
+      const profile = await readProfile(current.token);
+      if (generation.current !== rev || profile.veyraUserId !== current.profile.veyraUserId) return;
+      setSession({ ...current, profile });
+      if (profile.x) setXAuthorization(null);
+      setMessage(profile.x
+        ? 'Verified X account is linked to your existing Veyra ID.'
+        : 'No linked X account yet. Complete authorization in the X tab first.');
+    });
+  }
+
   function friendAction(action: 'request' | 'accept' | 'reject' | 'block' | 'unblock', target: string) {
     void runAction(async () => {
       const current = mustSession();
@@ -257,6 +294,50 @@ export function IdentityBetaApp() {
           <p className="vi-footnote"><CircleHelp size={15}/> A signature only proves wallet ownership. Sessions remain in memory and are cleared when you reload or change wallets.</p>
         </section>
       </div>
+
+      <section className="vi-card vi-friends">
+        <div className="vi-card-heading">
+          <div className="vi-icon"><AtSign size={20}/></div>
+          <div><h2>Link your X account</h2><p>One Veyra ID · Wallet ownership + verified social identity</p></div>
+        </div>
+        {new URLSearchParams(window.location.search).get('x_linked') === '1' &&
+          <div role="status" className="vi-alert vi-info">
+            <CheckCircle2 size={18}/><span>X authorization completed. Sign in with your original wallet and refresh this profile to verify the link.</span>
+          </div>}
+        {!session ? (
+          <div className="vi-empty vi-small-empty">
+            <AtSign size={26}/>
+            <p>Sign in to your existing Veyra ID before connecting X. Linking X never creates another Veyra ID.</p>
+          </div>
+        ) : session.profile.x ? (
+          <div className="vi-profile">
+            <div className="vi-avatar">X</div>
+            <div>
+              <strong>@{session.profile.x.xHandle ?? 'Verified X account'}</strong>
+              <span>Verified social account linked to @{session.profile.veyraHandle}</span>
+            </div>
+            <CheckCircle2 size={19}/>
+          </div>
+        ) : (
+          <>
+            <p className="vi-caption">Authorize X separately using its official OAuth consent screen. Your X account will be linked to @{session.profile.veyraHandle}; no payment or wallet signing permission is granted.</p>
+            <ActionButton disabled={busy || !correctChain} onClick={beginXLink}>
+              <AtSign size={16}/> Link X to this Veyra ID
+            </ActionButton>
+            {xAuthorization?.owner === session.profile.veyraUserId &&
+              <p className="vi-caption">
+                <a href={xAuthorization.url} target="_blank" rel="noopener noreferrer">
+                  Continue to official X authorization <ExternalLink size={14}/>
+                </a>
+                {' '}This opens a separate tab so your Veyra wallet session remains active here.
+              </p>}
+          </>
+        )}
+        {session && <ActionButton secondary disabled={busy || !correctChain} onClick={refreshLinkedProfile}>
+          <RefreshCcw size={16}/> Refresh linked profile
+        </ActionButton>}
+        <p className="vi-footnote"><LockKeyhole size={15}/> X verifies social ownership only. All wallet, recipient and payment permissions remain separate.</p>
+      </section>
 
       <section className="vi-card vi-friends">
         <div className="vi-card-heading"><div className="vi-icon"><Users size={20}/></div><div><h2>Friends</h2><p>Real signed-session data from PostgreSQL</p></div>
