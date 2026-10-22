@@ -10,11 +10,11 @@ reviewed release candidate. Source-level protections and passing CI tests do
 | Surface | State | Security expectations |
 | --- | --- | --- |
 | `develop` / current Vercel Production | Older static release, not current Phase 5 candidate | No automatic rollout of new financial features |
-| `phase5-production-bridge-flow` (PR #7) | Under development/review | Default Testnet, capped Arc USDC Pay, Mainnet public observations and simulation only |
-| Testnet Express BFF / PostgreSQL | Source and deployment blueprint available; public hosted acceptance pending | Requires correctly configured secrets, exact HTTPS origin, migrations, session & DB ownership checks |
+| `phase5-production-bridge-flow` (PR #7) | Active development candidate; never auto-promoted to financial Production | Default Testnet, capped Arc USDC Pay, Mainnet public observations and simulation only |
+| Testnet Express BFF / PostgreSQL | Dedicated Render Testnet BFF and temporary Free PostgreSQL are deployed; full real-wallet acceptance pending | Enforce exact HTTPS origin, migrations, signed owner sessions, database retention/backup plan; never treat Free Postgres as production durability |
 | Provider adapters / Circle App Kit | Some implementation and simulated validation available | Presence of adapter does not mean live provider activation |
-| Veyra ID / Friends / Pay by ID | Cryptographic and database logic implemented; hosted UX pending | Ownership proof, immutable user ID, address review token, short-lived snapshot, block policy |
-| Mainnet financial execution | **Disabled** | Requires independent operational, provider, wallet, replay, gas/finality and signer acceptance |
+| Veyra ID / Friends / X OAuth / Pay by ID | Separate hosted Identity Beta exists; real wallet/Friends/X OAuth consent still unaccepted; Pay by ID payment remains unaccepted | Owner EIP-712 signature, immutable Veyra user ID, one stable X Account ID per owner, exact recipient review and block policy |
+| Mainnet financial execution | **Disabled** | Requires independent audit/review, durable production DB backups, monitored provider, wallet, replay, gas/finality and signer acceptance, plus operator approval |
 
 **Never test with funded production wallets, private keys, seed phrases or
 real-money Mainnet transfers.** A Testnet payment is still an irreversible
