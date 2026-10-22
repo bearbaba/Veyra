@@ -8,8 +8,9 @@ import {
   requireMatchingAccount, normalizeBetaHandle, signReviewedIdentity, verifyXAuthorizationUrl,
   type BrowserProvider, type Friend, type IdentityProfile,
 } from './protocol';
+import { parseAnnouncedIdentityWallet, type DiscoveredIdentityWallet } from './walletDiscovery';
 import {
-  beginXAccountLink, changeBlock, loginChallenge, loginComplete, readFriends, readProfile,
+  VeyraSessionExpiredError, beginXAccountLink, changeBlock, loginChallenge, loginComplete, readFriends, readProfile,
   registerChallenge, registerComplete, respondRequest, sendRequest,
 } from './api';
 
@@ -31,6 +32,7 @@ function ActionButton({
 
 export function IdentityBetaApp() {
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
+  const [walletChoices, setWalletChoices] = useState<DiscoveredIdentityWallet[]>([]);
   const [address, setAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -53,6 +55,21 @@ export function IdentityBetaApp() {
     setOffset(0);
     setHasMore(false);
     setMessage('');
+  }, []);
+
+  // EIP-6963 discovers explicit wallet provider objects rather than relying
+  // on a contested global overwritten by multiple browser extensions.
+  useEffect(() => {
+    const known = new Map<string, DiscoveredIdentityWallet>();
+    const onAnnounce = (event: Event) => {
+      const wallet = parseAnnouncedIdentityWallet((event as CustomEvent<unknown>).detail);
+      if (!wallet || known.has(wallet.id) || known.size >= 12) return;
+      known.set(wallet.id, wallet);
+      setWalletChoices([...known.values()]);
+    };
+    window.addEventListener('eip6963:announceProvider', onAnnounce);
+    window.dispatchEvent(new Event('eip6963:requestProvider'));
+    return () => window.removeEventListener('eip6963:announceProvider', onAnnounce);
   }, []);
 
   useEffect(() => {
@@ -82,10 +99,10 @@ export function IdentityBetaApp() {
     };
   }, [provider, clearAuth]);
 
-  async function connect() {
+  async function connect(chosen?: BrowserProvider) {
     setBusy(true); setError(''); setMessage('');
     try {
-      const candidate = readProvider();
+      const candidate = chosen ?? readProvider();
       if (!candidate) throw new Error('Install or enable MetaMask/Rabby in this browser, then reload.');
       const accounts = await candidate.request({ method: 'eth_requestAccounts' });
       const next: unknown = Array.isArray(accounts) ? accounts[0] : undefined;
@@ -114,7 +131,7 @@ export function IdentityBetaApp() {
     catch (cause) {
       const text = humanError(cause);
       setError(text);
-      if (/session expired|unauthorized/i.test(text)) clearAuth();
+      if (cause instanceof VeyraSessionExpiredError) clearAuth();
     } finally { setBusy(false); }
   }
 
@@ -272,7 +289,16 @@ export function IdentityBetaApp() {
             <small>{connected ? (correctChain ? 'Correct network · Ready for identity signing' : 'Wrong network · Switch manually in wallet') : 'Choose your browser wallet to get started.'}</small>
           </div>
           {!connected
-            ? <ActionButton disabled={busy} onClick={()=>void connect()}><Wallet size={16}/> Connect Wallet <ArrowRight size={16}/></ActionButton>
+            ? (walletChoices.length > 0
+              ? <div>
+                  <p className="vi-caption">Select your intended wallet extension. Names are extension-provided; verify the account and signature inside your wallet.</p>
+                  {walletChoices.map(choice => <ActionButton key={choice.id} disabled={busy} onClick={() => void connect(choice.provider)}>
+                    <Wallet size={16}/> {choice.name} <ArrowRight size={16}/>
+                  </ActionButton>)}
+                </div>
+              : <ActionButton disabled={busy} onClick={()=>void connect()}>
+                  <Wallet size={16}/> Connect browser wallet <ArrowRight size={16}/>
+                </ActionButton>)
             : <ActionButton secondary disabled={busy} onClick={disconnect}><LogOut size={16}/> Disconnect</ActionButton>}
           <p className="vi-footnote"><LockKeyhole size={15}/> Connecting is read-only. Identity signatures are requested only after you explicitly click Register or Sign In.</p>
         </section>
