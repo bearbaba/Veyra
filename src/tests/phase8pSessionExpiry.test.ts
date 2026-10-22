@@ -5,9 +5,9 @@ import {
 
 afterEach(() => vi.unstubAllGlobals());
 function mockReply(status: number, body: Record<string, unknown>) {
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), {
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify(body), {
     status, headers: { 'Content-Type': 'application/json' },
-  })));
+  }))));
 }
 describe('Phase 8P — identity 401 cannot leave a stale signed session', () => {
   it('uses a typed auth failure for bearer-protected requests', async () => {
