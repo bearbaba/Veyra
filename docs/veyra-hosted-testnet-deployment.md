@@ -1,8 +1,13 @@
 # Hosted Veyra Testnet backend (Phase 5) — controlled activation
 
-**Current state: configuration and CI candidate only. No Render resources,
-PostgreSQL instances or real-wallet transactions have been created by adding
-this file. Public traffic must stay disconnected until live acceptance passes.**
+**Operational update (22 October 2026):** the deployment instructions
+below were written *before* a dedicated free experimental acceptance pilot
+was provisioned. A distinct Render Testnet BFF and private Free PostgreSQL now
+exist for the Identity & Friends Beta. This historical Blueprint recipe still
+describes a **separate, production-shaped paid infrastructure option**, not
+the actual Free pilot. Do not create a duplicate stack without approval and
+do not mistake the pilot for financial E2E or Mainnet readiness. See
+[actual deployment status](veyra-release-status.md).
 
 This runbook prepares an independently hosted Express BFF and private Postgres
 for the existing *testnet* Vercel frontend; it does not authorize mainnet.
