@@ -324,7 +324,7 @@ export function IdentityBetaApp() {
             <ActionButton disabled={busy || !correctChain} onClick={beginXLink}>
               <AtSign size={16}/> Link X to this Veyra ID
             </ActionButton>
-            {xAuthorization?.owner === session.profile.veyraUserId && xAuthorization.expiresAt > Date.now() &&
+            {xAuthorization?.owner === session.profile.veyraUserId &&
               <p className="vi-caption">
                 <a href={xAuthorization.url} target="_blank" rel="noopener noreferrer">
                   Continue to official X authorization <ExternalLink size={14}/>
