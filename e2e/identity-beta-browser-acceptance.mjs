@@ -74,13 +74,23 @@ try {
   await page.getByRole('button', {name:/Connect Wallet/i}).click();
   await page.getByText('Correct network · Ready for identity signing').waitFor();
   assert.match(await page.locator('.vi-network strong').innerText(), /^0x1111.*1111$/i);
+  await page.getByRole('button', {name: 'Continue with wallet'}).waitFor();
+  assert.equal(await page.getByText('CREATE YOUR VEYRA ID').count(), 0,
+    'existing wallet login must be the only first-run action');
+  await page.getByRole('button', {name: 'New to Veyra? Create an ID'}).click();
   await page.getByText('CREATE YOUR VEYRA ID').waitFor();
-  assert.equal(await page.getByRole('button', {name: /Register Veyra ID/i}).count(), 0);
+  await page.getByRole('button', {name: 'Already registered? Continue with wallet'}).click();
+  await page.getByRole('button', {name: 'Continue with wallet'}).waitFor();
+  assert.equal(await page.getByText('CREATE YOUR VEYRA ID').count(), 0,
+    'registration fields must hide after returning to sign-in');
   await page.getByRole('button', {name:/Disconnect/}).click();
   await page.getByRole('button', {name:/Other wallets/}).click();
   await page.getByRole('button', {name:/Rabby/}).click();
   await page.getByText('Correct network · Ready for identity signing').waitFor();
   assert.match(await page.locator('.vi-network strong').innerText(), /^0x2222.*2222$/i);
+  await page.getByRole('button', {name: 'Continue with wallet'}).waitFor();
+  assert.equal(await page.getByText('CREATE YOUR VEYRA ID').count(), 0,
+    'switching wallet must reset register-only UI');
 
   await page.setViewportSize({ width: 390, height: 844 });
   const horizontalOverflow = await page.evaluate(() =>
