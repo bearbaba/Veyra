@@ -3,7 +3,7 @@ import {ConnectKitButton} from 'connectkit';
 import {Bell,Users,MessageCircle,ShieldCheck,RefreshCw} from 'lucide-react';
 import {friendLabel,useUnifiedSocial} from '../../features/social/UnifiedSocial';
 
-export function SocialPage(){
+export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
   const social=useUnifiedSocial();
   const [create,setCreate]=useState(false),[handle,setHandle]=useState(''),[friend,setFriend]=useState('');
   return <div className="mx-auto max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
@@ -47,6 +47,8 @@ export function SocialPage(){
               <div className="flex gap-2">{item.state==='INCOMING_PENDING'&&<>
                 <button type="button" disabled={social.busy} onClick={()=>void social.respond(item.veyraUserId,'ACCEPT')} className="rounded-lg border px-2 py-1 text-xs" style={{borderColor:'var(--success)'}}>Accept</button>
                 <button type="button" disabled={social.busy} onClick={()=>void social.respond(item.veyraUserId,'REJECT')} className="rounded-lg border px-2 py-1 text-xs" style={{borderColor:'var(--border)'}}>Decline</button></>}
+                {item.state==='CONNECTED'&&item.veyraHandle&&<button type="button" disabled={social.busy} onClick={()=>onPayFriend(friendLabel(item))}
+                  className="rounded-lg border px-2 py-1 text-xs font-semibold" style={{borderColor:'var(--accent)',color:'var(--accent)'}}>Pay</button>}
                 {item.state==='CONNECTED'&&<button type="button" disabled={social.busy} onClick={()=>void social.block(item.veyraUserId)} className="rounded-lg border px-2 py-1 text-xs" style={{borderColor:'var(--border)'}}>Block</button>}</div>
             </div>)}
         </section>

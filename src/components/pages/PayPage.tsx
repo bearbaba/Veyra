@@ -22,7 +22,7 @@ import type { IntentCandidate } from '@/core/intent/intentSchema';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
 
-export function PayPage() {
+export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipient?: string | null;onFriendRecipientUsed?: () => void} = {}) {
   const { address, isConnected } = useAccount();
 
   const [recipient, setRecipient] = useState('');
@@ -39,6 +39,15 @@ export function PayPage() {
   const amountNum = Number.parseFloat(amount);
   const amountValid = Number.isFinite(amountNum) && amountNum > 0;
   const canProceed = isConnected && recipientValid && amountValid && Boolean(address) && Boolean(usdc) && !resolving;
+
+  useEffect(() => {
+    if (!friendRecipient) return;
+    setRecipient(friendRecipient);
+    setPendingAction(null);
+    setPreparedRecipient(null);
+    setActionError(null);
+    onFriendRecipientUsed?.();
+  }, [friendRecipient, onFriendRecipientUsed]);
 
   useEffect(() => {
     const raw = sessionStorage.getItem('veyra:agent-intent');
