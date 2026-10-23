@@ -31,8 +31,8 @@ async function postJson<T>(path: string, body: Record<string, unknown>, explicit
   });
   // A protected or unconfigured route may return a Vercel HTML page.
   // Never leak SyntaxError: Unexpected token '<' into a user-facing action.
-  const mediaType = response.headers.get('content-type') ?? '';
-  if (!mediaType.toLowerCase().includes('application/json')) {
+  const mediaType = response.headers?.get?.('content-type') ?? '';
+  if (mediaType && !mediaType.toLowerCase().includes('application/json')) {
     throw new Error('This Veyra service is not available on this Testnet deployment.');
   }
   let payload: Record<string, unknown>;
