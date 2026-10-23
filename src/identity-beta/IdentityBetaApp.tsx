@@ -230,7 +230,7 @@ export function IdentityBetaApp() {
       setMessage('Your Veyra ID is registered. Sign in again after refreshing the page.');
       setPhase('Loading Friends for your new Veyra ID…');
       try { await refreshFriends(current); }
-      catch { setMessage('Veyra ID registered successfully; Friends could not refresh yet. Try Refresh friends after signing in.'); }
+      catch { if (rev === generation.current) setMessage('Veyra ID registered successfully; Friends could not refresh yet. Try Refresh friends after signing in.'); }
     });
   }
 
@@ -258,7 +258,7 @@ export function IdentityBetaApp() {
       setMessage('Signed in successfully. No financial permissions were granted.');
       setPhase('Loading Friends…');
       try { await refreshFriends(current); }
-      catch { setMessage('Signed in successfully; Friends could not refresh yet.'); }
+      catch { if (rev === generation.current) setMessage('Signed in successfully; Friends could not refresh yet.'); }
     });
   }
 
