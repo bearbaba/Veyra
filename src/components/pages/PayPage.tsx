@@ -19,6 +19,7 @@ import { BrandLogo } from '../brand/BrandLogo';
 import type { TransferAction } from '@/core/actions/actionSchema';
 import { preparePaymentRecipient, type PreparedRecipient } from '@/lib/api/identityApi';
 import type { IntentCandidate } from '@/core/intent/intentSchema';
+import {assertPreparedRecipientReview} from '@/core/execution/recipientReviewGuard';
 import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
@@ -99,7 +100,10 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
         : await preparePaymentRecipient(recipient, ARC_TESTNET_CHAIN_ID, sessionToken!);
       // Ignore a late backend response after switching wallet/session/friend.
       if (epoch !== prepareEpoch.current) return;
-      if (!isAddress(prepared.resolvedAddress)) throw new Error('Resolved recipient is not a valid EVM address');
+      assertPreparedRecipientReview({
+        prepared,originalRecipient:recipient,senderAddress:address,
+        expectedChainId:ARC_TESTNET_CHAIN_ID,
+      });
 
       const amountParsed = parseAmount(ARC_TESTNET_CHAIN_ID, amount);
       const action = createTransferAction({
@@ -170,7 +174,7 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
               <input
                 value={recipient}
                 onChange={(event) => setRecipient(event.target.value.trim())}
-                placeholder="@veyra, @xhandle, or 0x…"
+                placeholder="@friend.veyra or 0x…"
                 className="mt-3 w-full bg-transparent text-xl font-semibold outline-none"
                 style={{ color: recipient && !recipientValid ? 'var(--danger)' : 'var(--ink)' }}
                 autoComplete="off"
