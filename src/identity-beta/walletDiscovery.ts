@@ -31,6 +31,8 @@ export function announcedIdentityWallet(event: unknown): IdentityWallet | null {
 export function discoveredIdentityWallets(existing: IdentityWallet[], wallet: IdentityWallet): IdentityWallet[] {
   // A provider can be both legacy injected and EIP-6963 announced.
   // Upgrade it to explicit metadata, avoiding duplicate selection entries.
+  if (wallet.source === 'legacy' && existing.some(current =>
+    current.provider === wallet.provider && current.source === 'eip6963')) return existing;
   const others = existing.filter(current => current.provider !== wallet.provider);
   if (others.some(current => current.id === wallet.id)) return existing;
   return [...others, wallet].sort((a,b) =>
