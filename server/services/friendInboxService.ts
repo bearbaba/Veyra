@@ -13,6 +13,7 @@ export type FriendInboxState = 'CONNECTED' | 'INCOMING_PENDING' | 'OUTGOING_PEND
 
 export interface FriendInboxItem {
   veyraUserId: string;
+  veyraHandle: string | null;
   state: FriendInboxState;
   updatedAt: string;
 }
@@ -66,6 +67,7 @@ export async function listFriendInbox(
     )
     SELECT
       CASE WHEN c.user_a_id = ${ownerUserId} THEN c.user_b_id ELSE c.user_a_id END AS "veyraUserId",
+      CASE WHEN p.status = 'ACTIVE' AND p.deleted_at IS NULL THEN p.veyr_handle ELSE NULL END AS "veyraHandle",
       CASE
         WHEN c.status = 'CONNECTED' THEN 'CONNECTED'
         WHEN c.initiator_user_id = ${ownerUserId} THEN 'OUTGOING_PENDING'
@@ -73,6 +75,7 @@ export async function listFriendInbox(
       END AS "state",
       c.created_at AS "updatedAt"
     FROM current_connections c
+    LEFT JOIN veyra_users p ON p.veyr_user_id = CASE WHEN c.user_a_id = ${ownerUserId} THEN c.user_b_id ELSE c.user_a_id END
     WHERE c.status IN ('CONNECTED', 'PENDING_INITIATOR', 'PENDING_TARGET')
       AND NOT EXISTS (
         SELECT 1 FROM current_blocks b
@@ -91,12 +94,14 @@ export async function listFriendInbox(
 
   const rows = result.rows as Array<{
     veyraUserId: string;
+    veyraHandle: string | null;
     state: FriendInboxState;
     updatedAt: Date | string;
   }>;
   const hasMore = rows.length > limit;
   const items = rows.slice(0, limit).map(row => ({
     veyraUserId: row.veyraUserId,
+    veyraHandle: row.veyraHandle,
     state: row.state,
     updatedAt: new Date(row.updatedAt).toISOString(),
   }));

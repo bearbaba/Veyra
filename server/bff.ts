@@ -461,6 +461,12 @@ app.patch('/api/preferences/receive', IDENTITY_RATE, async (req: Request, res: R
   } catch (err) { identityError(res, err); }
 });
 
+// Safe anonymous capability gate; never serialize OAuth credentials.
+app.get('/api/identity/capabilities', IDENTITY_RATE, (_req: Request, res: Response): void => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ ok: true, xLinkAvailable: Boolean(process.env.X_CLIENT_ID && process.env.X_REDIRECT_URI && process.env.VEYRA_APP_ORIGIN) });
+});
+
 // ── GET /api/profile/me ─────────────────────────────────────────────────────
 app.get('/api/profile/me', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
   try {

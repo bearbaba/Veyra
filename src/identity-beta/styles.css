@@ -77,3 +77,18 @@
 .vi-fallback button{background:#b9f27c;color:#112117;border:0;border-radius:9px;padding:12px 21px;font-weight:700;margin:18px 0 10px}
 .vi-fallback small{display:block;color:#849a9a;line-height:1.5}
 .vi-fallback a{display:inline-block;color:#b9f27c;margin-top:12px;text-decoration:underline;text-underline-offset:3px}
+
+/* Unified public Veyra ID; internal reference is tucked into disclosure. */
+.vi-known{display:flex;flex-direction:column;gap:4px;margin:6px 0 15px;padding:17px;border:1px solid #345746;border-radius:12px;background:#16281f}
+.vi-known span{font-size:11px;color:#91a5a9}
+.vi-known strong{font-size:19px;color:#d9f9cc;overflow-wrap:anywhere}
+.vi-preview-id{font-size:12px;color:#b9d8bd;margin:-4px 0 14px}
+.vi-quiet{font-size:12px;color:#91a5a9;line-height:1.6;margin:9px 0 13px}
+.vi-id-row strong{font-size:15px;overflow-wrap:anywhere;color:#e1fad2;font-weight:700}
+.vi-advanced{margin:-4px 0 14px;font-size:11px;color:#83999b}
+.vi-advanced summary{cursor:pointer;width:max-content;max-width:100%;padding:5px 0}
+.vi-advanced code{display:block;margin:3px 0;overflow-wrap:anywhere}
+.vi-x-authorize{display:inline-flex;gap:6px;align-items:center;margin:0 0 12px;color:#b9f27c;font-size:12px;text-decoration:underline}
+.vi-unblock-toggle{margin:10px 0 0}
+.vi-card>.vi-text-link:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:600px){.vi-inline{flex-wrap:wrap}.vi-inline .vi-button{width:100%}.vi-x-inline{flex-wrap:wrap}.vi-x-inline strong{margin-left:auto}}

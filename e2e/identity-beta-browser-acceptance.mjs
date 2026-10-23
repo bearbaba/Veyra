@@ -66,13 +66,16 @@ try {
   assert.equal(await page.getByRole('group', {name: 'Available wallet extensions'}).count(), 0,
     'wallet choice must not be shown before Connect');
   assert.equal(await page.getByRole('button', {name:/Link X/}).count(), 0,
-    'unconfigured X OAuth must not present a broken action');
+    'linking X is only available inside a signed-in profile');
+  assert.equal(await page.getByText('CREATE YOUR VEYRA ID').count(), 0, 'register must be hidden before wallet connect');
 
   // A uniquely announced MetaMask connects directly, even when a competing
   // legacy window.ethereum points at Rabby.
   await page.getByRole('button', {name:/Connect Wallet/i}).click();
   await page.getByText('Correct network · Ready for identity signing').waitFor();
   assert.match(await page.locator('.vi-network strong').innerText(), /^0x1111.*1111$/i);
+  await page.getByText('CREATE YOUR VEYRA ID').waitFor();
+  assert.equal(await page.getByRole('button', {name: /Register Veyra ID/i}).count(), 0);
   await page.getByRole('button', {name:/Disconnect/}).click();
   await page.getByRole('button', {name:/Other wallets/}).click();
   await page.getByRole('button', {name:/Rabby/}).click();
