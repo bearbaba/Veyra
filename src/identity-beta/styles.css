@@ -15,3 +15,56 @@
 .vi-wait-stop:hover{background:#28382d}
 .vi-wait-stop:focus-visible{outline:2px solid #b9f27c;outline-offset:3px}
 @media(max-width:560px){.vi-wait-panel{align-items:stretch;flex-direction:column}.vi-wait-stop{width:100%}}
+
+/* Phase 8Q — quiet product layout. One primary task, no mandatory pre-connect form. */
+.vi-root{background:radial-gradient(ellipse 700px 320px at 60% -185px,#19362c 0,transparent 87%),#0b1015}
+.vi-header{height:65px;border-color:#223037}
+.vi-header-pill{letter-spacing:.6px}
+.vi-container{max-width:1010px;padding:33px 24px 52px}
+.vi-intro{max-width:900px}
+.vi-eyebrow{letter-spacing:1.1px;font-size:10px}
+.vi-intro h1{font-size:clamp(30px,4.6vw,46px);letter-spacing:-1.8px;line-height:1.16;margin:12px 0 8px}
+.vi-intro p{font-size:14px;line-height:1.5;margin:0;color:#96a7ad}
+.vi-grid{margin-top:25px;gap:14px}
+.vi-card{padding:22px;background:#121b22;border:1px solid #2a373c;border-radius:16px;box-shadow:none}
+.vi-card-heading{gap:11px;margin-bottom:16px}
+.vi-icon{width:37px;height:37px;border-radius:11px;background:#1b3128;border-color:#345040}
+.vi-card-heading h2{font-size:18px;letter-spacing:-.3px}
+.vi-card-heading p{margin-top:1px;font-size:11px}
+.vi-network{min-height:unset;padding:13px 15px;margin-bottom:12px;background:#162129}
+.vi-network strong{font-size:20px;margin:3px 0}
+.vi-network small{font-size:11px}
+.vi-button{min-height:43px;font-size:13px;border-radius:10px}
+.vi-field{margin-bottom:12px}
+.vi-or{text-align:left;text-transform:none;font-size:11px;font-weight:500;letter-spacing:0;margin:12px 0 9px;color:#829ba1}
+.vi-footnote{margin-top:12px;color:#87999d;font-size:11px;line-height:1.4}
+.vi-profile{padding:2px 0 13px}
+.vi-profile strong{font-size:19px}
+.vi-avatar{height:44px;width:44px;border-radius:12px}
+.vi-id-row{padding:10px 12px;margin-bottom:12px;background:#14231f}
+.vi-id-row code{font-size:11px}
+.vi-x-inline{display:flex;align-items:center;gap:9px;border-top:1px solid #2a373c;border-bottom:1px solid #2a373c;margin-bottom:13px;padding:10px 2px;color:#a2b6b6;font-size:12px}
+.vi-x-inline svg{color:#a6c4aa;flex-shrink:0}
+.vi-x-inline strong{margin-left:auto;font-size:12px;color:#a2b2b5;font-weight:500;text-align:right}
+.vi-x-inline button{border:1px solid #466252;background:none;color:#c8efcd;padding:6px 9px;border-radius:8px;font:inherit}
+.vi-wallet-choices{margin-top:13px;border:1px solid #375146;border-radius:11px;padding:10px;background:#17231e}
+.vi-wallet-choices-top{display:flex;justify-content:space-between;align-items:center;margin:0 0 5px;color:#a6b8b2;font-weight:650;font-size:12px}
+.vi-wallet-choices-top button,.vi-text-link{background:transparent;border:none;color:#a9d993;padding:5px 3px;font-size:12px;cursor:pointer}
+.vi-wallet-choices>button{width:100%;display:flex;align-items:center;justify-content:space-between;color:#e8f0ed;border:1px solid #334c41;background:#1b2d25;border-radius:9px;padding:11px;margin-top:7px;text-align:left}
+.vi-wallet-choices>button:hover{border-color:#a9e27e}
+.vi-card>.vi-text-link{display:block;text-align:center;width:100%;margin-top:7px}
+.vi-friends{margin-top:14px}
+.vi-friends .vi-card-heading{margin-bottom:12px}
+.vi-friends-meta,.vi-friends-locked{color:#97aaab;font-size:12px;margin:1px 0 13px}
+.vi-friends-locked{background:#142027;border-radius:9px;padding:14px 16px}
+.vi-empty{padding:20px}
+.vi-small-empty{padding:14px}
+.vi-unblock{margin-top:14px}
+.vi-caption{font-size:11px}
+.vi-footer{margin-top:20px}
+@media(max-width:760px){
+  .vi-container{padding:24px 16px 40px}
+  .vi-intro h1{font-size:clamp(29px,6vw,38px)}
+  .vi-card{padding:18px}
+  .vi-grid{margin-top:20px}
+}
