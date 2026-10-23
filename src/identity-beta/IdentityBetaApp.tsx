@@ -84,11 +84,14 @@ export function IdentityBetaApp() {
   }, []);
 
   useEffect(() => {
+    // Anonymous visits and wallet-connect clicks never trigger identity API calls.
+    // Only a verified, signed-in session may discover whether X linking is ready.
+    if (!session) { setXLinkAvailable(false); return; }
     let active = true;
     void readIdentityCapabilities().then(result => { if (active) setXLinkAvailable(result.xLinkAvailable); })
       .catch(() => { if (active) setXLinkAvailable(false); });
     return () => { active = false; };
-  }, []);
+  }, [session?.profile.veyraUserId]);
 
   useEffect(() => {
     if (!provider) return;
