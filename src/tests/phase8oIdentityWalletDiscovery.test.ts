@@ -4,8 +4,8 @@ import {
 } from '../identity-beta/walletDiscovery';
 import type { BrowserProvider } from '../identity-beta/protocol';
 
-const walletA: BrowserProvider = { async request() { return ['0x1111111111111111111111111111111111111111']; } };
-const walletB: BrowserProvider = { async request() { return ['0x2222222222222222222222222222222222222222']; } };
+const walletA: BrowserProvider = { request() { return Promise.resolve(['0x1111111111111111111111111111111111111111']); } };
+const walletB: BrowserProvider = { request() { return Promise.resolve(['0x2222222222222222222222222222222222222222']); } };
 function announcement(name: string, uuid: string, provider: BrowserProvider) {
   return { detail: { info: { name, uuid, rdns: 'io.metamask' }, provider } };
 }
