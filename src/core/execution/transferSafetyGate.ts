@@ -14,6 +14,11 @@ export const REVIEWED_TRANSFER_ABI=[{
   outputs:[{name:'',type:'bool'}],
 }] as const;
 
+/** ERC-20 calls may complete successfully while returning false. Treat those as
+ * failed simulations, never as permission to ask the wallet for funds. */
+export function assertSuccessfulTransferSimulation(result:unknown):void {
+  if(result!==true)throw Error('USDC transfer simulation did not return success.');
+}
 export interface TransferSafetyDecision {
   policy:PolicyEvaluationResult;
   risk:RiskScoringResult;

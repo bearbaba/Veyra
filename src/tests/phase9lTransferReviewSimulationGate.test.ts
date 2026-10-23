@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {readFileSync} from 'node:fs';
-import {evaluateTransferSafety,assertTransferSafety,REVIEWED_TRANSFER_ABI} from '../core/execution/transferSafetyGate';
+import {evaluateTransferSafety,assertTransferSafety,REVIEWED_TRANSFER_ABI,assertSuccessfulTransferSimulation} from '../core/execution/transferSafetyGate';
 import type {TransferAction} from '../core/actions/actionSchema';
 import {MANIFEST_CONSTANTS} from '../providers/registry/providerManifest';
 const read=(p:string)=>readFileSync(new URL('../'+p,import.meta.url),'utf8');
@@ -16,6 +16,11 @@ function action(amt=1_000_000n):TransferAction {
  };
 }
 describe('Transfer must pass real simulation and deterministic policy/risk',()=>{
+ it('rejects ERC-20 false or undefined simulation output, even with successful RPC',()=>{
+   expect(()=>assertSuccessfulTransferSimulation(false)).toThrow('did not return success');
+   expect(()=>assertSuccessfulTransferSimulation(undefined)).toThrow('did not return success');
+   expect(()=>assertSuccessfulTransferSimulation(true)).not.toThrow();
+ });
  it('cannot sign on missing simulation',()=>{
    const d=evaluateTransferSafety(action(),false);
    expect(d.policy.blockedBy).toContain('SIMULATION_REQUIRED');

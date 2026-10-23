@@ -4,7 +4,7 @@ import type { VeyraAction } from '@/core/actions/actionSchema';
 import type { PolicyEvaluationResult } from '@/core/policy/policyTypes';
 import type { RiskScoringResult } from '@/core/risk/riskTypes';
 import { MANIFEST_CONSTANTS } from '@/providers/registry/providerManifest';
-import { evaluateTransferSafety, REVIEWED_TRANSFER_ABI } from '@/core/execution/transferSafetyGate';
+import { evaluateTransferSafety, REVIEWED_TRANSFER_ABI, assertSuccessfulTransferSimulation } from '@/core/execution/transferSafetyGate';
 
 export interface PipelineEvaluation {
   policy: PolicyEvaluationResult | null;
@@ -31,12 +31,13 @@ export function usePipelineEvaluation(action: VeyraAction | null): PipelineEvalu
       try{
         if(action.actionType!=='TRANSFER'||action.chainId!==MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID||!client)
           throw Error('Transfer review requires an Arc Testnet RPC simulator.');
-        await client.simulateContract({
+        const simulation=await client.simulateContract({
           address:action.tokenAddress as `0x${string}`,
           abi:REVIEWED_TRANSFER_ABI,functionName:'transfer',
           args:[action.to as `0x${string}`,action.amount],
           account:action.from as `0x${string}`,
         });
+        assertSuccessfulTransferSimulation(simulation.result);
         if(cancelled)return;
         const result=evaluateTransferSafety(action,true);
         setRisk(result.risk);setPolicy(result.policy);

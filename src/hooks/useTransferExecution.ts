@@ -36,7 +36,7 @@ import {
   reserveActionExecution,
 } from '@/core/execution/actionExecutionReplayStore';
 import { MANIFEST_CONSTANTS } from '@/providers/registry/providerManifest';
-import {evaluateTransferSafety,assertTransferSafety,REVIEWED_TRANSFER_ABI} from '@/core/execution/transferSafetyGate';
+import {evaluateTransferSafety,assertTransferSafety,REVIEWED_TRANSFER_ABI,assertSuccessfulTransferSimulation} from '@/core/execution/transferSafetyGate';
 
 export type TransferStep =
   | 'IDLE'
@@ -156,13 +156,14 @@ export function useTransferExecution() {
         action,providerId:'arc-erc20-transfer',providerCapability:'TRANSFER',
         assetAddress:action.tokenAddress,runtimeEnvironment:VEYRA_ENV,
       });
-      await publicClient.simulateContract({
+      const simulation=await publicClient.simulateContract({
         address:action.tokenAddress as `0x${string}`,
         abi:REVIEWED_TRANSFER_ABI,
         functionName:'transfer',
         args:[action.to as `0x${string}`,action.amount],
         account:action.from as `0x${string}`,
       });
+      assertSuccessfulTransferSimulation(simulation.result);
       assertTransferSafety(evaluateTransferSafety(action,true),confirmedAtReview);
 
       // Snapshot authoritative recipient balance before signing. A successful
