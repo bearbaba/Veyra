@@ -1,5 +1,6 @@
+import {readFileSync} from 'node:fs';
 import {describe,expect,it} from 'vitest';
-import {resolveTrustedLoginOrigin, WalletLoginError} from '../../server/services/walletLoginService';
+import {resolveTrustedLoginOrigin} from '../../server/services/walletLoginService';
 const primary='https://veyra-identity-friends-beta.vercel.app';
 const secondary='https://veyra-unified-testnet.vercel.app';
 const env={
@@ -33,7 +34,7 @@ describe('multi-site EIP-712 login origin pinned to exact hosted Testnet apps',(
    expect(()=>resolveTrustedLoginOrigin(secondary,undefined,{...env,VEYRA_TESTNET_ADDITIONAL_ORIGIN:undefined})).toThrow('LOGIN_ORIGIN_NOT_ALLOWED');
  });
  it('retains an origin-bound pending login across challenge completion, never rebinds signatures',()=>{
-   const source=readSource();
+   const source=readFileSync(new URL('../../server/services/walletLoginService.ts',import.meta.url),'utf8');
    expect(source).toContain('app_origin, issued_at, expires_at');
    expect(source).toContain('record.appOrigin !== origin');
    expect(source).toContain('origin,');
@@ -41,11 +42,4 @@ describe('multi-site EIP-712 login origin pinned to exact hosted Testnet apps',(
    expect(source).toContain("status = 'CONSUMED'");
  });
 });
-function readSource():string {
-  const fs=requireRead();
-  return fs;
-}
-import {readFileSync} from 'node:fs';
-function requireRead():string{
- return readFileSync(new URL('../../server/services/walletLoginService.ts',import.meta.url),'utf8');
-}
+
