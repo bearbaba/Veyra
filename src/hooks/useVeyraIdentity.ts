@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { getMyProfile, type MyProfile } from '@/lib/api/identityApi';
+import type { MyProfile } from '@/lib/api/identityApi';
+import { useUnifiedSocial } from '../features/social/UnifiedSocial';
 
 const PREVIEW_KEY = 'veyra:preview-identity';
 
@@ -8,25 +8,6 @@ export interface VeyraIdentityState {
   preview: boolean;
   loading: boolean;
   refresh: () => Promise<void>;
-}
-
-function readPreview(): MyProfile | null {
-  try {
-    const raw = localStorage.getItem(PREVIEW_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<MyProfile>;
-    if (typeof parsed.veyraHandle !== 'string' || !parsed.veyraHandle) return null;
-    return {
-      veyraUserId: typeof parsed.veyraUserId === 'string' ? parsed.veyraUserId : `preview_${parsed.veyraHandle}`,
-      veyraHandle: parsed.veyraHandle,
-      displayName: typeof parsed.displayName === 'string' && parsed.displayName ? parsed.displayName : parsed.veyraHandle,
-      x: parsed.x && typeof parsed.x.xAccountId === 'string'
-        ? { xAccountId: parsed.x.xAccountId, xHandle: parsed.x.xHandle ?? null }
-        : null,
-    };
-  } catch {
-    return null;
-  }
 }
 
 export function savePreviewVeyraIdentity(handle: string): MyProfile {
@@ -46,29 +27,17 @@ export function clearPreviewVeyraIdentity(): void {
 }
 
 export function useVeyraIdentity(): VeyraIdentityState {
-  const [profile, setProfile] = useState<MyProfile | null>(null);
-  const [preview, setPreview] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const next = await getMyProfile();
-      setProfile(next);
-      setPreview(false);
-      clearPreviewVeyraIdentity();
-    } catch {
-      const local = readPreview();
-      setProfile(local);
-      setPreview(Boolean(local));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  return { profile, preview, loading, refresh };
+  const social = useUnifiedSocial();
+  // Settings always reflects the connected, SIGNED wallet identity.
+  // A local preview handle cannot pose as a live canonical ID.
+  const verified = social.session?.profile;
+  const profile: MyProfile | null = verified
+    ? {
+        veyraUserId: verified.veyraUserId,
+        veyraHandle: verified.veyraHandle,
+        displayName: verified.displayName,
+        x: verified.x ?? null,
+      }
+    : null;
+  return { profile, preview: false, loading: social.busy, refresh: social.refresh };
 }

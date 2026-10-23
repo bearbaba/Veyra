@@ -1,10 +1,10 @@
 import type { PreflightResult } from '../../providers/bridge/bridgeProviderTypes';
+import {activeSignedIdentityToken} from './liveIdentitySession';
 
 const DEV_USER_ID = import.meta.env.VITE_DEV_VEYRA_USER_ID as string | undefined;
 
 function authHeaders(): Record<string, string> {
-  if (typeof sessionStorage === 'undefined') return {};
-  const token = sessionStorage.getItem('veyra:session-token');
+  const token = activeSignedIdentityToken();
   if (token) return { Authorization: `Bearer ${token}` };
   if (import.meta.env.DEV && DEV_USER_ID) {
     return { 'X-Veyra-User-Id': DEV_USER_ID };

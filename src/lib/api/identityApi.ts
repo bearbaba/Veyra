@@ -1,3 +1,5 @@
+import {activeSignedIdentityToken} from './liveIdentitySession';
+
 const DEV_USER_ID = import.meta.env.VITE_DEV_VEYRA_USER_ID as string | undefined;
 
 /**
@@ -15,7 +17,7 @@ export function requireSignedIdentityToken(value: unknown): string {
 
 function authHeaders(explicitToken?: string): Record<string, string> {
   if (explicitToken !== undefined) return { Authorization: `Bearer ${requireSignedIdentityToken(explicitToken)}` };
-  const token = sessionStorage.getItem('veyra:session-token');
+  const token = activeSignedIdentityToken();
   if (token) return { Authorization: `Bearer ${token}` };
   if (import.meta.env.DEV && DEV_USER_ID) return { 'X-Veyra-User-Id': DEV_USER_ID };
   return {};
@@ -132,6 +134,6 @@ export async function completeVeyraIdRegistration(input: {
   signature: `0x${string}`;
 }): Promise<{ profile: MyProfile; sessionToken: string }> {
   const result = await postJson<{ ok: true; profile: MyProfile; sessionToken: string }>('/api/identity/register/complete', input);
-  sessionStorage.setItem('veyra:session-token', result.sessionToken);
+  // The signed Social provider alone may activate a wallet-bound session.
   return { profile: result.profile, sessionToken: result.sessionToken };
 }
