@@ -34,7 +34,13 @@ describe('Core Four App Kit release discipline — Pay, Unified, Bridge, Swap', 
   it('retains Testnet as the public Vercel finance build without Mainnet or Earn flags', () => {
     const vercel = JSON.parse(read('vercel.json')) as { buildCommand?: string };
     expect(vercel.buildCommand).toContain('VITE_VEYRA_ENV=testnet');
-    expect(vercel.buildCommand).toContain('VITE_VEYRA_UI_ONLY=1');
+    if (vercel.buildCommand?.includes('VITE_VEYRA_IDENTITY_BETA=1')) {
+      // This is the *separate* Identity Beta Vercel project, not the financial
+      // preview. Its build must exclude every financial activation flag.
+      expect(vercel.buildCommand).toBe('VITE_VEYRA_ENV=testnet VITE_VEYRA_IDENTITY_BETA=1 bun run build');
+    } else {
+      expect(vercel.buildCommand).toContain('VITE_VEYRA_UI_ONLY=1');
+    }
     expect(vercel.buildCommand).not.toMatch(/MAINNET_PAY=1|EARN=1|SWAP=1|BRIDGE=1/);
   });
 });
