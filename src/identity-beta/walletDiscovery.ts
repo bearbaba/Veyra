@@ -48,3 +48,19 @@ export function walletToConnect(wallets: IdentityWallet[], selectedId: string): 
     ? 'Select the exact wallet extension (MetaMask, Rabby, etc.) before connecting. Never use an ambiguous injected wallet.'
     : 'No browser wallet was detected. Enable your wallet extension, then refresh this page.');
 }
+
+/**
+ * One-click UX without provider confusion.
+ * Prefer a uniquely announced MetaMask (a product choice, not a trusted
+ * attestation). All subsequent account, chain and signer checks still use
+ * that exact provider and fail closed.
+ * When ambiguous, connect presents choices only after the initial click.
+ */
+export function quickConnectWallet(wallets: IdentityWallet[]): IdentityWallet | null {
+  if (wallets.length === 1) return wallets[0];
+  const announced = wallets.filter(wallet => wallet.source === 'eip6963');
+  const metaMask = announced.filter(wallet => wallet.name.trim().toLowerCase() === 'metamask');
+  if (metaMask.length === 1) return metaMask[0];
+  if (announced.length === 1) return announced[0];
+  return null;
+}
