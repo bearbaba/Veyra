@@ -32,15 +32,48 @@ export class WalletLoginError extends Error {
   }
 }
 
-function appOrigin() {
-  if (process.env.VEYRA_ENV !== 'testnet') {
-    throw new WalletLoginError('TESTNET_ONLY', 403);
-  }
-  const origin = process.env.VEYRA_APP_ORIGIN;
-  if (!origin || !origin.startsWith('https://') || new URL(origin).origin !== origin) {
+/**
+ * Origin-bound EIP-712 login for the ORIGINAL Identity Beta and precisely one
+ * additional protected unified Testnet app. Mainnet is explicitly excluded.
+ *
+ * The browser supplies its *actual* location origin on challenge + completion;
+ * whenever HTTP Origin survives the proxy, it must agree. An originless
+ * server-to-server caller still needs the physical wallet's valid EIP-712
+ * signature to obtain a session. Neither wildcard nor arbitrary origin is
+ * accepted. Previously issued primary-origin challenges remain valid.
+ */
+export function resolveTrustedLoginOrigin(
+  requestedOrigin?: unknown,
+  observedOrigin?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (env.VEYRA_ENV !== 'testnet') throw new WalletLoginError('TESTNET_ONLY', 403);
+  const primary = env.VEYRA_APP_ORIGIN;
+  if (!primary || !/^https:\/\/[a-z0-9.-]+(?::[0-9]{2,5})?$/i.test(primary) ||
+      new URL(primary).origin !== primary) {
     throw new WalletLoginError('LOGIN_NOT_CONFIGURED', 503);
   }
-  return origin;
+  const secondary = env.VEYRA_TESTNET_ADDITIONAL_ORIGIN;
+  const candidates = new Set([primary]);
+  if (secondary) {
+    if (!/^https:\/\/[a-z0-9.-]+(?::[0-9]{2,5})?$/i.test(secondary) ||
+        new URL(secondary).origin !== secondary || secondary === primary) {
+      throw new WalletLoginError('LOGIN_NOT_CONFIGURED', 503);
+    }
+    candidates.add(secondary);
+  }
+  if (requestedOrigin !== undefined &&
+      (typeof requestedOrigin !== 'string' || !candidates.has(requestedOrigin))) {
+    throw new WalletLoginError('LOGIN_ORIGIN_NOT_ALLOWED', 403);
+  }
+  const selected = requestedOrigin === undefined ? (observedOrigin ?? primary) : requestedOrigin;
+  if (typeof selected !== 'string' || !candidates.has(selected)) {
+    throw new WalletLoginError('LOGIN_ORIGIN_NOT_ALLOWED', 403);
+  }
+  if (observedOrigin && observedOrigin !== selected) {
+    throw new WalletLoginError('LOGIN_ORIGIN_MISMATCH', 403);
+  }
+  return selected;
 }
 
 function validateAddress(input: string): Address {
@@ -74,8 +107,11 @@ function loginTypedData(input: {
   };
 }
 
-export async function beginWalletLogin(db: DbClient, walletAddressInput: string, chainId: number) {
-  const origin = appOrigin();
+export async function beginWalletLogin(
+  db: DbClient, walletAddressInput: string, chainId: number,
+  requestedOrigin?: unknown, observedOrigin?: string,
+) {
+  const origin = resolveTrustedLoginOrigin(requestedOrigin, observedOrigin);
   if (chainId !== ARC_TESTNET_LOGIN_CHAIN) {
     throw new WalletLoginError('UNSUPPORTED_TESTNET_CHAIN', 400);
   }
@@ -137,8 +173,10 @@ export async function completeWalletLogin(
   db: DbClient,
   challengeId: string,
   signature: string,
+  requestedOrigin?: unknown,
+  observedOrigin?: string,
 ): Promise<{ sessionToken: string; veyraUserId: string }> {
-  const origin = appOrigin();
+  const origin = resolveTrustedLoginOrigin(requestedOrigin, observedOrigin);
   if (!/^lgn_[0-9a-f]{32}$/.test(challengeId) || !/^0x[0-9a-fA-F]{130}$/.test(signature)) {
     throw new WalletLoginError('INVALID_LOGIN_PROOF', 400);
   }

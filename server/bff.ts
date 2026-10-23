@@ -245,7 +245,7 @@ app.post('/api/auth/wallet-login/challenge', IDENTITY_RATE, async (req: Request,
     const address = typeof body.walletAddress === 'string' ? body.walletAddress : '';
     const chainId = typeof body.chainId === 'number' ? body.chainId : Number.NaN;
     const { db } = await import('./db/client.js');
-    const challenge = await beginWalletLogin(db, address, chainId);
+    const challenge = await beginWalletLogin(db, address, chainId, body.appOrigin, req.header('origin'));
     res.setHeader('Cache-Control', 'no-store');
     res.status(201).json({ ok: true, challenge });
   } catch (err) { identityError(res, err); }
@@ -257,7 +257,7 @@ app.post('/api/auth/wallet-login/complete', IDENTITY_RATE, async (req: Request, 
     const challengeId = typeof body.challengeId === 'string' ? body.challengeId : '';
     const signature = typeof body.signature === 'string' ? body.signature : '';
     const { db } = await import('./db/client.js');
-    const login = await completeWalletLogin(db, challengeId, signature);
+    const login = await completeWalletLogin(db, challengeId, signature, body.appOrigin, req.header('origin'));
     res.setHeader('Cache-Control', 'no-store');
     res.json({ ok: true, ...login });
   } catch (err) { identityError(res, err); }
