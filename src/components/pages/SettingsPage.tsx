@@ -16,12 +16,10 @@ import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS } from '@/config/productRegistry';
 import { RuntimeStatusCard } from '../system/RuntimeStatusCard';
 import { BrandLogo } from '../brand/BrandLogo';
-import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 
 export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const { address, isConnected } = useAccount();
   const identity = useVeyraIdentity();
-  const social = useUnifiedSocial();
   const [copied, setCopied] = useState(false);
   const profile = identity.profile;
 
