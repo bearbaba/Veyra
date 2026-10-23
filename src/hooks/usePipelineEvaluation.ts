@@ -1,16 +1,10 @@
-/**
- * Veyra Pipeline Evaluation Hook
- *
- * Runs Policy + Risk evaluation deterministically against a VeyraAction.
- * Used by the Transaction Review Sheet before presenting the action to the user.
- */
-
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import {usePublicClient} from 'wagmi';
 import type { VeyraAction } from '@/core/actions/actionSchema';
-import { evaluatePolicy, DEFAULT_VEYRA_POLICY } from '@/core/policy/policyEngine';
-import { scoreAction, getProviderRiskProfile } from '@/core/risk/riskEngine';
 import type { PolicyEvaluationResult } from '@/core/policy/policyTypes';
 import type { RiskScoringResult } from '@/core/risk/riskTypes';
+import { MANIFEST_CONSTANTS } from '@/providers/registry/providerManifest';
+import { evaluateTransferSafety, REVIEWED_TRANSFER_ABI } from '@/core/execution/transferSafetyGate';
 
 export interface PipelineEvaluation {
   policy: PolicyEvaluationResult | null;
@@ -18,56 +12,41 @@ export interface PipelineEvaluation {
   loading: boolean;
   error: string | null;
 }
-
+/**
+ * Only a successful real Arc Testnet ERC-20 eth_call can mark a transfer
+ * simulated. A placeholder simulationCompleted flag is never accepted.
+ * Late results from a superseded action must not enable a stale review.
+ */
 export function usePipelineEvaluation(action: VeyraAction | null): PipelineEvaluation {
-  const [policy, setPolicy]   = useState<PolicyEvaluationResult | null>(null);
-  const [risk, setRisk]       = useState<RiskScoringResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
-
-  const evaluate = useCallback((a: VeyraAction) => {
-    setLoading(true);
-    setError(null);
-    setPolicy(null);
-    setRisk(null);
-
-    try {
-      // Known safe contracts on Arc Testnet
-      const knownContracts = [
-        '0x3600000000000000000000000000000000000000', // Arc Testnet USDC ERC-20
-      ];
-
-      const policyCtx = {
-        contractAddresses: knownContracts,
-        simulationCompleted: false,
-      };
-
-      const policyResult = evaluatePolicy(a, policyCtx, DEFAULT_VEYRA_POLICY);
-      setPolicy(policyResult);
-
-      const profile = getProviderRiskProfile('arc-erc20-transfer');
-      const riskResult = scoreAction({
-        providerProfiles: [profile],
-        chainId: a.chainId,
-        wasSimulated: false,
-      });
-      setRisk(riskResult);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Pipeline evaluation failed');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!action) {
-      setPolicy(null);
-      setRisk(null);
-      setError(null);
-      return;
-    }
-    evaluate(action);
-  }, [action, evaluate]);
-
-  return { policy, risk, loading, error };
+  const client=usePublicClient({chainId:MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID});
+  const [policy,setPolicy]=useState<PolicyEvaluationResult|null>(null);
+  const [risk,setRisk]=useState<RiskScoringResult|null>(null);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState<string|null>(null);
+  useEffect(()=>{
+    let cancelled=false;
+    setLoading(true);setPolicy(null);setRisk(null);setError(null);
+    if(!action){setLoading(false);return;}
+    void (async()=>{
+      try{
+        if(action.actionType!=='TRANSFER'||action.chainId!==MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID||!client)
+          throw Error('Transfer review requires an Arc Testnet RPC simulator.');
+        await client.simulateContract({
+          address:action.tokenAddress as `0x${string}`,
+          abi:REVIEWED_TRANSFER_ABI,functionName:'transfer',
+          args:[action.to as `0x${string}`,action.amount],
+          account:action.from as `0x${string}`,
+        });
+        if(cancelled)return;
+        const result=evaluateTransferSafety(action,true);
+        setRisk(result.risk);setPolicy(result.policy);
+      }catch(cause){
+        if(!cancelled)setError(cause instanceof Error
+          ? 'Transfer simulation failed: '+cause.message.slice(0,180)
+          : 'Transfer simulation failed. Signing is blocked.');
+      }finally{if(!cancelled)setLoading(false);}
+    })();
+    return()=>{cancelled=true;};
+  },[action,client]);
+  return {policy,risk,loading,error};
 }

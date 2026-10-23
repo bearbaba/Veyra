@@ -36,6 +36,7 @@ import {
   reserveActionExecution,
 } from '@/core/execution/actionExecutionReplayStore';
 import { MANIFEST_CONSTANTS } from '@/providers/registry/providerManifest';
+import {evaluateTransferSafety,assertTransferSafety,REVIEWED_TRANSFER_ABI} from '@/core/execution/transferSafetyGate';
 
 export type TransferStep =
   | 'IDLE'
@@ -90,7 +91,7 @@ export function useTransferExecution() {
   const { address, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
 
-  const execute = useCallback(async (action: TransferAction, recipientGuard?: { snapshotId: string; expectedWalletId: string; expectedWalletAddress: string; expectedChainId: number; reviewToken: string }, sessionToken?: string) => {
+  const execute = useCallback(async (action: TransferAction, recipientGuard?: { snapshotId: string; expectedWalletId: string; expectedWalletAddress: string; expectedChainId: number; reviewToken: string }, sessionToken?: string, confirmedAtReview = false) => {
     if (!publicClient) {
       setState((s) => ({ ...s, step: 'FAILED', error: 'No public client available' }));
       return;
@@ -147,6 +148,22 @@ export function useTransferExecution() {
       if (chainId !== action.chainId) {
         await switchChainAsync({ chainId: action.chainId });
       }
+
+      // Fail closed if action/provenance aged during recipient verification or
+      // wallet chain switching. Re-simulate the actual token transfer from the
+      // approved sender, and redo ALL deterministic policy/risk checks.
+      assertExecutionReady({
+        action,providerId:'arc-erc20-transfer',providerCapability:'TRANSFER',
+        assetAddress:action.tokenAddress,runtimeEnvironment:VEYRA_ENV,
+      });
+      await publicClient.simulateContract({
+        address:action.tokenAddress as `0x${string}`,
+        abi:REVIEWED_TRANSFER_ABI,
+        functionName:'transfer',
+        args:[action.to as `0x${string}`,action.amount],
+        account:action.from as `0x${string}`,
+      });
+      assertTransferSafety(evaluateTransferSafety(action,true),confirmedAtReview);
 
       // Snapshot authoritative recipient balance before signing. A successful
       // transaction receipt alone is not sufficient for a VERIFIED Veyra receipt.
