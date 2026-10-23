@@ -44,7 +44,7 @@ export function validateRepositoryTrust(evidence: TrustEvidence): string[] {
   // Marketing text must say what exists today, not what is planned.
   requireMatch('README.md', /The Intelligent Money Layer on Arc/,
     'README must retain the original Veyra financial application mission.');
-  requireMatch('README.md', /(?:Mainnet financial execution is not enabled|Mainnet financial execution disabled|not Mainnet money-movement ready)/i,
+  requireMatch('README.md', /Mainnet financial execution is not enabled/i,
     'README must disclose disabled Mainnet financial execution.');
   requireMatch('README.md', /isolated Identity Beta.*(?:unified|financial)/i,
     'README must distinguish the isolated working Identity Beta from unified Production.');
