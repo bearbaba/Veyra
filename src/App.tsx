@@ -27,6 +27,8 @@ export default function App() {
   function startFriendPayment(handle: string) {
     // A friendly label is only a suggestion. Pay resolves a fresh 30-second
     // verified recipient snapshot and requires normal wallet review/signing.
+    // A pending AI intent must never overwrite an explicitly chosen friend.
+    sessionStorage.removeItem('veyra:agent-intent');
     setFriendPayment(handle);
     setPage('pay');
   }
