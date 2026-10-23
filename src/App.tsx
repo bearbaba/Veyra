@@ -22,6 +22,14 @@ import { UnifiedSocialProvider } from './features/social/UnifiedSocial';
 
 export default function App() {
   const [page, setPage] = useState<VeyraPage>('home');
+  const [friendPayment, setFriendPayment] = useState<string | null>(null);
+
+  function startFriendPayment(handle: string) {
+    // A friendly label is only a suggestion. Pay resolves a fresh 30-second
+    // verified recipient snapshot and requires normal wallet review/signing.
+    setFriendPayment(handle);
+    setPage('pay');
+  }
 
   function renderPage() {
     switch (page) {
@@ -30,7 +38,7 @@ export default function App() {
       case 'agent':
         return <AgentPage onNavigate={setPage} />;
       case 'pay':
-        return IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage />;
+        return IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
       case 'convert':
         return IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="convert" /> : <ConvertPage />;
       case 'bridge':
@@ -40,7 +48,7 @@ export default function App() {
       case 'settings':
         return <SettingsPage />;
       case 'social':
-        return <SocialPage />;
+        return <SocialPage onPayFriend={startFriendPayment} />;
       default:
         return <HomePage onNavigate={setPage} />;
     }
