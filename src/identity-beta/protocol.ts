@@ -7,6 +7,21 @@ import { getAddress, recoverTypedDataAddress, zeroAddress, type Address, type He
 
 export const ARC_TESTNET_CHAIN_ID = 5042002;
 export const BFF_ORIGIN = 'https://veyra-testnet-acceptance-bff.onrender.com';
+
+/**
+ * EIP-712 v4 providers (including MetaMask) require EIP712Domain to be
+ * declared in the signature JSON. Viem reconstructs it from `domain`
+ * when recovering a signature; an omitted wallet-side type risks the wallet
+ * signing a different domain digest than our server verifies.
+ * These exact fields match our server canonical claimDomain and loginDomain.
+ */
+export const EIP712_DOMAIN_FIELDS = [
+  { name: 'name', type: 'string' },
+  { name: 'version', type: 'string' },
+  { name: 'chainId', type: 'uint256' },
+  { name: 'verifyingContract', type: 'address' },
+] as const;
+
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
@@ -69,6 +84,24 @@ function expectedTypes(value: unknown, fields: readonly string[]): void {
       throw new Error('Unrecognized wallet signature request.');
     }
   }
+}
+
+/**
+ * Make the MetaMask EIP-712 v4 signature payload explicit and deterministic.
+ * Never accept arbitrary server-specified EIP712Domain or extra typed structs.
+ */
+export function walletV4TypedData(checked: ObjectLike): ObjectLike {
+  const types = obj(checked.types);
+  const primary = checked.primaryType;
+  if (typeof primary !== 'string' || Object.keys(types).length !== 1 ||
+      !Object.prototype.hasOwnProperty.call(types, primary) ||
+      Object.prototype.hasOwnProperty.call(types, 'EIP712Domain')) {
+    throw new Error('Unexpected wallet signing types. Signature cancelled.');
+  }
+  return {
+    ...checked,
+    types: { EIP712Domain: EIP712_DOMAIN_FIELDS, ...types },
+  };
 }
 
 export function parseArcChainId(value: unknown): number | null {
@@ -278,6 +311,31 @@ export async function requireMatchingAccount(provider: BrowserProvider, address:
   }
 }
 
+/**
+ * Wallet extensions may leave an eth_signTypedData_v4 promise unresolved when
+ * their popup is behind Chrome or a request is queued. We cannot cancel a
+ * provider RPC. Expiring only Veyra's *wait* prevents a permanently frozen UI;
+ * a late signature is ignored and is NEVER forwarded automatically.
+ */
+export const WALLET_RESPONSE_TIMEOUT_MS = 90_000;
+export async function awaitWalletResponse<T>(
+  response: Promise<T>, timeoutMs = WALLET_RESPONSE_TIMEOUT_MS,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      response,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(
+          'No response from your wallet. Open MetaMask and reject any old pending signature before retrying. Veyra did not submit this claim.',
+        )), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 export async function signReviewedIdentity(
   provider: BrowserProvider,
   challenge: SignedChallenge,
@@ -287,10 +345,11 @@ export async function signReviewedIdentity(
 ): Promise<`0x${string}`> {
   await requireMatchingAccount(provider, address);
   const data = verifiedTypedData(challenge, mode, address, origin);
-  const result = await provider.request({
+  const walletData = walletV4TypedData(data);
+  const result = await awaitWalletResponse(provider.request({
     method: 'eth_signTypedData_v4',
-    params: [address, JSON.stringify(data)],
-  });
+    params: [address, JSON.stringify(walletData)],
+  }));
   if (typeof result !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(result)) {
     throw new Error('The wallet did not return a valid signature.');
   }

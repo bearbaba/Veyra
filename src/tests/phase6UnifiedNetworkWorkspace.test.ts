@@ -56,7 +56,12 @@ describe('Phase 6 unified Veyra network selector safety', () => {
       expect(code).not.toMatch(/eth_sendTransaction|wallet_addEthereumChain|privateKeyToAccount|signTypedData|depositForBurn|receiveMessage/);
       expect(code).not.toMatch(/from ['"][^'"]*(?:mainnet\/arcMainnetPay|server\/|core\/execution)/);
     }
-    expect(src('vercel.json')).toContain('VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1');
+    const hosting = src('vercel.json');
+    const expected = hosting.includes('VITE_VEYRA_IDENTITY_BETA=1')
+      ? 'VITE_VEYRA_ENV=testnet VITE_VEYRA_IDENTITY_BETA=1'
+      : 'VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1';
+    expect(hosting).toContain(expected);
+    expect(hosting).not.toContain('VITE_VEYRA_MAINNET_PAY=1');
   });
   it('has a compact, explicit default-Testnet selector and discards forms when switching', () => {
     const app = src('src/preview/PreviewApp.tsx');

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseAnnouncedIdentityWallet } from '../identity-beta/walletDiscovery';
+import { announcedIdentityWallet } from '../identity-beta/walletDiscovery';
+const parseAnnouncedIdentityWallet = (detail: unknown) => announcedIdentityWallet({detail});
 
 const uid = 'eec5f19b-cf2a-4e02-82fa-50d5d34aa620';
 const one = { request({method}: {method:string}) { return Promise.resolve(method === 'eth_chainId' ? '0x4cef52' : []); } };
