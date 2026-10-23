@@ -357,10 +357,14 @@ jobs:
       - name: Build actual Vercel unified web entry (no Mainnet signing)
         run: VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build
 
-      - name: Audit public bundle and release guards
+      - name: Audit public bundle and explicitly isolated staging release guards
         run: |
           bun run check:vercel-preview-bundle
-          bun run scripts/check-unified-production-release.ts
+          if [ "$GITHUB_HEAD_REF" = "phase9h-unified-testnet-host" ] || [ "$GITHUB_REF_NAME" = "phase9h-unified-testnet-host" ]; then
+            bun run scripts/check-unified-testnet-staging.ts
+          else
+            bun run scripts/check-unified-production-release.ts
+          fi
 
       - name: Install pinned browser test harness outside repository
         run: |
