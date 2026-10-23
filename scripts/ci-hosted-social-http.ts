@@ -112,8 +112,29 @@ async function verify() {
   assert.equal(initial.headers.get('cache-control'), 'no-store');
   assert.equal(initial.headers.get('access-control-allow-origin'), ORIGIN);
 
+  // Phase 9A: anonymous and spoofed headers cannot read account inboxes.
+  assert.equal((await http('/api/notifications')).status, 401);
+  assert.equal((await http('/api/notifications', undefined, undefined, {mockHeader:USER_B})).status, 401);
+  assert.equal((await http('/api/notifications', alice, undefined, {origin:'https://evil.example'})).status, 403);
+  assert.equal((await http('/api/notifications?limit=0', alice)).status, 400);
+  assert.deepEqual((await http('/api/notifications', bob)).data.items, []);
+
   const invite = await http('/api/social/friend/request', alice, { veyraUserId: USER_B });
   assert.equal(invite.status, 200, JSON.stringify(invite.data));
+  const bobInbox = await http('/api/notifications', bob);
+  assert.equal(bobInbox.status, 200);
+  assert.equal(bobInbox.data.unreadCount, 1);
+  const invitationNotice = (bobInbox.data.items as Array<{kind:string;actorUserId:string;notificationId:string}>)[0];
+  assert.equal(invitationNotice.kind, 'FRIEND_REQUEST');
+  assert.equal(invitationNotice.actorUserId, USER_A);
+  assert.deepEqual((await http('/api/notifications', stranger)).data.items, []);
+  assert.deepEqual((await http('/api/notifications', alice)).data.items, []);
+  // A signed different user may NOT mark another account's notification read.
+  assert.equal((await http('/api/notifications/read', alice, {notificationId:invitationNotice.notificationId})).status, 404);
+  assert.equal((await http('/api/notifications/read', bob, {notificationId:invitationNotice.notificationId})).status, 200);
+  assert.equal((await http('/api/notifications/read', bob, {notificationId:invitationNotice.notificationId})).status, 200,
+    'read is idempotent');
+  assert.equal((await http('/api/notifications', bob)).data.unreadCount, 0);
   const outgoing = await http('/api/social/friends', alice);
   assert.equal(outgoing.status, 200);
   assert.deepEqual((outgoing.data.items as Array<{veyraUserId:string;state:string}>)
@@ -126,6 +147,14 @@ async function verify() {
 
   const accept = await http('/api/social/friend/respond', bob, { veyraUserId: USER_A, decision: 'ACCEPT' });
   assert.equal(accept.status, 200, JSON.stringify(accept.data));
+  const aliceInbox = await http('/api/notifications', alice);
+  assert.equal(aliceInbox.status, 200);
+  assert.equal(aliceInbox.data.unreadCount, 1);
+  const acceptedNotice = (aliceInbox.data.items as Array<{kind:string;actorUserId:string}>)[0];
+  assert.equal(acceptedNotice.kind, 'FRIEND_ACCEPTED');
+  assert.equal(acceptedNotice.actorUserId, USER_B);
+  assert.ok(!(JSON.stringify(aliceInbox.data).includes('walletAddress')),
+    'social inbox must not expose wallet addresses');
   const connected = await http('/api/social/friends', alice);
   assert.equal((connected.data.items as Array<{state:string}>)[0]?.state, 'CONNECTED');
 
@@ -148,7 +177,7 @@ async function verify() {
   // identity header. Session-protected results expose only pair state and ID.
   const result = JSON.stringify(freshRequest.data);
   assert.ok(!result.includes('walletAddress') && !result.includes('balance'));
-  console.log('Hosted BFF authenticated HTTP + real PostgreSQL Friends lifecycle: PASS');
+  console.log('Hosted BFF authenticated HTTP + PostgreSQL Friends + owner-private notification lifecycle: PASS');
 }
 
 const operation = process.argv[2];
