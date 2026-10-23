@@ -12,18 +12,18 @@ import { ConnectKitButton } from 'connectkit';
 import { Check, Copy, Link2, Loader2, ShieldCheck, SlidersHorizontal, Wallet } from 'lucide-react';
 import { DEFAULT_VEYRA_POLICY } from '@/core/policy/policyEngine';
 import { VEYRA_ENV } from '@/lib/env';
-import { beginXLink, type MyProfile } from '@/lib/api/identityApi';
+import { beginXLink } from '@/lib/api/identityApi';
 import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS } from '@/config/productRegistry';
 import { RuntimeStatusCard } from '../system/RuntimeStatusCard';
 import { BrandLogo } from '../brand/BrandLogo';
-import { CreateVeyraIdModal } from '../identity/CreateVeyraIdModal';
+import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 
-export function SettingsPage() {
+export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const { address, isConnected } = useAccount();
   const identity = useVeyraIdentity();
+  const social = useUnifiedSocial();
   const [copied, setCopied] = useState(false);
-  const [identityOpen, setIdentityOpen] = useState(false);
   const [xLoading, setXLoading] = useState(false);
   const [xError, setXError] = useState<string | null>(null);
 
@@ -31,13 +31,9 @@ export function SettingsPage() {
 
   async function linkX() {
     setXError(null);
-    if (!profile) {
-      setIdentityOpen(true);
-      setXError('Create your Veyra ID first, then link X to the same identity.');
-      return;
-    }
-    if (identity.preview) {
-      setXError('X linking requires a real signed Veyra session. Local preview IDs are UI-only.');
+    if (!profile || !social.session) {
+      setXError('Sign in through Social to link X to your existing Veyra identity.');
+      onOpenSocial();
       return;
     }
     if (profile.x) return;
@@ -59,11 +55,6 @@ export function SettingsPage() {
     });
   }
 
-  function onIdentityCreated(_profile: MyProfile) {
-    void identity.refresh();
-    setXError(null);
-  }
-
   return (
     <div className="mx-auto max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
       <div>
@@ -83,20 +74,20 @@ export function SettingsPage() {
               </div>
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--subtle)' }}>Veyra identity</div>
-                <div className="mt-1 text-xl font-bold" style={{ color: 'var(--ink)' }}>{profile ? `@${profile.veyraHandle}` : 'Not created'}</div>
-                <div className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>{identity.preview ? 'Local preview ID · not reserved' : profile ? 'Canonical identity' : 'Create once, link verified endpoints'}</div>
+                <div className="mt-1 text-xl font-bold" style={{ color: 'var(--ink)' }}>{profile ? `@${profile.veyraHandle}.veyra` : 'Not created'}</div>
+                <div className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>{profile ? 'Verified for your connected wallet' : 'Sign in once through Social'}</div>
               </div>
             </div>
             {!profile && (
-              <button onClick={() => setIdentityOpen(true)} className="rounded-xl px-3.5 py-2.5 text-xs font-bold" style={{ background: 'linear-gradient(135deg,#c8ff65,#91e9b5)', color: '#0b1b25' }}>
-                Create Veyra ID
+              <button onClick={onOpenSocial} className="rounded-xl px-3.5 py-2.5 text-xs font-bold" style={{ background: 'linear-gradient(135deg,#c8ff65,#91e9b5)', color: '#0b1b25' }}>
+                Continue with Veyra ID
               </button>
             )}
           </div>
 
           <div className="mt-5 grid gap-2 sm:grid-cols-3">
             <AccountEndpoint label="Wallet" value={isConnected && address ? shortAddress(address) : 'Not connected'} ready={isConnected} icon={<Wallet className="size-4" />} />
-            <AccountEndpoint label="Veyra ID" value={profile ? `@${profile.veyraHandle}` : 'Not created'} ready={Boolean(profile)} icon={<ShieldCheck className="size-4" />} />
+            <AccountEndpoint label="Veyra ID" value={profile ? `@${profile.veyraHandle}.veyra` : 'Not created'} ready={Boolean(profile)} icon={<ShieldCheck className="size-4" />} />
             <AccountEndpoint label="X" value={profile?.x?.xHandle ? `@${profile.x.xHandle}` : 'Not linked'} ready={Boolean(profile?.x)} icon={<span className="text-xs font-black">X</span>} />
           </div>
 
@@ -108,7 +99,7 @@ export function SettingsPage() {
                 {copied ? 'Copied wallet' : 'Copy wallet'}
               </button>
             )}
-            <button onClick={() => void linkX()} disabled={Boolean(profile?.x) || xLoading} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
+            <button onClick={() => void linkX()} disabled={!social.session || Boolean(profile?.x) || xLoading} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
               {xLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
               {profile?.x ? 'X linked' : 'Connect X'}
             </button>
@@ -153,7 +144,6 @@ export function SettingsPage() {
         <div className="mt-4 text-[11px]" style={{ color: 'var(--subtle)' }}>Environment: <span className="font-semibold uppercase" style={{ color: VEYRA_ENV === 'mainnet' ? 'var(--danger)' : 'var(--success)' }}>{VEYRA_ENV}</span></div>
       </section>
 
-      <CreateVeyraIdModal open={identityOpen} onClose={() => setIdentityOpen(false)} onCreated={onIdentityCreated} />
     </div>
   );
 }

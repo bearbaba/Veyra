@@ -48,7 +48,7 @@ export default function App() {
       case 'activity':
         return <ActivityPage readOnly={IS_UI_ONLY_PREVIEW} />;
       case 'settings':
-        return <SettingsPage />;
+        return <SettingsPage onOpenSocial={() => setPage('social')} />;
       case 'social':
         return <SocialPage onPayFriend={startFriendPayment} />;
       default:
