@@ -17,12 +17,15 @@ describe('wallet-bound Veyra session is reused by Identity Pay and pre-sign veri
     expect(spy).not.toHaveBeenCalled();
   });
   it('uses the explicit session and does not even READ legacy sessionStorage',async()=>{
-    const fake=vi.fn(async (_url: string, _options?: RequestInit)=>({ok:true,json:async()=>({ok:true,prepared:{
-      kind:'VEYRA_IDENTITY',resolvedAddress:'0x2222222222222222222222222222222222222222',
-      chainId:5042002,snapshot:{snapshotId:'snp_test',veyraUserId:'usr_123456789ABCDEFGJ',
-      veyraHandle:'friend',displayName:'Friend',avatarUrl:null,expiresAt:'2026-12-01T00:00:00Z',
-      walletId:'wid_test',reviewToken:'review_test'},
-    }})}));
+    const fake=vi.fn((_url: string, _options?: RequestInit)=>Promise.resolve({
+      ok:true,
+      json:()=>Promise.resolve({ok:true,prepared:{
+        kind:'VEYRA_IDENTITY',resolvedAddress:'0x2222222222222222222222222222222222222222',
+        chainId:5042002,snapshot:{snapshotId:'snp_test',veyraUserId:'usr_123456789ABCDEFGJ',
+        veyraHandle:'friend',displayName:'Friend',avatarUrl:null,expiresAt:'2026-12-01T00:00:00Z',
+        walletId:'wid_test',reviewToken:'review_test'},
+      }}),
+    }));
     vi.stubGlobal('fetch',fake);
     vi.stubGlobal('sessionStorage',{getItem:()=>{throw new Error('Legacy storage must not be accessed for signed Pay');}});
     const prepared=await preparePaymentRecipient('@friend.veyra',5042002,'signed-wallet-token');
@@ -31,7 +34,7 @@ describe('wallet-bound Veyra session is reused by Identity Pay and pre-sign veri
     expect(opts.headers.Authorization).toBe('Bearer signed-wallet-token');
   });
   it('passes owner auth for pre-sign snapshot validation instead of a stale stored token',async()=>{
-    const fake=vi.fn(async (_url: string, _options?: RequestInit)=>({ok:true,json:async()=>({ok:true})}));
+    const fake=vi.fn((_url: string, _options?: RequestInit)=>Promise.resolve({ok:true,json:()=>Promise.resolve({ok:true})}));
     vi.stubGlobal('fetch',fake);
     vi.stubGlobal('sessionStorage',{getItem:()=>{throw new Error('Storage token must not authorize the payment');}});
     await verifyPaymentRecipient({
