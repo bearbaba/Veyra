@@ -23,14 +23,14 @@ No separate X identity: official X OAuth links an external account to the existi
 ## Mainnet separation
 Mainnet on Arc (chain ID 5042) exists but Veyra's current runtime **still blocks** financial execution until external gates pass. Follow `docs/veyra-mainnet-release-gates.md`: production BFF/DB with backups, KMS/HSM, provider health, independent chain/token unit verification (native gas 18 decimals vs USDC ERC20 6), reviewed UI, recovery/idempotency, real low-value canary, independently verified tx and rollback.
 
-Use a **separately controlled, minimal Arc-native experimental transaction lane** for the microgrant demonstration. Never imply that the full Veyra Pay/Swap/CCTP product is Mainnet-ready due to a small demo.
+**Updated product decision (23 October 2026):** complete one unified Veyra website, finance core, identity and Social/Notifications first. Only then use Arc Studio to test and demonstrate the approved Arc Mainnet portion of **Veyra itself**, never a separate demo product. Do not infer all financial providers are approved from one mainnet canary.
 
 ## Arc Microgrants 2 / Arc Studio
 - Event: https://dorahacks.io/hackathon/arc-microgrants-2/detail
 - Published deadline: **1 November 2026**; 8 awards × 500 USDC.
 - Requires Arc Studio use for contract code/tests and app, live contract and app on Arc Mainnet, one **real user-authorized USDC-moving transaction through the contract**, verified explorer hash, repo, Studio project URL and demo showing Arc Studio build and mainnet transfer.
 - Submission must disclose Veyra's experimental scope and any unimplemented capabilities.
-- Suggested minimal build: **Veyra PayLink**. Sender uses the Arc Studio-built contract to direct a strictly user-approved USDC amount to an exact recipient. No escrow, no autonomous signatures, no relayer custody, no agent spending. Contract must prevent phantom success and preserve exact recipient/amount; independent receipt shows real USDC token transfer. Reuse branding/identity as UX only after ownership and payment destination review.
+- **Selected project is Veyra**, not a standalone PayLink clone. Arc Studio output must be integrated with Veyra's existing guarded Pay flow and same identity. If deadline conflicts with production safety evidence, do not weaken signing or claim unverified features as complete.
 - **Do not deploy or spend real funds without explicit transaction authorization** from the connected wallet owner.
 
 ### Evidence packet
