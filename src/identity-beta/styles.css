@@ -4,3 +4,14 @@
 .vi-field select{appearance:auto;width:100%;background:#111e27;color:#f0f5f3;border:1px solid #34434b;border-radius:10px;padding:13px 15px;font:inherit;min-height:45px;cursor:pointer}
 .vi-field select:focus-visible{outline:2px solid #b9f27c;outline-offset:2px}
 .vi-field select:disabled{opacity:.65}
+
+/* A pending wallet popup/backend request must never feel like a dead page. */
+.vi-wait-panel{margin:18px 0 20px;padding:17px 20px;border:1px solid #77916c;background:#15241e;border-radius:13px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.vi-wait-copy{display:flex;flex-direction:column;gap:5px;min-width:0}
+.vi-wait-copy strong{color:#c4f39b;font-weight:700}
+.vi-wait-copy span{color:#f0f5f3}
+.vi-wait-copy small{color:#a8b8ae}
+.vi-wait-stop{border:1px solid #879c85;background:transparent;color:#e9f3e6;border-radius:9px;min-height:42px;padding:10px 16px;white-space:nowrap;font-weight:600}
+.vi-wait-stop:hover{background:#28382d}
+.vi-wait-stop:focus-visible{outline:2px solid #b9f27c;outline-offset:3px}
+@media(max-width:560px){.vi-wait-panel{align-items:stretch;flex-direction:column}.vi-wait-stop{width:100%}}

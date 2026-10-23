@@ -311,6 +311,31 @@ export async function requireMatchingAccount(provider: BrowserProvider, address:
   }
 }
 
+/**
+ * Wallet extensions may leave an eth_signTypedData_v4 promise unresolved when
+ * their popup is behind Chrome or a request is queued. We cannot cancel a
+ * provider RPC. Expiring only Veyra's *wait* prevents a permanently frozen UI;
+ * a late signature is ignored and is NEVER forwarded automatically.
+ */
+export const WALLET_RESPONSE_TIMEOUT_MS = 90_000;
+export async function awaitWalletResponse<T>(
+  response: Promise<T>, timeoutMs = WALLET_RESPONSE_TIMEOUT_MS,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      response,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(
+          'No response from your wallet. Open MetaMask and reject any old pending signature before retrying. Veyra did not submit this claim.',
+        )), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 export async function signReviewedIdentity(
   provider: BrowserProvider,
   challenge: SignedChallenge,
@@ -321,10 +346,10 @@ export async function signReviewedIdentity(
   await requireMatchingAccount(provider, address);
   const data = verifiedTypedData(challenge, mode, address, origin);
   const walletData = walletV4TypedData(data);
-  const result = await provider.request({
+  const result = await awaitWalletResponse(provider.request({
     method: 'eth_signTypedData_v4',
     params: [address, JSON.stringify(walletData)],
-  });
+  }));
   if (typeof result !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(result)) {
     throw new Error('The wallet did not return a valid signature.');
   }
