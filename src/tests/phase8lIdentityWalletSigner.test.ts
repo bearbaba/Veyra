@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import {
-  ARC_TESTNET_CHAIN_ID, assertBrowserSignedIdentityOwner, signReviewedIdentity,
+  ARC_TESTNET_CHAIN_ID, EIP712_DOMAIN_FIELDS, assertBrowserSignedIdentityOwner, signReviewedIdentity, walletV4TypedData,
   type BrowserProvider, type SignedChallenge,
 } from '../identity-beta/protocol';
 
@@ -65,6 +65,10 @@ function mockProvider(connected: ReturnType<typeof privateKeyToAccount>,
         primaryType: string;
         message: Record<string, unknown>;
       };
+      // Regression: MetaMask eth_signTypedData_v4 requires this explicit
+      // type, even though viem's recoverTypedDataAddress builds it internally.
+      expect(data.types.EIP712Domain).toEqual(EIP712_DOMAIN_FIELDS);
+      expect(Object.keys(data.types).sort()).toEqual(['EIP712Domain', data.primaryType].sort());
       const parsed = {
         ...data.message,
         chainId: BigInt(Number(data.message.chainId)),
@@ -114,6 +118,28 @@ describe('Phase 8L browser-side EIP-712 signature ownership gate', () => {
       )).rejects.toThrow('different account');
     },
   );
+
+  it('explicitly defines canonical MetaMask EIP712Domain without rewriting a server challenge', () => {
+    const source = challenge(alice.address, 'register').typedData;
+    const wallet = walletV4TypedData(source);
+    expect(wallet.types).toEqual({
+      EIP712Domain: EIP712_DOMAIN_FIELDS,
+      ...(source.types as Record<string, unknown>),
+    });
+    expect((source.types as Record<string, unknown>).EIP712Domain).toBeUndefined();
+  });
+
+  it('blocks an unreviewed EIP712Domain override or arbitrary second struct', () => {
+    const source = challenge(alice.address, 'register').typedData;
+    expect(() => walletV4TypedData({
+      ...source,
+      types: {...(source.types as Record<string, unknown>), EIP712Domain: []},
+    })).toThrow('Unexpected wallet signing types');
+    expect(() => walletV4TypedData({
+      ...source,
+      types: {...(source.types as Record<string, unknown>), ApproveToken: []},
+    })).toThrow('Unexpected wallet signing types');
+  });
 
   it('rejects malformed EIP-712 signatures before an HTTP registration attempt', async () => {
     const data = challenge(alice.address, 'register');

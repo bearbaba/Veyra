@@ -8,6 +8,7 @@ import {
   requireMatchingAccount, normalizeBetaHandle, signReviewedIdentity, verifyXAuthorizationUrl,
   type BrowserProvider, type Friend, type IdentityProfile,
 } from './protocol';
+import { announcedIdentityWallet, discoveredIdentityWallets, walletToConnect, type IdentityWallet } from './walletDiscovery';
 import {
   VeyraSessionExpiredError, beginXAccountLink, changeBlock, loginChallenge, loginComplete, readFriends, readProfile,
   registerChallenge, registerComplete, respondRequest, sendRequest,
@@ -31,6 +32,9 @@ function ActionButton({
 
 export function IdentityBetaApp() {
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
+  const [wallets, setWallets] = useState<IdentityWallet[]>([]);
+  const [selectedWalletId, setSelectedWalletId] = useState('');
+  const [connectedWalletName, setConnectedWalletName] = useState('');
   const [address, setAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -53,6 +57,24 @@ export function IdentityBetaApp() {
     setOffset(0);
     setHasMore(false);
     setMessage('');
+  }, []);
+
+  useEffect(() => {
+    // Request EIP-6963 announcements after subscribing; do not trust the
+    // shared window.ethereum to pick MetaMask when other wallets are installed.
+    const announced = (event: Event) => {
+      const wallet = announcedIdentityWallet(event);
+      if (wallet) setWallets(current => discoveredIdentityWallets(current, wallet));
+    };
+    window.addEventListener('eip6963:announceProvider', announced);
+    window.dispatchEvent(new Event('eip6963:requestProvider'));
+    // Backward-compatible fallback only, shown explicitly as a legacy provider.
+    const legacy = readProvider();
+    if (legacy) setWallets(current => discoveredIdentityWallets(current, {
+      id: 'legacy-injected', name: 'Legacy injected wallet (unidentified)',
+      provider: legacy, source: 'legacy',
+    }));
+    return () => window.removeEventListener('eip6963:announceProvider', announced);
   }, []);
 
   useEffect(() => {
@@ -85,8 +107,8 @@ export function IdentityBetaApp() {
   async function connect() {
     setBusy(true); setError(''); setMessage('');
     try {
-      const candidate = readProvider();
-      if (!candidate) throw new Error('Install or enable MetaMask/Rabby in this browser, then reload.');
+      const chosen = walletToConnect(wallets, selectedWalletId);
+      const candidate = chosen.provider;
       const accounts = await candidate.request({ method: 'eth_requestAccounts' });
       const next: unknown = Array.isArray(accounts) ? accounts[0] : undefined;
       const network = parseArcChainId(await candidate.request({ method: 'eth_chainId' }));
@@ -95,6 +117,8 @@ export function IdentityBetaApp() {
       }
       clearAuth();
       setProvider(candidate);
+      setConnectedWalletName(chosen.name);
+      setSelectedWalletId(chosen.id);
       setAddress(next);
       setChainId(network);
       if (network !== ARC_TESTNET_CHAIN_ID) setMessage('Wallet connected. Switch to Arc Testnet manually before signing.');
@@ -105,6 +129,7 @@ export function IdentityBetaApp() {
   function disconnect() {
     clearAuth();
     setProvider(null); setAddress(null); setChainId(null);
+    setConnectedWalletName('');
     setError(''); setMessage('Wallet hidden in Veyra. To revoke its website permission, use your wallet settings.');
   }
 
@@ -266,8 +291,15 @@ export function IdentityBetaApp() {
       <div className="vi-grid">
         <section className="vi-card">
           <div className="vi-card-heading"><div className="vi-icon"><Wallet size={20}/></div><div><h2>Wallet connection</h2><p>Arc Testnet · Chain ID 5042002</p></div></div>
+          {!connected && <label className="vi-field"><span>SELECT WALLET EXTENSION</span>
+            <select aria-label="Select wallet extension" value={wallets.length === 1 ? wallets[0].id : selectedWalletId}
+              onChange={event => setSelectedWalletId(event.target.value)} disabled={busy}>
+              {wallets.length !== 1 && <option value="">Choose MetaMask / Rabby / your wallet</option>}
+              {wallets.map(wallet => <option key={wallet.id} value={wallet.id}>{wallet.name}</option>)}
+            </select>
+          </label>}
           <div className="vi-network">
-            <span>WALLET STATUS</span>
+            <span>WALLET STATUS{connectedWalletName ? ' · ' + connectedWalletName : ''}</span>
             <strong>{connected ? shortAddress(address!) : 'Not connected'}</strong>
             <small>{connected ? (correctChain ? 'Correct network · Ready for identity signing' : 'Wrong network · Switch manually in wallet') : 'Choose your browser wallet to get started.'}</small>
           </div>
