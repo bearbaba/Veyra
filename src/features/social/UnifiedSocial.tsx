@@ -48,7 +48,7 @@ export function friendLabel(value:SocialFriend):string{
 export function UnifiedSocialProvider({children}:{children:ReactNode}){
   const {address,chainId,connector,isConnected}=useAccount();
   const walletKey=(address?.toLowerCase()??'')+':'+(chainId??'')+':'+(connector?.uid??'');
-  const current=useRef(walletKey);current.current=walletKey;
+  const current=useRef(walletKey);
   const generation=useRef(0),pending=useRef(false);
   const [session,setSession]=useState<Session|null>(null);
   const [friends,setFriends]=useState<SocialFriend[]>([]);
@@ -61,7 +61,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     generation.current++;setSession(null);setFriends([]);setNotices([]);setUnreadCount(0);
     setNeedsRegistration(false);setError(null);setMessage(null);
   },[]);
-  useEffect(()=>{signOut();},[walletKey,signOut]);
+  useEffect(()=>{current.current=walletKey;signOut();},[walletKey,signOut]);
   const unchanged=(key:string,rev:number)=>current.current===key&&generation.current===rev;
   async function action(fn:(key:string,rev:number)=>Promise<void>){
     if(pending.current)return;
@@ -123,7 +123,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     if(!unchanged(key,rev))return;
     if(f.status==='fulfilled')setFriends(f.value.items);
     if(n.status==='fulfilled'){setNotices(n.value.items);setUnreadCount(n.value.unreadCount);}
-    const rejected=[f,n].filter(x=>x.status==='rejected') as PromiseRejectedResult[];
+    const rejected=[f,n].filter(x=>x.status==='rejected');
     if(rejected.some(x=>x.reason instanceof SocialHttpError&&x.reason.status===401)){signOut();return;}
     setError(rejected.length?'Some Social services are unavailable. No events are being inferred.':null);
   },[session,signOut]);
