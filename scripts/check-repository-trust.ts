@@ -8,6 +8,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import {isExactStagingBffAllowlist} from './stagingBffAllowlist';
 
 export const TRUST_FILES = [
   'README.md',
@@ -78,8 +79,20 @@ export function validateRepositoryTrust(evidence: TrustEvidence): string[] {
   requireMatch('vercel.json',
     /(?:VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1|VITE_VEYRA_ENV=testnet VITE_VEYRA_UNIFIED_STAGING=1 VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=0 VITE_VEYRA_IDENTITY_BETA=0) bun run build/,
     'Vercel production preview build must remain explicit Testnet-first.');
-  requireAbsent('vercel.json', /"rewrites"\s*:/,
-    'An unexpected backend rewrite needs a separate reviewed security release.');
+  // Original finance Production must remain proxy-free. The staging branch
+  // permits ONLY the reviewed exact HTTPS BFF route list (not a wildcard).
+  const buildString = evidence['vercel.json'];
+  const isStaging = buildString.includes('VITE_VEYRA_UNIFIED_STAGING=1');
+  if(isStaging){
+    let routes:unknown;
+    try{routes=(JSON.parse(buildString) as {rewrites?:unknown}).rewrites;}
+    catch{routes=undefined;}
+    if(!isExactStagingBffAllowlist(routes))
+      issues.push('An unexpected backend rewrite needs a separate reviewed security release.');
+  } else {
+    requireAbsent('vercel.json', /"rewrites"\s*:/,
+      'An unexpected backend rewrite needs a separate reviewed security release.');
+  }
 
   // Disclosure and provenance docs must not be empty badges or made-up dates.
   requireMatch('SECURITY.md', /Private vulnerability reporting/,

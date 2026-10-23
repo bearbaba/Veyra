@@ -12,3 +12,7 @@ The original financial project `veyra`, its production domains, `develop` and th
 6. Bridge/Swap remain separately gated. Unverified private messaging and X OAuth cannot be represented as live. The deployment must remain under protection until live E2E acceptance passes.
 
 Vercel READY means static assets built; not Render connectivity or financial readiness.
+
+## Exact Render integration accepted (23 Oct 2026)
+
+Render Veyra Testnet BFF was deployed at code SHA `e4fc612`, with the exact secondary origin `https://veyra-unified-testnet.vercel.app` and its isolated PostgreSQL acceptance bootstrap. Only routes specified by `scripts/stagingBffAllowlist.ts` are forwarded from the protected Vercel Testnet project; no wildcard `/api/:path*`, no X OAuth route, no bridge execution route and no client-side API secrets. The exact allowlist is enforced by CI in the Testnet deploy branch. A successful Render deployment/migration and Vercel build do not substitute for two-real-wallet signed recipient/receipt acceptance. Social chat, X linking and Mainnet financial transfer remain not accepted.

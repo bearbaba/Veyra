@@ -184,12 +184,18 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     expect(page).not.toContain('Review preview');
   });
 
-  it('does not pretend the localhost BFF runs as a Vercel API', () => {
+  it('does not pretend the localhost BFF runs as a Vercel API', async () => {
     const config = JSON.parse(read('vercel.json')) as {
       rewrites?: Array<{ source?: string; destination?: string }>;
       env?: Record<string, string>;
     };
-    expect(config.rewrites ?? []).toEqual([]);
+    const staging = read('vercel.json').includes('VITE_VEYRA_UNIFIED_STAGING=1');
+    if(staging){
+      const {STAGING_APPROVED_REWRITES}=await import('../../scripts/stagingBffAllowlist');
+      expect(config.rewrites).toEqual(STAGING_APPROVED_REWRITES);
+    } else {
+      expect(config.rewrites ?? []).toEqual([]);
+    }
     expect(config.env?.RELAY_PRIVATE_KEY).toBeUndefined();
     expect(config.env?.DATABASE_URL).toBeUndefined();
     expect(config.env?.VITE_VEYRA_ENV).not.toBe('mainnet');
