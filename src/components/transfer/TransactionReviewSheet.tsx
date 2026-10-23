@@ -38,7 +38,8 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
   const { state: execState, execute, reset } = useTransferExecution();
 
   const highRisk = risk?.level === 'HIGH' || risk?.level === 'CRITICAL' || risk?.level === 'UNKNOWN';
-  const isBlocked = !policy || !risk || policy.decision === 'BLOCKED' || highRisk;
+  const missingIdentityProof = recipient?.kind === 'VEYRA_IDENTITY' && !recipient.snapshot;
+  const isBlocked = !policy || !risk || policy.decision === 'BLOCKED' || highRisk || missingIdentityProof;
   const needsConfirmation = policy?.decision === 'NEEDS_CONFIRMATION';
   const isExecuting = ['SIGNING', 'BROADCAST', 'CONFIRMING', 'VERIFYING'].includes(execState.step);
 
