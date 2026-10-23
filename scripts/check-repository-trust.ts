@@ -73,9 +73,21 @@ export function validateRepositoryTrust(evidence: TrustEvidence): string[] {
     'Unified read-only Base support is missing from the documented current product.');
   requireMatch('src/preview/PreviewBaseUsdcBalance.tsx', /Unavailable —/,
     'Failed Base RPC reads must explicitly disclose unavailable state.');
-  requireMatch('vercel.json',
-    /VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build/,
-    'Vercel production preview build must remain explicit Testnet-first.');
+  // The isolated Identity Beta project is intentionally not the financial
+  // Preview project. Check the exact actual Vercel release surface instead
+  // of requiring contradictory builds in a single vercel.json.
+  if (/VITE_VEYRA_IDENTITY_BETA=1/.test(evidence['vercel.json'])) {
+    requireMatch('vercel.json',
+      /VITE_VEYRA_ENV=testnet VITE_VEYRA_IDENTITY_BETA=1 bun run build/,
+      'Dedicated Identity Beta must be explicitly testnet-only.');
+    requireAbsent('vercel.json',
+      /VITE_VEYRA_MAINNET_PAY=1|VITE_VEYRA_UI_ONLY=1|VITE_VEYRA_TESTNET_PAY=1/,
+      'Identity Beta Vercel configuration must not mix financial signing builds.');
+  } else {
+    requireMatch('vercel.json',
+      /VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build/,
+      'Vercel production preview build must remain explicit Testnet-first.');
+  }
   requireAbsent('vercel.json', /"rewrites"\s*:/,
     'An unexpected backend rewrite needs a separate reviewed security release.');
 

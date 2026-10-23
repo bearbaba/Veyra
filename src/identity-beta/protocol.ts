@@ -3,8 +3,25 @@
  * No chain switching, USDC transfers, payment signatures or transaction RPCs.
  * The ONLY wallet signature is an explicitly verified EIP-712 identity/login.
  */
+import { getAddress, recoverTypedDataAddress, zeroAddress, type Address, type Hex } from 'viem';
+
 export const ARC_TESTNET_CHAIN_ID = 5042002;
 export const BFF_ORIGIN = 'https://veyra-testnet-acceptance-bff.onrender.com';
+
+/**
+ * EIP-712 v4 providers (including MetaMask) require EIP712Domain to be
+ * declared in the signature JSON. Viem reconstructs it from `domain`
+ * when recovering a signature; an omitted wallet-side type risks the wallet
+ * signing a different domain digest than our server verifies.
+ * These exact fields match our server canonical claimDomain and loginDomain.
+ */
+export const EIP712_DOMAIN_FIELDS = [
+  { name: 'name', type: 'string' },
+  { name: 'version', type: 'string' },
+  { name: 'chainId', type: 'uint256' },
+  { name: 'verifyingContract', type: 'address' },
+] as const;
+
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
@@ -14,13 +31,24 @@ export interface BrowserProvider {
   on?(name: string, listener: (...args: unknown[]) => void): void;
   removeListener?(name: string, listener: (...args: unknown[]) => void): void;
 }
+/** Linked X social proof belongs to the existing Veyra ID; it never signs payments. */
+export interface LinkedXProfile {
+  xAccountId: string;
+  xHandle: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  bio: string | null;
+  lastRefreshedAt: string | null;
+}
 export interface IdentityProfile {
   veyraUserId: string;
   veyraHandle: string;
   displayName: string;
+  x?: LinkedXProfile | null;
 }
 export interface Friend {
   veyraUserId: string;
+  veyraHandle?: string | null;
   state: 'CONNECTED' | 'INCOMING_PENDING' | 'OUTGOING_PENDING';
   updatedAt: string;
 }
@@ -57,6 +85,24 @@ function expectedTypes(value: unknown, fields: readonly string[]): void {
       throw new Error('Unrecognized wallet signature request.');
     }
   }
+}
+
+/**
+ * Make the MetaMask EIP-712 v4 signature payload explicit and deterministic.
+ * Never accept arbitrary server-specified EIP712Domain or extra typed structs.
+ */
+export function walletV4TypedData(checked: ObjectLike): ObjectLike {
+  const types = obj(checked.types);
+  const primary = checked.primaryType;
+  if (typeof primary !== 'string' || Object.keys(types).length !== 1 ||
+      !Object.prototype.hasOwnProperty.call(types, primary) ||
+      Object.prototype.hasOwnProperty.call(types, 'EIP712Domain')) {
+    throw new Error('Unexpected wallet signing types. Signature cancelled.');
+  }
+  return {
+    ...checked,
+    types: { EIP712Domain: EIP712_DOMAIN_FIELDS, ...types },
+  };
 }
 
 export function parseArcChainId(value: unknown): number | null {
@@ -138,6 +184,29 @@ export function verifiedTypedData(
   return data;
 }
 
+/**
+ * Hosted pilot accepts only X's official OAuth authorization endpoint, with
+ * a callback pinned to this Testnet BFF. Never open an unchecked server URL.
+ */
+export function verifyXAuthorizationUrl(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.length > 4096) {
+    throw new Error('Invalid X authorization URL. No redirect opened.');
+  }
+  let url: URL;
+  try { url = new URL(raw); }
+  catch { throw new Error('Invalid X authorization URL. No redirect opened.'); }
+  if (url.protocol !== 'https:' || url.hostname !== 'x.com' || url.port ||
+      url.username || url.password || url.hash || url.pathname !== '/i/oauth2/authorize' ||
+      url.searchParams.get('response_type') !== 'code' ||
+      url.searchParams.get('code_challenge_method') !== 'S256' ||
+      !/^[-_A-Za-z0-9]{20,}$/.test(url.searchParams.get('state') ?? '') ||
+      !/^[-_A-Za-z0-9]{20,}$/.test(url.searchParams.get('code_challenge') ?? '') ||
+      url.searchParams.get('redirect_uri') !== BFF_ORIGIN + '/api/auth/x/callback') {
+    throw new Error('Unexpected X OAuth destination or callback. Authorization blocked.');
+  }
+  return url.toString();
+}
+
 export function readProvider(): BrowserProvider | null {
   const injected: unknown = (window as unknown as { ethereum?: unknown }).ethereum;
   if (injected && typeof injected === 'object' && 'request' in injected &&
@@ -145,6 +214,92 @@ export function readProvider(): BrowserProvider | null {
     return injected as BrowserProvider;
   }
   return null;
+}
+
+/**
+ * Independently recover the signer in the browser before POSTing a signature.
+ * This detects wallets/extensions signing under a different EOA or an
+ * unexpected EIP-712 hash. We do not print the signature or recovered address.
+ *
+ * The backend remains the only authority that can issue a Veyra ID.
+ */
+export async function assertBrowserSignedIdentityOwner(
+  challenge: SignedChallenge,
+  mode: 'register' | 'login',
+  address: string,
+  origin: string,
+  signature: `0x${string}`,
+): Promise<void> {
+  const data = verifiedTypedData(challenge, mode, address, origin);
+  const message = obj(data.message);
+  const domain = {
+    name: mode === 'register' ? 'Veyra' : 'Veyra Login',
+    version: '1',
+    chainId: ARC_TESTNET_CHAIN_ID,
+    verifyingContract: zeroAddress,
+  } as const;
+  const walletAddress = valueString(message, 'walletAddress') as Address;
+  const shared = {
+    walletAddress,
+    chainId: BigInt(valueInteger(message, 'chainId')),
+    nonce: valueString(message, 'nonce') as Hex,
+    issuedAt: BigInt(valueInteger(message, 'issuedAt')),
+    expiresAt: BigInt(valueInteger(message, 'expiresAt')),
+  };
+  let recovered: Address;
+  try {
+    if (mode === 'register') {
+      recovered = await recoverTypedDataAddress({
+        domain,
+        types: {
+          IdentityClaim: [
+            { name: 'handle', type: 'string' },
+            { name: 'walletAddress', type: 'address' },
+            { name: 'chainId', type: 'uint256' },
+            { name: 'nonce', type: 'bytes32' },
+            { name: 'issuedAt', type: 'uint256' },
+            { name: 'expiresAt', type: 'uint256' },
+          ],
+        },
+        primaryType: 'IdentityClaim',
+        message: { handle: valueString(message, 'handle'), ...shared },
+        signature,
+      });
+    } else {
+      recovered = await recoverTypedDataAddress({
+        domain,
+        types: {
+          WalletLogin: [
+            { name: 'veyraUserId', type: 'string' },
+            { name: 'walletAddress', type: 'address' },
+            { name: 'chainId', type: 'uint256' },
+            { name: 'nonce', type: 'bytes32' },
+            { name: 'issuedAt', type: 'uint256' },
+            { name: 'expiresAt', type: 'uint256' },
+            { name: 'appOrigin', type: 'string' },
+            { name: 'purpose', type: 'string' },
+          ],
+        },
+        primaryType: 'WalletLogin',
+        message: {
+          veyraUserId: valueString(message, 'veyraUserId'),
+          ...shared,
+          appOrigin: valueString(message, 'appOrigin'),
+          purpose: valueString(message, 'purpose'),
+        },
+        signature,
+      });
+    }
+  } catch {
+    throw new Error(
+      'The wallet signature could not be independently verified. Reconnect one wallet extension and request a fresh challenge.',
+    );
+  }
+  if (getAddress(recovered) !== getAddress(address)) {
+    throw new Error(
+      'The wallet signed with a different account than the connected address. Check your active MetaMask/Rabby account and disable conflicting wallet extensions before trying again.',
+    );
+  }
 }
 
 export async function requireMatchingAccount(provider: BrowserProvider, address: string): Promise<void> {
@@ -157,6 +312,31 @@ export async function requireMatchingAccount(provider: BrowserProvider, address:
   }
 }
 
+/**
+ * Wallet extensions may leave an eth_signTypedData_v4 promise unresolved when
+ * their popup is behind Chrome or a request is queued. We cannot cancel a
+ * provider RPC. Expiring only Veyra's *wait* prevents a permanently frozen UI;
+ * a late signature is ignored and is NEVER forwarded automatically.
+ */
+export const WALLET_RESPONSE_TIMEOUT_MS = 90_000;
+export async function awaitWalletResponse<T>(
+  response: Promise<T>, timeoutMs = WALLET_RESPONSE_TIMEOUT_MS,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      response,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(
+          'No response from your wallet. Open MetaMask and reject any old pending signature before retrying. Veyra did not submit this claim.',
+        )), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 export async function signReviewedIdentity(
   provider: BrowserProvider,
   challenge: SignedChallenge,
@@ -166,13 +346,15 @@ export async function signReviewedIdentity(
 ): Promise<`0x${string}`> {
   await requireMatchingAccount(provider, address);
   const data = verifiedTypedData(challenge, mode, address, origin);
-  const result = await provider.request({
+  const walletData = walletV4TypedData(data);
+  const result = await awaitWalletResponse(provider.request({
     method: 'eth_signTypedData_v4',
-    params: [address, JSON.stringify(data)],
-  });
+    params: [address, JSON.stringify(walletData)],
+  }));
   if (typeof result !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(result)) {
     throw new Error('The wallet did not return a valid signature.');
   }
   await requireMatchingAccount(provider, address);
+  await assertBrowserSignedIdentityOwner(challenge, mode, address, origin, result as `0x${string}`);
   return result as `0x${string}`;
 }

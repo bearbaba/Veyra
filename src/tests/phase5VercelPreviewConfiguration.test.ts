@@ -13,7 +13,14 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     };
     expect(config.framework).toBe('vite');
     expect(config.installCommand).toBe('bun install --frozen-lockfile');
-    expect(config.buildCommand).toBe('VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build');
+    if (config.buildCommand === 'VITE_VEYRA_ENV=testnet VITE_VEYRA_IDENTITY_BETA=1 bun run build') {
+      // A separately hosted identity project may only ship the isolated EIP-712
+      // identity entry. It must not build any financial preview into this app.
+      expect(read('vite.config.ts')).toContain('rollupOptions: { input: identityHtml }');
+      expect(read('src/identity-beta/protocol.ts')).not.toContain("method: 'eth_sendTransaction'");
+    } else {
+      expect(config.buildCommand).toBe('VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build');
+    }
     expect(config.outputDirectory).toBe('dist');
     expect(pkg.scripts?.build).toBe('vite build');
   });
@@ -61,7 +68,8 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
       expect(content).not.toMatch(/from ['\"][^'\"]*(?:wagmi|connectkit|\/api\/|hooks\/useBridge|hooks\/useTransfer|securityBootstrap|providerManifest|receiptStore)/i);
     }
 
-    expect(ci).toContain('Assert no wallet signing and BFF code in preview JavaScript');
+    expect(ci).toContain('Assert finance or dedicated Identity Beta source safety');
+    expect(ci).toContain('bun run scripts/check-identity-beta-bundle.ts');
     expect(ci).toContain('bun run check:vercel-preview-bundle');
     expect(audit).toContain('eth_sendTransaction');
     expect(audit).toContain('depositForBurn');

@@ -1,20 +1,21 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  ArrowRight, CheckCircle2, CircleHelp, Copy, Fingerprint, Github, LockKeyhole,
-  LogOut, RefreshCcw, ShieldCheck, UserPlus, Users, Wallet, XCircle,
+  ArrowRight, AtSign, CheckCircle2, Copy, ExternalLink, Fingerprint, Github, LockKeyhole,
+  RefreshCcw, ShieldCheck, UserPlus, Users, Wallet, XCircle,
 } from 'lucide-react';
 import {
-  ARC_TESTNET_CHAIN_ID, parseArcChainId, readProvider, requireArcWallet,
-  requireMatchingAccount, normalizeBetaHandle, signReviewedIdentity,
+  ARC_TESTNET_CHAIN_ID, awaitWalletResponse, parseArcChainId, readProvider, requireArcWallet,
+  requireMatchingAccount, normalizeBetaHandle, signReviewedIdentity, verifyXAuthorizationUrl,
   type BrowserProvider, type Friend, type IdentityProfile,
 } from './protocol';
+import { announcedIdentityWallet, discoveredIdentityWallets, quickConnectWallet, walletToConnect, type IdentityWallet } from './walletDiscovery';
+import { displayVeyraId, normalizeFriendLookup, readKnownHandle, rememberKnownHandle, shortIdentityReference } from './identityPresentation';
 import {
-  changeBlock, loginChallenge, loginComplete, readFriends, readProfile,
-  registerChallenge, registerComplete, respondRequest, sendRequest,
+  VeyraSessionExpiredError, beginXAccountLink, changeBlock, loginChallenge, loginComplete, readFriends, readProfile,
+  registerChallenge, registerComplete, respondRequest, sendRequest, resolveFriendIdentity, readIdentityCapabilities,
 } from './api';
 
 interface Session { token: string; profile: IdentityProfile; address: string; }
-
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
@@ -31,6 +32,9 @@ function ActionButton({
 
 export function IdentityBetaApp() {
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
+  const [wallets, setWallets] = useState<IdentityWallet[]>([]);
+  const [showWalletChoices, setShowWalletChoices] = useState(false);
+  const [connectedWalletName, setConnectedWalletName] = useState('');
   const [address, setAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -38,8 +42,15 @@ export function IdentityBetaApp() {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [handle, setHandle] = useState('');
+  const [knownHandle, setKnownHandle] = useState<string | null>(null);
+  const [xLinkAvailable, setXLinkAvailable] = useState(false);
+  const [showUnblock, setShowUnblock] = useState(false);
   const [friendId, setFriendId] = useState('');
+  const [xAuthorization, setXAuthorization] = useState<{ url: string; owner: string; expiresAt: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState('');
+  const activeOperation = useRef(0);
+  const busyRef = useRef(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const generation = useRef(0);
@@ -47,6 +58,7 @@ export function IdentityBetaApp() {
   const clearAuth = useCallback(() => {
     generation.current += 1;
     setSession(null);
+    setXAuthorization(null);
     setFriends([]);
     setOffset(0);
     setHasMore(false);
@@ -54,12 +66,42 @@ export function IdentityBetaApp() {
   }, []);
 
   useEffect(() => {
+    // Request EIP-6963 announcements after subscribing; do not trust the
+    // shared window.ethereum to pick MetaMask when other wallets are installed.
+    const announced = (event: Event) => {
+      const wallet = announcedIdentityWallet(event);
+      if (wallet) setWallets(current => discoveredIdentityWallets(current, wallet));
+    };
+    window.addEventListener('eip6963:announceProvider', announced);
+    window.dispatchEvent(new Event('eip6963:requestProvider'));
+    // Backward-compatible fallback only, shown explicitly as a legacy provider.
+    const legacy = readProvider();
+    if (legacy) setWallets(current => discoveredIdentityWallets(current, {
+      id: 'legacy-injected', name: 'Legacy injected wallet (unidentified)',
+      provider: legacy, source: 'legacy',
+    }));
+    return () => window.removeEventListener('eip6963:announceProvider', announced);
+  }, []);
+
+  useEffect(() => {
+    // Anonymous visits and wallet-connect clicks never trigger identity API calls.
+    // Only a verified, signed-in session may discover whether X linking is ready.
+    if (!session) { setXLinkAvailable(false); return; }
+    let active = true;
+    void readIdentityCapabilities().then(result => { if (active) setXLinkAvailable(result.xLinkAvailable); })
+      .catch(() => { if (active) setXLinkAvailable(false); });
+    return () => { active = false; };
+  }, [session?.profile.veyraUserId]);
+
+  useEffect(() => {
     if (!provider) return;
     const onAccounts = (...values: unknown[]) => {
       clearAuth();
       const accounts = Array.isArray(values[0]) ? values[0] : [];
       const next = typeof accounts[0] === 'string' ? accounts[0] : null;
-      setAddress(next && /^0x[0-9a-fA-F]{40}$/.test(next) ? next : null);
+      const valid = next && /^0x[0-9a-fA-F]{40}$/.test(next) ? next : null;
+      setAddress(valid);
+      setKnownHandle(valid ? readKnownHandle(valid) : null);
     };
     const onChain = (...values: unknown[]) => {
       clearAuth();
@@ -68,6 +110,7 @@ export function IdentityBetaApp() {
     const onDisconnect = () => {
       clearAuth();
       setAddress(null);
+      setKnownHandle(null);
       setChainId(null);
     };
     provider.on?.('accountsChanged', onAccounts);
@@ -80,40 +123,84 @@ export function IdentityBetaApp() {
     };
   }, [provider, clearAuth]);
 
-  async function connect() {
+  async function connect(walletId?: string) {
+    if (busyRef.current) return;
+    if (wallets.length === 0) {
+      setError('No browser wallet found. Enable MetaMask or another wallet, then refresh.');
+      return;
+    }
+    const chosen = walletId ? walletToConnect(wallets, walletId) : quickConnectWallet(wallets);
+    if (!chosen) { setShowWalletChoices(true); return; }
+    setShowWalletChoices(false);
+    busyRef.current = true;
+    const operationId = ++activeOperation.current;
+    const rev = generation.current;
     setBusy(true); setError(''); setMessage('');
+    setPhase('Waiting for your selected wallet to connect. Check the wallet extension window.');
     try {
-      const candidate = readProvider();
-      if (!candidate) throw new Error('Install or enable MetaMask/Rabby in this browser, then reload.');
-      const accounts = await candidate.request({ method: 'eth_requestAccounts' });
+      const candidate = chosen.provider;
+      const accounts = await awaitWalletResponse(candidate.request({ method: 'eth_requestAccounts' }));
       const next: unknown = Array.isArray(accounts) ? accounts[0] : undefined;
-      const network = parseArcChainId(await candidate.request({ method: 'eth_chainId' }));
+      const network = parseArcChainId(await awaitWalletResponse(candidate.request({ method: 'eth_chainId' })));
+      if (operationId !== activeOperation.current || rev !== generation.current) return;
       if (typeof next !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(next)) {
         throw new Error('Your browser wallet did not provide an EVM account.');
       }
       clearAuth();
       setProvider(candidate);
+      setConnectedWalletName(chosen.name);
       setAddress(next);
+      setKnownHandle(readKnownHandle(next));
       setChainId(network);
       if (network !== ARC_TESTNET_CHAIN_ID) setMessage('Wallet connected. Switch to Arc Testnet manually before signing.');
-    } catch (cause) { setError(humanError(cause)); }
-    finally { setBusy(false); }
+    } catch (cause) {
+      if (operationId === activeOperation.current) setError(humanError(cause));
+    } finally {
+      if (operationId === activeOperation.current) {
+        busyRef.current = false; setBusy(false); setPhase('');
+      }
+    }
   }
 
   function disconnect() {
     clearAuth();
-    setProvider(null); setAddress(null); setChainId(null);
+    setProvider(null); setAddress(null); setChainId(null); setKnownHandle(null);
+    setConnectedWalletName('');
+    setShowWalletChoices(false);
     setError(''); setMessage('Wallet hidden in Veyra. To revoke its website permission, use your wallet settings.');
   }
 
+  /**
+   * A cancelled flow is not an aborted provider RPC or a rolled-back database
+   * mutation. Invalidate any later client response; never auto-replay a signed
+   * registration or submission when the status may be uncertain.
+   */
+  function stopWaiting() {
+    generation.current += 1;
+    activeOperation.current += 1;
+    busyRef.current = false;
+    setBusy(false);
+    setPhase('');
+    setMessage('');
+    setError('Stopped waiting in Veyra. If MetaMask still shows a pending request, reject it there. If registration may have been submitted, try Sign in before registering again.');
+  }
+
   async function runAction(action: () => Promise<void>) {
-    setBusy(true); setError(''); setMessage('');
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const operationId = ++activeOperation.current;
+    setBusy(true); setError(''); setMessage(''); setPhase('Preparing identity request…');
     try { await action(); }
     catch (cause) {
+      if (operationId !== activeOperation.current) return;
       const text = humanError(cause);
       setError(text);
-      if (/session expired|unauthorized/i.test(text)) clearAuth();
-    } finally { setBusy(false); }
+      if (cause instanceof VeyraSessionExpiredError) clearAuth();
+    } finally {
+      if (operationId === activeOperation.current) {
+        busyRef.current = false; setBusy(false); setPhase('');
+      }
+    }
   }
 
   function mustWallet() {
@@ -144,18 +231,32 @@ export function IdentityBetaApp() {
       const { selected, connected } = mustWallet();
       const requestedHandle = normalizeBetaHandle(handle);
       const rev = generation.current;
+      setPhase('Contacting Testnet backend for a fresh registration challenge…');
       const challenge = await registerChallenge(requestedHandle, connected);
       if (rev !== generation.current) return;
       const payload = challenge.typedData as { message?: { handle?: string } };
       if (payload.message?.handle !== requestedHandle) throw new Error('Registration handle changed before signing.');
+      setPhase('Waiting for MetaMask approval. Open the wallet extension to review the identity-only signature.');
       const signature = await signReviewedIdentity(selected, challenge, 'register', connected, window.location.origin);
       if (rev !== generation.current) return;
+      setPhase('Validating the current wallet account…');
       await requireMatchingAccount(selected, connected);
+      if (rev !== generation.current) return;
+      setPhase('Submitting the signed identity claim. Do not repeat registration while this is pending…');
       const result = await registerComplete(challenge.claimToken ?? '', signature);
       if (rev !== generation.current) return;
-      setSession({ token: result.sessionToken, profile: result.profile, address: connected });
-      setMessage('Your Veyra ID is registered. Sign in again after refreshing the page.');
-      await refreshFriends({ token: result.sessionToken, profile: result.profile, address: connected });
+      if (!result.profile || typeof result.profile.veyraUserId !== 'string') {
+        throw new Error('Registration was submitted, but the server returned an incomplete profile. Try Sign in before submitting another registration.');
+      }
+      const current = { token: result.sessionToken, profile: result.profile, address: connected };
+      setSession(current);
+      rememberKnownHandle(connected, current.profile.veyraHandle);
+      setKnownHandle(current.profile.veyraHandle);
+      setHandle('');
+      setMessage('Veyra ID created and signed in. No second signature needed.');
+      setPhase('Loading Friends for your new Veyra ID…');
+      try { await refreshFriends(current); }
+      catch { if (rev === generation.current) setMessage('Veyra ID registered successfully; Friends could not refresh yet. Try Refresh friends after signing in.'); }
     });
   }
 
@@ -163,19 +264,64 @@ export function IdentityBetaApp() {
     void runAction(async () => {
       const { selected, connected } = mustWallet();
       const rev = generation.current;
+      setPhase('Contacting Testnet backend for a fresh sign-in challenge…');
       const challenge = await loginChallenge(connected);
       if (rev !== generation.current) return;
+      setPhase('Waiting for MetaMask approval. Open the wallet extension to review the identity-only signature.');
       const signature = await signReviewedIdentity(selected, challenge, 'login', connected, window.location.origin);
       if (rev !== generation.current) return;
+      setPhase('Validating the current wallet account…');
       await requireMatchingAccount(selected, connected);
+      if (rev !== generation.current) return;
+      setPhase('Verifying your signed sign-in with the Testnet backend…');
       const result = await loginComplete(challenge.challengeId ?? '', signature);
       if (rev !== generation.current) return;
+      setPhase('Loading your verified Veyra profile…');
       const profile = await readProfile(result.sessionToken);
       if (rev !== generation.current || result.veyraUserId !== profile.veyraUserId) return;
       const current = { token: result.sessionToken, profile, address: connected };
       setSession(current);
+      rememberKnownHandle(connected, current.profile.veyraHandle);
+      setKnownHandle(current.profile.veyraHandle);
       setMessage('Signed in successfully. No financial permissions were granted.');
-      await refreshFriends(current);
+      setPhase('Loading Friends…');
+      try { await refreshFriends(current); }
+      catch { if (rev === generation.current) setMessage('Signed in successfully; Friends could not refresh yet.'); }
+    });
+  }
+
+  function beginXLink() {
+    void runAction(async () => {
+      const current = mustSession();
+      await requireMatchingAccount(mustWallet().selected, current.address);
+      if (current.profile.x) {
+        throw new Error('An X account is already linked to this Veyra ID.');
+      }
+      const created = await beginXAccountLink(current.token);
+      // Authorization is a separate, explicit step. Do not navigate or open
+      // popups after a network callback. Keep the active Veyra session in memory.
+      const url = verifyXAuthorizationUrl(created.authorizeUrl);
+      const expiresAt = Date.parse(created.expiresAt);
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        throw new Error('X authorization expired. Generate a fresh link.');
+      }
+      setXAuthorization({ url, owner: current.profile.veyraUserId, expiresAt });
+      setMessage('X authorization is ready. Continue with X in a new tab, then refresh your linked profile here.');
+    });
+  }
+
+  function refreshLinkedProfile() {
+    void runAction(async () => {
+      const current = mustSession();
+      await requireMatchingAccount(mustWallet().selected, current.address);
+      const rev = generation.current;
+      const profile = await readProfile(current.token);
+      if (generation.current !== rev || profile.veyraUserId !== current.profile.veyraUserId) return;
+      setSession({ ...current, profile });
+      if (profile.x) setXAuthorization(null);
+      setMessage(profile.x
+        ? 'Verified X account is linked to your existing Veyra ID.'
+        : 'No linked X account yet. Complete authorization in the X tab first.');
     });
   }
 
@@ -183,13 +329,25 @@ export function IdentityBetaApp() {
     void runAction(async () => {
       const current = mustSession();
       await requireMatchingAccount(mustWallet().selected, current.address);
-      if (!/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(target) || target === current.profile.veyraUserId) {
-        throw new Error('Enter another valid Veyra User ID.');
+      let targetId = target;
+      if (action === 'request') {
+        const lookup = normalizeFriendLookup(target);
+        if (lookup.startsWith('usr_')) targetId = lookup;
+        else {
+          const resolved = await resolveFriendIdentity(current.token, lookup);
+          if (resolved.kind !== 'VEYRA_IDENTITY' || !/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(resolved.veyraUserId)) {
+            throw new Error('This is not a verified Veyra ID.');
+          }
+          targetId = resolved.veyraUserId;
+        }
       }
-      if (action === 'request') await sendRequest(current.token, target);
+      if (!/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(targetId) || targetId === current.profile.veyraUserId) {
+        throw new Error('Choose a different verified Veyra ID.');
+      }
+      if (action === 'request') await sendRequest(current.token, targetId);
       else if (action === 'accept' || action === 'reject') {
-        await respondRequest(current.token, target, action === 'accept' ? 'ACCEPT' : 'REJECT');
-      } else await changeBlock(current.token, target, action === 'block');
+        await respondRequest(current.token, targetId, action === 'accept' ? 'ACCEPT' : 'REJECT');
+      } else await changeBlock(current.token, targetId, action === 'block');
       setMessage(action === 'request' ? 'Friend request sent.' : 'Friendship state updated.');
       setFriendId('');
       await refreshFriends(current);
@@ -212,64 +370,90 @@ export function IdentityBetaApp() {
     </header>
     <main className="vi-container">
       <div className="vi-intro">
-        <div className="vi-eyebrow"><Fingerprint size={16}/> IDENTITY · FRIENDS · TRUST</div>
-        <h1>Your identity.<br/><span>Your connections.</span></h1>
-        <p>Build your Veyra ID, reconnect securely, and manage friends through the live Testnet backend. No token approvals, payments or transaction signatures are available here.</p>
+        <div className="vi-eyebrow">VEYRA ID · ARC TESTNET</div>
+        <h1>One identity. <span>Every connection.</span></h1>
+        <p>Your wallet, your people, your Veyra ID.</p>
       </div>
 
-      <div className="vi-steps">
-        <div><span>01</span> Connect wallet</div><ArrowRight size={16}/>
-        <div><span>02</span> Register / Sign in</div><ArrowRight size={16}/>
-        <div><span>03</span> Friends</div>
-      </div>
+
 
       {error && <div role="alert" className="vi-alert vi-error"><XCircle size={18}/><span>{error}</span></div>}
       {message && <div role="status" className="vi-alert vi-info"><CheckCircle2 size={18}/><span>{message}</span></div>}
+      {busy && <div className="vi-wait-panel" role="status" aria-live="polite">
+        <div className="vi-wait-copy">
+          <strong>Identity request in progress</strong>
+          <span>{phase || 'Processing securely…'}</span>
+          <small>Wallet popups may appear behind Chrome. No payment or token approval is requested.</small>
+        </div>
+        <button type="button" className="vi-wait-stop" onClick={stopWaiting}>Stop waiting</button>
+      </div>}
 
       <div className="vi-grid">
         <section className="vi-card">
-          <div className="vi-card-heading"><div className="vi-icon"><Wallet size={20}/></div><div><h2>Wallet connection</h2><p>Arc Testnet · Chain ID 5042002</p></div></div>
+          <div className="vi-card-heading"><div className="vi-icon"><Wallet size={19}/></div><div><h2>Wallet</h2><p>Arc Testnet</p></div></div>
           <div className="vi-network">
-            <span>WALLET STATUS</span>
+            <span>{connectedWalletName || 'SELF-CUSTODIAL WALLET'}</span>
             <strong>{connected ? shortAddress(address!) : 'Not connected'}</strong>
-            <small>{connected ? (correctChain ? 'Correct network · Ready for identity signing' : 'Wrong network · Switch manually in wallet') : 'Choose your browser wallet to get started.'}</small>
+            <small>{connected ? (correctChain ? 'Correct network · Ready for identity signing' : 'Wrong network · Switch manually in wallet') : 'Connect to get started.'}</small>
           </div>
           {!connected
             ? <ActionButton disabled={busy} onClick={()=>void connect()}><Wallet size={16}/> Connect Wallet <ArrowRight size={16}/></ActionButton>
-            : <ActionButton secondary disabled={busy} onClick={disconnect}><LogOut size={16}/> Disconnect</ActionButton>}
-          <p className="vi-footnote"><LockKeyhole size={15}/> Connecting is read-only. Identity signatures are requested only after you explicitly click Register or Sign In.</p>
+            : <ActionButton secondary disabled={busy} onClick={disconnect}>Disconnect</ActionButton>}
+          {!connected && wallets.length > 1 && !showWalletChoices && <button type="button" className="vi-text-link" onClick={()=>setShowWalletChoices(true)}>Other wallets</button>}
+          {!connected && showWalletChoices && <div className="vi-wallet-choices" role="group" aria-label="Available wallet extensions">
+            <div className="vi-wallet-choices-top"><span>Choose a wallet</span><button type="button" aria-label="Close wallet choices" onClick={()=>setShowWalletChoices(false)}>Close</button></div>
+            {wallets.map(wallet => <button type="button" key={wallet.id} onClick={()=>void connect(wallet.id)} disabled={busy}>{wallet.name} <ArrowRight size={15}/></button>)}
+          </div>}
+          <p className="vi-footnote"><LockKeyhole size={14}/> Wallet connection never authorizes payments.</p>
         </section>
 
         <section className="vi-card">
-          <div className="vi-card-heading"><div className="vi-icon"><Fingerprint size={20}/></div><div><h2>Veyra ID</h2><p>One verified identity per wallet on Arc Testnet</p></div></div>
+          <div className="vi-card-heading"><div className="vi-icon"><Fingerprint size={19}/></div><div><h2>Veyra ID</h2><p>One account. Your identity.</p></div></div>
           {session ? <>
-            <div className="vi-profile"><div className="vi-avatar">@</div><div><strong>@{session.profile.veyraHandle}</strong><span>{session.profile.displayName}</span></div><CheckCircle2 size={19}/></div>
-            <div className="vi-id-row"><span>VEYRA USER ID</span><code>{session.profile.veyraUserId}</code>
-              <button type="button" aria-label="Copy Veyra User ID" onClick={()=>void navigator.clipboard.writeText(session.profile.veyraUserId)}><Copy size={15}/></button>
+            <div className="vi-profile"><div className="vi-avatar">@</div><div><strong>{displayVeyraId(session.profile.veyraHandle)}</strong>
+              {session.profile.displayName && session.profile.displayName.toLowerCase() !== session.profile.veyraHandle.toLowerCase() && <span>{session.profile.displayName}</span>}</div><CheckCircle2 size={19}/></div>
+            <div className="vi-id-row"><span>YOUR VEYRA ID · SHARE WITH FRIENDS</span><strong>{displayVeyraId(session.profile.veyraHandle)}</strong>
+              <button type="button" aria-label="Copy Veyra ID" onClick={()=>void navigator.clipboard.writeText(displayVeyraId(session.profile.veyraHandle))}><Copy size={15}/></button>
             </div>
-            <ActionButton secondary disabled={busy} onClick={clearAuth}><LogOut size={16}/> Sign out</ActionButton>
+            <details className="vi-advanced"><summary>Technical account reference</summary><code>{session.profile.veyraUserId}</code></details>
+            <div className="vi-x-inline"><AtSign size={17}/><span>X account</span>
+              <strong>{session.profile.x ? '@' + (session.profile.x.xHandle ?? 'Verified') : 'Not linked'}</strong>
+              {!session.profile.x && <button type="button" onClick={beginXLink} disabled={busy || !xLinkAvailable}
+                title={xLinkAvailable ? 'Link X to this Veyra ID' : 'X OAuth requires server setup'}>Link X</button>}
+              {session.profile.x && <button type="button" onClick={refreshLinkedProfile} disabled={busy}>Refresh</button>}
+            </div>
+            {!session.profile.x && !xLinkAvailable && <p className="vi-quiet">X connection needs server-side OAuth setup. Your Veyra ID remains unchanged.</p>}
+            {xAuthorization?.owner === session.profile.veyraUserId && <a className="vi-x-authorize" href={xAuthorization.url} rel="noopener noreferrer" target="_blank">Continue securely with X <ExternalLink size={14}/></a>}
+            {xAuthorization?.owner === session.profile.veyraUserId && <button type="button" className="vi-text-link" disabled={busy} onClick={refreshLinkedProfile}>I finished connecting X · Refresh</button>}
+            <ActionButton secondary disabled={busy} onClick={clearAuth}>Sign out</ActionButton>
+          </> : !connected ? <p className="vi-quiet">Connect your wallet to continue with your existing Veyra ID or create one.</p>
+          : knownHandle ? <>
+            <div className="vi-known"><span>Welcome back</span><strong>{displayVeyraId(knownHandle)}</strong></div>
+            <ActionButton disabled={!readyToSign} onClick={signIn}><ShieldCheck size={16}/> Continue with wallet</ActionButton>
+            <p className="vi-quiet">One identity signature restores your session after a reload. You never register twice.</p>
+            <button type="button" className="vi-text-link" disabled={busy} onClick={()=>setKnownHandle(null)}>This wallet has no Veyra ID?</button>
           </> : <>
-            <label className="vi-field"><span>NEW ID HANDLE</span><input autoComplete="off" value={handle} onChange={e=>setHandle(e.target.value)} placeholder="e.g. alex_web3" maxLength={31}/></label>
-            <ActionButton disabled={!readyToSign} onClick={register}><Fingerprint size={16}/> Register Veyra ID</ActionButton>
-            <div className="vi-or">ALREADY REGISTERED?</div>
-            <ActionButton disabled={!readyToSign} onClick={signIn} secondary><ShieldCheck size={16}/> Sign in with wallet</ActionButton>
+            <label className="vi-field"><span>CREATE YOUR VEYRA ID</span><input autoComplete="off" value={handle} onChange={e=>setHandle(e.target.value)} placeholder="yourname" maxLength={30}/></label>
+            <p className="vi-preview-id">Your ID: {handle.trim() ? '@' + handle.trim().replace(/^@/,'').toLowerCase() + '.veyra' : '@yourname.veyra'}</p>
+            <ActionButton disabled={!readyToSign || !handle.trim()} onClick={register}><Fingerprint size={16}/> Create Veyra ID</ActionButton>
+            <button type="button" className="vi-text-link" disabled={!readyToSign} onClick={signIn}>Already have a Veyra ID? Sign in</button>
           </>}
-          <p className="vi-footnote"><CircleHelp size={15}/> A signature only proves wallet ownership. Sessions remain in memory and are cleared when you reload or change wallets.</p>
+          <p className="vi-footnote"><ShieldCheck size={14}/> Identity signatures only. No transfers.</p>
         </section>
       </div>
 
       <section className="vi-card vi-friends">
-        <div className="vi-card-heading"><div className="vi-icon"><Users size={20}/></div><div><h2>Friends</h2><p>Real signed-session data from PostgreSQL</p></div>
+        <div className="vi-card-heading"><div className="vi-icon"><Users size={20}/></div><div><h2>Friends</h2><p>People connected to your Veyra ID</p></div>
           <button type="button" className="vi-icon-btn" aria-label="Refresh friends" disabled={!session || busy} onClick={()=>void runAction(async()=>{ await refreshFriends(mustSession());setMessage('Friends refreshed.'); })}><RefreshCcw size={18}/></button>
         </div>
-        {!session ? <div className="vi-empty"><Users size={31}/><strong>Sign in to unlock Friends</strong><p>Your connections stay private until your wallet proves ownership.</p></div> : <>
-          <div className="vi-stats"><div><strong>{connectedCount}</strong><span>Connected</span></div><div><strong>{incoming}</strong><span>Requests received</span></div><div><strong>{friends.length}</strong><span>Loaded records</span></div></div>
-          <label className="vi-field"><span>ADD A FRIEND BY VEYRA USER ID</span><div className="vi-inline"><input value={friendId} onChange={e=>setFriendId(e.target.value.trim())} placeholder="usr_..." autoComplete="off"/><ActionButton disabled={busy || !friendId} onClick={()=>friendAction('request',friendId)}><UserPlus size={16}/> Invite</ActionButton></div></label>
-          <p className="vi-caption">Invite using the Veyra User ID shared by your friend. A friend request grants no financial access.</p>
-          {friends.length===0 ? <div className="vi-empty vi-small-empty"><Users size={26}/><p>No connections yet. Ask a friend to share their Veyra User ID.</p></div> :
+        {!session ? <div className="vi-friends-locked">Sign in to manage your friends.</div> : <>
+          <div className="vi-friends-meta">{connectedCount} connected · {incoming} requests</div>
+          <label className="vi-field"><span>ADD FRIEND BY VEYRA ID</span><div className="vi-inline"><input value={friendId} onChange={e=>setFriendId(e.target.value.trim())} placeholder="@friend.veyra" autoComplete="off"/><ActionButton disabled={busy || !friendId} onClick={()=>friendAction('request',friendId)}><UserPlus size={16}/> Invite</ActionButton></div></label>
+           
+          {friends.length===0 ? <div className="vi-friends-locked">No connections yet.</div> :
             <div className="vi-list">{friends.map(item=><div key={item.veyraUserId} className="vi-friend">
               <div className="vi-friend-avatar">{item.state==='CONNECTED'?'✓':'@'}</div>
-              <div className="vi-friend-body"><strong>{item.veyraUserId}</strong><span>{item.state==='CONNECTED'?'Connected':item.state==='INCOMING_PENDING'?'Incoming request':'Invite sent'}</span></div>
+              <div className="vi-friend-body"><strong>{item.veyraHandle ? displayVeyraId(item.veyraHandle) : shortIdentityReference(item.veyraUserId)}</strong><span>{item.state==='CONNECTED'?'Connected':item.state==='INCOMING_PENDING'?'Incoming request':'Invite sent'}</span></div>
               <div className="vi-friend-actions">
                 {item.state==='INCOMING_PENDING' && <>
                   <button type="button" disabled={busy} onClick={()=>friendAction('accept',item.veyraUserId)}>Accept</button>
@@ -279,8 +463,9 @@ export function IdentityBetaApp() {
               </div>
             </div>)}</div>}
           {hasMore && <ActionButton secondary disabled={busy} onClick={()=>void runAction(async()=>{await refreshFriends(mustSession(),offset);})}>Load more</ActionButton>}
-          <p className="vi-caption">Block or unblock removes previous friendship status; after unblocking, a new friend request is required. For safety, blocked people are not included in this list.</p>
-          <label className="vi-field vi-unblock"><span>UNBLOCK BY USER ID</span><div className="vi-inline"><input value={friendId} onChange={e=>setFriendId(e.target.value.trim())} placeholder="usr_..." autoComplete="off"/><ActionButton secondary disabled={busy || !friendId} onClick={()=>friendAction('unblock',friendId)}>Unblock</ActionButton></div></label>
+           
+          <button type="button" className="vi-text-link vi-unblock-toggle" onClick={()=>setShowUnblock(value=>!value)} aria-expanded={showUnblock}>{showUnblock ? 'Hide blocked account tools' : 'Manage blocked accounts'}</button>
+          {showUnblock && <label className="vi-field vi-unblock"><span>UNBLOCK BY TECHNICAL USER ID</span><div className="vi-inline"><input value={friendId} onChange={e=>setFriendId(e.target.value.trim())} placeholder="usr_..." autoComplete="off"/><ActionButton secondary disabled={busy || !friendId} onClick={()=>friendAction('unblock',friendId)}>Unblock</ActionButton></div></label>}
         </>}
       </section>
       <footer className="vi-footer"><span>Veyra Identity Beta · Experimental · Testnet only</span><a href="https://github.com/bearbaba/Veyra" target="_blank" rel="noreferrer"><Github size={15}/> Open source</a></footer>

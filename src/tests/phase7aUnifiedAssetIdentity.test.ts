@@ -62,6 +62,12 @@ describe('Phase 7A — honest wallet and Unified discovery', () => {
     expect(app).toContain("useState<PreviewNetwork>('testnet')");
     expect(app).toContain('<PreviewMainnetPay/>');
     expect(app).toContain('<PreviewTestnetPayPage />');
-    expect(read('vercel.json')).toContain('VITE_VEYRA_UI_ONLY=1');
+    const hosting = read('vercel.json');
+    if (hosting.includes('VITE_VEYRA_IDENTITY_BETA=1')) {
+      expect(hosting).toContain('VITE_VEYRA_ENV=testnet VITE_VEYRA_IDENTITY_BETA=1');
+      expect(hosting).not.toContain('VITE_VEYRA_MAINNET_PAY=1');
+    } else {
+      expect(hosting).toContain('VITE_VEYRA_UI_ONLY=1');
+    }
   });
 });
