@@ -99,6 +99,13 @@
       "when": 1792588000000,
       "tag": "0013_phase8g_wallet_login",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792740000000,
+      "tag": "0014_phase9a_owner_notifications",
+      "breakpoints": true
     }
   ]
 }

@@ -40,6 +40,7 @@ import { beginWalletLogin, completeWalletLogin, WalletLoginError } from './servi
 import { freezeSnapshot, resolveRecipient, verifySnapshot, IdentityResolutionError } from './services/identityResolver.js';
 import { getAuthenticatedVeyraUserId } from './auth/session.js';
 import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } from './services/friendInboxService.js';
+import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
 import { beginXOAuthLink, completeXOAuthLink, XOAuthError } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
@@ -198,6 +199,11 @@ app.use('/api', GLOBAL_RATE);
 // remains available only outside production for local E2E.
 
 function identityError(res: Response, err: unknown): void {
+  if (err instanceof NotificationInboxError) {
+    res.status(err.code === 'NOTIFICATION_NOT_FOUND' ? 404 : 400)
+      .json({ ok: false, error: err.code, message: err.message });
+    return;
+  }
   if (err instanceof WalletProofError || err instanceof IdentityRegistrationError || err instanceof WalletLoginError) {
     res.status(err.httpStatus).json({ ok: false, error: err.code, message: err.message });
     return;
@@ -345,6 +351,30 @@ app.post('/api/social/unfollow', IDENTITY_RATE, async (req: Request, res: Respon
     const { db } = await import('./db/client.js');
     await unfollow(db, userId, target); res.json({ ok: true });
   } catch (err) { identityError(res, err); }
+});
+
+// Phase 9A — owner-private notifications, never a public event creation API.
+// A payment notification will only be allowed from a VERIFIED chain receipt
+// ingestion boundary in a later phase; no optimistic financial alerts here.
+app.get('/api/notifications', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const owner = getAuthenticatedVeyraUserId(req);
+    if (!owner) { res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' }); return; }
+    const page = parseNotificationPagination(req.query.limit,req.query.offset);
+    const { db } = await import('./db/client.js');
+    res.json({ok:true,...await getNotificationInbox(db,owner,page)});
+  } catch (err) { identityError(res,err); }
+});
+
+app.post('/api/notifications/read', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const owner = getAuthenticatedVeyraUserId(req);
+    if (!owner) { res.status(401).json({ ok:false,error:'AUTH_REQUIRED' }); return; }
+    const input = req.body as Record<string,unknown>;
+    const { db } = await import('./db/client.js');
+    await markOwnerNotificationRead(db,owner,input.notificationId as string);
+    res.json({ok:true});
+  } catch (err) { identityError(res,err); }
 });
 
 // Owner-authenticated read-only Friends inbox. Blocked or historical
