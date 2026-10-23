@@ -10,6 +10,8 @@ Arc is Veyra's home network. Circle USDC and its infrastructure are useful build
 
 **Single-product completion plan:** [Unified Veyra release contract](docs/veyra-single-product-release-contract.md). No standalone PayLink fork and no automatic Mainnet activation.
 
+**Mainnet financial execution is not enabled.** The isolated Identity Beta must not be mistaken for a live signed financial workflow in the unified Production website. **There is no independent security audit.**
+
 ## What can I do today?
 
 This table describes the **Phase 5 candidate**, not a promise that every feature is present on the older Production deployment.
