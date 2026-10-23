@@ -23,9 +23,9 @@ export function announcedIdentityWallet(event: unknown): IdentityWallet | null {
   if (!info || typeof info !== 'object' || !('uuid' in info) || !('name' in info) ||
       typeof info.uuid !== 'string' || !UUID_RE.test(info.uuid) ||
       typeof info.name !== 'string' || !NO_CONTROL.test(info.name) ||
-      !provider || typeof provider !== 'object' || !('request' in provider) ||
+      !info.name.trim() || !provider || typeof provider !== 'object' || !('request' in provider) ||
       typeof provider.request !== 'function') return null;
-  return { id: 'eip6963:' + info.uuid, name: info.name, provider: provider as BrowserProvider, source: 'eip6963' };
+  return { id: 'eip6963:' + info.uuid, name: info.name.trim(), provider: provider as BrowserProvider, source: 'eip6963' };
 }
 
 export function discoveredIdentityWallets(existing: IdentityWallet[], wallet: IdentityWallet): IdentityWallet[] {
