@@ -6,7 +6,7 @@
  * policy/risk/simulation still run before the user can sign.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { isAddress } from 'viem';
@@ -19,11 +19,16 @@ import { BrandLogo } from '../brand/BrandLogo';
 import type { TransferAction } from '@/core/actions/actionSchema';
 import { preparePaymentRecipient, type PreparedRecipient } from '@/lib/api/identityApi';
 import type { IntentCandidate } from '@/core/intent/intentSchema';
+import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
 
 export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipient?: string | null;onFriendRecipientUsed?: () => void} = {}) {
   const { address, isConnected } = useAccount();
+  const social = useUnifiedSocial();
+  // Social only returns an active session for the exact wallet/chain/connector.
+  const sessionToken = social.session?.token;
+  const prepareEpoch = useRef(0);
 
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
@@ -41,10 +46,21 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
   const canProceed = isConnected && recipientValid && amountValid && Boolean(address) && Boolean(usdc) && !resolving;
 
   useEffect(() => {
-    if (!friendRecipient) return;
-    setRecipient(friendRecipient);
+    // A pending snapshot is never reusable after a wallet/session change.
+    prepareEpoch.current += 1;
     setPendingAction(null);
     setPreparedRecipient(null);
+    setResolving(false);
+  }, [address, sessionToken]);
+
+  useEffect(() => {
+    if (!friendRecipient) return;
+    prepareEpoch.current += 1;
+    setRecipient(friendRecipient);
+    setAmount('');
+    setPendingAction(null);
+    setPreparedRecipient(null);
+    setResolving(false);
     setActionError(null);
     onFriendRecipientUsed?.();
   }, [friendRecipient, onFriendRecipientUsed]);
@@ -68,13 +84,21 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
 
   async function handlePrepare() {
     if (!canProceed || !address || !usdc) return;
+    const epoch = ++prepareEpoch.current;
     setActionError(null);
     setResolving(true);
 
     try {
+      // Literal address Pay remains possible without a Social sign-in. Every
+      // person/alias payment MUST use the wallet-bound signed Veyra session.
+      if (!isAddress(recipient) && !sessionToken) {
+        throw new Error('Sign in to your Veyra ID in Social before paying a person.');
+      }
       const prepared: PreparedRecipient = isAddress(recipient)
         ? { kind: 'WALLET', resolvedAddress: recipient, chainId: ARC_TESTNET_CHAIN_ID, snapshot: null }
-        : await preparePaymentRecipient(recipient, ARC_TESTNET_CHAIN_ID);
+        : await preparePaymentRecipient(recipient, ARC_TESTNET_CHAIN_ID, sessionToken!);
+      // Ignore a late backend response after switching wallet/session/friend.
+      if (epoch !== prepareEpoch.current) return;
       if (!isAddress(prepared.resolvedAddress)) throw new Error('Resolved recipient is not a valid EVM address');
 
       const amountParsed = parseAmount(ARC_TESTNET_CHAIN_ID, amount);
@@ -89,10 +113,12 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
       setPreparedRecipient(prepared);
       setPendingAction(action);
     } catch (error) {
-      setPreparedRecipient(null);
-      setActionError(error instanceof Error ? error.message : 'Failed to resolve recipient');
+      if (epoch === prepareEpoch.current) {
+        setPreparedRecipient(null);
+        setActionError(error instanceof Error ? error.message : 'Failed to resolve recipient');
+      }
     } finally {
-      setResolving(false);
+      if (epoch === prepareEpoch.current) setResolving(false);
     }
   }
 
@@ -211,6 +237,7 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
         <TransactionReviewSheet
           action={pendingAction}
           recipient={preparedRecipient}
+          sessionToken={sessionToken}
           onClose={() => { setPendingAction(null); setPreparedRecipient(null); }}
         />
       )}

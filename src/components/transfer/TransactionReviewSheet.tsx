@@ -29,10 +29,11 @@ import type { PreparedRecipient } from '@/lib/api/identityApi';
 interface TransactionReviewSheetProps {
   action: TransferAction;
   recipient?: PreparedRecipient | null;
+  sessionToken?: string;
   onClose: () => void;
 }
 
-export function TransactionReviewSheet({ action, recipient, onClose }: TransactionReviewSheetProps) {
+export function TransactionReviewSheet({ action, recipient, sessionToken, onClose }: TransactionReviewSheetProps) {
   const { policy, risk, loading: evalLoading, error: evalError } = usePipelineEvaluation(action);
   const { state: execState, execute, reset } = useTransferExecution();
 
@@ -188,7 +189,7 @@ export function TransactionReviewSheet({ action, recipient, onClose }: Transacti
                       reviewToken: recipient.snapshot.reviewToken,
                       expectedWalletAddress: action.to,
                       expectedChainId: action.chainId,
-                    } : undefined)}
+                    } : undefined, sessionToken)}
                     disabled={isBlocked || evalLoading}
                     className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed disabled:scale-100"
                     style={{ background: isBlocked ? 'var(--danger)' : 'var(--accent)', color: '#0d1b2f' }}

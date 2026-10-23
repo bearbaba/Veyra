@@ -90,7 +90,7 @@ export function useTransferExecution() {
   const { address, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
 
-  const execute = useCallback(async (action: TransferAction, recipientGuard?: { snapshotId: string; expectedWalletId: string; expectedWalletAddress: string; expectedChainId: number; reviewToken: string }) => {
+  const execute = useCallback(async (action: TransferAction, recipientGuard?: { snapshotId: string; expectedWalletId: string; expectedWalletAddress: string; expectedChainId: number; reviewToken: string }, sessionToken?: string) => {
     if (!publicClient) {
       setState((s) => ({ ...s, step: 'FAILED', error: 'No public client available' }));
       return;
@@ -134,9 +134,13 @@ export function useTransferExecution() {
       }
       actionReservationHeld = true;
 
-      // Revalidate a frozen Veyra identity immediately before wallet signature.
-      // If profile/wallet/revision changed since review, execution fails closed.
-      if (recipientGuard) await verifyPaymentRecipient(recipientGuard);
+      // Revalidate the frozen recipient with the same signed, wallet-bound
+      // identity session used to prepare it. No stored or fallback token.
+      // Missing/expired sessions must block before requesting a wallet signature.
+      if (recipientGuard) {
+        if (!sessionToken) throw new Error('Your Veyra ID session ended. Sign in and review the recipient again.');
+        await verifyPaymentRecipient(recipientGuard, sessionToken);
+      }
 
       // Wallet network is transport state, not product state. Read/plan works
       // cross-network; only request the actual source network when signing.

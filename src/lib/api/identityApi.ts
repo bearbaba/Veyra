@@ -1,16 +1,30 @@
 const DEV_USER_ID = import.meta.env.VITE_DEV_VEYRA_USER_ID as string | undefined;
 
-function authHeaders(): Record<string, string> {
+/**
+ * A payment to a human-readable ID must use the active, wallet-bound Social
+ * session, not a leftover browser storage token from another wallet.
+ * Other legacy identity endpoints retain their old behavior until migrated.
+ */
+export function requireSignedIdentityToken(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 8192 ||
+      !/^[\x21-\x7e]+$/.test(value)) {
+    throw new Error('Sign in to Veyra ID with your connected wallet before reviewing a recipient.');
+  }
+  return value;
+}
+
+function authHeaders(explicitToken?: string): Record<string, string> {
+  if (explicitToken !== undefined) return { Authorization: `Bearer ${requireSignedIdentityToken(explicitToken)}` };
   const token = sessionStorage.getItem('veyra:session-token');
   if (token) return { Authorization: `Bearer ${token}` };
   if (import.meta.env.DEV && DEV_USER_ID) return { 'X-Veyra-User-Id': DEV_USER_ID };
   return {};
 }
 
-async function postJson<T>(path: string, body: Record<string, unknown>): Promise<T> {
+async function postJson<T>(path: string, body: Record<string, unknown>, explicitToken?: string): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(explicitToken) },
     body: JSON.stringify(body),
   });
   const payload = await response.json() as Record<string, unknown>;
@@ -36,11 +50,12 @@ export interface PreparedRecipient {
   };
 }
 
-export async function preparePaymentRecipient(recipient: string, chainId: number): Promise<PreparedRecipient> {
+export async function preparePaymentRecipient(recipient: string, chainId: number, sessionToken: string): Promise<PreparedRecipient> {
+  const signedToken = requireSignedIdentityToken(sessionToken);
   const result = await postJson<{ ok: true; prepared: PreparedRecipient }>('/api/identity/prepare-payment', {
     recipient,
     chainId,
-  });
+  }, signedToken);
   return result.prepared;
 }
 
@@ -50,8 +65,9 @@ export async function verifyPaymentRecipient(input: {
   expectedWalletAddress: string;
   expectedChainId: number;
   reviewToken: string;
-}): Promise<void> {
-  const result = await postJson<{ ok: boolean; reason?: string }>('/api/identity/verify-payment', input);
+}, sessionToken: string): Promise<void> {
+  const signedToken = requireSignedIdentityToken(sessionToken);
+  const result = await postJson<{ ok: boolean; reason?: string }>('/api/identity/verify-payment', input, signedToken);
   if (!result.ok) throw new Error(result.reason ?? 'Recipient identity changed since review');
 }
 
