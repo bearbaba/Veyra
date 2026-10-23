@@ -41,7 +41,7 @@ BEGIN
   INSERT INTO veyra_notifications (
     notification_id, owner_user_id, actor_user_id, kind, event_ref
   ) VALUES (
-    'ntf_' || NEW.connection_id, recipient,
+    'ntf_' || substring(NEW.connection_id FROM 5), recipient,
     CASE WHEN recipient = NEW.user_a_id THEN NEW.user_b_id ELSE NEW.user_a_id END,
     event_kind, NEW.connection_id
   ) ON CONFLICT (owner_user_id, kind, event_ref) DO NOTHING;
