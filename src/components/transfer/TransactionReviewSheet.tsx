@@ -37,7 +37,8 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
   const { policy, risk, loading: evalLoading, error: evalError } = usePipelineEvaluation(action);
   const { state: execState, execute, reset } = useTransferExecution();
 
-  const isBlocked = policy?.decision === 'BLOCKED';
+  const highRisk = risk?.level === 'HIGH' || risk?.level === 'CRITICAL' || risk?.level === 'UNKNOWN';
+  const isBlocked = !policy || !risk || policy.decision === 'BLOCKED' || highRisk;
   const needsConfirmation = policy?.decision === 'NEEDS_CONFIRMATION';
   const isExecuting = ['SIGNING', 'BROADCAST', 'CONFIRMING', 'VERIFYING'].includes(execState.step);
 
@@ -189,13 +190,13 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
                       reviewToken: recipient.snapshot.reviewToken,
                       expectedWalletAddress: action.to,
                       expectedChainId: action.chainId,
-                    } : undefined, sessionToken)}
-                    disabled={isBlocked || evalLoading}
+                    } : undefined, sessionToken, needsConfirmation)}
+                    disabled={isBlocked || evalLoading || Boolean(evalError)}
                     className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed disabled:scale-100"
                     style={{ background: isBlocked ? 'var(--danger)' : 'var(--accent)', color: '#0d1b2f' }}
                   >
                     {isBlocked ? (
-                      <><XCircle className="size-4" /> Blocked by Policy</>
+                      <><XCircle className="size-4" /> Safety checks incomplete or blocked</>
                     ) : needsConfirmation ? (
                       <><AlertTriangle className="size-4" /> Confirm and Sign</>
                     ) : (
