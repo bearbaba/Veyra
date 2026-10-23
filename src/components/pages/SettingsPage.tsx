@@ -9,10 +9,9 @@
 import { useState } from 'react';
 import { useAccount } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
-import { Check, Copy, Link2, Loader2, ShieldCheck, SlidersHorizontal, Wallet } from 'lucide-react';
+import { Check, Copy, Link2, ShieldCheck, SlidersHorizontal, Wallet } from 'lucide-react';
 import { DEFAULT_VEYRA_POLICY } from '@/core/policy/policyEngine';
 import { VEYRA_ENV } from '@/lib/env';
-import { beginXLink } from '@/lib/api/identityApi';
 import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS } from '@/config/productRegistry';
 import { RuntimeStatusCard } from '../system/RuntimeStatusCard';
@@ -24,28 +23,13 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const identity = useVeyraIdentity();
   const social = useUnifiedSocial();
   const [copied, setCopied] = useState(false);
-  const [xLoading, setXLoading] = useState(false);
-  const [xError, setXError] = useState<string | null>(null);
-
   const profile = identity.profile;
 
-  async function linkX() {
-    setXError(null);
-    if (!profile || !social.session) {
-      setXError('Sign in through Social to link X to your existing Veyra identity.');
-      onOpenSocial();
-      return;
-    }
-    if (profile.x) return;
-    setXLoading(true);
-    try {
-      const authorizeUrl = await beginXLink('/settings');
-      window.location.assign(authorizeUrl);
-    } catch (error) {
-      setXError(error instanceof Error ? error.message : 'Unable to start X linking');
-      setXLoading(false);
-    }
-  }
+  // Live Render X OAuth consent and callback have NOT been accepted on the
+  // unified Testnet site. Identity Beta also holds this capability closed.
+  // Never advertise a working Connect X action until OAuth credentials,
+  // redirects and consent E2E pass a separate security release gate.
+  const xLinked = Boolean(profile?.x);
 
   function copyAddress() {
     if (!address) return;
@@ -99,12 +83,12 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
                 {copied ? 'Copied wallet' : 'Copy wallet'}
               </button>
             )}
-            <button onClick={() => void linkX()} disabled={!social.session || Boolean(profile?.x) || xLoading} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
-              {xLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
-              {profile?.x ? 'X linked' : 'Connect X'}
+            <button type="button" disabled aria-label="X linking is not available yet" className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--muted)' }}>
+              <Link2 className="size-3.5" />
+              {xLinked ? 'X linked' : 'X linking unavailable'}
             </button>
           </div>
-          {xError && <p className="mt-3 text-xs" style={{ color: 'var(--warning)' }}>{xError}</p>}
+          {!xLinked && <p className="mt-3 text-xs leading-5" role="status" style={{ color: 'var(--muted)' }}>X linking requires a verified OAuth setup and consent flow. Your Veyra ID and Friends remain unchanged.</p>}
         </div>
 
         <RuntimeStatusCard />
