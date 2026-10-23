@@ -139,6 +139,16 @@ export async function beginXAccountLink(token: string) {
   );
 }
 
+export async function readIdentityCapabilities(): Promise<{ xLinkAvailable: boolean }> {
+  return api<{ok: true; xLinkAvailable: boolean}>('/api/identity/capabilities', 'GET');
+}
+/** Resolve @name.veyra on the trusted backend before inviting by immutable ID. */
+export async function resolveFriendIdentity(token: string, recipient: string) {
+  const value = await api<{ok: true; resolved: {kind:'VEYRA_IDENTITY'; veyraUserId:string} | {kind:'WALLET'; walletAddress:string}}>(
+    '/api/identity/resolve', 'POST', {recipient}, token,
+  );
+  return value.resolved;
+}
 export async function readProfile(token: string) {
   const value = await api<{ok: true; profile: IdentityProfile}>('/api/profile/me', 'GET', undefined, token);
   return value.profile;

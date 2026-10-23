@@ -9,19 +9,13 @@ import {
   type BrowserProvider, type Friend, type IdentityProfile,
 } from './protocol';
 import { announcedIdentityWallet, discoveredIdentityWallets, quickConnectWallet, walletToConnect, type IdentityWallet } from './walletDiscovery';
+import { displayVeyraId, normalizeFriendLookup, readKnownHandle, rememberKnownHandle, shortIdentityReference } from './identityPresentation';
 import {
   VeyraSessionExpiredError, beginXAccountLink, changeBlock, loginChallenge, loginComplete, readFriends, readProfile,
-  registerChallenge, registerComplete, respondRequest, sendRequest,
+  registerChallenge, registerComplete, respondRequest, sendRequest, resolveFriendIdentity, readIdentityCapabilities,
 } from './api';
 
 interface Session { token: string; profile: IdentityProfile; address: string; }
-/**
- * Release gate: X OAuth is not configured on the live BFF. Keep the identity
- * relationship visible, but never present a working authorization button
- * until infrastructure credentials and real X consent have been accepted.
- */
-const X_LINKING_AVAILABLE = false;
-
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
@@ -48,6 +42,9 @@ export function IdentityBetaApp() {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [handle, setHandle] = useState('');
+  const [knownHandle, setKnownHandle] = useState<string | null>(null);
+  const [xLinkAvailable, setXLinkAvailable] = useState(false);
+  const [showUnblock, setShowUnblock] = useState(false);
   const [friendId, setFriendId] = useState('');
   const [xAuthorization, setXAuthorization] = useState<{ url: string; owner: string; expiresAt: number } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -87,12 +84,21 @@ export function IdentityBetaApp() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    void readIdentityCapabilities().then(result => { if (active) setXLinkAvailable(result.xLinkAvailable); })
+      .catch(() => { if (active) setXLinkAvailable(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
     if (!provider) return;
     const onAccounts = (...values: unknown[]) => {
       clearAuth();
       const accounts = Array.isArray(values[0]) ? values[0] : [];
       const next = typeof accounts[0] === 'string' ? accounts[0] : null;
-      setAddress(next && /^0x[0-9a-fA-F]{40}$/.test(next) ? next : null);
+      const valid = next && /^0x[0-9a-fA-F]{40}$/.test(next) ? next : null;
+      setAddress(valid);
+      setKnownHandle(valid ? readKnownHandle(valid) : null);
     };
     const onChain = (...values: unknown[]) => {
       clearAuth();
@@ -101,6 +107,7 @@ export function IdentityBetaApp() {
     const onDisconnect = () => {
       clearAuth();
       setAddress(null);
+      setKnownHandle(null);
       setChainId(null);
     };
     provider.on?.('accountsChanged', onAccounts);
@@ -140,6 +147,7 @@ export function IdentityBetaApp() {
       setProvider(candidate);
       setConnectedWalletName(chosen.name);
       setAddress(next);
+      setKnownHandle(readKnownHandle(next));
       setChainId(network);
       if (network !== ARC_TESTNET_CHAIN_ID) setMessage('Wallet connected. Switch to Arc Testnet manually before signing.');
     } catch (cause) {
@@ -153,7 +161,7 @@ export function IdentityBetaApp() {
 
   function disconnect() {
     clearAuth();
-    setProvider(null); setAddress(null); setChainId(null);
+    setProvider(null); setAddress(null); setChainId(null); setKnownHandle(null);
     setConnectedWalletName('');
     setShowWalletChoices(false);
     setError(''); setMessage('Wallet hidden in Veyra. To revoke its website permission, use your wallet settings.');
@@ -239,7 +247,10 @@ export function IdentityBetaApp() {
       }
       const current = { token: result.sessionToken, profile: result.profile, address: connected };
       setSession(current);
-      setMessage('Your Veyra ID is registered. Sign in again after refreshing the page.');
+      rememberKnownHandle(connected, current.profile.veyraHandle);
+      setKnownHandle(current.profile.veyraHandle);
+      setHandle('');
+      setMessage('Veyra ID created and signed in. No second signature needed.');
       setPhase('Loading Friends for your new Veyra ID…');
       try { await refreshFriends(current); }
       catch { if (rev === generation.current) setMessage('Veyra ID registered successfully; Friends could not refresh yet. Try Refresh friends after signing in.'); }
@@ -267,6 +278,8 @@ export function IdentityBetaApp() {
       if (rev !== generation.current || result.veyraUserId !== profile.veyraUserId) return;
       const current = { token: result.sessionToken, profile, address: connected };
       setSession(current);
+      rememberKnownHandle(connected, current.profile.veyraHandle);
+      setKnownHandle(current.profile.veyraHandle);
       setMessage('Signed in successfully. No financial permissions were granted.');
       setPhase('Loading Friends…');
       try { await refreshFriends(current); }
@@ -313,13 +326,25 @@ export function IdentityBetaApp() {
     void runAction(async () => {
       const current = mustSession();
       await requireMatchingAccount(mustWallet().selected, current.address);
-      if (!/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(target) || target === current.profile.veyraUserId) {
-        throw new Error('Enter another valid Veyra User ID.');
+      let targetId = target;
+      if (action === 'request') {
+        const lookup = normalizeFriendLookup(target);
+        if (lookup.startsWith('usr_')) targetId = lookup;
+        else {
+          const resolved = await resolveFriendIdentity(current.token, lookup);
+          if (resolved.kind !== 'VEYRA_IDENTITY' || !/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(resolved.veyraUserId)) {
+            throw new Error('This is not a verified Veyra ID.');
+          }
+          targetId = resolved.veyraUserId;
+        }
       }
-      if (action === 'request') await sendRequest(current.token, target);
+      if (!/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(targetId) || targetId === current.profile.veyraUserId) {
+        throw new Error('Choose a different verified Veyra ID.');
+      }
+      if (action === 'request') await sendRequest(current.token, targetId);
       else if (action === 'accept' || action === 'reject') {
-        await respondRequest(current.token, target, action === 'accept' ? 'ACCEPT' : 'REJECT');
-      } else await changeBlock(current.token, target, action === 'block');
+        await respondRequest(current.token, targetId, action === 'accept' ? 'ACCEPT' : 'REJECT');
+      } else await changeBlock(current.token, targetId, action === 'block');
       setMessage(action === 'request' ? 'Friend request sent.' : 'Friendship state updated.');
       setFriendId('');
       await refreshFriends(current);
@@ -342,7 +367,7 @@ export function IdentityBetaApp() {
     </header>
     <main className="vi-container">
       <div className="vi-intro">
-        <div className="vi-eyebrow">VEyRA ID · ARC TESTNET</div>
+        <div className="vi-eyebrow">VEYRA ID · ARC TESTNET</div>
         <h1>One identity. <span>Every connection.</span></h1>
         <p>Your wallet, your people, your Veyra ID.</p>
       </div>
@@ -382,23 +407,33 @@ export function IdentityBetaApp() {
         <section className="vi-card">
           <div className="vi-card-heading"><div className="vi-icon"><Fingerprint size={19}/></div><div><h2>Veyra ID</h2><p>One account. Your identity.</p></div></div>
           {session ? <>
-            <div className="vi-profile"><div className="vi-avatar">@</div><div><strong>@{session.profile.veyraHandle}</strong><span>{session.profile.displayName}</span></div><CheckCircle2 size={19}/></div>
-            <div className="vi-id-row"><span>VEYRA USER ID</span><code>{session.profile.veyraUserId}</code>
-              <button type="button" aria-label="Copy Veyra User ID" onClick={()=>void navigator.clipboard.writeText(session.profile.veyraUserId)}><Copy size={15}/></button>
+            <div className="vi-profile"><div className="vi-avatar">@</div><div><strong>{displayVeyraId(session.profile.veyraHandle)}</strong>
+              {session.profile.displayName && session.profile.displayName.toLowerCase() !== session.profile.veyraHandle.toLowerCase() && <span>{session.profile.displayName}</span>}</div><CheckCircle2 size={19}/></div>
+            <div className="vi-id-row"><span>YOUR VEYRA ID · SHARE WITH FRIENDS</span><strong>{displayVeyraId(session.profile.veyraHandle)}</strong>
+              <button type="button" aria-label="Copy Veyra ID" onClick={()=>void navigator.clipboard.writeText(displayVeyraId(session.profile.veyraHandle))}><Copy size={15}/></button>
             </div>
-            <div className="vi-x-inline">
-              <AtSign size={17}/><span>X account</span>
-              <strong>{session.profile.x ? '@' + (session.profile.x.xHandle ?? 'Verified') : 'Not available yet'}</strong>
-              {X_LINKING_AVAILABLE && !session.profile.x && <button type="button" onClick={beginXLink} disabled={busy}>Link X</button>}
-              {X_LINKING_AVAILABLE && session.profile.x && <button type="button" onClick={refreshLinkedProfile} disabled={busy}>Refresh</button>}
+            <details className="vi-advanced"><summary>Technical account reference</summary><code>{session.profile.veyraUserId}</code></details>
+            <div className="vi-x-inline"><AtSign size={17}/><span>X account</span>
+              <strong>{session.profile.x ? '@' + (session.profile.x.xHandle ?? 'Verified') : 'Not linked'}</strong>
+              {!session.profile.x && <button type="button" onClick={beginXLink} disabled={busy || !xLinkAvailable}
+                title={xLinkAvailable ? 'Link X to this Veyra ID' : 'X OAuth requires server setup'}>Link X</button>}
+              {session.profile.x && <button type="button" onClick={refreshLinkedProfile} disabled={busy}>Refresh</button>}
             </div>
-            {X_LINKING_AVAILABLE && xAuthorization?.owner === session.profile.veyraUserId && <a className="vi-text-link" href={xAuthorization.url} rel="noopener noreferrer" target="_blank">Authorize with X <ExternalLink size={14}/></a>}
+            {!session.profile.x && !xLinkAvailable && <p className="vi-quiet">X connection needs server-side OAuth setup. Your Veyra ID remains unchanged.</p>}
+            {xAuthorization?.owner === session.profile.veyraUserId && <a className="vi-x-authorize" href={xAuthorization.url} rel="noopener noreferrer" target="_blank">Continue securely with X <ExternalLink size={14}/></a>}
+            {xAuthorization?.owner === session.profile.veyraUserId && <button type="button" className="vi-text-link" disabled={busy} onClick={refreshLinkedProfile}>I finished connecting X · Refresh</button>}
             <ActionButton secondary disabled={busy} onClick={clearAuth}>Sign out</ActionButton>
+          </> : !connected ? <p className="vi-quiet">Connect your wallet to continue with your existing Veyra ID or create one.</p>
+          : knownHandle ? <>
+            <div className="vi-known"><span>Welcome back</span><strong>{displayVeyraId(knownHandle)}</strong></div>
+            <ActionButton disabled={!readyToSign} onClick={signIn}><ShieldCheck size={16}/> Continue with wallet</ActionButton>
+            <p className="vi-quiet">One identity signature restores your session after a reload. You never register twice.</p>
+            <button type="button" className="vi-text-link" disabled={busy} onClick={()=>setKnownHandle(null)}>This wallet has no Veyra ID?</button>
           </> : <>
-            <label className="vi-field"><span>CHOOSE YOUR VEYRA ID</span><input autoComplete="off" value={handle} onChange={e=>setHandle(e.target.value)} placeholder="e.g. alex_web3" maxLength={31}/></label>
-            <ActionButton disabled={!readyToSign} onClick={register}><Fingerprint size={16}/> Register Veyra ID</ActionButton>
-            <div className="vi-or">Already registered?</div>
-            <ActionButton disabled={!readyToSign} onClick={signIn} secondary><ShieldCheck size={16}/> Sign in with wallet</ActionButton>
+            <label className="vi-field"><span>CREATE YOUR VEYRA ID</span><input autoComplete="off" value={handle} onChange={e=>setHandle(e.target.value)} placeholder="yourname" maxLength={30}/></label>
+            <p className="vi-preview-id">Your ID: {handle.trim() ? '@' + handle.trim().replace(/^@/,'').toLowerCase() + '.veyra' : '@yourname.veyra'}</p>
+            <ActionButton disabled={!readyToSign || !handle.trim()} onClick={register}><Fingerprint size={16}/> Create Veyra ID</ActionButton>
+            <button type="button" className="vi-text-link" disabled={!readyToSign} onClick={signIn}>Already have a Veyra ID? Sign in</button>
           </>}
           <p className="vi-footnote"><ShieldCheck size={14}/> Identity signatures only. No transfers.</p>
         </section>
@@ -410,12 +445,12 @@ export function IdentityBetaApp() {
         </div>
         {!session ? <div className="vi-friends-locked">Sign in to manage your friends.</div> : <>
           <div className="vi-friends-meta">{connectedCount} connected · {incoming} requests</div>
-          <label className="vi-field"><span>ADD FRIEND BY VEYRA ID</span><div className="vi-inline"><input value={friendId} onChange={e=>setFriendId(e.target.value.trim())} placeholder="usr_..." autoComplete="off"/><ActionButton disabled={busy || !friendId} onClick={()=>friendAction('request',friendId)}><UserPlus size={16}/> Invite</ActionButton></div></label>
+          <label className="vi-field"><span>ADD FRIEND BY VEYRA ID</span><div className="vi-inline"><input value={friendId} onChange={e=>setFriendId(e.target.value.trim())} placeholder="@friend.veyra" autoComplete="off"/><ActionButton disabled={busy || !friendId} onClick={()=>friendAction('request',friendId)}><UserPlus size={16}/> Invite</ActionButton></div></label>
            
           {friends.length===0 ? <div className="vi-friends-locked">No connections yet.</div> :
             <div className="vi-list">{friends.map(item=><div key={item.veyraUserId} className="vi-friend">
               <div className="vi-friend-avatar">{item.state==='CONNECTED'?'✓':'@'}</div>
-              <div className="vi-friend-body"><strong>{item.veyraUserId}</strong><span>{item.state==='CONNECTED'?'Connected':item.state==='INCOMING_PENDING'?'Incoming request':'Invite sent'}</span></div>
+              <div className="vi-friend-body"><strong>{item.veyraHandle ? displayVeyraId(item.veyraHandle) : shortIdentityReference(item.veyraUserId)}</strong><span>{item.state==='CONNECTED'?'Connected':item.state==='INCOMING_PENDING'?'Incoming request':'Invite sent'}</span></div>
               <div className="vi-friend-actions">
                 {item.state==='INCOMING_PENDING' && <>
                   <button type="button" disabled={busy} onClick={()=>friendAction('accept',item.veyraUserId)}>Accept</button>
@@ -426,7 +461,8 @@ export function IdentityBetaApp() {
             </div>)}</div>}
           {hasMore && <ActionButton secondary disabled={busy} onClick={()=>void runAction(async()=>{await refreshFriends(mustSession(),offset);})}>Load more</ActionButton>}
            
-          <label className="vi-field vi-unblock"><span>UNBLOCK BY ID</span><div className="vi-inline"><input value={friendId} onChange={e=>setFriendId(e.target.value.trim())} placeholder="usr_..." autoComplete="off"/><ActionButton secondary disabled={busy || !friendId} onClick={()=>friendAction('unblock',friendId)}>Unblock</ActionButton></div></label>
+          <button type="button" className="vi-text-link vi-unblock-toggle" onClick={()=>setShowUnblock(value=>!value)} aria-expanded={showUnblock}>{showUnblock ? 'Hide blocked account tools' : 'Manage blocked accounts'}</button>
+          {showUnblock && <label className="vi-field vi-unblock"><span>UNBLOCK BY TECHNICAL USER ID</span><div className="vi-inline"><input value={friendId} onChange={e=>setFriendId(e.target.value.trim())} placeholder="usr_..." autoComplete="off"/><ActionButton secondary disabled={busy || !friendId} onClick={()=>friendAction('unblock',friendId)}>Unblock</ActionButton></div></label>}
         </>}
       </section>
       <footer className="vi-footer"><span>Veyra Identity Beta · Experimental · Testnet only</span><a href="https://github.com/bearbaba/Veyra" target="_blank" rel="noreferrer"><Github size={15}/> Open source</a></footer>

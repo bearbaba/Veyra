@@ -48,6 +48,7 @@ export interface IdentityProfile {
 }
 export interface Friend {
   veyraUserId: string;
+  veyraHandle?: string | null;
   state: 'CONNECTED' | 'INCOMING_PENDING' | 'OUTGOING_PENDING';
   updatedAt: string;
 }
