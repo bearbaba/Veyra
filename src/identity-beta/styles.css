@@ -68,3 +68,12 @@
   .vi-card{padding:18px}
   .vi-grid{margin-top:20px}
 }
+
+/* Last-resort crash state: never leave the user on a black page. */
+.vi-fallback{min-height:100vh;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;max-width:460px;margin:auto;padding:32px 24px;color:#eaf4ef}
+.vi-fallback-mark{width:44px;height:44px;border:1px solid #a9df83;color:#b9f27c;border-radius:12px;display:grid;place-items:center;font-size:24px;font-weight:700}
+.vi-fallback h1{font-size:clamp(26px,5vw,36px);letter-spacing:-.9px;margin:20px 0 8px}
+.vi-fallback p{font-size:14px;line-height:1.6;color:#a8b8b9}
+.vi-fallback button{background:#b9f27c;color:#112117;border:0;border-radius:9px;padding:12px 21px;font-weight:700;margin:18px 0 10px}
+.vi-fallback small{display:block;color:#849a9a;line-height:1.5}
+.vi-fallback a{display:inline-block;color:#b9f27c;margin-top:12px;text-decoration:underline;text-underline-offset:3px}
