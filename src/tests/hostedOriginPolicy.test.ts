@@ -17,6 +17,23 @@ describe('hosted browser Origin enforcement', () => {
     expect(evaluateBrowserOrigin(undefined, 'https://veyra.example', true))
       .toEqual({ allowed: true, responseOrigin: undefined });
   });
+  it('accepts only the explicitly configured second TESTNET website', () => {
+    const additional = 'https://veyra-unified-testnet.example';
+    const primary = 'https://veyra-identity.example';
+    expect(evaluateBrowserOrigin(additional,primary,true,additional))
+      .toEqual({allowed:true,responseOrigin:additional});
+    for (const hostile of [
+      'https://veyra-unified-testnet.example.evil.com',
+      'http://veyra-unified-testnet.example',
+      'https://veyra-unified-testnet.example/',
+      'https://unrelated.example',
+    ]) {
+      expect(evaluateBrowserOrigin(hostile,primary,true,additional).allowed).toBe(false);
+    }
+    expect(evaluateBrowserOrigin(additional,primary,true).allowed).toBe(false);
+    expect(evaluateBrowserOrigin(undefined,primary,true,additional))
+      .toEqual({allowed:true,responseOrigin:undefined});
+  });
   it('keeps local developer wildcard CORS behavior', () => {
     expect(evaluateBrowserOrigin('http://localhost:5173', undefined, false))
       .toEqual({ allowed: true, responseOrigin: '*' });

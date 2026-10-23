@@ -136,6 +136,9 @@ app.use((req: Request, res: Response, next: NextFunction): void => {
     req.header('origin'),
     allowedOrigin,
     runtimeConfig.environment === 'mainnet' || runtimeConfig.hostedBackend,
+    runtimeConfig.environment === 'testnet' && runtimeConfig.hostedBackend
+      ? runtimeConfig.testnetSecondaryAppOrigin
+      : undefined,
   );
   res.setHeader('Vary', 'Origin');
   if (!originDecision.allowed) {
