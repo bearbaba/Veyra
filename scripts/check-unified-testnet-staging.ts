@@ -25,5 +25,6 @@ must(read('src/config.ts').includes('arcTestnet'),'Arc Testnet must be the walle
 must(read('src/lib/env.ts').includes('VITE_VEYRA_UI_ONLY'),'UI only must retain its independent guard');
 must(read('src/providers/registry/mainnetProviderManifest.ts').includes('enabled: false'),'Mainnet financial provider must be disabled');
 must(!/enabled:\s*true/.test(read('src/providers/registry/mainnetProviderManifest.ts')),'A Mainnet financial provider is enabled');
-must(!read('vercel.json').includes('/api/:path*'),'Wildcard backend forwarding is forbidden');
-console.log('[unified testnet staging] PASS: full App testnet build, no BFF proxy, no Mainnet signer, no production alias.');
+must(!cfg.rewrites?.some((item:unknown)=>typeof item==='object' && item!==null &&
+  'source' in item && item.source==='/api/:path*'), 'Wildcard backend forwarding is forbidden');
+console.log('[unified testnet staging] PASS: full App testnet build, exact audited BFF routes, no Mainnet signer, no production alias.');
