@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  ArrowRight, AtSign, CheckCircle2, CircleHelp, Copy, ExternalLink, Fingerprint, Github, LockKeyhole,
-  LogOut, RefreshCcw, ShieldCheck, UserPlus, Users, Wallet, XCircle,
+  ArrowRight, AtSign, CheckCircle2, Copy, ExternalLink, Fingerprint, Github, LockKeyhole,
+  RefreshCcw, ShieldCheck, UserPlus, Users, Wallet, XCircle,
 } from 'lucide-react';
 import {
   ARC_TESTNET_CHAIN_ID, awaitWalletResponse, parseArcChainId, readProvider, requireArcWallet,
@@ -409,8 +409,8 @@ export function IdentityBetaApp() {
           <button type="button" className="vi-icon-btn" aria-label="Refresh friends" disabled={!session || busy} onClick={()=>void runAction(async()=>{ await refreshFriends(mustSession());setMessage('Friends refreshed.'); })}><RefreshCcw size={18}/></button>
         </div>
         {!session ? <div className="vi-friends-locked">Sign in to manage your friends.</div> : <>
-          <div className="vi-stats"><div><strong>{connectedCount}</strong><span>Connected</span></div><div><strong>{incoming}</strong><span>Requests received</span></div><div><strong>{friends.length}</strong><span>Loaded records</span></div></div>
-          <label className="vi-field"><span>ADD A FRIEND BY VEYRA USER ID</span><div className="vi-inline"><input value={friendId} onChange={e=>setFriendId(e.target.value.trim())} placeholder="usr_..." autoComplete="off"/><ActionButton disabled={busy || !friendId} onClick={()=>friendAction('request',friendId)}><UserPlus size={16}/> Invite</ActionButton></div></label>
+          <div className="vi-friends-meta">{connectedCount} connected · {incoming} requests</div>
+          <label className="vi-field"><span>ADD FRIEND BY VEYRA ID</span><div className="vi-inline"><input value={friendId} onChange={e=>setFriendId(e.target.value.trim())} placeholder="usr_..." autoComplete="off"/><ActionButton disabled={busy || !friendId} onClick={()=>friendAction('request',friendId)}><UserPlus size={16}/> Invite</ActionButton></div></label>
            
           {friends.length===0 ? <div className="vi-friends-locked">No connections yet.</div> :
             <div className="vi-list">{friends.map(item=><div key={item.veyraUserId} className="vi-friend">
@@ -426,7 +426,7 @@ export function IdentityBetaApp() {
             </div>)}</div>}
           {hasMore && <ActionButton secondary disabled={busy} onClick={()=>void runAction(async()=>{await refreshFriends(mustSession(),offset);})}>Load more</ActionButton>}
            
-          <label className="vi-field vi-unblock"><span>UNBLOCK BY USER ID</span><div className="vi-inline"><input value={friendId} onChange={e=>setFriendId(e.target.value.trim())} placeholder="usr_..." autoComplete="off"/><ActionButton secondary disabled={busy || !friendId} onClick={()=>friendAction('unblock',friendId)}>Unblock</ActionButton></div></label>
+          <label className="vi-field vi-unblock"><span>UNBLOCK BY ID</span><div className="vi-inline"><input value={friendId} onChange={e=>setFriendId(e.target.value.trim())} placeholder="usr_..." autoComplete="off"/><ActionButton secondary disabled={busy || !friendId} onClick={()=>friendAction('unblock',friendId)}>Unblock</ActionButton></div></label>
         </>}
       </section>
       <footer className="vi-footer"><span>Veyra Identity Beta · Experimental · Testnet only</span><a href="https://github.com/bearbaba/Veyra" target="_blank" rel="noreferrer"><Github size={15}/> Open source</a></footer>
