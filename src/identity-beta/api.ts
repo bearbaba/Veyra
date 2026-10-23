@@ -13,6 +13,14 @@ interface ErrorPayload {
   error?: string;
   message?: string;
 }
+
+/** A protected endpoint rejected the in-memory signed bearer session. */
+export class VeyraSessionExpiredError extends Error {
+  constructor() {
+    super('Your signed-in session is missing or expired. Sign in with your verified wallet.');
+    this.name = 'VeyraSessionExpiredError';
+  }
+}
 /**
  * Classify only server-approved error codes. Do not treat registration proof
  * rejection as an expired authenticated session: registration has no session yet.
@@ -90,6 +98,10 @@ async function api<T>(
   }
   const result = await response.json() as ErrorPayload;
   if (!response.ok || result.ok === false) {
+    // Registration/login challenge 401 is a cryptographic verification issue,
+    // not a session expiry. Only owner-authenticated requests with a supplied
+    // bearer session can invalidate the existing in-memory login.
+    if (response.status === 401 && token) throw new VeyraSessionExpiredError();
     if (response.status === 404 && path.endsWith('/wallet-login/challenge')) {
       throw new Error('This wallet has no Veyra ID. Register first.');
     }
