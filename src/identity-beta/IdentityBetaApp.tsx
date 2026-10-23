@@ -4,7 +4,7 @@ import {
   LogOut, RefreshCcw, ShieldCheck, UserPlus, Users, Wallet, XCircle,
 } from 'lucide-react';
 import {
-  ARC_TESTNET_CHAIN_ID, parseArcChainId, readProvider, requireArcWallet,
+  ARC_TESTNET_CHAIN_ID, awaitWalletResponse, parseArcChainId, readProvider, requireArcWallet,
   requireMatchingAccount, normalizeBetaHandle, signReviewedIdentity, verifyXAuthorizationUrl,
   type BrowserProvider, type Friend, type IdentityProfile,
 } from './protocol';
@@ -45,6 +45,9 @@ export function IdentityBetaApp() {
   const [friendId, setFriendId] = useState('');
   const [xAuthorization, setXAuthorization] = useState<{ url: string; owner: string; expiresAt: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState('');
+  const activeOperation = useRef(0);
+  const busyRef = useRef(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const generation = useRef(0);
@@ -105,13 +108,19 @@ export function IdentityBetaApp() {
   }, [provider, clearAuth]);
 
   async function connect() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const operationId = ++activeOperation.current;
+    const rev = generation.current;
     setBusy(true); setError(''); setMessage('');
+    setPhase('Waiting for your selected wallet to connect. Check the wallet extension window.');
     try {
       const chosen = walletToConnect(wallets, selectedWalletId);
       const candidate = chosen.provider;
-      const accounts = await candidate.request({ method: 'eth_requestAccounts' });
+      const accounts = await awaitWalletResponse(candidate.request({ method: 'eth_requestAccounts' }));
       const next: unknown = Array.isArray(accounts) ? accounts[0] : undefined;
-      const network = parseArcChainId(await candidate.request({ method: 'eth_chainId' }));
+      const network = parseArcChainId(await awaitWalletResponse(candidate.request({ method: 'eth_chainId' })));
+      if (operationId !== activeOperation.current || rev !== generation.current) return;
       if (typeof next !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(next)) {
         throw new Error('Your browser wallet did not provide an EVM account.');
       }
@@ -122,8 +131,13 @@ export function IdentityBetaApp() {
       setAddress(next);
       setChainId(network);
       if (network !== ARC_TESTNET_CHAIN_ID) setMessage('Wallet connected. Switch to Arc Testnet manually before signing.');
-    } catch (cause) { setError(humanError(cause)); }
-    finally { setBusy(false); }
+    } catch (cause) {
+      if (operationId === activeOperation.current) setError(humanError(cause));
+    } finally {
+      if (operationId === activeOperation.current) {
+        busyRef.current = false; setBusy(false); setPhase('');
+      }
+    }
   }
 
   function disconnect() {
@@ -133,14 +147,37 @@ export function IdentityBetaApp() {
     setError(''); setMessage('Wallet hidden in Veyra. To revoke its website permission, use your wallet settings.');
   }
 
+  /**
+   * A cancelled flow is not an aborted provider RPC or a rolled-back database
+   * mutation. Invalidate any later client response; never auto-replay a signed
+   * registration or submission when the status may be uncertain.
+   */
+  function stopWaiting() {
+    generation.current += 1;
+    activeOperation.current += 1;
+    busyRef.current = false;
+    setBusy(false);
+    setPhase('');
+    setMessage('');
+    setError('Stopped waiting in Veyra. If MetaMask still shows a pending request, reject it there. If registration may have been submitted, try Sign in before registering again.');
+  }
+
   async function runAction(action: () => Promise<void>) {
-    setBusy(true); setError(''); setMessage('');
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const operationId = ++activeOperation.current;
+    setBusy(true); setError(''); setMessage(''); setPhase('Preparing identity request…');
     try { await action(); }
     catch (cause) {
+      if (operationId !== activeOperation.current) return;
       const text = humanError(cause);
       setError(text);
       if (cause instanceof VeyraSessionExpiredError) clearAuth();
-    } finally { setBusy(false); }
+    } finally {
+      if (operationId === activeOperation.current) {
+        busyRef.current = false; setBusy(false); setPhase('');
+      }
+    }
   }
 
   function mustWallet() {
@@ -171,18 +208,29 @@ export function IdentityBetaApp() {
       const { selected, connected } = mustWallet();
       const requestedHandle = normalizeBetaHandle(handle);
       const rev = generation.current;
+      setPhase('Contacting Testnet backend for a fresh registration challenge…');
       const challenge = await registerChallenge(requestedHandle, connected);
       if (rev !== generation.current) return;
       const payload = challenge.typedData as { message?: { handle?: string } };
       if (payload.message?.handle !== requestedHandle) throw new Error('Registration handle changed before signing.');
+      setPhase('Waiting for MetaMask approval. Open the wallet extension to review the identity-only signature.');
       const signature = await signReviewedIdentity(selected, challenge, 'register', connected, window.location.origin);
       if (rev !== generation.current) return;
+      setPhase('Validating the current wallet account…');
       await requireMatchingAccount(selected, connected);
+      if (rev !== generation.current) return;
+      setPhase('Submitting the signed identity claim. Do not repeat registration while this is pending…');
       const result = await registerComplete(challenge.claimToken ?? '', signature);
       if (rev !== generation.current) return;
-      setSession({ token: result.sessionToken, profile: result.profile, address: connected });
+      if (!result.profile || typeof result.profile.veyraUserId !== 'string') {
+        throw new Error('Registration was submitted, but the server returned an incomplete profile. Try Sign in before submitting another registration.');
+      }
+      const current = { token: result.sessionToken, profile: result.profile, address: connected };
+      setSession(current);
       setMessage('Your Veyra ID is registered. Sign in again after refreshing the page.');
-      await refreshFriends({ token: result.sessionToken, profile: result.profile, address: connected });
+      setPhase('Loading Friends for your new Veyra ID…');
+      try { await refreshFriends(current); }
+      catch { if (rev === generation.current) setMessage('Veyra ID registered successfully; Friends could not refresh yet. Try Refresh friends after signing in.'); }
     });
   }
 
@@ -190,19 +238,27 @@ export function IdentityBetaApp() {
     void runAction(async () => {
       const { selected, connected } = mustWallet();
       const rev = generation.current;
+      setPhase('Contacting Testnet backend for a fresh sign-in challenge…');
       const challenge = await loginChallenge(connected);
       if (rev !== generation.current) return;
+      setPhase('Waiting for MetaMask approval. Open the wallet extension to review the identity-only signature.');
       const signature = await signReviewedIdentity(selected, challenge, 'login', connected, window.location.origin);
       if (rev !== generation.current) return;
+      setPhase('Validating the current wallet account…');
       await requireMatchingAccount(selected, connected);
+      if (rev !== generation.current) return;
+      setPhase('Verifying your signed sign-in with the Testnet backend…');
       const result = await loginComplete(challenge.challengeId ?? '', signature);
       if (rev !== generation.current) return;
+      setPhase('Loading your verified Veyra profile…');
       const profile = await readProfile(result.sessionToken);
       if (rev !== generation.current || result.veyraUserId !== profile.veyraUserId) return;
       const current = { token: result.sessionToken, profile, address: connected };
       setSession(current);
       setMessage('Signed in successfully. No financial permissions were granted.');
-      await refreshFriends(current);
+      setPhase('Loading Friends…');
+      try { await refreshFriends(current); }
+      catch { if (rev === generation.current) setMessage('Signed in successfully; Friends could not refresh yet.'); }
     });
   }
 
@@ -287,6 +343,14 @@ export function IdentityBetaApp() {
 
       {error && <div role="alert" className="vi-alert vi-error"><XCircle size={18}/><span>{error}</span></div>}
       {message && <div role="status" className="vi-alert vi-info"><CheckCircle2 size={18}/><span>{message}</span></div>}
+      {busy && <div className="vi-wait-panel" role="status" aria-live="polite">
+        <div className="vi-wait-copy">
+          <strong>Identity request in progress</strong>
+          <span>{phase || 'Processing securely…'}</span>
+          <small>Wallet popups may appear behind Chrome. No payment or token approval is requested.</small>
+        </div>
+        <button type="button" className="vi-wait-stop" onClick={stopWaiting}>Stop waiting</button>
+      </div>}
 
       <div className="vi-grid">
         <section className="vi-card">
