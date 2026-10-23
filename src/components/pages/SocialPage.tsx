@@ -62,7 +62,7 @@ export function SocialPage(){
       </div>
       <section className="rounded-2xl border p-5" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
         <h2 className="flex items-center gap-2 font-bold"><MessageCircle size={18}/> Private conversations</h2>
-        <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Private chat is not released: authenticated encryption, key recovery and abuse protections must pass testing first. No messages are fabricated or transmitted here.</p>
+        <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Messaging is not enabled: authenticated encryption, key recovery and abuse protections must pass testing first. No messages are fabricated or transmitted here.</p>
       </section>
     </>}
   </div>;
