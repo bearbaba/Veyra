@@ -13,13 +13,15 @@ import {
   Bot,
   SendHorizontal,
   LayoutList,
+  Users,
   Settings,
   Command,
 } from 'lucide-react';
 import { CommandBar } from '../command/CommandBar';
 import { WebPreviewBanner } from '../system/WebPreviewBanner';
+import { NotificationBell } from '../../features/social/NotificationBell';
 
-export type VeyraPage = 'home' | 'agent' | 'pay' | 'convert' | 'bridge' | 'activity' | 'settings';
+export type VeyraPage = 'home' | 'agent' | 'pay' | 'convert' | 'bridge' | 'activity' | 'social' | 'settings';
 
 interface NavItem {
   id: VeyraPage;
@@ -32,6 +34,7 @@ const PRIMARY_NAV: NavItem[] = [
   { id: 'pay', label: 'Pay', icon: <SendHorizontal className="size-5" /> },
   { id: 'agent', label: 'Agent', icon: <Bot className="size-5" /> },
   { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
+  { id: 'social', label: 'Social', icon: <Users className="size-5" /> },
 ];
 
 const SETTINGS_NAV: NavItem = { id: 'settings', label: 'Settings', icon: <Settings className="size-5" /> };
@@ -100,6 +103,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
             <span className="display font-bold" style={{ color: 'var(--ink)' }}>Veyra</span>
           </div>
           <div className="flex items-center gap-2">
+            <NotificationBell openSocial={() => onNavigate('social')} />
             <button
               onClick={() => onNavigate('settings')}
               className="rounded-xl p-2"
@@ -119,6 +123,9 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
           </div>
         </header>
 
+        <div className="hidden md:flex items-center justify-end border-b px-5 py-2" style={{ borderColor: 'var(--border)' }}>
+          <NotificationBell openSocial={() => onNavigate('social')} />
+        </div>
         <WebPreviewBanner />
 
         <div className="flex-1 overflow-y-auto">

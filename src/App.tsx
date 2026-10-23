@@ -17,6 +17,8 @@ import { ActivityPage } from './components/pages/ActivityPage';
 import { UiOnlyPreviewPage } from './components/pages/UiOnlyPreviewPage';
 import { IS_UI_ONLY_PREVIEW } from './lib/env';
 import { SettingsPage } from './components/pages/SettingsPage';
+import { SocialPage } from './components/pages/SocialPage';
+import { UnifiedSocialProvider } from './features/social/UnifiedSocial';
 
 export default function App() {
   const [page, setPage] = useState<VeyraPage>('home');
@@ -37,14 +39,18 @@ export default function App() {
         return <ActivityPage readOnly={IS_UI_ONLY_PREVIEW} />;
       case 'settings':
         return <SettingsPage />;
+      case 'social':
+        return <SocialPage />;
       default:
         return <HomePage onNavigate={setPage} />;
     }
   }
 
   return (
-    <AppShell page={page} onNavigate={setPage}>
-      {renderPage()}
-    </AppShell>
+    <UnifiedSocialProvider>
+      <AppShell page={page} onNavigate={setPage}>
+        {renderPage()}
+      </AppShell>
+    </UnifiedSocialProvider>
   );
 }
