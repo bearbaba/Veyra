@@ -16,16 +16,22 @@ export function RuntimeStatusCard() {
 
   useEffect(() => {
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 3000);
+    const timer = window.setTimeout(() => controller.abort(), 10000);
 
     void fetch('/api/health/readiness', { signal: controller.signal })
       .then(async (response) => {
+        const type = response.headers?.get?.('content-type') ?? '';
+        if (!response.ok || (type && !type.includes('application/json'))) {
+          throw new Error('Backend readiness endpoint unavailable');
+        }
         const payload = await response.json() as ReadinessPayload;
         setEnvironment(payload.environment ?? 'unknown');
         const failed = payload.checks?.filter((check) => check.ok === false).length ?? 0;
         if (payload.ok === true) {
           setStatus('online');
-          setSummary('Production readiness checks are passing.');
+          setSummary(payload.environment === 'testnet'
+            ? 'Testnet backend checks passed. Mainnet financial execution remains locked.'
+            : 'Backend checks passed. Financial release gates are evaluated separately.');
         } else {
           setStatus('degraded');
           setSummary(`${failed} readiness gate${failed === 1 ? '' : 's'} remain closed.`);
@@ -33,7 +39,7 @@ export function RuntimeStatusCard() {
       })
       .catch(() => {
         setStatus('offline');
-        setSummary('BFF is not running. The interface is still available for UI testing.');
+        setSummary('Backend readiness is unavailable. No financial readiness is assumed.');
       })
       .finally(() => window.clearTimeout(timer));
 
@@ -67,7 +73,7 @@ export function RuntimeStatusCard() {
         <span className="mt-0.5" style={{ color }}>{icon}</span>
         <div>
           <p className="text-sm font-medium" style={{ color: 'var(--ink)' }}>
-            {status === 'loading' ? 'Checking' : status === 'online' ? 'Ready' : status === 'degraded' ? 'Protected' : 'UI-only'}
+            {status === 'loading' ? 'Checking' : status === 'online' ? 'Testnet checks OK' : status === 'degraded' ? 'Protected' : 'Unavailable'}
           </p>
           <p className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>{summary}</p>
           <p className="mt-2 text-xs font-mono" style={{ color: 'var(--subtle)' }}>environment: {environment}</p>

@@ -7,6 +7,12 @@ const read=(path:string)=>readFileSync(new URL('../'+path,import.meta.url),'utf8
 afterEach(()=>vi.unstubAllGlobals());
 
 describe('unified Veyra Testnet X OAuth remains explicitly gated',()=>{
+ it('never labels Testnet BFF checks as production payment readiness',()=>{
+   const card=read('components/system/RuntimeStatusCard.tsx');
+   expect(card).toContain('Testnet backend checks passed. Mainnet financial execution remains locked.');
+   expect(card).not.toContain('Production readiness checks are passing.');
+   expect(card).not.toContain("? 'Ready' :");
+ });
  it('does not display actionable X linking or launch OAuth on an unconfigured site',()=>{
   const settings=read('components/pages/SettingsPage.tsx');
   expect(settings).toContain('X linking unavailable');
