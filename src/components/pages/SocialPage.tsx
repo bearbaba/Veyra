@@ -43,7 +43,7 @@ export function SocialPage(){
               className="rounded-xl px-3 text-sm font-semibold disabled:opacity-50" style={{background:'var(--accent)',color:'var(--bg)'}}>Invite</button></form>
           {social.friends.length===0?<p className="text-sm" style={{color:'var(--muted)'}}>No friends or pending requests in your verified account.</p>:
             social.friends.map(item=><div key={item.veyraUserId} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3" style={{borderColor:'var(--border)'}}>
-              <div><b className="text-sm">{friendLabel(item)}</b><p className="text-xs" style={{color:'var(--muted)'}}>{item.state.replaceAll('_',' ').toLowerCase()}</p></div>
+              <div><b className="text-sm">{friendLabel(item)}</b><p className="text-xs" style={{color:'var(--muted)'}}>{item.state .replace(/_/g,' ').toLowerCase()}</p></div>
               <div className="flex gap-2">{item.state==='INCOMING_PENDING'&&<>
                 <button type="button" disabled={social.busy} onClick={()=>void social.respond(item.veyraUserId,'ACCEPT')} className="rounded-lg border px-2 py-1 text-xs" style={{borderColor:'var(--success)'}}>Accept</button>
                 <button type="button" disabled={social.busy} onClick={()=>void social.respond(item.veyraUserId,'REJECT')} className="rounded-lg border px-2 py-1 text-xs" style={{borderColor:'var(--border)'}}>Decline</button></>}
@@ -55,7 +55,7 @@ export function SocialPage(){
           <p className="text-xs" style={{color:'var(--muted)'}}>{social.unreadCount} unread · Authenticated events only</p>
           {social.notices.length===0?<p className="text-sm" style={{color:'var(--muted)'}}>No verified notifications.</p>:
             social.notices.map(item=><div key={item.notificationId} className="rounded-xl border p-3 text-xs" style={{borderColor:'var(--border)'}}>
-              <b>{item.kind.replaceAll('_',' ').toLowerCase()}</b><time className="block" style={{color:'var(--muted)'}}>{new Date(item.createdAt).toLocaleString()}</time>
+              <b>{item.kind .replace(/_/g,' ').toLowerCase()}</b><time className="block" style={{color:'var(--muted)'}}>{new Date(item.createdAt).toLocaleString()}</time>
               {!item.readAt&&<button type="button" disabled={social.busy} className="mt-1 underline" onClick={()=>void social.markRead(item.notificationId)}>Mark read</button>}
             </div>)}
         </section>
