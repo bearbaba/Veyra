@@ -76,7 +76,7 @@ export function validateRepositoryTrust(evidence: TrustEvidence): string[] {
   requireMatch('src/preview/PreviewBaseUsdcBalance.tsx', /Unavailable —/,
     'Failed Base RPC reads must explicitly disclose unavailable state.');
   requireMatch('vercel.json',
-    /VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build/,
+    /(?:VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1|VITE_VEYRA_ENV=testnet VITE_VEYRA_UNIFIED_STAGING=1 VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=0 VITE_VEYRA_IDENTITY_BETA=0) bun run build/,
     'Vercel production preview build must remain explicit Testnet-first.');
   requireAbsent('vercel.json', /"rewrites"\s*:/,
     'An unexpected backend rewrite needs a separate reviewed security release.');

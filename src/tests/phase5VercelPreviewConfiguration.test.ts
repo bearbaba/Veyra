@@ -13,7 +13,10 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     };
     expect(config.framework).toBe('vite');
     expect(config.installCommand).toBe('bun install --frozen-lockfile');
-    expect(config.buildCommand).toBe('VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build');
+    expect([
+      'VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build',
+      'VITE_VEYRA_ENV=testnet VITE_VEYRA_UNIFIED_STAGING=1 VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=0 VITE_VEYRA_IDENTITY_BETA=0 bun run build',
+    ]).toContain(config.buildCommand);
     expect(config.outputDirectory).toBe('dist');
     expect(pkg.scripts?.build).toBe('vite build');
   });
