@@ -3,7 +3,9 @@ import {readFileSync} from 'node:fs';
 const read=(p:string)=>readFileSync(new URL('../../'+p,import.meta.url),'utf8');
 describe('dedicated Veyra Testnet staging web cannot silently promote mainnet or backend',()=>{
  it('builds full app only for isolated candidate, not the financial Production config',()=>{
-  const c=JSON.parse(read('vercel.json'));
+  const c=JSON.parse(read('vercel.json')) as {
+    buildCommand?:string;rewrites?:unknown[];env?:Record<string,string>;
+  };
   expect(c.buildCommand).toBe('VITE_VEYRA_ENV=testnet VITE_VEYRA_UNIFIED_STAGING=1 VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=0 VITE_VEYRA_IDENTITY_BETA=0 bun run build');
   expect(c.rewrites).toBeUndefined();
   expect(c.env).toBeUndefined();
