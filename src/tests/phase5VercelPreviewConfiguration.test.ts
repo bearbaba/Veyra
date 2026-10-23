@@ -199,9 +199,9 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     // Vercel financial Production remains older and separate. A dedicated
     // Identity Beta and Testnet BFF are deployed, but a READY service does not
     // establish live wallet acceptance, let alone Mainnet payment approval.
-    expect(readme).toContain('older financial Vercel Production release from `develop`');
-    expect(readme).toContain('real wallet/consent browser acceptance pending');
-    expect(readme).toContain('Mainnet financial execution disabled');
+    expect(readme).toContain('The isolated Identity Beta must not be mistaken for a live signed financial workflow in the unified Production website.');
+    expect(readme).toContain('X OAuth consent, private chat, unified Pay-by-ID E2E');
+    expect(readme).toContain('Mainnet financial execution is not enabled');
     expect(runbook).toContain('DATABASE_URL');
     expect(runbook).toContain('UI-only preview');
     expect(runbook).toContain('second wallet-signing/broadcast boundary remains');

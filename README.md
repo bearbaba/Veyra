@@ -1,12 +1,16 @@
 # Veyra
 
-**Your Identity. Your Friends. Your Money.**
+**The Intelligent Money Layer on Arc**
 
-Veyra is an open-source, **self-custodial** Web3 application for paying people in USDC. Its distinguishing idea is **Veyra ID**: a human-readable identity that can connect verified wallets, friends, and payments without forcing people to memorize long wallet addresses.
+Veyra is an open-source, **self-custodial** USDC financial application with the original product priorities **Send / Pay → Unified Balance / Portfolio → Bridge → Swap**. The AI Agent supports financial intent, but never signs or authorizes money movement. Veyra ID, Friends, linked X, private chat and notifications strengthen this **same app**; they are not a replacement mission or separate product.
 
 Arc is Veyra's home network. Circle USDC and its infrastructure are useful building blocks, **not** an endorsement or a guarantee of swaps, yields, or third-party protocols.
 
-> **Release status (22 October 2026):** active development, **not Mainnet payment-ready**. The dedicated [Identity & Friends Beta](https://veyra-identity-friends-beta.vercel.app) has a Vercel **READY** deployment (Phase 8M isolated branch), and the Testnet BFF/PostgreSQL run on Render; that does **not** prove real-wallet EIP-712 registration, X OAuth consent, Friends or Pay by ID end-to-end acceptance. A real-browser registration has returned `INVALID_SIGNATURE`; the new client-side signer check is deployed but still needs independent wallet acceptance. The older financial Vercel Production release from `develop` remains separate, with Mainnet financial execution disabled. There is **no independent security audit**.
+> **Release status (23 October 2026):** under development, **not Mainnet money-movement ready**. The isolated Identity Beta has a confirmed manual two-wallet Friends result, while the signed-session Notification Inbox backend was merged into the guarded development branch but has not been integrated/deployed into the main app. The unified financial Vercel Production remains separate. X OAuth consent, private chat, unified Pay-by-ID E2E, Bridge/Swap release validation, Mainnet canary and an independent security review remain incomplete.
+
+**Single-product completion plan:** [Unified Veyra release contract](docs/veyra-single-product-release-contract.md). No standalone PayLink fork and no automatic Mainnet activation.
+
+**Mainnet financial execution is not enabled.** The isolated Identity Beta must not be mistaken for a live signed financial workflow in the unified Production website. **There is no independent security audit.**
 
 ## What can I do today?
 
@@ -17,7 +21,7 @@ This table describes the **Phase 5 candidate**, not a promise that every feature
 | **Wallet Connect** | Detect EIP-6963/EIP-1193 browser wallets; explicit account permission | Wallet connection **does not** authorize payment |
 | **Send & Pay** | Direct wallet-approved **Arc Testnet USDC** transfer and independent onchain receipt check | Maximum **1 testnet USDC per transfer**, not Veyra-ID Pay |
 | **Unified** | Public, read-only wallet-held **USDC on Arc and Base** in Testnet/Mainnet views | Not Circle Gateway pooled balance; RPC failures show unavailable; other assets are catalog metadata |
-| **Veyra ID** | Hosted Testnet BFF + PostgreSQL and separate Identity & Friends Beta with wallet-signed claims, Friends and optional X OAuth linking | BFF and Vercel deployed; **real wallet/consent browser acceptance pending**; Pay by ID is **not** a deployed signed payment flow |
+| **Veyra ID** | Hosted Testnet BFF + PostgreSQL and separate Identity & Friends Beta with wallet-signed claims, Friends and optional X OAuth linking | Two-wallet Friends manually accepted on the isolated Beta; X consent, main-app integration and Pay-by-ID settlement are **not** accepted |
 | **AI Assistant** | Informational endpoint via a separately protected Vercel function if configured | Not a signer, financial executor, or substitute for an exact quote |
 | **Activity** | Local Testnet payment journal and recovery in public Preview; durable owner-scoped receipts in backend source | Cross-device backend receipts **not hosted** in static Preview |
 | **Bridge / Convert / Swap / Earn** | Provider adapters and isolated recovery, verification, or simulation code exist | **Not active** public financial routes; Earn/Borrow/Onramp are deferred |
@@ -42,7 +46,7 @@ Confirm in your own wallet → Verify the onchain receipt
 
 The `.veyra` suffix is a **Veyra application handle**, **not** a registered DNS or ENS domain. Behind the handle is an immutable internal user ID. One account may connect several verified wallets, but Veyra must **refuse** ambiguous same-chain recipient wallets. Payment reviews bind an authenticated sender to the selected wallet ID/address, chain and a short-lived, **30-second** identity snapshot. Friend status, messages and the AI Assistant confer **no signing authority**.
 
-**Currently available:** the Testnet BFF/PostgreSQL infrastructure and an isolated browser Identity & Friends Beta. CI exercises disposable signed wallets and sessions. **Still needed:** genuine two-wallet browser acceptance, exact X OAuth callback/consent configuration and evidence, and a real signed Testnet Pay-by-ID transaction with verified receipt. No Mainnet payment execution is enabled.
+**Currently available:** the Testnet BFF/PostgreSQL infrastructure and an isolated browser Identity & Friends Beta. CI exercises disposable signed wallets and sessions. **Still needed:** unified-app auth, X OAuth consent evidence, secure chat, main-app notifications and a real signed Testnet Pay-by-ID transaction with verified receipt. No Mainnet payment execution is enabled.
 
 ## Architecture at a glance
 

@@ -1,3 +1,5 @@
+> **ARCHIVED ALTERNATIVE — not selected (23 October 2026).** A standalone PayLink is NOT part of Veyra's current plan. Finish the original Veyra financial app and its Identity/Social integration before using Arc Studio to test/implement an approved Veyra Arc Mainnet payment. This historical prompt does not authorize a second product, Mainnet signing, or real spending. See [single-product release contract](veyra-single-product-release-contract.md).
+
 # Arc Studio build prompt — Veyra PayLink (Arc Microgrants 2)
 
 **Purpose:** copy the prompt below into Arc Studio (https://studio.arc.io if available via Arc's official site; verify the official launch link before authenticating). This document is a build specification, **not evidence that Arc Studio has built, tested or deployed anything**.

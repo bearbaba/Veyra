@@ -42,12 +42,14 @@ export function validateRepositoryTrust(evidence: TrustEvidence): string[] {
   }
 
   // Marketing text must say what exists today, not what is planned.
-  requireMatch('README.md', /Your Identity\. Your Friends\. Your Money\./,
-    'README must state the approved Veyra ID social-payment identity.');
-  requireMatch('README.md', /(?:Mainnet financial execution is not enabled|Mainnet financial execution disabled)/i,
+  requireMatch('README.md', /The Intelligent Money Layer on Arc/,
+    'README must retain the original Veyra financial application mission.');
+  requireMatch('README.md', /Mainnet financial execution is not enabled/i,
     'README must disclose disabled Mainnet financial execution.');
-  requireMatch('README.md', /(?:full login, Friends and Pay-by-ID require a hosted authenticated backend|real wallet\/consent browser acceptance pending)/i,
-    'README must distinguish source-level Veyra ID from a live hosted identity service.');
+  requireMatch('README.md', /isolated Identity Beta.*(?:unified|financial)/i,
+    'README must distinguish the isolated working Identity Beta from unified Production.');
+  requireMatch('README.md', /docs\/veyra-single-product-release-contract\.md/,
+    'README must link the single-product release gate contract.');
   requireMatch('README.md', /not a promise that every feature is present on the older Production deployment/i,
     'README must distinguish active Phase 5 candidate from older Production.');
   requireMatch('README.md', /Circle Gateway pooled balance/i,
