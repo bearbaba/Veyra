@@ -38,11 +38,13 @@ describe('Phase 8Q minimal, secure Veyra ID UX', () => {
     expect(app).toContain('role="group" aria-label="Available wallet extensions"');
   });
 
-  it('keeps unavailable X OAuth visibly disabled without offering a broken button', () => {
-    expect(app).toContain('const X_LINKING_AVAILABLE = false;');
-    expect(app).toContain('Not available yet');
-    expect(app).toContain('X_LINKING_AVAILABLE && !session.profile.x');
+  it('shows X linking only when the authenticated backend reports ready', () => {
+    expect(app).toContain('const [xLinkAvailable, setXLinkAvailable] = useState(false)');
+    expect(app).toContain('void readIdentityCapabilities()');
+    expect(app).toContain('if (!session) { setXLinkAvailable(false); return; }');
+    expect(app).toContain('disabled={busy || !xLinkAvailable}');
     expect(app).toContain("session.profile.x.xHandle");
+    expect(app).toContain('X connection needs server-side OAuth setup');
     expect(app).not.toContain('Link your X account</h2>');
   });
 
