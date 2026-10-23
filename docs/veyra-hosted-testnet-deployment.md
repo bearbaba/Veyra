@@ -105,3 +105,11 @@ GitHub, screenshots, chat or browser-visible `VITE_*` variables.
 
 Render blueprint spec: https://render.com/docs/blueprint-spec
 Render health checks: https://render.com/docs/health-checks
+
+## 23 Oct 2026: one Veyra app, two *explicitly trusted* testnet frontends
+
+The temporary Identity Beta and the integrated full Veyra Testnet acceptance URL may share the **same Veyra ID database and wallet-bound user records**, without enabling wildcard origins. The primary `VEYRA_APP_ORIGIN` stays pinned to the existing Identity Beta origin during acceptance. Once a stable integrated HTTPS staging URL exists, the Render operator may configure **one** `VEYRA_TESTNET_ADDITIONAL_ORIGIN=https://<exact-host>`, with no path, trailing slash, wildcard or comma-separated values.
+
+The runtime rejects malformed or duplicate secondary origins and forbids the variable entirely under Mainnet. Requests with a foreign browser `Origin` are rejected before any identity route, regardless of headers or bearer tokens. This does not deploy the integrated frontend or activate financial signers. Database migrations, authenticated Render redeploy, and two-wallet HTTPS acceptance remain independent conditions.
+
+**Do not manually rewrite or spoof Origin headers to evade the backend gate.** When the main Veyra website has passed acceptance, replace the primary origin deliberately and remove the temporary secondary origin.

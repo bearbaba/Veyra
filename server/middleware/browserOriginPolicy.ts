@@ -10,9 +10,11 @@ export function evaluateBrowserOrigin(
   origin: string | undefined,
   appOrigin: string | undefined,
   hosted: boolean,
+  secondaryOrigin?: string,
 ): { allowed: boolean; responseOrigin: string | undefined } {
   if (!hosted) return { allowed: true, responseOrigin: '*' };
   if (!appOrigin || appOrigin === '*') return { allowed: false, responseOrigin: undefined };
-  if (origin && origin !== appOrigin) return { allowed: false, responseOrigin: undefined };
-  return { allowed: true, responseOrigin: origin === appOrigin ? appOrigin : undefined };
+  const matched = origin && (origin === appOrigin || origin === secondaryOrigin) ? origin : undefined;
+  if (origin && !matched) return { allowed: false, responseOrigin: undefined };
+  return { allowed: true, responseOrigin: matched };
 }

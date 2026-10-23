@@ -11,6 +11,7 @@ export interface ServerRuntimeConfig {
   hostedBackend: boolean;
   databaseUrl?: string;
   appOrigin?: string;
+  testnetSecondaryAppOrigin?: string;
   sessionSecretConfigured: boolean;
   signerBackend: SignerBackend;
   kmsKeyId?: string;
@@ -48,6 +49,7 @@ export function readServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env): S
     hostedBackend: env.VEYRA_HOSTED_BACKEND === '1' || (env.NODE_ENV === 'production' && env.VEYRA_ENV === 'testnet'),
     databaseUrl: env.DATABASE_URL,
     appOrigin: env.VEYRA_APP_ORIGIN,
+    testnetSecondaryAppOrigin: env.VEYRA_TESTNET_ADDITIONAL_ORIGIN,
     sessionSecretConfigured: Boolean(env.VEYRA_SESSION_SECRET && env.VEYRA_SESSION_SECRET.length >= 32),
     signerBackend: resolveSignerBackend(env),
     kmsKeyId: env.VEYRA_KMS_KEY_ID,
@@ -123,6 +125,13 @@ export function validateServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env
           errors.push('Hosted BFF VEYRA_APP_ORIGIN must be an exact HTTPS origin without path, userinfo or trailing slash.');
         }
       }
+      if (config.testnetSecondaryAppOrigin) {
+        const extra = config.testnetSecondaryAppOrigin;
+        if (!isHttpsUrl(extra) || new URL(extra).origin !== extra ||
+            extra === config.appOrigin || !/^https:\/\/[a-z0-9.-]+(?::[0-9]{2,5})?$/i.test(extra)) {
+          errors.push('VEYRA_TESTNET_ADDITIONAL_ORIGIN must be one distinct, exact HTTPS origin, not a wildcard or list.');
+        }
+      }
       if (env.RELAY_PRIVATE_KEY && env.VEYRA_ENABLE_TESTNET_RELAY !== '1') {
         errors.push('Hosted BFF forbids RELAY_PRIVATE_KEY unless VEYRA_ENABLE_TESTNET_RELAY=1 is explicitly configured.');
       }
@@ -133,6 +142,7 @@ export function validateServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env
     return { ok: errors.length === 0, errors, warnings };
   }
 
+  if (config.testnetSecondaryAppOrigin) errors.push('Mainnet must not allow VEYRA_TESTNET_ADDITIONAL_ORIGIN.');
   if (config.nodeEnv !== 'production') errors.push('Mainnet requires NODE_ENV=production.');
   if (!config.databaseUrl) errors.push('Mainnet requires DATABASE_URL.');
   else if (/localhost|127\.0\.0\.1/i.test(config.databaseUrl)) errors.push('Mainnet DATABASE_URL must not point to localhost.');
