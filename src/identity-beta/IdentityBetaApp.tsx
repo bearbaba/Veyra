@@ -43,6 +43,7 @@ export function IdentityBetaApp() {
   const [hasMore, setHasMore] = useState(false);
   const [handle, setHandle] = useState('');
   const [knownHandle, setKnownHandle] = useState<string | null>(null);
+  const [showRegistration, setShowRegistration] = useState(false);
   const [xLinkAvailable, setXLinkAvailable] = useState(false);
   const [showUnblock, setShowUnblock] = useState(false);
   const [friendId, setFriendId] = useState('');
@@ -58,6 +59,7 @@ export function IdentityBetaApp() {
   const clearAuth = useCallback(() => {
     generation.current += 1;
     setSession(null);
+    setShowRegistration(false);
     setXAuthorization(null);
     setFriends([]);
     setOffset(0);
@@ -101,6 +103,7 @@ export function IdentityBetaApp() {
       const next = typeof accounts[0] === 'string' ? accounts[0] : null;
       const valid = next && /^0x[0-9a-fA-F]{40}$/.test(next) ? next : null;
       setAddress(valid);
+      setShowRegistration(false);
       setKnownHandle(valid ? readKnownHandle(valid) : null);
     };
     const onChain = (...values: unknown[]) => {
@@ -150,6 +153,7 @@ export function IdentityBetaApp() {
       setProvider(candidate);
       setConnectedWalletName(chosen.name);
       setAddress(next);
+      setShowRegistration(false);
       setKnownHandle(readKnownHandle(next));
       setChainId(network);
       if (network !== ARC_TESTNET_CHAIN_ID) setMessage('Wallet connected. Switch to Arc Testnet manually before signing.');
@@ -164,7 +168,7 @@ export function IdentityBetaApp() {
 
   function disconnect() {
     clearAuth();
-    setProvider(null); setAddress(null); setChainId(null); setKnownHandle(null);
+    setProvider(null); setAddress(null); setChainId(null); setKnownHandle(null); setShowRegistration(false);
     setConnectedWalletName('');
     setShowWalletChoices(false);
     setError(''); setMessage('Wallet hidden in Veyra. To revoke its website permission, use your wallet settings.');
@@ -194,7 +198,20 @@ export function IdentityBetaApp() {
     catch (cause) {
       if (operationId !== activeOperation.current) return;
       const text = humanError(cause);
-      setError(text);
+      if (text.startsWith('This wallet already belongs to a Veyra ID.')) {
+        // A returning wallet must never be trapped in another registration.
+        // This changes UI state only: no automatic wallet signature or replay.
+        setShowRegistration(false);
+        setError('');
+        setMessage('This wallet already has a Veyra ID. Continue with wallet to sign in.');
+      } else if (text === 'This wallet has no Veyra ID. Register first.') {
+        // The server confirmed the wallet is unregistered; show creation now.
+        setShowRegistration(true);
+        setError('');
+        setMessage('No Veyra ID found for this wallet. Choose a name to create one.');
+      } else {
+        setError(text);
+      }
       if (cause instanceof VeyraSessionExpiredError) clearAuth();
     } finally {
       if (operationId === activeOperation.current) {
@@ -426,17 +443,20 @@ export function IdentityBetaApp() {
             {xAuthorization?.owner === session.profile.veyraUserId && <a className="vi-x-authorize" href={xAuthorization.url} rel="noopener noreferrer" target="_blank">Continue securely with X <ExternalLink size={14}/></a>}
             {xAuthorization?.owner === session.profile.veyraUserId && <button type="button" className="vi-text-link" disabled={busy} onClick={refreshLinkedProfile}>I finished connecting X · Refresh</button>}
             <ActionButton secondary disabled={busy} onClick={clearAuth}>Sign out</ActionButton>
-          </> : !connected ? <p className="vi-quiet">Connect your wallet to continue with your existing Veyra ID or create one.</p>
-          : knownHandle ? <>
-            <div className="vi-known"><span>Welcome back</span><strong>{displayVeyraId(knownHandle)}</strong></div>
+          </> : !connected ? <p className="vi-quiet">Connect your wallet to continue.</p>
+          : !showRegistration ? <>
+            {knownHandle && <div className="vi-known"><span>Welcome back</span><strong>{displayVeyraId(knownHandle)}</strong></div>}
             <ActionButton disabled={!readyToSign} onClick={signIn}><ShieldCheck size={16}/> Continue with wallet</ActionButton>
-            <p className="vi-quiet">One identity signature restores your session after a reload. You never register twice.</p>
-            <button type="button" className="vi-text-link" disabled={busy} onClick={()=>setKnownHandle(null)}>This wallet has no Veyra ID?</button>
+            <p className="vi-quiet">One secure identity signature signs you in. No payments or transfers.</p>
+            <button type="button" className="vi-text-link" disabled={busy}
+              onClick={()=>{setShowRegistration(true);setError('');setMessage('');}}>New to Veyra? Create an ID</button>
           </> : <>
-            <label className="vi-field"><span>CREATE YOUR VEYRA ID</span><input autoComplete="off" value={handle} onChange={e=>setHandle(e.target.value)} placeholder="yourname" maxLength={30}/></label>
+            <label className="vi-field"><span>CREATE YOUR VEYRA ID</span><input autoComplete="off" value={handle}
+              onChange={e=>setHandle(e.target.value)} placeholder="yourname" maxLength={30}/></label>
             <p className="vi-preview-id">Your ID: {handle.trim() ? '@' + handle.trim().replace(/^@/,'').toLowerCase() + '.veyra' : '@yourname.veyra'}</p>
             <ActionButton disabled={!readyToSign || !handle.trim()} onClick={register}><Fingerprint size={16}/> Create Veyra ID</ActionButton>
-            <button type="button" className="vi-text-link" disabled={!readyToSign} onClick={signIn}>Already have a Veyra ID? Sign in</button>
+            <button type="button" className="vi-text-link" disabled={busy}
+              onClick={()=>{setShowRegistration(false);setError('');setMessage('');}}>Already registered? Continue with wallet</button>
           </>}
           <p className="vi-footnote"><ShieldCheck size={14}/> Identity signatures only. No transfers.</p>
         </section>
