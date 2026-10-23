@@ -17,7 +17,7 @@ describe('wallet-bound Veyra session is reused by Identity Pay and pre-sign veri
     expect(spy).not.toHaveBeenCalled();
   });
   it('uses the explicit session and does not even READ legacy sessionStorage',async()=>{
-    const fake=vi.fn(async()=>({ok:true,json:async()=>({ok:true,prepared:{
+    const fake=vi.fn(async (_url: string, _options?: RequestInit)=>({ok:true,json:async()=>({ok:true,prepared:{
       kind:'VEYRA_IDENTITY',resolvedAddress:'0x2222222222222222222222222222222222222222',
       chainId:5042002,snapshot:{snapshotId:'snp_test',veyraUserId:'usr_123456789ABCDEFGJ',
       veyraHandle:'friend',displayName:'Friend',avatarUrl:null,expiresAt:'2026-12-01T00:00:00Z',
@@ -31,7 +31,7 @@ describe('wallet-bound Veyra session is reused by Identity Pay and pre-sign veri
     expect(opts.headers.Authorization).toBe('Bearer signed-wallet-token');
   });
   it('passes owner auth for pre-sign snapshot validation instead of a stale stored token',async()=>{
-    const fake=vi.fn(async()=>({ok:true,json:async()=>({ok:true})}));
+    const fake=vi.fn(async (_url: string, _options?: RequestInit)=>({ok:true,json:async()=>({ok:true})}));
     vi.stubGlobal('fetch',fake);
     vi.stubGlobal('sessionStorage',{getItem:()=>{throw new Error('Storage token must not authorize the payment');}});
     await verifyPaymentRecipient({
@@ -51,7 +51,7 @@ describe('wallet-bound Veyra session is reused by Identity Pay and pre-sign veri
     expect(pay).toContain('prepareEpoch.current += 1');
     expect(pay).toContain('epoch !== prepareEpoch.current');
     expect(pay).toContain('Sign in to your Veyra ID in Social before paying a person.');
-    expect(review).toContain('sessionToken={');
+    expect(pay).toContain('sessionToken={sessionToken}');
     expect(hook).toContain('verifyPaymentRecipient(recipientGuard, sessionToken)');
     expect(hook).toContain('Your Veyra ID session ended.');
   });
