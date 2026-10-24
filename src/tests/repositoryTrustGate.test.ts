@@ -37,7 +37,7 @@ describe('Veyra repository safety / README provenance contract', () => {
   });
   it('fails if Vercel starts forwarding to an unreviewed financial backend', () => {
     const rewrite = modified('vercel.json', value => value.replace(
-      '"framework": "vite"', '"framework": "vite", "rewrites": []'));
+      'https://veyra-testnet-acceptance-bff.onrender.com/api/health', 'https://attacker.example/api/health'));
     expect(validateRepositoryTrust(rewrite)).toContain(
       'An unexpected backend rewrite needs a separate reviewed security release.');
   });
