@@ -229,7 +229,7 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
                   done={['CONFIRMING', 'VERIFYING', 'DONE'].includes(execState.step)}
                 />
                 <ExecutionStep
-                  label="Waiting for confirmation"
+                  label="Waiting for 12 Arc Testnet confirmations"
                   active={execState.step === 'CONFIRMING'}
                   done={['VERIFYING', 'DONE'].includes(execState.step)}
                 />
