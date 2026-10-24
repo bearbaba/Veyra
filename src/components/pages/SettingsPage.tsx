@@ -18,6 +18,7 @@ import { PRODUCT_ASSETS, PRODUCT_NETWORKS } from '@/config/productRegistry';
 import { RuntimeStatusCard } from '../system/RuntimeStatusCard';
 import { BrandLogo } from '../brand/BrandLogo';
 import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
+import { VeyraIdentityAccess } from '../identity/VeyraIdentityAccess';
 
 export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const { address, isConnected } = useAccount();
@@ -26,14 +27,20 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const [copied, setCopied] = useState(false);
   const [xLoading, setXLoading] = useState(false);
   const [xError, setXError] = useState<string | null>(null);
+  // The unified Testnet preview cannot complete X OAuth callbacks and must
+  // not offer a redirect that ends in a dead route or a second ID flow.
+  const xLinkUnavailable = import.meta.env.VITE_VEYRA_UNIFIED_STAGING === '1';
 
   const profile = identity.profile;
 
   async function linkX() {
     setXError(null);
+    if (xLinkUnavailable) {
+      setXError('X linking is not available on this Testnet Preview. Your connected wallet and Veyra ID are unchanged.');
+      return;
+    }
     if (!profile || !social.session) {
-      setXError('Sign in through Social to link X to your existing Veyra identity.');
-      onOpenSocial();
+      setXError('Sign in below with your connected wallet before linking X. Your Veyra ID will not change.');
       return;
     }
     if (profile.x) return;
@@ -75,15 +82,17 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--subtle)' }}>Veyra identity</div>
                 <div className="mt-1 text-xl font-bold" style={{ color: 'var(--ink)' }}>{profile ? `@${profile.veyraHandle}.veyra` : 'Not created'}</div>
-                <div className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>{profile ? 'Verified for your connected wallet' : 'Sign in once through Social'}</div>
+                <div className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>{profile ? 'Verified for your connected wallet' : 'Sign in with the connected wallet on this page'}</div>
               </div>
             </div>
-            {!profile && (
-              <button onClick={onOpenSocial} className="rounded-xl px-3.5 py-2.5 text-xs font-bold" style={{ background: 'linear-gradient(135deg,#c8ff65,#91e9b5)', color: '#0b1b25' }}>
-                Continue with Veyra ID
-              </button>
+            {profile && (
+              <button type="button" onClick={onOpenSocial}
+                className="rounded-xl border px-3.5 py-2.5 text-xs font-semibold"
+                style={{ borderColor:'var(--border-strong)', color:'var(--ink)' }}>Open Friends</button>
             )}
           </div>
+
+          {!profile && <div className="mt-4"><VeyraIdentityAccess/></div>}
 
           <div className="mt-5 grid gap-2 sm:grid-cols-3">
             <AccountEndpoint label="Wallet" value={isConnected && address ? shortAddress(address) : 'Not connected'} ready={isConnected} icon={<Wallet className="size-4" />} />
@@ -99,11 +108,12 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
                 {copied ? 'Copied wallet' : 'Copy wallet'}
               </button>
             )}
-            <button onClick={() => void linkX()} disabled={!social.session || Boolean(profile?.x) || xLoading} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
+            <button onClick={() => void linkX()} disabled={xLinkUnavailable || social.identityOrigin !== 'ready' || !social.session || Boolean(profile?.x) || xLoading} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
               {xLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
-              {profile?.x ? 'X linked' : 'Connect X'}
+              {profile?.x ? 'X linked' : xLinkUnavailable ? 'X linking unavailable' : 'Connect X'}
             </button>
           </div>
+          {xLinkUnavailable && <p role="status" className="mt-3 text-xs" style={{color:'var(--muted)'}}>X OAuth needs an approved callback and verified backend configuration. It is disabled on this Preview, not a second account registration.</p>}
           {xError && <p className="mt-3 text-xs" style={{ color: 'var(--warning)' }}>{xError}</p>}
         </div>
 
