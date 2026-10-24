@@ -5,12 +5,13 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAccount, usePublicClient } from 'wagmi';
-import { loadAllReceipts, saveReceipt } from '@/core/receipt/receiptStore';
+import { loadAllReceipts, saveReceipt, RECEIPT_CHANGED_EVENT } from '@/core/receipt/receiptStore';
 import type { VeyraReceipt } from '@/core/receipt/receiptTypes';
 import {
   receiptBelongsToWallet,
   canReconcilePendingPay,
   reconcilePendingPayReceipt,
+  hasCanonicalPayFinality,
 } from '@/core/receipt/payReceiptReconciliation';
 import { MANIFEST_CONSTANTS } from '@/providers/registry/providerManifest';
 
@@ -46,11 +47,23 @@ export function useReceiptStore() {
             const verified = await reconcilePendingPayReceipt(
               previous,
               (hash) => publicClient.getTransactionReceipt({ hash }),
+              async (txReceipt) => {
+                const [head, block] = await Promise.all([
+                  publicClient.getBlockNumber(),
+                  publicClient.getBlock({ blockNumber: txReceipt.blockNumber }),
+                ]);
+                return hasCanonicalPayFinality(txReceipt, head, block.hash);
+              },
             );
             if (verified !== previous) {
               owned[i] = verified;
-              try { await saveReceipt(verified); }
-              catch { syncFailed = true; }
+              // A still-PENDING receipt is a fresh display hint, not a new
+              // durable state. Avoid write/event/reload loops when RPC cannot
+              // establish a terminal status.
+              if (verified.status === 'VERIFIED' || verified.status === 'FAILED') {
+                try { await saveReceipt(verified); }
+                catch { syncFailed = true; }
+              }
             }
           } catch {
             // RPC unavailable or transaction not indexed yet: retain PENDING.
@@ -85,10 +98,15 @@ export function useReceiptStore() {
       if (document.visibilityState === 'visible') void load();
     };
     document.addEventListener('visibilitychange', onVisibility);
+    // Pay/Agent/Activity can all commit receipts without navigating. Refresh
+    // their wallet-scoped views only after the IndexedDB transaction commits.
+    const onReceiptChanged = () => { void load(); };
+    window.addEventListener(RECEIPT_CHANGED_EVENT, onReceiptChanged);
     return () => {
       requestEpoch.current += 1; // invalidate results from a previous wallet
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener(RECEIPT_CHANGED_EVENT, onReceiptChanged);
     };
   }, [load]);
 

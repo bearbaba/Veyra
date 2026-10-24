@@ -26,7 +26,7 @@ describe('Veyra transaction feedback always follows chain truth',()=>{
     const hook=source('hooks/useTransferExecution.ts');
     const pending=hook.indexOf("status: 'PENDING'");
     const persisted=hook.indexOf('await saveReceipt(pendingReceipt)');
-    const wait=hook.indexOf('await publicClient.waitForTransactionReceipt({ hash })');
+    const wait=hook.indexOf('await publicClient.waitForTransactionReceipt({ hash, confirmations: 12 })');
     expect(pending).toBeGreaterThan(0);
     expect(persisted).toBeGreaterThan(pending);
     expect(wait).toBeGreaterThan(persisted);

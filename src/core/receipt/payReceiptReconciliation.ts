@@ -29,10 +29,28 @@ export function canReconcilePendingPay(receipt: VeyraReceipt): boolean {
     receipt.expectedAmountDelta != null && receipt.expectedAmountDelta > 0n;
 }
 
+export const ARC_PAY_REQUIRED_CONFIRMATIONS = 12n;
+const BLOCK_HASH_RE = /^0x[0-9a-fA-F]{64}$/;
+
 export type PayChainReceipt = Erc20TransferReceiptEvidence & {
   transactionHash: string;
   blockNumber: bigint;
+  blockHash: string;
 };
+
+/** Confirm inclusion depth and that the block at that height is canonical. */
+export function hasCanonicalPayFinality(
+  receipt: PayChainReceipt,
+  headBlockNumber: bigint,
+  blockHashAtHeight: string,
+): boolean {
+  return receipt.blockNumber >= 0n &&
+    headBlockNumber >= receipt.blockNumber &&
+    headBlockNumber - receipt.blockNumber + 1n >= ARC_PAY_REQUIRED_CONFIRMATIONS &&
+    BLOCK_HASH_RE.test(receipt.blockHash) &&
+    BLOCK_HASH_RE.test(blockHashAtHeight) &&
+    receipt.blockHash.toLowerCase() === blockHashAtHeight.toLowerCase();
+}
 
 /**
  * Only a confirmed revert proves failure. A successful receipt needs the
@@ -42,12 +60,22 @@ export type PayChainReceipt = Erc20TransferReceiptEvidence & {
 export async function reconcilePendingPayReceipt(
   receipt: VeyraReceipt,
   readReceipt: (hash: `0x${string}`) => Promise<PayChainReceipt>,
+  hasFinality: (receipt: PayChainReceipt) => Promise<boolean>,
 ): Promise<VeyraReceipt> {
   if (!canReconcilePendingPay(receipt)) return receipt;
   const txHash = receipt.executionTxHash as `0x${string}`;
   const chainReceipt = await readReceipt(txHash); // RPC error: caller keeps PENDING.
   if (chainReceipt.transactionHash.toLowerCase() !== txHash.toLowerCase()) {
     return { ...receipt, displaySummary: 'RPC returned mismatched transaction evidence. Verification delayed; do not resend.' };
+  }
+  // A receipt seen in a single block is not final. Both success and revert
+  // require canonical 12-block settlement, matching Arc Testnet's Pay drill.
+  // A reorg, stale endpoint or temporary RPC error must never create finality.
+  if (!await hasFinality(chainReceipt)) {
+    return {
+      ...receipt,
+      displaySummary: 'Transaction is indexed but final confirmation is pending. Do not resend.',
+    };
   }
   if (chainReceipt.status === 'reverted') {
     return {
