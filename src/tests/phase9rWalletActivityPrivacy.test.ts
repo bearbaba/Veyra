@@ -103,10 +103,14 @@ describe('Veyra owner-scoped Activity and Bridge recovery', () => {
     const activity = source('components/pages/ActivityPage.tsx');
     const bridge = source('hooks/useBridgeExecution.ts');
     expect(activity).toContain('remoteView.scope === activeScope');
+    expect(activity).toContain('remoteView.session === social.session');
+    expect(activity).toContain('session: signedSession');
     expect(activity).toContain('viewIsCurrent && social.session ? remoteView.receipts : []');
     expect(activity).toContain('bridgeCheckpointBelongsToWallet(checkpoint, address)');
     expect(activity).toContain('connected={isConnected && Boolean(social.session)}');
     expect(bridge).toContain('if (!connectedOwner) return []');
+    expect(bridge).toContain('bridgeCheckpointBelongsToWallet(checkpoint, walletClient.account.address)');
+    expect(bridge).toContain('No wallet signature requested.');
     expect(bridge).toContain('loadResumableBridgeCheckpoints()).filter(belongsToOwner)');
     expect(bridge).toContain('loadRemoteBridgeCheckpoints()).filter(belongsToOwner)');
     expect(bridge).not.toContain('sendTransaction(');

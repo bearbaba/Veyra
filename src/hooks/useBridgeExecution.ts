@@ -1097,8 +1097,19 @@ export function useBridgeExecution() {
 
     abortRef.current = false;
 
-    if (!walletClient || !sourcePublicClient) {
+    if (!walletClient || !sourcePublicClient || !connectedOwner) {
       setState({ phase: 'FAILED', error: 'Wallet not connected' });
+      return;
+    }
+    // A foreign local/server checkpoint must never reach a wallet signature,
+    // even when resumeBridge is called directly instead of from Activity.
+    if (!bridgeCheckpointBelongsToWallet(checkpoint, connectedOwner) ||
+        !walletClient.account?.address ||
+        !bridgeCheckpointBelongsToWallet(checkpoint, walletClient.account.address)) {
+      setState({
+        phase: 'FAILED',
+        error: 'Recovery checkpoint belongs to another wallet. No wallet signature requested.',
+      });
       return;
     }
 
@@ -1694,7 +1705,7 @@ export function useBridgeExecution() {
         error: error instanceof Error ? error.message : 'Bridge recovery failed',
       }));
     }
-  }, [walletClient, sourcePublicClient, switchChainAsync]);
+  }, [walletClient, sourcePublicClient, switchChainAsync, connectedOwner]);
 
   const resumeProviderCheckpoint = useCallback(async (
     adapter: BridgeProviderAdapter,
