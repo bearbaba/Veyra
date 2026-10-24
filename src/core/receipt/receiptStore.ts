@@ -73,9 +73,11 @@ export async function saveReceipt(receipt: VeyraReceipt): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx    = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    const req   = store.put(toStored(receipt));
-    req.onsuccess = () => resolve();
-    req.onerror   = (e) => reject(new Error(`[receiptStore] save: ${(e.target as IDBRequest).error?.message}`));
+    store.put(toStored(receipt));
+    // Request success alone is insufficient: the transaction can abort later.
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(new Error(`[receiptStore] save: ${tx.error?.message ?? 'transaction error'}`));
+    tx.onabort = () => reject(new Error(`[receiptStore] save: ${tx.error?.message ?? 'transaction aborted'}`));
   });
 }
 
