@@ -15,7 +15,7 @@ function authenticate() {
   );
 }
 const reply = (status: number, body: object): Response => ({
-  ok: status < 400, status, json: async () => body,
+  ok: status < 400, status, json: () => Promise.resolve(body),
 }) as Response;
 afterEach(() => {
   clearSignedIdentitySession();
@@ -32,10 +32,10 @@ describe('signed owner CCTP second mint finalization', () => {
   });
   it('accepts only canonical BFF COMPLETE second-mint receipt evidence', async () => {
     authenticate();
-    const f = vi.fn(async () => reply(200, {
+    const f = vi.fn(() => Promise.resolve(reply(200, {
       ok: true, planId: PLAN, receiptId: 'receipt-2', status: 'COMPLETE',
       settlementReceiveTxHash: HASH, settlementAttemptNumber: 2, retryAuthorized: false,
-    }));
+    })));
     vi.stubGlobal('fetch', f);
     await expect(finalizeVerifiedSecondSettlementRemote(PLAN)).resolves.toEqual({
       receiptId: 'receipt-2', settlementReceiveTxHash: HASH, status: 'COMPLETE',
@@ -62,10 +62,10 @@ describe('signed owner CCTP second mint finalization', () => {
       { ok: true, planId: PLAN, receiptId: 'x', status: 'COMPLETE',
         settlementReceiveTxHash: HASH, settlementAttemptNumber: 2, retryAuthorized: true },
     ]) {
-      vi.stubGlobal('fetch', vi.fn(async () => reply(200, value)));
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(reply(200, value))));
       await expect(finalizeVerifiedSecondSettlementRemote(PLAN)).rejects.toThrow('not yet verified');
     }
-    vi.stubGlobal('fetch', vi.fn(async () => reply(503, { error: 'RPC_UNAVAILABLE' })));
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(reply(503, { error: 'RPC_UNAVAILABLE' }))));
     await expect(finalizeVerifiedSecondSettlementRemote(PLAN)).rejects.toThrow('not yet verified');
   });
   it('exposes only no-signing finalization after a previously recorded receive', () => {
