@@ -44,7 +44,7 @@ describe('wallet-scoped Veyra Pay receipts recover without another signing', () 
     expect(receiptBelongsToWallet(pending(), undefined)).toBe(false);
   });
   it('rejects incomplete or unbound recovery metadata before any RPC read', async () => {
-    const read = vi.fn(async () => confirmed);
+    const read = vi.fn(() => Promise.resolve(confirmed));
     for (const mutation of [
       { ownerAddress: undefined }, { recipientAddress: undefined },
       { tokenAddress: undefined }, { executionTxHash: '0x123' },
@@ -57,12 +57,12 @@ describe('wallet-scoped Veyra Pay receipts recover without another signing', () 
     expect(read).not.toHaveBeenCalled();
   });
   it('verifies an exact transaction Transfer even with unrelated balance changes', async () => {
-    const recovered = await reconcilePendingPayReceipt(pending(), async () => confirmed);
+    const recovered = await reconcilePendingPayReceipt(pending(), () => Promise.resolve(confirmed));
     expect(recovered).toMatchObject({ status: 'VERIFIED', executionBlock: 125, actualAmountDelta: 1000000n });
     expect(recovered.completedAt).toBeGreaterThan(0);
   });
   it('reports on-chain revert as failed, not a successful payment', async () => {
-    const recovered = await reconcilePendingPayReceipt(pending(), async () => ({ ...confirmed, status: 'reverted', logs: [] }));
+    const recovered = await reconcilePendingPayReceipt(pending(), () => Promise.resolve({ ...confirmed, status: 'reverted' as const, logs: [] }));
     expect(recovered.status).toBe('FAILED');
     expect(recovered.actualAmountDelta).toBeNull();
   });
@@ -75,13 +75,13 @@ describe('wallet-scoped Veyra Pay receipts recover without another signing', () 
       { ...confirmed, logs: [{ ...transferLog, topics: [transferLog.topics[0], transferLog.topics[1], `0x${OTHER.slice(2).padStart(64, '0')}`] }] },
     ];
     for (const chain of variants) {
-      const record = await reconcilePendingPayReceipt(pending(), async () => chain);
+      const record = await reconcilePendingPayReceipt(pending(), () => Promise.resolve(chain));
       expect(record.status).toBe('PENDING');
       expect(record.displaySummary).toMatch(/review|delayed/i);
     }
   });
   it('propagates temporary RPC errors without declaring failure or attempting resubmission', async () => {
-    await expect(reconcilePendingPayReceipt(pending(), async () => { throw new Error('RPC unavailable'); }))
+    await expect(reconcilePendingPayReceipt(pending(), () => Promise.reject(new Error('RPC unavailable'))))
       .rejects.toThrow('RPC unavailable');
     const hook = readFileSync(new URL('../hooks/useReceiptStore.ts', import.meta.url), 'utf8');
     expect(hook).toContain('getTransactionReceipt({ hash })');
