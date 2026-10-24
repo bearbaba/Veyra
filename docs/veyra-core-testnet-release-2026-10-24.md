@@ -26,3 +26,11 @@ This branch combines the latest wallet-bound Veyra ID, Friends, Pay and Activity
 A protected **Preview** creation targeting Vercel project `veyra-unified-testnet` was attempted and blocked at HTTP **402** `api-deployments-free-per-day` (more than 100 deploys/day, retry-after 86400 seconds). A new URL/production alias was **not** created; previous publicly routed Testnet project still points to old commit `498f75da5b54475a7809220cc327e5268bd0160a`. Do not confuse a successful GitHub Actions build with a deployed and signed-wallet-accepted Testnet release.
 
 As soon as the operator resolves the daily build allowance, deploy **this branch's newest passing commit** to a protected preview of the existing `veyra-unified-testnet` project; verify Git SHA and HTTPS route health before requesting any live user-funded action. Do not replay unknown-outcome transfers and do not promote `develop`, `veyra`, `veyra-unified-testnet-v2`, or Mainnet from this deploy-only branch.
+
+## Phase 9U — integrated controlled Testnet acceptance candidate
+
+The audited BFF allowlist now includes **35 exact paths**, adding Agent chat/status (review only), fixed-domain Circle sandbox attestation, signed wallet-owner CCTP recovery and destination-submission reconciliation. No wildcard proxies or OAuth callbacks.
+
+**Not yet enabled:** StableFX trade/Convert, Circle App Kit Swap/Gateway/Earn, X OAuth and any Mainnet money movement. Their adapters remain behind the existing lifecycle gates until separate verified real Testnet E2E and production approval. Agent never signs on behalf of a user; it may prepare a reviewed wallet action.
+
+Deployment remains blocked by the recorded Vercel daily limit. CI can verify code shape but does not prove live Render readiness or a funded two-wallet acceptance. Never call this a completed launch.

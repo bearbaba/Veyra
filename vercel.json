@@ -129,6 +129,62 @@
     {
       "source": "/api/receipts/bridge",
       "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/receipts/bridge"
+    },
+    {
+      "source": "/api/agent/status",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/agent/status"
+    },
+    {
+      "source": "/api/agent/chat",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/agent/chat"
+    },
+    {
+      "source": "/api/cctp/health",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/cctp/health"
+    },
+    {
+      "source": "/api/cctp/attestation",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/cctp/attestation"
+    },
+    {
+      "source": "/api/receipts/cctp/resolve-source-revert",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/receipts/cctp/resolve-source-revert"
+    },
+    {
+      "source": "/api/bridge/persist",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/persist"
+    },
+    {
+      "source": "/api/bridge/pending",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/pending"
+    },
+    {
+      "source": "/api/bridge/destination-attempts",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/destination-attempts"
+    },
+    {
+      "source": "/api/bridge/reconcile-second-receive",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/reconcile-second-receive"
+    },
+    {
+      "source": "/api/bridge/inspect-destination-nonce",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/inspect-destination-nonce"
+    },
+    {
+      "source": "/api/bridge/resolve-destination-revert",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/resolve-destination-revert"
+    },
+    {
+      "source": "/api/bridge/claim-self-receive",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/claim-self-receive"
+    },
+    {
+      "source": "/api/bridge/record-self-receive",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/record-self-receive"
+    },
+    {
+      "source": "/api/bridge/relay-receive",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/relay-receive"
     }
   ]
 }
