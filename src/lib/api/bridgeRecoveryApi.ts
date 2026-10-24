@@ -402,3 +402,39 @@ export async function relayBridgeReceiveRemote(
 
   throw new Error('Bridge relay response did not include a destination tx hash.');
 }
+
+/**
+ * Finalize an EXISTING second destination receive only after the authenticated
+ * BFF independently re-fetches the source/Circle proof and verifies the
+ * canonical destination USDC mint. No wallet request or new broadcast.
+ */
+export async function finalizeVerifiedSecondSettlementRemote(
+  planId: string,
+): Promise<{ receiptId: string; settlementReceiveTxHash: string; status: 'COMPLETE' }> {
+  const auth = bridgeAuthHeaders();
+  if (Object.keys(auth).length === 0 || !planId || planId.length > 160) {
+    throw new Error('Authenticated owned bridge plan is required for settlement verification.');
+  }
+  const response = await fetch('/api/bridge/finalize-second-settlement', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify({ planId }),
+  });
+  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok || payload.ok !== true ||
+      payload.planId !== planId || payload.status !== 'COMPLETE' ||
+      payload.retryAuthorized !== false ||
+      typeof payload.receiptId !== 'string' || !payload.receiptId ||
+      typeof payload.settlementReceiveTxHash !== 'string' ||
+      !/^0x[0-9a-fA-F]{64}$/.test(payload.settlementReceiveTxHash) ||
+      payload.settlementAttemptNumber !== 2) {
+    throw new Error(typeof payload.message === 'string'
+      ? payload.message
+      : 'Canonical second destination USDC mint is not yet verified. No new transaction was sent.');
+  }
+  return {
+    receiptId: payload.receiptId,
+    settlementReceiveTxHash: payload.settlementReceiveTxHash,
+    status: 'COMPLETE',
+  };
+}
