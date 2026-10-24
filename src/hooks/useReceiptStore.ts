@@ -11,6 +11,7 @@ import {
   receiptBelongsToWallet,
   canReconcilePendingPay,
   reconcilePendingPayReceipt,
+  hasCanonicalPayFinality,
 } from '@/core/receipt/payReceiptReconciliation';
 import { MANIFEST_CONSTANTS } from '@/providers/registry/providerManifest';
 
@@ -46,6 +47,13 @@ export function useReceiptStore() {
             const verified = await reconcilePendingPayReceipt(
               previous,
               (hash) => publicClient.getTransactionReceipt({ hash }),
+              async (txReceipt) => {
+                const [head, block] = await Promise.all([
+                  publicClient.getBlockNumber(),
+                  publicClient.getBlock({ blockNumber: txReceipt.blockNumber }),
+                ]);
+                return hasCanonicalPayFinality(txReceipt, head, block.hash);
+              },
             );
             if (verified !== previous) {
               owned[i] = verified;
