@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import type { VeyraReceipt } from '@/core/receipt/receiptTypes';
 import {
+  bridgeCheckpointBelongsToWallet,
   nextBridgeResumeInstruction,
   type BridgeRecoveryCheckpoint,
 } from '@/core/execution/bridgeCheckpointStore';
@@ -76,7 +77,7 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
       // Bridge checkpoints are always wallet-bound. This is a second defense
       // after the hook's own local/remote filtering.
       const own = candidates.filter((checkpoint) =>
-        checkpoint.walletAddress.toLowerCase() === address?.toLowerCase());
+        bridgeCheckpointBelongsToWallet(checkpoint, address));
       setRemoteView({
         scope, candidates: own, receipts: remote.rows,
         error: remote.failed
@@ -98,14 +99,14 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
     setRemoteView({
       scope,
       candidates: candidates.filter((checkpoint) =>
-        checkpoint.walletAddress.toLowerCase() === address.toLowerCase()),
+        bridgeCheckpointBelongsToWallet(checkpoint, address)),
       receipts: rows, error: null,
     });
   }
 
   async function resume(checkpoint: BridgeRecoveryCheckpoint) {
     if (readOnly || !address || !social.session ||
-        checkpoint.walletAddress.toLowerCase() !== address.toLowerCase()) return;
+        !bridgeCheckpointBelongsToWallet(checkpoint, address)) return;
     await bridgeExecution.resumeProviderCheckpoint(cctpV2BridgeProvider, checkpoint);
     await reload();
     await refreshRemoteView();
