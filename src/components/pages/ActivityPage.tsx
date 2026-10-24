@@ -12,6 +12,7 @@ import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 import { formatUnits } from 'viem';
 import { buildTxExplorerUrl } from '@/onchain-facts';
 import { useReceiptStore } from '@/hooks/useReceiptStore';
+import { formatRemoteActivityAmount } from '@/core/receipt/formatRemoteActivityAmount';
 import { useBridgeExecution } from '@/hooks/useBridgeExecution';
 import {
   ExternalLink,
@@ -63,7 +64,8 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
   const remoteError = viewIsCurrent && social.session ? remoteView.error : null;
 
   useEffect(() => {
-    if (readOnly || !activeScope) return;
+    if (readOnly) return;
+    if (!activeScope) return;
     let active = true;
     const scope = activeScope;
     void Promise.all([
@@ -331,7 +333,7 @@ function RemoteActivityCard({
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
         <DetailRow
           label="Amount"
-          value={receipt.amountRaw}
+          value={formatRemoteActivityAmount(receipt)}
         />
         <DetailRow
           label="Route"
