@@ -68,16 +68,57 @@ function openDb(): Promise<IDBDatabase> {
 
 // ── CRUD ──────────────────────────────────────────────────────────────────────
 
+/** Local notifications are invalidation hints, never payment proofs. */
+export const RECEIPT_CHANGED_EVENT = 'veyra:receipt-changed';
+
+/** A terminal receipt must not regress because a stale tab still has PENDING. */
+export function receiptUpdateAllowed(existing: VeyraReceipt | null, next: VeyraReceipt): boolean {
+  if (!existing) return true;
+  if (existing.receiptId !== next.receiptId || existing.chainId !== next.chainId ||
+      existing.actionType !== next.actionType) return false;
+  if (existing.ownerAddress?.toLowerCase() !== next.ownerAddress?.toLowerCase()) return false;
+  if (existing.executionTxHash?.toLowerCase() !== next.executionTxHash?.toLowerCase()) return false;
+  // Preserve reviewed Pay facts. Legacy unbound records may not be silently
+  // upgraded to a new owner/token/recipient.
+  if (existing.actionType === 'TRANSFER') {
+    if (existing.recipientAddress?.toLowerCase() !== next.recipientAddress?.toLowerCase() ||
+        existing.tokenAddress?.toLowerCase() !== next.tokenAddress?.toLowerCase() ||
+        existing.expectedAmountDelta !== next.expectedAmountDelta) return false;
+  }
+  if ((existing.status === 'VERIFIED' || existing.status === 'FAILED') &&
+      next.status === 'PENDING') return false;
+  if (existing.status === 'VERIFIED' && next.status === 'FAILED') return false;
+  return true;
+}
+
 export async function saveReceipt(receipt: VeyraReceipt): Promise<void> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const tx    = db.transaction(STORE_NAME, 'readwrite');
+    const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    store.put(toStored(receipt));
-    // Request success alone is insufficient: the transaction can abort later.
-    tx.oncomplete = () => resolve();
+    let written = false;
+    const read = store.get(receipt.receiptId);
+    read.onsuccess = () => {
+      const previous = read.result as Stored | undefined;
+      const existing = previous ? fromStored(previous) : null;
+      if (!receiptUpdateAllowed(existing, receipt)) {
+        // Do not roll back a terminal payment or silently change its owner.
+        // A rejected write must not masquerade as a saved transaction.
+        tx.abort();
+        return;
+      }
+      store.put(toStored(receipt));
+      written = true;
+    };
+    // Only a fully committed IndexedDB transaction can report success.
+    tx.oncomplete = () => {
+      if (written && typeof window !== 'undefined') {
+        window.dispatchEvent(new Event(RECEIPT_CHANGED_EVENT));
+      }
+      resolve();
+    };
     tx.onerror = () => reject(new Error(`[receiptStore] save: ${tx.error?.message ?? 'transaction error'}`));
-    tx.onabort = () => reject(new Error(`[receiptStore] save: ${tx.error?.message ?? 'transaction aborted'}`));
+    tx.onabort = () => reject(new Error('[receiptStore] save aborted; conflicting or stale payment record.'));
   });
 }
 
