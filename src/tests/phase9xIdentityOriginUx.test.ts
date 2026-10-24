@@ -13,7 +13,7 @@ afterEach(()=>vi.unstubAllGlobals());
 
 describe('Veyra one-page wallet and origin acceptance',()=>{
   it('returns origin_blocked for the exact 403 recorded in the real browser video',async()=>{
-    const mocked=vi.fn(()=>Promise.resolve(reply(403,{ok:false,error:'ORIGIN_NOT_ALLOWED'})));
+    const mocked=vi.fn((_url:string,_options?:RequestInit)=>Promise.resolve(reply(403,{ok:false,error:'ORIGIN_NOT_ALLOWED'})));
     vi.stubGlobal('fetch',mocked);
     expect(await probeIdentityOrigin()).toBe('origin_blocked');
     expect(mocked).toHaveBeenCalledOnce();
