@@ -9,10 +9,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
-import { isAddress } from 'viem';
+import { formatUnits, isAddress } from 'viem';
 import { AlertTriangle, ArrowRight, CheckCircle2, SendHorizontal, ShieldCheck, Sparkles } from 'lucide-react';
 import { parseAmount } from '@/onchain-money';
-import { getUsdc, requireChain } from '@/onchain-facts';
+import { buildTxExplorerUrl, getUsdc, requireChain } from '@/onchain-facts';
 import { createTransferAction } from '@/core/pipeline/transferPipeline';
 import { TransactionReviewSheet } from '../transfer/TransactionReviewSheet';
 import { BrandLogo } from '../brand/BrandLogo';
@@ -21,12 +21,16 @@ import { preparePaymentRecipient, type PreparedRecipient } from '@/lib/api/ident
 import type { IntentCandidate } from '@/core/intent/intentSchema';
 import {assertPreparedRecipientReview} from '@/core/execution/recipientReviewGuard';
 import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
+import { useReceiptStore } from '@/hooks/useReceiptStore';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
 
 export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipient?: string | null;onFriendRecipientUsed?: () => void} = {}) {
   const { address, isConnected } = useAccount();
   const social = useUnifiedSocial();
+  const { receipts: ownedReceipts, error: receiptError } = useReceiptStore();
+  const recentPay = ownedReceipts.find((receipt) =>
+    receipt.actionType === 'TRANSFER' && Boolean(receipt.executionTxHash));
   // Social only returns an active session for the exact wallet/chain/connector.
   const sessionToken = social.session?.token;
   const prepareEpoch = useRef(0);
@@ -167,6 +171,37 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
               <p className="mt-0.5 text-xs leading-5" style={{ color: 'var(--muted)' }}>Veyra can resolve and prepare the payment regardless of the network currently selected in your wallet. If the source transaction needs Arc, Veyra requests the source network only when you are ready to sign.</p>
             </div>
           </div>
+
+          {recentPay && (
+            <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl p-4"
+              style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
+              <div className="min-w-0">
+                <p className="text-xs font-bold" style={{ color: 'var(--ink)' }}>Latest payment · {recentPay.status === 'VERIFIED'
+                  ? 'Verified on Arc Testnet'
+                  : recentPay.status === 'FAILED' ? 'Transaction failed'
+                  : 'Pending confirmation'}</p>
+                <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>
+                  {recentPay.expectedAmountDelta != null && recentPay.tokenSymbol === 'USDC' && recentPay.tokenDecimals === 6
+                    ? `${formatUnits(recentPay.expectedAmountDelta, 6)} USDC · `
+                    : ''}
+                  {recentPay.status === 'PENDING'
+                    ? 'Do not resend until this payment is verified.'
+                    : 'Your payment record remains available after reload.'}
+                </p>
+              </div>
+              {recentPay.executionTxHash && (
+                <a href={buildTxExplorerUrl(recentPay.chainId, recentPay.executionTxHash)}
+                  target="_blank" rel="noopener noreferrer"
+                  className="shrink-0 text-xs font-bold underline underline-offset-4"
+                  style={{ color: 'var(--accent)' }}>View transaction</a>
+              )}
+            </div>
+          )}
+          {receiptError && (
+            <p role="alert" className="text-xs" style={{ color: 'var(--warning)' }}>
+              Local payment history is temporarily unavailable. Check wallet activity before resending.
+            </p>
+          )}
 
           <div className="overflow-hidden rounded-[28px]" style={{ background: 'linear-gradient(145deg,rgba(23,43,67,0.98),rgba(16,31,51,0.98))', border: '1px solid var(--border-strong)' }}>
             <div className="border-b p-5" style={{ borderColor: 'var(--border)' }}>
