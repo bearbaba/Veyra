@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
+import { formatUnits } from 'viem';
 import { buildTxExplorerUrl } from '@/onchain-facts';
 import { useReceiptStore } from '@/hooks/useReceiptStore';
 import { useBridgeExecution } from '@/hooks/useBridgeExecution';
@@ -39,7 +40,7 @@ import {
 
 export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
   const { isConnected } = useAccount();
-  const { receipts, loading, reload } = useReceiptStore();
+  const { receipts, loading, error: receiptError, reload } = useReceiptStore();
   const bridgeExecution = useBridgeExecution();
   const [recoveryCandidates, setRecoveryCandidates] = useState<
     BridgeRecoveryCheckpoint[]
@@ -183,6 +184,15 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
           </div>
         )}
 
+      {receiptError && (
+        <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl p-3 text-sm"
+          style={{ color: 'var(--warning)', border: '1px solid var(--border)', background: 'var(--surface)' }}>
+          <span>{receiptError}</span>
+          <button type="button" onClick={() => void reload()}
+            className="rounded-lg border px-3 py-1 text-xs font-semibold"
+            style={{ borderColor: 'var(--border)' }}>Retry loading</button>
+        </div>
+      )}
       {loading ? (
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -206,10 +216,10 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
             style={{ color: 'var(--subtle)' }}
           />
           <p className="text-sm" style={{ color: 'var(--muted)' }}>
-            No completed activity yet
+            No local transactions for this wallet
           </p>
           <p className="text-xs mt-1" style={{ color: 'var(--subtle)' }}>
-            Verified and failed financial actions will appear here.
+            This wallet's verified, pending and failed payments will appear here.
           </p>
         </div>
       ) : (
@@ -764,7 +774,7 @@ function ReceiptCard({ receipt }: { receipt: VeyraReceipt }) {
         {receipt.actualAmountDelta != null && (
           <DetailRow
             label="Amount"
-            value={receipt.actualAmountDelta.toString()}
+            value={formatReceiptAmount(receipt)}
           />
         )}
         {receipt.riskScore != null && (
@@ -796,6 +806,16 @@ function ReceiptCard({ receipt }: { receipt: VeyraReceipt }) {
       )}
     </div>
   );
+}
+
+function formatReceiptAmount(receipt: VeyraReceipt): string {
+  const amount = receipt.actualAmountDelta ?? receipt.expectedAmountDelta;
+  if (amount == null) return 'Unavailable';
+  if (receipt.actionType === 'TRANSFER' && receipt.tokenSymbol === 'USDC' && receipt.tokenDecimals === 6) {
+    return `${formatUnits(amount, 6)} USDC`;
+  }
+  // Never pretend unknown token base units are decimal USDC.
+  return `${amount.toString()} base units`;
 }
 
 function DetailRow({
