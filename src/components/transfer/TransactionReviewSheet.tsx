@@ -44,7 +44,7 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
   const isExecuting = ['PREPARING', 'SIGNING', 'BROADCAST', 'CONFIRMING', 'VERIFYING'].includes(execState.step);
 
   function handleClose() {
-    if (isExecuting) return; // prevent close during execution
+    if (isExecuting && !execState.txHash) return; // keep wallet prompt visible; a hashed transaction can be tracked from Activity
     reset();
     onClose();
   }
@@ -263,7 +263,7 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
             )}
 
             {/* ── Done: close ── */}
-            {['DONE', 'FAILED', 'PENDING'].includes(execState.step) && (
+            {['DONE', 'FAILED', 'PENDING', 'CANCELLED'].includes(execState.step) && (
               <button
                 type="button"
                 onClick={handleClose}
@@ -303,19 +303,24 @@ function TransferStatusDetails({ state, amount, from, to }: {
   const verified = state.step === 'DONE' && state.receipt?.status === 'VERIFIED';
   const failed = state.step === 'FAILED';
   const uncertain = state.step === 'PENDING';
+  const cancelled = state.step === 'CANCELLED';
   const preparing = state.step === 'PREPARING';
   const signing = state.step === 'SIGNING';
   const checking = ['BROADCAST', 'CONFIRMING', 'VERIFYING'].includes(state.step);
-  const color = verified ? 'var(--success)' : failed ? 'var(--danger)' : 'var(--accent)';
+  const color = verified ? 'var(--success)' : failed ? 'var(--danger)' : cancelled ? 'var(--muted)' : 'var(--accent)';
   const heading = verified ? 'Transfer verified' :
-    failed ? (state.txHash ? 'Transaction reverted' : 'Transfer not submitted') :
-    uncertain ? 'Pending verification' :
+    failed ? (state.txHash ? 'Transaction reverted' : 'Transfer blocked') :
+    cancelled ? 'Wallet request cancelled' :
+    uncertain ? (state.txHash ? 'Pending verification' : 'Submission status unknown') :
     preparing ? 'Checking payment safety' :
     signing ? 'Waiting for wallet approval' :
     checking ? 'Transaction is being tracked' : 'Preparing transfer';
   const description = verified ? 'Confirmed on Arc Testnet. Amount and recipient were independently verified.' :
-    failed ? (state.txHash ? 'Arc Testnet confirmed this transaction reverted.' : 'No confirmed transfer was submitted.') :
-    uncertain ? 'A transaction hash exists, but the final result is unverified. Do not send again until checked.' :
+    failed ? (state.txHash ? 'Arc Testnet confirmed this transaction reverted.' : 'Safety checks blocked the transfer before wallet submission.') :
+    cancelled ? 'You rejected the wallet signature request.' :
+    uncertain ? (state.txHash
+      ? 'A transaction hash exists, but the final result is unverified. Do not send again until checked.'
+      : 'The wallet submission result is unclear. Check wallet activity before attempting another payment.') :
     signing ? 'Approve or reject the request in your wallet. No funds move until you approve.' :
     preparing ? 'Verifying your recipient, chain, policy and transfer simulation before the wallet prompt.' :
     'Follow the transaction on Arc. Closing the browser does not cancel a broadcast payment.';
@@ -327,7 +332,7 @@ function TransferStatusDetails({ state, amount, from, to }: {
         {(preparing || signing || checking) ?
           <Loader2 aria-hidden="true" className="mt-0.5 size-5 shrink-0 animate-spin" style={{color}} /> :
           verified ? <CheckCircle2 aria-hidden="true" className="mt-0.5 size-5 shrink-0" style={{color}} /> :
-          failed ? <XCircle aria-hidden="true" className="mt-0.5 size-5 shrink-0" style={{color}} /> :
+          (failed || cancelled) ? <XCircle aria-hidden="true" className="mt-0.5 size-5 shrink-0" style={{color}} /> :
           <AlertTriangle aria-hidden="true" className="mt-0.5 size-5 shrink-0" style={{color}} />}
         <div className="min-w-0 space-y-1">
           <p className="text-base font-bold" style={{ color }}>{heading}</p>
@@ -356,7 +361,7 @@ function TransferStatusDetails({ state, amount, from, to }: {
       )}
       {uncertain && (
         <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>
-          Never retry this payment just because verification timed out. Check Activity or the explorer first.
+          Do not retry while the result is uncertain. Check your wallet Activity or the transaction explorer first.
         </p>
       )}
     </aside>
