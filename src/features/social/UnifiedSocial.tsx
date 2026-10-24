@@ -88,11 +88,12 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   };
   const signIn=()=>action(async(key,rev)=>{
     const w=await wallet();
-    const c=(await api<{challenge:SignedChallenge}>('/api/auth/wallet-login/challenge','POST',undefined,{walletAddress:w.account,chainId:5042002})).challenge;
+    const appOrigin=window.location.origin;
+    const c=(await api<{challenge:SignedChallenge}>('/api/auth/wallet-login/challenge','POST',undefined,{walletAddress:w.account,chainId:5042002,appOrigin})).challenge;
     if(!unchanged(key,rev))return;
     const signature=await signReviewedIdentity(w.provider,c,'login',w.account,window.location.origin);
     if(!unchanged(key,rev))return;
-    const data=await api<{sessionToken:string;veyraUserId:string}>('/api/auth/wallet-login/complete','POST',undefined,{challengeId:c.challengeId,signature});
+    const data=await api<{sessionToken:string;veyraUserId:string}>('/api/auth/wallet-login/complete','POST',undefined,{challengeId:c.challengeId,signature,appOrigin});
     if(!unchanged(key,rev))return;
     const profile=(await api<{profile:IdentityProfile}>('/api/profile/me','GET',data.sessionToken)).profile;
     if(!unchanged(key,rev))return;

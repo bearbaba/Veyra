@@ -29,8 +29,16 @@ async function postJson<T>(path: string, body: Record<string, unknown>, explicit
     headers: { 'Content-Type': 'application/json', ...authHeaders(explicitToken) },
     body: JSON.stringify(body),
   });
-  const payload = await response.json() as Record<string, unknown>;
-  if (!response.ok) {
+  // A protected or unconfigured route may return a Vercel HTML page.
+  // Never leak SyntaxError: Unexpected token '<' into a user-facing action.
+  const mediaType = response.headers?.get?.('content-type') ?? '';
+  if (mediaType && !mediaType.toLowerCase().includes('application/json')) {
+    throw new Error('This Veyra service is not available on this Testnet deployment.');
+  }
+  let payload: Record<string, unknown>;
+  try { payload = await response.json() as Record<string, unknown>; }
+  catch { throw new Error('The Veyra service returned an invalid response. Please retry later.'); }
+  if (!response.ok || payload.ok === false) {
     throw new Error(typeof payload.message === 'string' ? payload.message : `Request failed (${response.status})`);
   }
   return payload as T;

@@ -60,8 +60,16 @@ const blocked: Array<[string, RegExp]> = [
 const betaSource = readFileSync(join(process.cwd(), 'src/preview/arcTestnetPay.ts'), 'utf8');
 const betaPage = readFileSync(join(process.cwd(), 'src/preview/PreviewTestnetPayPage.tsx'), 'utf8');
 const envBuild = readFileSync(join(process.cwd(), 'vercel.json'), 'utf8');
+// Audit the SAME isolated Preview artifact even on the dedicated, protected
+// Testnet staging deployment branch. Its root vercel.json intentionally
+// deploys the full app, but CI independently builds this UI-only Preview with
+// VITE_VEYRA_TESTNET_PAY=1 to protect the established public Preview graph.
+const stagingCommand = 'VITE_VEYRA_ENV=testnet VITE_VEYRA_UNIFIED_STAGING=1 VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=0 VITE_VEYRA_IDENTITY_BETA=0 bun run build';
+const stageBranch = process.env.GITHUB_HEAD_REF === 'phase9h-unified-testnet-host' ||
+  process.env.GITHUB_REF_NAME === 'phase9h-unified-testnet-host';
+const stagingConfig = (JSON.parse(envBuild) as {buildCommand?:string}).buildCommand === stagingCommand;
 if (
-  !envBuild.includes('VITE_VEYRA_TESTNET_PAY=1') ||
+  !(envBuild.includes('VITE_VEYRA_TESTNET_PAY=1') || (stageBranch && stagingConfig)) ||
   !betaSource.includes('export const ARC_TESTNET_CHAIN_ID = 5042002;') ||
   !betaSource.includes('export const MAX_TESTNET_PAYMENT_UNITS = 1_000_000n') ||
   !betaSource.includes("functionName: 'transfer'") ||

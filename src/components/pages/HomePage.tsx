@@ -1,4 +1,3 @@
-import { useMemo, useState } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
 import { formatUnits } from 'viem';
 import { ConnectKitButton } from 'connectkit';
@@ -18,10 +17,10 @@ import {
 import { requireChain, getUsdc, buildTxExplorerUrl } from '@/onchain-facts';
 import { useReceiptStore } from '@/hooks/useReceiptStore';
 import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
-import { beginXLink, type MyProfile } from '@/lib/api/identityApi';
+import type { MyProfile } from '@/lib/api/identityApi';
+import { useUnifiedSocial } from '@/features/social/UnifiedSocial';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS, REGISTRY_STATUS_COPY, type RegistryStatus } from '@/config/productRegistry';
 import { BrandLogo } from '../brand/BrandLogo';
-import { CreateVeyraIdModal } from '../identity/CreateVeyraIdModal';
 import type { VeyraPage } from '../layout/AppShell';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
@@ -40,9 +39,7 @@ interface HomePageProps {
 export function HomePage({ onNavigate }: HomePageProps) {
   const { address, isConnected } = useAccount();
   const identity = useVeyraIdentity();
-  const [identityOpen, setIdentityOpen] = useState(false);
-  const [xLoading, setXLoading] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const social = useUnifiedSocial();
   const arcChain = requireChain(ARC_TESTNET_CHAIN_ID);
   const usdc = getUsdc(ARC_TESTNET_CHAIN_ID);
   const { receipts } = useReceiptStore();
@@ -61,33 +58,20 @@ export function HomePage({ onNavigate }: HomePageProps) {
     : null;
   const recentReceipts = receipts.slice(0, 3);
   const profile = identity.profile;
-  const displayHandle = profile ? `@${profile.veyraHandle}` : 'Create your Veyra ID';
+  const displayHandle = profile ? `@${profile.veyraHandle}.veyra` : 'Sign in required';
 
-  async function connectX() {
-    setNotice(null);
-    if (!profile) {
-      setIdentityOpen(true);
-      setNotice('Create your Veyra ID first, then link X to it.');
+  function continueWithVeyraId() {
+    // Only a deliberate button click may request an EIP-712 identity signature.
+    // A wallet being connected is not proof that its registered ID is absent.
+    if (!social.ready) {
+      onNavigate('social');
       return;
     }
-    if (identity.preview) {
-      setNotice('X linking needs a real Veyra session. Start the BFF + Postgres, then create the signed identity.');
+    if (social.session) {
+      onNavigate('social');
       return;
     }
-    if (profile.x) return;
-    setXLoading(true);
-    try {
-      const authorizeUrl = await beginXLink('/');
-      window.location.assign(authorizeUrl);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to start X linking');
-      setXLoading(false);
-    }
-  }
-
-  function onIdentityCreated(_profile: MyProfile, preview: boolean) {
-    void identity.refresh();
-    setNotice(preview ? 'Preview identity created locally. It is not reserved in production.' : 'Veyra ID created and wallet verified.');
+    void social.signIn();
   }
 
   return (
@@ -130,23 +114,21 @@ export function HomePage({ onNavigate }: HomePageProps) {
 
         <IdentityCard
           profile={profile}
-          preview={identity.preview}
           address={address}
           isConnected={isConnected}
-          xLoading={xLoading}
-          onCreate={() => profile ? onNavigate('settings') : setIdentityOpen(true)}
-          onConnectX={() => void connectX()}
+          ready={social.ready}
+          busy={social.busy}
+          onContinue={continueWithVeyraId}
+          onOpenSocial={() => onNavigate('social')}
+          onConnectX={() => onNavigate('settings')}
         />
       </section>
 
-      {notice && (
-        <div className="flex items-center gap-2 rounded-2xl px-4 py-3 text-sm" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--muted)' }}>
-          <ShieldCheck className="size-4 shrink-0" style={{ color: 'var(--accent)' }} />
-          <span>{notice}</span>
-          <button onClick={() => setNotice(null)} className="ml-auto text-xs" style={{ color: 'var(--subtle)' }}>Dismiss</button>
+      {social.error && !profile && (
+        <div role="alert" className="rounded-xl border p-3 text-sm" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}>
+          {social.error} <button type="button" onClick={() => onNavigate('social')} className="ml-2 underline">Open Social</button>
         </div>
       )}
-
       <section className="grid gap-4 lg:grid-cols-[1fr_0.72fr]">
         <div className="rounded-3xl p-5 md:p-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
           <div className="flex items-center justify-between gap-3">
@@ -198,7 +180,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
           </div>
           <div className="mt-5 grid grid-cols-2 gap-3 text-xs">
             <InfoTile label="Wallet" value={address ? shortAddress(address) : 'Not connected'} />
-            <InfoTile label="Veyra ID" value={profile ? displayHandle : 'Not created'} />
+            <InfoTile label="Veyra ID" value={profile ? displayHandle : 'Not signed in'} />
           </div>
         </div>
       </section>
@@ -244,26 +226,27 @@ export function HomePage({ onNavigate }: HomePageProps) {
         </section>
       )}
 
-      <CreateVeyraIdModal open={identityOpen} onClose={() => setIdentityOpen(false)} onCreated={onIdentityCreated} />
     </div>
   );
 }
 
 function IdentityCard({
   profile,
-  preview,
   address,
   isConnected,
-  xLoading,
-  onCreate,
+  ready,
+  busy,
+  onContinue,
+  onOpenSocial,
   onConnectX,
 }: {
   profile: MyProfile | null;
-  preview: boolean;
   address?: `0x${string}`;
   isConnected: boolean;
-  xLoading: boolean;
-  onCreate: () => void;
+  ready: boolean;
+  busy: boolean;
+  onContinue: () => void;
+  onOpenSocial: () => void;
   onConnectX: () => void;
 }) {
   return (
@@ -274,23 +257,23 @@ function IdentityCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-xs font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--muted)' }}>Your identity</div>
-          <div className="mt-1 truncate text-xl font-bold" style={{ color: 'var(--ink)' }}>{profile ? `@${profile.veyraHandle}` : 'No Veyra ID yet'}</div>
-          <p className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>{preview ? 'Local preview identity' : 'Canonical identity for verified endpoints'}</p>
+          <div className="mt-1 truncate text-xl font-bold" style={{ color: 'var(--ink)' }}>{profile ? `@${profile.veyraHandle}.veyra` : isConnected ? 'Sign in to your Veyra ID' : 'Connect your wallet'}</div>
+          <p className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>{profile ? 'Verified identity for the connected wallet' : 'A connected wallet is not a signed-in identity'}</p>
         </div>
       </div>
 
       <div className="mt-5 space-y-2.5">
         <IdentityRow label="Wallet" value={isConnected && address ? shortAddress(address) : 'Not connected'} ok={isConnected} icon={<Wallet className="size-3.5" />} />
-        <IdentityRow label="Veyra ID" value={profile ? `@${profile.veyraHandle}` : 'Not created'} ok={Boolean(profile)} icon={<ShieldCheck className="size-3.5" />} />
+        <IdentityRow label="Veyra ID" value={profile ? `@${profile.veyraHandle}.veyra` : 'Not signed in'} ok={Boolean(profile)} icon={<ShieldCheck className="size-3.5" />} />
         <IdentityRow label="X" value={profile?.x?.xHandle ? `@${profile.x.xHandle}` : 'Not linked'} ok={Boolean(profile?.x)} icon={<span className="text-[11px] font-black">X</span>} />
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-2">
-        <button onClick={onCreate} className="rounded-xl px-3 py-2.5 text-xs font-bold" style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}>
-          {profile ? 'View Veyra ID' : 'Create Veyra ID'}
+        <button type="button" onClick={onContinue} disabled={busy} className="rounded-xl px-3 py-2.5 text-xs font-bold disabled:opacity-50" style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}>
+          {profile ? 'View Veyra ID' : busy ? 'Signing in…' : ready ? 'Sign in to Veyra ID' : 'Continue in Social'}
         </button>
-        <button onClick={onConnectX} disabled={Boolean(profile?.x) || xLoading} className="rounded-xl px-3 py-2.5 text-xs font-bold disabled:opacity-55" style={{ background: 'var(--surface)', color: 'var(--ink)', border: '1px solid var(--border)' }}>
-          {profile?.x ? 'X linked' : xLoading ? 'Connecting…' : 'Connect X'}
+        <button type="button" onClick={profile ? onConnectX : onOpenSocial} disabled={busy} className="rounded-xl px-3 py-2.5 text-xs font-bold disabled:opacity-55" style={{ background: 'var(--surface)', color: 'var(--ink)', border: '1px solid var(--border)' }}>
+          {profile?.x ? 'X linked' : profile ? 'X settings' : 'Social & Friends'}
         </button>
       </div>
     </div>
