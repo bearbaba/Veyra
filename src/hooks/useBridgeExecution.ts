@@ -38,6 +38,7 @@ import { IS_UI_ONLY_PREVIEW, VEYRA_ENV } from '../lib/env';
 import { assertExecutionReady } from '../core/execution/executionReadiness';
 import { saveReceipt } from '../core/receipt/receiptStore';
 import {
+  bridgeCheckpointBelongsToWallet,
   excludeAuthoritativelyResolvedBridgeCheckpoints,
   loadResumableBridgeCheckpoints,
   reconcileBridgeRecoveryCandidates,
@@ -1741,9 +1742,8 @@ export function useBridgeExecution() {
     // A shared browser IndexedDB can hold checkpoints from multiple wallets.
     // Never hydrate, show or cache another owner's source-burn workflow.
     if (!connectedOwner) return [];
-    const owner = connectedOwner.toLowerCase();
     const belongsToOwner = (checkpoint: BridgeRecoveryCheckpoint) =>
-      checkpoint.walletAddress.toLowerCase() === owner;
+      bridgeCheckpointBelongsToWallet(checkpoint, connectedOwner);
     const local = (await loadResumableBridgeCheckpoints()).filter(belongsToOwner);
     let remote: BridgeRecoveryCheckpoint[] = [];
     try {
