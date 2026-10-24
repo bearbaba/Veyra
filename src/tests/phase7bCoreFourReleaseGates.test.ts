@@ -31,10 +31,18 @@ describe('Core Four App Kit release discipline — Pay, Unified, Bridge, Swap', 
     expect(MAINNET_PROVIDER_MANIFEST.every(item => !item.enabled)).toBe(true);
     expect(read('src/preview/PreviewServiceStatus.tsx')).toContain('Awaiting live acceptance');
   });
-  it('retains Testnet as the public Vercel finance build without Mainnet or Earn flags', () => {
+  it('retains Testnet as the public Vercel finance build without Mainnet or Earn flags', async () => {
     const vercel = JSON.parse(read('vercel.json')) as { buildCommand?: string };
     expect(vercel.buildCommand).toContain('VITE_VEYRA_ENV=testnet');
-    expect(vercel.buildCommand).toContain('VITE_VEYRA_UI_ONLY=1');
+    if (vercel.buildCommand?.includes('VITE_VEYRA_UNIFIED_STAGING=1')) {
+      expect(vercel.buildCommand).toContain('VITE_VEYRA_UI_ONLY=0');
+      expect(vercel.buildCommand).toContain('VITE_VEYRA_MAINNET_PAY=0');
+      const {STAGING_APPROVED_REWRITES}=await import('../../scripts/stagingBffAllowlist');
+      expect((JSON.parse(read('vercel.json')) as {rewrites?: unknown[]}).rewrites)
+        .toEqual(STAGING_APPROVED_REWRITES);
+    } else {
+      expect(vercel.buildCommand).toContain('VITE_VEYRA_UI_ONLY=1');
+    }
     expect(vercel.buildCommand).not.toMatch(/MAINNET_PAY=1|EARN=1|SWAP=1|BRIDGE=1/);
   });
 });
