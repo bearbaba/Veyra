@@ -216,7 +216,7 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
             />
           ))}
         </div>
-      ) : receipts.length === 0 ? (
+      ) : receiptError && receipts.length === 0 ? null : receipts.length === 0 ? (
         <div
           className="rounded-2xl p-8 text-center"
           style={{
