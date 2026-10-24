@@ -178,7 +178,7 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
                       <Shield className="size-3.5 mt-0.5 shrink-0" style={{ color: 'var(--accent)' }} />
                       <p className="text-xs" style={{ color: 'var(--muted)' }}>
                         Transfer will be simulated via viem before signing. Final confirmation
-                        verifies the actual on-chain token delta.
+                        verifies this transaction's exact USDC Transfer event.
                       </p>
                     </div>
                   </div>
@@ -234,7 +234,7 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
                   done={['VERIFYING', 'DONE'].includes(execState.step)}
                 />
                 <ExecutionStep
-                  label="Verifying final state"
+                  label="Verifying exact on-chain transfer"
                   active={execState.step === 'VERIFYING'}
                   done={execState.step === 'DONE'}
                 />

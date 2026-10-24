@@ -18,10 +18,11 @@ interface VeyraReceiptViewProps {
 export function VeyraReceiptView({ receipt, explorerUrl }: VeyraReceiptViewProps) {
   const isVerified = receipt.status === 'VERIFIED';
   const isFailed   = receipt.status === 'FAILED';
+  const isCancelled = receipt.status === 'CANCELLED';
 
-  const statusColor = isVerified ? 'var(--success)' : isFailed ? 'var(--danger)' : 'var(--warning)';
-  const statusBg    = isVerified ? 'var(--success-muted)' : isFailed ? 'var(--danger-muted)' : 'var(--warning-muted)';
-  const StatusIcon  = isVerified ? CheckCircle2 : isFailed ? XCircle : Clock;
+  const statusColor = isVerified ? 'var(--success)' : isFailed ? 'var(--danger)' : isCancelled ? 'var(--muted)' : 'var(--warning)';
+  const statusBg    = isVerified ? 'var(--success-muted)' : isFailed ? 'var(--danger-muted)' : isCancelled ? 'var(--surface-muted)' : 'var(--warning-muted)';
+  const StatusIcon  = isVerified ? CheckCircle2 : isFailed || isCancelled ? XCircle : Clock;
 
   return (
     <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
@@ -33,7 +34,7 @@ export function VeyraReceiptView({ receipt, explorerUrl }: VeyraReceiptViewProps
         <StatusIcon className="size-5 shrink-0" style={{ color: statusColor }} />
         <div className="flex-1">
           <p className="text-sm font-semibold" style={{ color: statusColor }}>
-            {isVerified ? 'Transfer Verified' : isFailed ? 'Transfer Failed' : 'Pending'}
+            {isVerified ? 'Transfer verified' : isCancelled ? 'Request cancelled' : isFailed ? 'Transfer failed' : 'Pending confirmation'}
           </p>
           <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
             {receipt.actionType} · {new Date(receipt.completedAt ?? receipt.createdAt).toLocaleString()}
@@ -118,7 +119,9 @@ export function VeyraReceiptView({ receipt, explorerUrl }: VeyraReceiptViewProps
             style={{ background: 'var(--success-muted)', border: '1px solid var(--border)' }}>
             <Shield className="size-3.5 mt-0.5 shrink-0" style={{ color: 'var(--success)' }} />
             <p className="text-xs" style={{ color: 'var(--muted)' }}>
-              Final chain state verified. Actual token delta confirmed onchain.
+              {receipt.actionType === 'TRANSFER'
+                ? 'The transaction receipt contains the exact reviewed USDC Transfer event. Unrelated balance changes do not alter this proof.'
+                : 'On-chain execution evidence was verified for this action.'}
             </p>
           </div>
         )}

@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
+import { formatUnits } from 'viem';
 import { buildTxExplorerUrl } from '@/onchain-facts';
 import { useReceiptStore } from '@/hooks/useReceiptStore';
 import { useBridgeExecution } from '@/hooks/useBridgeExecution';
@@ -39,7 +40,7 @@ import {
 
 export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
   const { isConnected } = useAccount();
-  const { receipts, loading, reload } = useReceiptStore();
+  const { receipts, loading, error: receiptError, reload } = useReceiptStore();
   const bridgeExecution = useBridgeExecution();
   const [recoveryCandidates, setRecoveryCandidates] = useState<
     BridgeRecoveryCheckpoint[]
@@ -47,6 +48,7 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
   const [remoteReceipts, setRemoteReceipts] = useState<
     ActivityReceiptRemoteRecord[]
   >([]);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
 
   useEffect(() => {
     // Static Vercel previews have no authoritative BFF. Never hydrate
@@ -57,11 +59,17 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
 
     void Promise.all([
       bridgeExecution.loadRecoveryCandidates().catch(() => []),
-      loadActivityReceiptsRemote().catch(() => []),
-    ]).then(([recoveryRows, activityRows]) => {
+      loadActivityReceiptsRemote().then(
+        (rows) => ({ rows, failed: false }),
+        () => ({ rows: [] as ActivityReceiptRemoteRecord[], failed: true }),
+      ),
+    ]).then(([recoveryRows, remote]) => {
       if (!active) return;
       setRecoveryCandidates(recoveryRows);
-      setRemoteReceipts(activityRows);
+      setRemoteReceipts(remote.rows);
+      setRemoteError(remote.failed
+        ? 'Synced Activity is temporarily unavailable. This does not mean your transaction history is empty.'
+        : null);
     });
 
     return () => {
@@ -106,6 +114,12 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
         </div>
       )}
 
+      {remoteError && !readOnly && (
+        <div role="alert" className="mb-4 rounded-xl p-3 text-xs"
+          style={{ border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--warning)' }}>
+          {remoteError}
+        </div>
+      )}
       {remoteReceipts.length > 0 && (
         <div className="mb-6 space-y-3">
           <div>
@@ -183,6 +197,15 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
           </div>
         )}
 
+      {receiptError && (
+        <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl p-3 text-sm"
+          style={{ color: 'var(--warning)', border: '1px solid var(--border)', background: 'var(--surface)' }}>
+          <span>{receiptError}</span>
+          <button type="button" onClick={() => void reload()}
+            className="rounded-lg border px-3 py-1 text-xs font-semibold"
+            style={{ borderColor: 'var(--border)' }}>Retry loading</button>
+        </div>
+      )}
       {loading ? (
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -193,7 +216,7 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
             />
           ))}
         </div>
-      ) : receipts.length === 0 ? (
+      ) : receiptError && receipts.length === 0 ? null : receipts.length === 0 ? (
         <div
           className="rounded-2xl p-8 text-center"
           style={{
@@ -206,10 +229,10 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
             style={{ color: 'var(--subtle)' }}
           />
           <p className="text-sm" style={{ color: 'var(--muted)' }}>
-            No completed activity yet
+            No local transactions for this wallet
           </p>
           <p className="text-xs mt-1" style={{ color: 'var(--subtle)' }}>
-            Verified and failed financial actions will appear here.
+            This wallet's verified, pending and failed payments will appear here.
           </p>
         </div>
       ) : (
@@ -761,10 +784,10 @@ function ReceiptCard({ receipt }: { receipt: VeyraReceipt }) {
             mono
           />
         )}
-        {receipt.actualAmountDelta != null && (
+        {(receipt.actualAmountDelta != null || receipt.expectedAmountDelta != null) && (
           <DetailRow
-            label="Amount"
-            value={receipt.actualAmountDelta.toString()}
+            label={receipt.status === 'VERIFIED' ? 'Amount' : 'Reviewed amount'}
+            value={formatReceiptAmount(receipt)}
           />
         )}
         {receipt.riskScore != null && (
@@ -796,6 +819,16 @@ function ReceiptCard({ receipt }: { receipt: VeyraReceipt }) {
       )}
     </div>
   );
+}
+
+function formatReceiptAmount(receipt: VeyraReceipt): string {
+  const amount = receipt.actualAmountDelta ?? receipt.expectedAmountDelta;
+  if (amount == null) return 'Unavailable';
+  if (receipt.actionType === 'TRANSFER' && receipt.tokenSymbol === 'USDC' && receipt.tokenDecimals === 6) {
+    return `${formatUnits(amount, 6)} USDC`;
+  }
+  // Never pretend unknown token base units are decimal USDC.
+  return `${amount.toString()} base units`;
 }
 
 function DetailRow({
