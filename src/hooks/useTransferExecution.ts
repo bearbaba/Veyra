@@ -219,7 +219,9 @@ export function useTransferExecution() {
       catch { /* IndexedDB failure does not imply a failed on-chain payment. */ }
 
       // ── Step 2: Wait for receipt ───────────────────────────────────────────
-      const txReceipt = await publicClient.waitForTransactionReceipt({ hash });
+      // Match read-only crash recovery: 12 canonical confirmations before
+      // calling a transaction terminal. The UI stays CONFIRMING meanwhile.
+      const txReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 12 });
       chainReceiptReverted = txReceipt.status === 'reverted';
 
       const transferEvidence = verifyErc20TransferReceiptEvidence({
