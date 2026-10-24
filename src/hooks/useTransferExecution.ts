@@ -27,7 +27,6 @@ import { assertExecutionReady } from '@/core/execution/executionReadiness';
 import { VEYRA_ENV } from '@/lib/env';
 import {
   verifyErc20TransferReceiptEvidence,
-  verifyExactTokenDelta,
 } from '@/core/execution/receiptVerification';
 import {
   lockActionExecution,
@@ -171,15 +170,6 @@ export function useTransferExecution() {
       assertSuccessfulTransferSimulation(simulation.result);
       assertTransferSafety(evaluateTransferSafety(action,true),confirmedAtReview);
 
-      // Snapshot authoritative recipient balance before signing. A successful
-      // transaction receipt alone is not sufficient for a VERIFIED Veyra receipt.
-      const balanceBefore = await publicClient.readContract({
-        address: action.tokenAddress as `0x${string}`,
-        abi: ERC20_TRANSFER_ABI,
-        functionName: 'balanceOf',
-        args: [action.to as `0x${string}`],
-      });
-
       // ── Step 1: Sign + broadcast ───────────────────────────────────────────
       // Fail closed before opening the wallet request. A browser disappearance
       // around submission must never make the same deterministic action
@@ -208,6 +198,11 @@ export function useTransferExecution() {
         actionType: action.actionType,
         status: 'PENDING',
         chainId: action.chainId,
+        ownerAddress: action.from,
+        recipientAddress: action.to,
+        tokenAddress: action.tokenAddress,
+        tokenDecimals: action.tokenDecimals,
+        tokenSymbol: 'USDC',
         executionTxHash: hash,
         createdAt: action.createdAt,
         actualAmountDelta: null,
@@ -242,21 +237,22 @@ export function useTransferExecution() {
 
       setState((s) => ({ ...s, step: 'VERIFYING' }));
 
-      // ── Step 3: Verify final state — read actual balance delta ─────────────
-      const balanceAfter = await publicClient.readContract({
-        address: action.tokenAddress as `0x${string}`,
-        abi: ERC20_TRANSFER_ABI,
-        functionName: 'balanceOf',
-        args: [action.to as `0x${string}`],
-      });
-
-      const verification = verifyExactTokenDelta(
-        balanceBefore,
-        balanceAfter,
-        action.amount,
-      );
-      if (!verification.verified) {
-        throw new Error(`Final-state verification failed: ${verification.detail}`);
+      // ── Step 3: Confirm the exact transfer event in THIS transaction ──────
+      // The verified Transfer(token, sender, recipient, amount) event above
+      // identifies this specific payment. A before/after balance subtraction
+      // could be wrong when the recipient has concurrent transactions.
+      // A separate balance read is diagnostic only; it cannot demote verified
+      // transaction evidence to PENDING when an RPC fails.
+      let balanceAfter: bigint | undefined;
+      try {
+        balanceAfter = await publicClient.readContract({
+          address: action.tokenAddress as `0x${string}`,
+          abi: ERC20_TRANSFER_ABI,
+          functionName: 'balanceOf',
+          args: [action.to as `0x${string}`],
+        });
+      } catch {
+        // The exact successful Transfer log remains authoritative.
       }
 
       // Build receipt
@@ -267,11 +263,16 @@ export function useTransferExecution() {
         actionType: action.actionType,
         status: 'VERIFIED',
         chainId: action.chainId,
+        ownerAddress: action.from,
+        recipientAddress: action.to,
+        tokenAddress: action.tokenAddress,
+        tokenDecimals: action.tokenDecimals,
+        tokenSymbol: 'USDC',
         executionTxHash: hash,
         executionBlock: Number(txReceipt.blockNumber),
         createdAt: action.createdAt,
         completedAt: Date.now(),
-        actualAmountDelta: verification.actualDelta,
+        actualAmountDelta: transferEvidence.transferAmount,
         expectedAmountDelta: action.amount,
         riskScore: null,
         policyDecision: null,
@@ -279,8 +280,15 @@ export function useTransferExecution() {
         verifiedBalanceAfter: balanceAfter,
       };
 
-      await saveReceipt(veyraReceipt);
-      setState((s) => ({ ...s, step: 'DONE', receipt: veyraReceipt }));
+      // A local storage failure is not a blockchain failure. Never rewrite an
+      // independently VERIFIED payment as PENDING because IndexedDB is down.
+      let persistenceWarning: string | null = null;
+      try {
+        await saveReceipt(veyraReceipt);
+      } catch {
+        persistenceWarning = 'Transfer verified on-chain, but local history could not be saved. Keep the explorer link.';
+      }
+      setState((s) => ({ ...s, step: 'DONE', receipt: veyraReceipt, error: persistenceWarning }));
     } catch (err) {
       if (actionReservationHeld && !submissionStarted) {
         try {
@@ -309,6 +317,11 @@ export function useTransferExecution() {
         actionType:action.actionType,
         status:outcomeKind,
         chainId:action.chainId,
+        ownerAddress:action.from,
+        recipientAddress:action.to,
+        tokenAddress:action.tokenAddress,
+        tokenDecimals:action.tokenDecimals,
+        tokenSymbol:'USDC',
         executionTxHash:broadcastHash ?? undefined,
         createdAt:action.createdAt,
         completedAt:pending ? undefined : Date.now(),
