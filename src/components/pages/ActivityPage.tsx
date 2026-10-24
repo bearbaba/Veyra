@@ -48,6 +48,7 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
   const [remoteReceipts, setRemoteReceipts] = useState<
     ActivityReceiptRemoteRecord[]
   >([]);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
 
   useEffect(() => {
     // Static Vercel previews have no authoritative BFF. Never hydrate
@@ -58,11 +59,17 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
 
     void Promise.all([
       bridgeExecution.loadRecoveryCandidates().catch(() => []),
-      loadActivityReceiptsRemote().catch(() => []),
-    ]).then(([recoveryRows, activityRows]) => {
+      loadActivityReceiptsRemote().then(
+        (rows) => ({ rows, failed: false }),
+        () => ({ rows: [] as ActivityReceiptRemoteRecord[], failed: true }),
+      ),
+    ]).then(([recoveryRows, remote]) => {
       if (!active) return;
       setRecoveryCandidates(recoveryRows);
-      setRemoteReceipts(activityRows);
+      setRemoteReceipts(remote.rows);
+      setRemoteError(remote.failed
+        ? 'Synced Activity is temporarily unavailable. This does not mean your transaction history is empty.'
+        : null);
     });
 
     return () => {
@@ -107,6 +114,12 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
         </div>
       )}
 
+      {remoteError && !readOnly && (
+        <div role="alert" className="mb-4 rounded-xl p-3 text-xs"
+          style={{ border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--warning)' }}>
+          {remoteError}
+        </div>
+      )}
       {remoteReceipts.length > 0 && (
         <div className="mb-6 space-y-3">
           <div>
@@ -771,9 +784,9 @@ function ReceiptCard({ receipt }: { receipt: VeyraReceipt }) {
             mono
           />
         )}
-        {receipt.actualAmountDelta != null && (
+        {(receipt.actualAmountDelta != null || receipt.expectedAmountDelta != null) && (
           <DetailRow
-            label="Amount"
+            label={receipt.status === 'VERIFIED' ? 'Amount' : 'Reviewed amount'}
             value={formatReceiptAmount(receipt)}
           />
         )}
