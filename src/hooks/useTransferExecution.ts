@@ -40,10 +40,12 @@ import {evaluateTransferSafety,assertTransferSafety,REVIEWED_TRANSFER_ABI,assert
 
 export type TransferStep =
   | 'IDLE'
+  | 'PREPARING'
   | 'SIGNING'
   | 'BROADCAST'
   | 'CONFIRMING'
   | 'VERIFYING'
+  | 'PENDING'
   | 'DONE'
   | 'FAILED';
 
@@ -97,11 +99,12 @@ export function useTransferExecution() {
       return;
     }
 
-    setState({ step: 'SIGNING', txHash: null, receipt: null, explorerUrl: null, error: null });
+    setState({ step: 'PREPARING', txHash: null, receipt: null, explorerUrl: null, error: null });
 
     let actionReservationHeld = false;
     let submissionStarted = false;
     let broadcastHash: `0x${string}` | null = null;
+    let chainReceiptReverted = false;
 
     try {
       // Canonical final execution boundary. Re-check schema/provenance/provider
@@ -181,6 +184,7 @@ export function useTransferExecution() {
       // executable again.
       await markActionExecutionSubmissionStarted(action.actionId);
       submissionStarted = true;
+      setState((previous) => ({ ...previous, step: 'SIGNING' }));
 
       const hash = await writeContractAsync({
         address: action.tokenAddress as `0x${string}`,
@@ -196,10 +200,30 @@ export function useTransferExecution() {
       await lockActionExecution(action.actionId);
 
       const explorerUrl = buildTxExplorerUrl(action.chainId, hash);
-      setState((s) => ({ ...s, step: 'CONFIRMING', txHash: hash, explorerUrl }));
+      const pendingReceipt: VeyraReceipt = {
+        receiptId: generateExecutionReceiptId(action.chainId, hash),
+        planId: action.actionId,
+        actionType: action.actionType,
+        status: 'PENDING',
+        chainId: action.chainId,
+        executionTxHash: hash,
+        createdAt: action.createdAt,
+        actualAmountDelta: null,
+        expectedAmountDelta: action.amount,
+        riskScore: null,
+        policyDecision: null,
+        displaySummary: 'Transaction submitted. Waiting for independent on-chain verification.',
+      };
+      setState((previous) => ({ ...previous, step: 'CONFIRMING',
+        txHash: hash, explorerUrl, receipt: pendingReceipt }));
+      // Persist the hash before waiting: closing the dialog or an RPC outage
+      // must not erase a real submitted transfer from Activity.
+      try { await saveReceipt(pendingReceipt); }
+      catch { /* IndexedDB failure does not imply a failed on-chain payment. */ }
 
       // ── Step 2: Wait for receipt ───────────────────────────────────────────
       const txReceipt = await publicClient.waitForTransactionReceipt({ hash });
+      chainReceiptReverted = txReceipt.status === 'reverted';
 
       const transferEvidence = verifyErc20TransferReceiptEvidence({
         receipt: txReceipt,
@@ -265,24 +289,43 @@ export function useTransferExecution() {
       }
 
       const msg = err instanceof Error ? err.message : String(err);
-      const failedReceipt: VeyraReceipt = {
-        receiptId: `veyra-fail-${Date.now()}`,
+      // UNKNOWN is not FAILED: a signed/broadcast transfer must not be
+      // declared failed because RPC confirmation or balance reads timed out.
+      // Only an authoritative reverted receipt proves an on-chain failure.
+      const pending = Boolean(broadcastHash) && !chainReceiptReverted;
+      const outcome: VeyraReceipt = {
+        receiptId: broadcastHash
+          ? generateExecutionReceiptId(action.chainId, broadcastHash)
+          : `veyra-fail-${Date.now()}`,
         planId: action.actionId,
         actionType: action.actionType,
-        status: 'FAILED',
+        status: pending ? 'PENDING' : 'FAILED',
         chainId: action.chainId,
         executionTxHash: broadcastHash ?? undefined,
         createdAt: action.createdAt,
-        completedAt: Date.now(),
+        completedAt: pending ? undefined : Date.now(),
         actualAmountDelta: null,
         expectedAmountDelta: action.amount,
         riskScore: null,
         policyDecision: null,
-        displaySummary: `Transfer failed: ${msg}`,
+        displaySummary: pending
+          ? 'Submitted on Arc Testnet. Final result is not yet verified. Check the transaction; do not send again.'
+          : chainReceiptReverted ? 'Arc Testnet transaction reverted.' : 'Transfer could not be submitted.',
         verifiedBalanceAfter: undefined,
       };
-      await saveReceipt(failedReceipt);
-      setState((s) => ({ ...s, step: 'FAILED', error: msg, receipt: failedReceipt }));
+      // Storage failure must not suppress the visible transaction hash/status.
+      try { await saveReceipt(outcome); } catch { /* UI remains truthful. */ }
+      const explorerUrl = broadcastHash ? buildTxExplorerUrl(action.chainId, broadcastHash) : null;
+      setState((previous) => ({
+        ...previous,
+        step: pending ? 'PENDING' : 'FAILED',
+        txHash: broadcastHash,
+        explorerUrl,
+        error: pending
+          ? 'Transfer submitted, but final verification is unavailable. Do not send again until you inspect the transaction.'
+          : chainReceiptReverted ? 'Transaction reverted on Arc Testnet.' : msg,
+        receipt: outcome,
+      }));
     }
   }, [
     address,
