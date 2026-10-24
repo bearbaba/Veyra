@@ -42,7 +42,11 @@ export const STAGING_ALLOWED_PATHS=[
   "/api/bridge/resolve-destination-revert",
   "/api/bridge/claim-self-receive",
   "/api/bridge/record-self-receive",
-  "/api/bridge/relay-receive"
+  "/api/bridge/relay-receive",
+  // Separately verified second attempt mint and terminal settlement; read-only
+  // chain proof. These endpoints never sign or broadcast transactions.
+  "/api/bridge/verify-second-destination",
+  "/api/bridge/finalize-second-settlement"
 ] as const;
 export const STAGING_APPROVED_REWRITES=STAGING_ALLOWED_PATHS.map(source=>({
   source,destination:STAGING_BFF_ORIGIN+source,

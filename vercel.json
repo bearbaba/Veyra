@@ -185,6 +185,14 @@
     {
       "source": "/api/bridge/relay-receive",
       "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/relay-receive"
+    },
+    {
+      "source": "/api/bridge/verify-second-destination",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/verify-second-destination"
+    },
+    {
+      "source": "/api/bridge/finalize-second-settlement",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/finalize-second-settlement"
     }
   ]
 }

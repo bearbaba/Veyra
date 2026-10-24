@@ -31,11 +31,13 @@ const strictOwnerPaths = [
   '/api/bridge/claim-self-receive',
   '/api/bridge/record-self-receive',
   '/api/bridge/relay-receive',
+  '/api/bridge/verify-second-destination',
+  '/api/bridge/finalize-second-settlement',
 ];
 
 describe('full Testnet BFF routing is exact, implemented and owner-protected', () => {
   it('all forwarded API paths exist as literal BFF handlers (not SPA/HTML fallbacks)', () => {
-    expect(STAGING_ALLOWED_PATHS.length).toBe(35);
+    expect(STAGING_ALLOWED_PATHS.length).toBe(37);
     const unique = new Set<string>(STAGING_ALLOWED_PATHS);
     expect(unique.size).toBe(STAGING_ALLOWED_PATHS.length);
     for (const path of STAGING_ALLOWED_PATHS) {
@@ -58,6 +60,10 @@ describe('full Testnet BFF routing is exact, implemented and owner-protected', (
     expect(relay).toContain('getBridgeRecoveryCheckpointForOwner');
     expect(relay).toContain('verifyCctpSourceCheckpointAttestationFromNetwork');
     expect(relay).toContain('claimDestinationSubmission');
+    const settlement = routeSource('/api/bridge/finalize-second-settlement');
+    expect(settlement).toContain('verifySecondCctpDestinationMintFromNetwork');
+    expect(settlement).toContain('finalizeVerifiedSecondCctpSettlement');
+    expect(settlement).not.toContain('writeContract(');
     const cctp = routeSource('/api/cctp/attestation');
     expect(cctp).toContain('MANIFEST_CONSTANTS.ARC_TESTNET_CCTP_DOMAIN');
     expect(cctp).toContain('/v2/messages/');

@@ -29,8 +29,10 @@ As soon as the operator resolves the daily build allowance, deploy **this branch
 
 ## Phase 9U — integrated controlled Testnet acceptance candidate
 
-The audited BFF allowlist now includes **35 exact paths**, adding Agent chat/status (review only), fixed-domain Circle sandbox attestation, signed wallet-owner CCTP recovery and destination-submission reconciliation. No wildcard proxies or OAuth callbacks.
+The audited BFF allowlist now includes **37 exact paths**, adding Agent chat/status (review only), fixed-domain Circle sandbox attestation, signed wallet-owner CCTP recovery and destination-submission reconciliation. No wildcard proxies or OAuth callbacks.
 
 **Not yet enabled:** StableFX trade/Convert, Circle App Kit Swap/Gateway/Earn, X OAuth and any Mainnet money movement. Their adapters remain behind the existing lifecycle gates until separate verified real Testnet E2E and production approval. Agent never signs on behalf of a user; it may prepare a reviewed wallet action.
 
 Deployment remains blocked by the recorded Vercel daily limit. CI can verify code shape but does not prove live Render readiness or a funded two-wallet acceptance. Never call this a completed launch.
+
+**CCTP attempt #2 safety:** The protected staging BFF can independently verify an already-submitted second destination mint and finalize its terminal ActivityReceipt with a no-signature request. A missing canonical proof never authorizes sending again, and first source burn is never repeated. This route remains owned and signed-session protected.
