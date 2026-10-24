@@ -37,6 +37,7 @@ import {
 } from '@/core/execution/actionExecutionReplayStore';
 import { MANIFEST_CONSTANTS } from '@/providers/registry/providerManifest';
 import {evaluateTransferSafety,assertTransferSafety,REVIEWED_TRANSFER_ABI,assertSuccessfulTransferSimulation} from '@/core/execution/transferSafetyGate';
+import {classifyTransferOutcome,isExplicitWalletRejection} from '@/core/execution/transferOutcome';
 
 export type TransferStep =
   | 'IDLE'
@@ -46,6 +47,7 @@ export type TransferStep =
   | 'CONFIRMING'
   | 'VERIFYING'
   | 'PENDING'
+  | 'CANCELLED'
   | 'DONE'
   | 'FAILED';
 
@@ -289,42 +291,51 @@ export function useTransferExecution() {
       }
 
       const msg = err instanceof Error ? err.message : String(err);
-      // UNKNOWN is not FAILED: a signed/broadcast transfer must not be
-      // declared failed because RPC confirmation or balance reads timed out.
-      // Only an authoritative reverted receipt proves an on-chain failure.
-      const pending = Boolean(broadcastHash) && !chainReceiptReverted;
+      // Ambiguous wallet/RPC outcomes must never be labeled as a confirmed
+      // failure. Only RPC code 4001 proves explicit user cancellation.
+      const outcomeKind = classifyTransferOutcome({
+        submissionStarted,
+        broadcastHash,
+        revertedOnChain:chainReceiptReverted,
+        userExplicitlyRejected:isExplicitWalletRejection(err),
+      });
+      const pending = outcomeKind === 'PENDING';
+      const cancelled = outcomeKind === 'CANCELLED';
       const outcome: VeyraReceipt = {
         receiptId: broadcastHash
-          ? generateExecutionReceiptId(action.chainId, broadcastHash)
-          : `veyra-fail-${Date.now()}`,
-        planId: action.actionId,
-        actionType: action.actionType,
-        status: pending ? 'PENDING' : 'FAILED',
-        chainId: action.chainId,
-        executionTxHash: broadcastHash ?? undefined,
-        createdAt: action.createdAt,
-        completedAt: pending ? undefined : Date.now(),
-        actualAmountDelta: null,
-        expectedAmountDelta: action.amount,
-        riskScore: null,
-        policyDecision: null,
-        displaySummary: pending
-          ? 'Submitted on Arc Testnet. Final result is not yet verified. Check the transaction; do not send again.'
-          : chainReceiptReverted ? 'Arc Testnet transaction reverted.' : 'Transfer could not be submitted.',
-        verifiedBalanceAfter: undefined,
+          ? generateExecutionReceiptId(action.chainId,broadcastHash)
+          : submissionStarted ? `veyra-plan-${action.actionId}` : `veyra-fail-${Date.now()}`,
+        planId:action.actionId,
+        actionType:action.actionType,
+        status:outcomeKind,
+        chainId:action.chainId,
+        executionTxHash:broadcastHash ?? undefined,
+        createdAt:action.createdAt,
+        completedAt:pending ? undefined : Date.now(),
+        actualAmountDelta:null,
+        expectedAmountDelta:action.amount,
+        riskScore:null,
+        policyDecision:null,
+        displaySummary:pending
+          ? broadcastHash
+            ? 'Transaction submitted. Final confirmation is still unknown. Do not send again.'
+            : 'Wallet submission result is unknown. Check your wallet activity before trying again.'
+          : cancelled ? 'Wallet signature request rejected by the user.'
+          : chainReceiptReverted ? 'Arc Testnet confirmed that the transfer reverted.'
+          : 'Transfer was blocked before wallet submission.',
       };
-      // Storage failure must not suppress the visible transaction hash/status.
-      try { await saveReceipt(outcome); } catch { /* UI remains truthful. */ }
-      const explorerUrl = broadcastHash ? buildTxExplorerUrl(action.chainId, broadcastHash) : null;
+      try { await saveReceipt(outcome); } catch { /* Keep the UI informative. */ }
       setState((previous) => ({
         ...previous,
-        step: pending ? 'PENDING' : 'FAILED',
-        txHash: broadcastHash,
-        explorerUrl,
-        error: pending
-          ? 'Transfer submitted, but final verification is unavailable. Do not send again until you inspect the transaction.'
-          : chainReceiptReverted ? 'Transaction reverted on Arc Testnet.' : msg,
-        receipt: outcome,
+        step:outcomeKind,
+        txHash:broadcastHash,
+        explorerUrl:broadcastHash ? buildTxExplorerUrl(action.chainId,broadcastHash) : null,
+        error:pending ? broadcastHash
+          ? 'Final verification is unavailable. Inspect the transaction before sending again.'
+          : 'The wallet may have submitted this payment. Check wallet history before retrying.'
+          : cancelled ? 'You rejected the wallet request. No confirmed transfer was submitted.'
+          : chainReceiptReverted ? 'The on-chain transaction reverted.' : msg,
+        receipt:outcome,
       }));
     }
   }, [
