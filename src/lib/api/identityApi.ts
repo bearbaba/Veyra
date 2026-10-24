@@ -1,4 +1,5 @@
 import {activeSignedIdentityToken} from './liveIdentitySession';
+import {verifyXAuthorizationUrl} from '../../identity-beta/protocol';
 
 const DEV_USER_ID = import.meta.env.VITE_DEV_VEYRA_USER_ID as string | undefined;
 
@@ -29,8 +30,18 @@ async function postJson<T>(path: string, body: Record<string, unknown>, explicit
     headers: { 'Content-Type': 'application/json', ...authHeaders(explicitToken) },
     body: JSON.stringify(body),
   });
-  const payload = await response.json() as Record<string, unknown>;
-  if (!response.ok) {
+  // Vercel SPA fallbacks can return index.html (status 200) instead of an
+  // unconfigured API route. Do not surface a raw "Unexpected token '<'" error.
+  let payload: Record<string, unknown>;
+  try {
+    const parsed: unknown = await response.json();
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid JSON shape');
+    payload = parsed as Record<string, unknown>;
+  } catch {
+    const label = path === '/api/auth/x/start' ? 'X linking' : 'Veyra';
+    throw new Error(`${label} service is not available on this website. Your wallet and identity are unchanged.`);
+  }
+  if (!response.ok || payload.ok === false) {
     throw new Error(typeof payload.message === 'string' ? payload.message : `Request failed (${response.status})`);
   }
   return payload as T;
@@ -90,7 +101,7 @@ export async function getMyProfile(): Promise<MyProfile> {
 
 export async function beginXLink(returnPath = '/settings'): Promise<string> {
   const result = await postJson<{ ok: true; authorizeUrl: string }>('/api/auth/x/start', { returnPath });
-  return result.authorizeUrl;
+  return verifyXAuthorizationUrl(result.authorizeUrl);
 }
 
 export interface IdentityRegistrationChallenge {
