@@ -2,7 +2,7 @@
 
 **Dedicated deploy-only branch:** `phase9q-unified-core-testnet-release`
 
-**Source base:** `a6650dc65a1dd3fd9e1362d42a2f393d11a1b444`, including merged P0 financial PRs #62–#66 and 919 passing CI tests.
+**Reviewed financial baseline:** P0 PRs #62–#66 at `a6650dc65a1dd3fd9e1362d42a2f393d11a1b444`, plus wallet-scoped Activity/Bridge safety PR #69 merged as `cf56cc676523681e3a30db5b3a7bd31efc043dd5`. Its financial CI passed **928/928 tests, 118 test files**. The staging branch copies the exact reviewed files rather than merging deploy configuration into the finance branch.
 
 **Allowed target:** existing `veyra-unified-testnet` Vercel project only.
 **Do NOT merge this branch into `phase5-production-bridge-flow` or `develop`, or deploy it to `veyra` or a Mainnet project.**
@@ -20,3 +20,9 @@ This branch combines the latest wallet-bound Veyra ID, Friends, Pay and Activity
 7. Only after the above and a deliberate deployment approval may this candidate replace the protected `veyra-unified-testnet` target. Never automatically promote to Mainnet.
 
 **Not a live acceptance claim:** a green build or Vercel READY is static evidence only, not proof of funded acceptance or live backend readiness.
+
+## Current deployment and acceptance blocker (24 October 2026)
+
+A protected **Preview** creation targeting Vercel project `veyra-unified-testnet` was attempted and blocked at HTTP **402** `api-deployments-free-per-day` (more than 100 deploys/day, retry-after 86400 seconds). A new URL/production alias was **not** created; previous publicly routed Testnet project still points to old commit `498f75da5b54475a7809220cc327e5268bd0160a`. Do not confuse a successful GitHub Actions build with a deployed and signed-wallet-accepted Testnet release.
+
+As soon as the operator resolves the daily build allowance, deploy **this branch's newest passing commit** to a protected preview of the existing `veyra-unified-testnet` project; verify Git SHA and HTTPS route health before requesting any live user-funded action. Do not replay unknown-outcome transfers and do not promote `develop`, `veyra`, `veyra-unified-testnet-v2`, or Mainnet from this deploy-only branch.
