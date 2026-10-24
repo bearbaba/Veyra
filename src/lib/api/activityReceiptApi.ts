@@ -255,16 +255,20 @@ export async function finalizeRevertedCctpSourceReceiptRemote(
 export async function loadActivityReceiptsRemote(
   limit = 100,
 ): Promise<ActivityReceiptRemoteRecord[]> {
+  const tokenAtRequest = activeSignedIdentityToken();
   const headers = authHeaders();
   if (Object.keys(headers).length === 0) return [];
 
   const response = await fetch(
     `/api/receipts?limit=${Math.max(1, Math.min(250, Math.trunc(limit)))}`,
-    { headers },
+    { headers, cache: 'no-store' },
   );
-
   if (response.status === 401) return [];
   const payload = await parseResponse(response);
+  if (tokenAtRequest !== activeSignedIdentityToken()) {
+    throw new ActivityReceiptApiError(401, 'SESSION_CHANGED',
+      'Wallet session changed while Activity was loading. Sign in again to refresh.');
+  }
   return Array.isArray(payload.receipts)
     ? (payload.receipts as ActivityReceiptRemoteRecord[])
     : [];
@@ -273,12 +277,17 @@ export async function loadActivityReceiptsRemote(
 export async function loadResumableActivityReceiptsRemote(): Promise<
   ActivityReceiptRemoteRecord[]
 > {
+  const tokenAtRequest = activeSignedIdentityToken();
   const headers = authHeaders();
   if (Object.keys(headers).length === 0) return [];
 
-  const response = await fetch('/api/receipts/resumable', { headers });
+  const response = await fetch('/api/receipts/resumable', { headers, cache: 'no-store' });
   if (response.status === 401) return [];
   const payload = await parseResponse(response);
+  if (tokenAtRequest !== activeSignedIdentityToken()) {
+    throw new ActivityReceiptApiError(401, 'SESSION_CHANGED',
+      'Wallet session changed while Activity was loading. Sign in again to refresh.');
+  }
   return Array.isArray(payload.receipts)
     ? (payload.receipts as ActivityReceiptRemoteRecord[])
     : [];
