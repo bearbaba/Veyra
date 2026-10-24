@@ -120,10 +120,21 @@ export class ActivityReceiptApiError extends Error {
 async function parseResponse(
   response: Response,
 ): Promise<Record<string, unknown>> {
-  const payload = (await response.json().catch(() => ({}))) as Record<
-    string,
-    unknown
-  >;
+  let parsed: unknown;
+  try { parsed = await response.json(); }
+  catch {
+    throw new ActivityReceiptApiError(
+      502, 'INVALID_API_RESPONSE',
+      'Activity service returned an invalid response. History has not been refreshed.',
+    );
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new ActivityReceiptApiError(
+      502, 'INVALID_API_RESPONSE',
+      'Activity service returned an invalid response. History has not been refreshed.',
+    );
+  }
+  const payload = parsed as Record<string, unknown>;
 
   if (!response.ok) {
     throw new ActivityReceiptApiError(
@@ -255,33 +266,50 @@ export async function finalizeRevertedCctpSourceReceiptRemote(
 export async function loadActivityReceiptsRemote(
   limit = 100,
 ): Promise<ActivityReceiptRemoteRecord[]> {
+  const tokenAtRequest = activeSignedIdentityToken();
   const headers = authHeaders();
   if (Object.keys(headers).length === 0) return [];
 
   const response = await fetch(
     `/api/receipts?limit=${Math.max(1, Math.min(250, Math.trunc(limit)))}`,
-    { headers },
+    { headers, cache: 'no-store' },
   );
-
   if (response.status === 401) return [];
   const payload = await parseResponse(response);
-  return Array.isArray(payload.receipts)
-    ? (payload.receipts as ActivityReceiptRemoteRecord[])
-    : [];
+  if (tokenAtRequest !== activeSignedIdentityToken()) {
+    throw new ActivityReceiptApiError(401, 'SESSION_CHANGED',
+      'Wallet session changed while Activity was loading. Sign in again to refresh.');
+  }
+  if (!Array.isArray(payload.receipts)) {
+    throw new ActivityReceiptApiError(
+      502, 'INVALID_RECEIPT_RESPONSE',
+      'Activity service did not provide a valid transaction list. Try again.',
+    );
+  }
+  return payload.receipts as ActivityReceiptRemoteRecord[];
 }
 
 export async function loadResumableActivityReceiptsRemote(): Promise<
   ActivityReceiptRemoteRecord[]
 > {
+  const tokenAtRequest = activeSignedIdentityToken();
   const headers = authHeaders();
   if (Object.keys(headers).length === 0) return [];
 
-  const response = await fetch('/api/receipts/resumable', { headers });
+  const response = await fetch('/api/receipts/resumable', { headers, cache: 'no-store' });
   if (response.status === 401) return [];
   const payload = await parseResponse(response);
-  return Array.isArray(payload.receipts)
-    ? (payload.receipts as ActivityReceiptRemoteRecord[])
-    : [];
+  if (tokenAtRequest !== activeSignedIdentityToken()) {
+    throw new ActivityReceiptApiError(401, 'SESSION_CHANGED',
+      'Wallet session changed while Activity was loading. Sign in again to refresh.');
+  }
+  if (!Array.isArray(payload.receipts)) {
+    throw new ActivityReceiptApiError(
+      502, 'INVALID_RECEIPT_RESPONSE',
+      'Activity service did not provide a valid transaction list. Try again.',
+    );
+  }
+  return payload.receipts as ActivityReceiptRemoteRecord[];
 }
 
 

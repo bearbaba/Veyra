@@ -30,6 +30,16 @@ export interface BridgeRecoveryCheckpoint {
   updatedAt: number;
 }
 
+/** A shared browser may retain checkpoints from multiple wallets. Never surface
+ * or resume a recovery plan owned by a different connected address. */
+export function bridgeCheckpointBelongsToWallet(
+  checkpoint: BridgeRecoveryCheckpoint,
+  connectedAddress: string | undefined,
+): boolean {
+  return Boolean(connectedAddress && /^0x[0-9a-fA-F]{40}$/.test(connectedAddress) &&
+    checkpoint.walletAddress.toLowerCase() === connectedAddress.toLowerCase());
+}
+
 export type BridgeResumeInstruction =
   | 'POLL_ATTESTATION'
   | 'SUBMIT_RECEIVE'

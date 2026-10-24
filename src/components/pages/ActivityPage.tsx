@@ -8,9 +8,11 @@
 
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
+import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 import { formatUnits } from 'viem';
 import { buildTxExplorerUrl } from '@/onchain-facts';
 import { useReceiptStore } from '@/hooks/useReceiptStore';
+import { formatRemoteActivityAmount } from '@/core/receipt/formatRemoteActivityAmount';
 import { useBridgeExecution } from '@/hooks/useBridgeExecution';
 import {
   ExternalLink,
@@ -21,6 +23,7 @@ import {
 } from 'lucide-react';
 import type { VeyraReceipt } from '@/core/receipt/receiptTypes';
 import {
+  bridgeCheckpointBelongsToWallet,
   nextBridgeResumeInstruction,
   type BridgeRecoveryCheckpoint,
 } from '@/core/execution/bridgeCheckpointStore';
@@ -39,57 +42,76 @@ import {
 } from '@/lib/api/bridgeRecoveryApi';
 
 export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
-  const { isConnected } = useAccount();
+  const { address, chainId, connector, isConnected } = useAccount();
+  const social = useUnifiedSocial();
+  // No bearer token or wallet-private data is persisted in the view key.
+  // The session user ID changes on sign-out, login or wallet replacement.
+  const activeScope = address
+    ? [address.toLowerCase(), chainId ?? 0, connector?.uid ?? '', social.session?.profile.veyraUserId ?? ''].join(':')
+    : '';
   const { receipts, loading, error: receiptError, reload } = useReceiptStore();
   const bridgeExecution = useBridgeExecution();
-  const [recoveryCandidates, setRecoveryCandidates] = useState<
-    BridgeRecoveryCheckpoint[]
-  >([]);
-  const [remoteReceipts, setRemoteReceipts] = useState<
-    ActivityReceiptRemoteRecord[]
-  >([]);
-  const [remoteError, setRemoteError] = useState<string | null>(null);
+  const [remoteView, setRemoteView] = useState<{
+    scope: string;
+    candidates: BridgeRecoveryCheckpoint[];
+    receipts: ActivityReceiptRemoteRecord[];
+    error: string | null;
+  }>({ scope: '', candidates: [], receipts: [], error: null });
+  // Hide a previous wallet's remote data during render, even before effects run.
+  const viewIsCurrent = !readOnly && Boolean(activeScope) && remoteView.scope === activeScope;
+  const recoveryCandidates = viewIsCurrent ? remoteView.candidates : [];
+  const remoteReceipts = viewIsCurrent && social.session ? remoteView.receipts : [];
+  const remoteError = viewIsCurrent && social.session ? remoteView.error : null;
 
   useEffect(() => {
-    // Static Vercel previews have no authoritative BFF. Never hydrate
-    // actionable recovery candidates from potentially stale local state.
     if (readOnly) return;
-
+    if (!activeScope) return;
     let active = true;
-
+    const scope = activeScope;
     void Promise.all([
-      bridgeExecution.loadRecoveryCandidates().catch(() => []),
+      bridgeExecution.loadRecoveryCandidates().catch(() => [] as BridgeRecoveryCheckpoint[]),
       loadActivityReceiptsRemote().then(
         (rows) => ({ rows, failed: false }),
         () => ({ rows: [] as ActivityReceiptRemoteRecord[], failed: true }),
       ),
-    ]).then(([recoveryRows, remote]) => {
+    ]).then(([candidates, remote]) => {
       if (!active) return;
-      setRecoveryCandidates(recoveryRows);
-      setRemoteReceipts(remote.rows);
-      setRemoteError(remote.failed
-        ? 'Synced Activity is temporarily unavailable. This does not mean your transaction history is empty.'
-        : null);
+      // Bridge checkpoints are always wallet-bound. This is a second defense
+      // after the hook's own local/remote filtering.
+      const own = candidates.filter((checkpoint) =>
+        bridgeCheckpointBelongsToWallet(checkpoint, address));
+      setRemoteView({
+        scope, candidates: own, receipts: remote.rows,
+        error: remote.failed
+          ? 'Synced Activity is temporarily unavailable. This does not mean your transaction history is empty.'
+          : null,
+      });
     });
+    return () => { active = false; };
+  }, [activeScope, address, bridgeExecution.loadRecoveryCandidates, readOnly]);
 
-    return () => {
-      active = false;
-    };
-  }, [bridgeExecution.loadRecoveryCandidates, readOnly]);
+  async function refreshRemoteView() {
+    const scope = activeScope;
+    if (readOnly || !address || !scope) return;
+    const [candidates, rows] = await Promise.all([
+      bridgeExecution.loadRecoveryCandidates(),
+      loadActivityReceiptsRemote().catch(() => [] as ActivityReceiptRemoteRecord[]),
+    ]);
+    // A late response never acquires authority over the next signed wallet.
+    setRemoteView({
+      scope,
+      candidates: candidates.filter((checkpoint) =>
+        bridgeCheckpointBelongsToWallet(checkpoint, address)),
+      receipts: rows, error: null,
+    });
+  }
 
   async function resume(checkpoint: BridgeRecoveryCheckpoint) {
-    if (readOnly) return; // Prevents wallet-signing recovery in static preview.
-    await bridgeExecution.resumeProviderCheckpoint(
-      cctpV2BridgeProvider,
-      checkpoint,
-    );
+    if (readOnly || !address || !social.session ||
+        !bridgeCheckpointBelongsToWallet(checkpoint, address)) return;
+    await bridgeExecution.resumeProviderCheckpoint(cctpV2BridgeProvider, checkpoint);
     await reload();
-    const [recoveryRows, activityRows] = await Promise.all([
-      bridgeExecution.loadRecoveryCandidates(),
-      loadActivityReceiptsRemote().catch(() => []),
-    ]);
-    setRecoveryCandidates(recoveryRows);
-    setRemoteReceipts(activityRows);
+    await refreshRemoteView();
   }
 
   return (
@@ -148,16 +170,11 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
             <RecoveryCard
               key={checkpoint.planId}
               checkpoint={checkpoint}
-              connected={isConnected}
+              connected={isConnected && Boolean(social.session)}
               busy={bridgeExecution.state.phase !== 'IDLE'}
               onResume={() => void resume(checkpoint)}
               onReconciled={async () => {
-                const [recoveryRows, activityRows] = await Promise.all([
-                  bridgeExecution.loadRecoveryCandidates(),
-                  loadActivityReceiptsRemote().catch(() => []),
-                ]);
-                setRecoveryCandidates(recoveryRows);
-                setRemoteReceipts(activityRows);
+                await refreshRemoteView();
                 await reload();
               }}
             />
@@ -316,7 +333,7 @@ function RemoteActivityCard({
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
         <DetailRow
           label="Amount"
-          value={receipt.amountRaw}
+          value={formatRemoteActivityAmount(receipt)}
         />
         <DetailRow
           label="Route"

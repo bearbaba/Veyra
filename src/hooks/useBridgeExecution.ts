@@ -16,7 +16,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import { usePublicClient, useWalletClient, useSwitchChain } from 'wagmi';
+import { useAccount, usePublicClient, useWalletClient, useSwitchChain } from 'wagmi';
 import { getAddress, createPublicClient, http, type Hash, type Address } from 'viem';
 import {
   approveTokenMessenger,
@@ -38,6 +38,7 @@ import { IS_UI_ONLY_PREVIEW, VEYRA_ENV } from '../lib/env';
 import { assertExecutionReady } from '../core/execution/executionReadiness';
 import { saveReceipt } from '../core/receipt/receiptStore';
 import {
+  bridgeCheckpointBelongsToWallet,
   excludeAuthoritativelyResolvedBridgeCheckpoints,
   loadResumableBridgeCheckpoints,
   reconcileBridgeRecoveryCandidates,
@@ -388,6 +389,7 @@ async function catchUpRecoveryActivity(
 
 export function useBridgeExecution() {
   const [state, setState] = useState<BridgeExecutionState>({ phase: 'IDLE' });
+  const { address: connectedOwner } = useAccount();
   const sourcePublicClient = usePublicClient({ chainId: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID });
   const { data: walletClient } = useWalletClient();
   const { switchChainAsync } = useSwitchChain();
@@ -1737,37 +1739,34 @@ export function useBridgeExecution() {
   }, [resumeBridge]);
 
   const loadRecoveryCandidates = useCallback(async () => {
-    const local = await loadResumableBridgeCheckpoints();
+    // A shared browser IndexedDB can hold checkpoints from multiple wallets.
+    // Never hydrate, show or cache another owner's source-burn workflow.
+    if (!connectedOwner) return [];
+    const belongsToOwner = (checkpoint: BridgeRecoveryCheckpoint) =>
+      bridgeCheckpointBelongsToWallet(checkpoint, connectedOwner);
+    const local = (await loadResumableBridgeCheckpoints()).filter(belongsToOwner);
     let remote: BridgeRecoveryCheckpoint[] = [];
-
     try {
-      remote = await loadRemoteBridgeCheckpoints();
+      remote = (await loadRemoteBridgeCheckpoints()).filter(belongsToOwner);
     } catch {
-      // Server recovery is additive. Local recovery remains available if the
-      // BFF/database is offline.
+      // Local, owner-bound recovery remains available if the BFF is offline.
     }
-
-    const reconciled = reconcileBridgeRecoveryCandidates(local, remote);
+    const reconciled = reconcileBridgeRecoveryCandidates(local, remote)
+      .filter(belongsToOwner);
     let unresolved = reconciled;
     try {
       const receipts = await loadActivityReceiptsRemote(250);
       unresolved = excludeAuthoritativelyResolvedBridgeCheckpoints(
-        reconciled,
-        receipts,
+        reconciled, receipts,
       );
     } catch {
-      // Never suppress unresolved recovery when Activity is offline. An
-      // authenticated terminal server record is the only filtering authority.
+      // A missing server response cannot prove a bridge settled.
     }
-
-    // Cache accepted remote-only/advanced checkpoints locally so subsequent
-    // reloads do not depend on server availability.
     for (const checkpoint of unresolved) {
       await saveBridgeCheckpoint(checkpoint);
     }
-
     return unresolved;
-  }, []);
+  }, [connectedOwner]);
 
   const reset = useCallback(() => {
     abortRef.current = true;
