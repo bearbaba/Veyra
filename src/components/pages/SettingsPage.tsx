@@ -26,11 +26,18 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const [copied, setCopied] = useState(false);
   const [xLoading, setXLoading] = useState(false);
   const [xError, setXError] = useState<string | null>(null);
+  // This isolated Testnet host has no authorized X OAuth BFF rewrite.
+  // Do not offer a button that appears active but cannot complete linking.
+  const xLinkUnavailable = import.meta.env.VITE_VEYRA_UNIFIED_STAGING === '1';
 
   const profile = identity.profile;
 
   async function linkX() {
     setXError(null);
+    if (xLinkUnavailable) {
+      setXError('X linking is unavailable on this Testnet version. Your Veyra ID and wallet are unaffected.');
+      return;
+    }
     if (!profile || !social.session) {
       setXError('Sign in through Social to link X to your existing Veyra identity.');
       onOpenSocial();
@@ -99,11 +106,15 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
                 {copied ? 'Copied wallet' : 'Copy wallet'}
               </button>
             )}
-            <button onClick={() => void linkX()} disabled={!social.session || Boolean(profile?.x) || xLoading} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
+            <button onClick={() => void linkX()} disabled={xLinkUnavailable || !social.session || Boolean(profile?.x) || xLoading}
+              aria-label={xLinkUnavailable ? 'X linking is not available yet' : 'Connect X account'} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
               {xLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
-              {profile?.x ? 'X linked' : 'Connect X'}
+              {profile?.x ? 'X linked' : xLinkUnavailable ? 'X linking unavailable' : 'Connect X'}
             </button>
           </div>
+          {xLinkUnavailable && <p className="mt-3 text-xs" style={{ color: 'var(--muted)' }}>
+            X OAuth will be enabled only after a verified backend configuration and consent flow. Your existing Veyra ID stays unchanged.
+          </p>}
           {xError && <p className="mt-3 text-xs" style={{ color: 'var(--warning)' }}>{xError}</p>}
         </div>
 

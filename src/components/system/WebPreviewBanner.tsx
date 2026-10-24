@@ -12,9 +12,17 @@ export function WebPreviewBanner() {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 2500);
 
-    void fetch('/api/health', { signal: controller.signal })
-      .then((response) => {
-        setBffState(response.ok ? 'online' : 'offline');
+    void fetch('/api/health', { signal: controller.signal, cache: 'no-store' })
+      .then(async (response) => {
+        const type = response.headers.get('content-type') ?? '';
+        if (!response.ok || !type.toLowerCase().includes('application/json')) {
+          setBffState('offline');
+          return;
+        }
+        const payload: unknown = await response.json();
+        const healthy = typeof payload === 'object' && payload !== null &&
+          'ok' in payload && payload.ok === true;
+        setBffState(healthy ? 'online' : 'offline');
       })
       .catch(() => setBffState('offline'))
       .finally(() => window.clearTimeout(timer));
