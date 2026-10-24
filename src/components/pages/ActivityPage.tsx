@@ -37,6 +37,7 @@ import {
   recordSelfRelayDestinationRemote,
   loadDestinationAttemptHistoryRemote,
   reconcileSecondReceiveRemote,
+  finalizeVerifiedSecondSettlementRemote,
   type DestinationAttemptHistoryRemote,
   type DestinationNonceObservation,
 } from '@/lib/api/bridgeRecoveryApi';
@@ -415,6 +416,7 @@ function RecoveryCard({
   const [secondBusy, setSecondBusy] = useState(false);
   const [secondMessage, setSecondMessage] = useState<string | null>(null);
   const [secondError, setSecondError] = useState<string | null>(null);
+  const [settlementBusy, setSettlementBusy] = useState(false);
 
   useEffect(() => {
     if (checkpoint.stage !== 'DESTINATION_BROADCAST' || !connected) return;
@@ -458,6 +460,34 @@ function RecoveryCard({
       );
     } finally {
       setSecondBusy(false);
+    }
+  }
+
+  async function finalizeSecondSettlement() {
+    // This button never signs or retries. Only independent BFF chain evidence
+    // can upgrade the immutable ActivityReceipt to COMPLETE.
+    if (!connected || busy || secondBusy || settlementBusy ||
+        checkpoint.stage !== 'DESTINATION_BROADCAST' ||
+        !attemptHistory?.first.reverted ||
+        attemptHistory.second.state !== 'RECORDED' ||
+        !/^0x[0-9a-fA-F]{64}$/.test(attemptHistory.second.receiveTxHash ?? '')) {
+      return;
+    }
+    setSettlementBusy(true);
+    setSecondError(null);
+    setSecondMessage(null);
+    try {
+      const settled = await finalizeVerifiedSecondSettlementRemote(checkpoint.planId);
+      setSecondMessage(
+        'Second destination USDC mint verified on-chain. Receipt ' +
+        settled.receiptId + ' is complete. No new funds were sent.',
+      );
+      await onReconciled();
+    } catch (error) {
+      setSecondError(error instanceof Error ? error.message :
+        'Second destination mint has not been proven. No transaction was submitted.');
+    } finally {
+      setSettlementBusy(false);
     }
   }
 
@@ -666,6 +696,17 @@ function RecoveryCard({
                 {secondBusy ? 'Verifying existing transaction…' : 'Reconcile second hash (no signing)'}
               </button>
             </form>
+          )}
+          {attemptHistory?.first.reverted &&
+            attemptHistory.second.state === 'RECORDED' &&
+            /^0x[0-9a-fA-F]{64}$/.test(attemptHistory.second.receiveTxHash ?? '') && (
+            <button type="button"
+              onClick={() => void finalizeSecondSettlement()}
+              disabled={!connected || busy || secondBusy || settlementBusy}
+              className="rounded-lg px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}>
+              {settlementBusy ? 'Checking canonical USDC mint…' : 'Verify second mint and complete receipt (no signing)'}
+            </button>
           )}
           {secondMessage && <p role="status" className="text-xs" style={{ color: 'var(--success)' }}>{secondMessage}</p>}
           {secondError && <p role="alert" className="text-xs" style={{ color: 'var(--danger)' }}>{secondError} · No new transaction was sent.</p>}
