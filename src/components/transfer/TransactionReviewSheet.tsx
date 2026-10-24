@@ -41,10 +41,10 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
   const missingIdentityProof = recipient?.kind === 'VEYRA_IDENTITY' && !recipient.snapshot;
   const isBlocked = !policy || !risk || policy.decision === 'BLOCKED' || highRisk || missingIdentityProof;
   const needsConfirmation = policy?.decision === 'NEEDS_CONFIRMATION';
-  const isExecuting = ['SIGNING', 'BROADCAST', 'CONFIRMING', 'VERIFYING'].includes(execState.step);
+  const isExecuting = ['PREPARING', 'SIGNING', 'BROADCAST', 'CONFIRMING', 'VERIFYING'].includes(execState.step);
 
   function handleClose() {
-    if (isExecuting) return; // prevent close during execution
+    if (isExecuting && !execState.txHash) return; // keep wallet prompt visible; a hashed transaction can be tracked from Activity
     reset();
     onClose();
   }
@@ -61,7 +61,7 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
 
         <motion.section
-          className="relative w-full max-w-md rounded-t-3xl md:rounded-3xl overflow-hidden"
+          className={`relative w-full ${execState.step === 'IDLE' ? 'max-w-md' : 'max-w-3xl'} max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-3xl md:rounded-3xl`}
           style={{
             background: 'rgba(12, 22, 38, 0.97)',
             backdropFilter: 'blur(40px) saturate(200%)',
@@ -96,6 +96,8 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
               )}
             </div>
 
+            <div className={execState.step === 'IDLE' ? 'space-y-4' : 'grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]'}>
+              <div className="min-w-0 space-y-4">
             {/* ── Receipt view (after execution) ── */}
             {execState.receipt && (
               <VeyraReceiptView receipt={execState.receipt} explorerUrl={execState.explorerUrl} />
@@ -212,7 +214,12 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
             {isExecuting && (
               <div className="space-y-4">
                 <ExecutionStep
-                  label="Awaiting wallet signature"
+                  label="Checking recipient, policy & token simulation"
+                  active={execState.step === 'PREPARING'}
+                  done={['SIGNING', 'BROADCAST', 'CONFIRMING', 'VERIFYING', 'DONE'].includes(execState.step)}
+                />
+                <ExecutionStep
+                  label="Confirm the transaction in your wallet"
                   active={execState.step === 'SIGNING'}
                   done={['BROADCAST', 'CONFIRMING', 'VERIFYING', 'DONE'].includes(execState.step)}
                 />
@@ -256,19 +263,108 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
             )}
 
             {/* ── Done: close ── */}
-            {execState.step === 'DONE' && (
+            {['DONE', 'FAILED', 'PENDING', 'CANCELLED'].includes(execState.step) && (
               <button
+                type="button"
                 onClick={handleClose}
                 className="w-full rounded-2xl py-3 text-sm font-semibold"
                 style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)', color: 'var(--ink)' }}
               >
-                Done
+                {execState.step === 'PENDING' ? 'Close · Check Activity for status' : 'Close details'}
               </button>
             )}
+              </div>
+              {execState.step !== 'IDLE' && (
+                <TransferStatusDetails
+                  state={execState}
+                  amount={formatUnits(action.amount, action.tokenDecimals)}
+                  from={action.from}
+                  to={action.to}
+                />
+              )}
+            </div>
           </div>
         </motion.section>
       </motion.div>
     </AnimatePresence>
+  );
+}
+
+
+/** Always-visible transfer status next to the receipt/progress on desktop.
+ * Neutral/pending states are never visually shown as transaction success.
+ */
+function TransferStatusDetails({ state, amount, from, to }: {
+  state: ReturnType<typeof useTransferExecution>['state'];
+  amount: string;
+  from: string;
+  to: string;
+}) {
+  const verified = state.step === 'DONE' && state.receipt?.status === 'VERIFIED';
+  const failed = state.step === 'FAILED';
+  const uncertain = state.step === 'PENDING';
+  const cancelled = state.step === 'CANCELLED';
+  const preparing = state.step === 'PREPARING';
+  const signing = state.step === 'SIGNING';
+  const checking = ['BROADCAST', 'CONFIRMING', 'VERIFYING'].includes(state.step);
+  const color = verified ? 'var(--success)' : failed ? 'var(--danger)' : cancelled ? 'var(--muted)' : 'var(--accent)';
+  const heading = verified ? 'Transfer verified' :
+    failed ? (state.txHash ? 'Transaction reverted' : 'Transfer blocked') :
+    cancelled ? 'Wallet request cancelled' :
+    uncertain ? (state.txHash ? 'Pending verification' : 'Submission status unknown') :
+    preparing ? 'Checking payment safety' :
+    signing ? 'Waiting for wallet approval' :
+    checking ? 'Transaction is being tracked' : 'Preparing transfer';
+  const description = verified ? 'Confirmed on Arc Testnet. Amount and recipient were independently verified.' :
+    failed ? (state.txHash ? 'Arc Testnet confirmed this transaction reverted.' : 'Safety checks blocked the transfer before wallet submission.') :
+    cancelled ? 'You rejected the wallet signature request.' :
+    uncertain ? (state.txHash
+      ? 'A transaction hash exists, but the final result is unverified. Do not send again until checked.'
+      : 'The wallet submission result is unclear. Check wallet activity before attempting another payment.') :
+    signing ? 'Approve or reject the request in your wallet. No funds move until you approve.' :
+    preparing ? 'Verifying your recipient, chain, policy and transfer simulation before the wallet prompt.' :
+    'Follow the transaction on Arc. Closing the browser does not cancel a broadcast payment.';
+  return (
+    <aside role="status" aria-live="polite" aria-atomic="true"
+      className="min-w-0 self-start rounded-2xl p-4 space-y-4"
+      style={{ border: '1px solid var(--border-strong)', background: 'var(--surface)' }}>
+      <div className="flex items-start gap-3">
+        {(preparing || signing || checking) ?
+          <Loader2 aria-hidden="true" className="mt-0.5 size-5 shrink-0 animate-spin" style={{color}} /> :
+          verified ? <CheckCircle2 aria-hidden="true" className="mt-0.5 size-5 shrink-0" style={{color}} /> :
+          (failed || cancelled) ? <XCircle aria-hidden="true" className="mt-0.5 size-5 shrink-0" style={{color}} /> :
+          <AlertTriangle aria-hidden="true" className="mt-0.5 size-5 shrink-0" style={{color}} />}
+        <div className="min-w-0 space-y-1">
+          <p className="text-base font-bold" style={{ color }}>{heading}</p>
+          <p className="text-xs leading-5" style={{ color: 'var(--muted)' }}>{description}</p>
+        </div>
+      </div>
+      <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+        <DetailRow label="Amount" value={`${amount} USDC`} />
+        <DetailRow label="Network" value="Arc Testnet" />
+        <DetailRow label="From" value={`${from.slice(0, 8)}…${from.slice(-6)}`} mono />
+        <DetailRow label="To" value={`${to.slice(0, 8)}…${to.slice(-6)}`} mono />
+        {state.txHash && <DetailRow label="Tx hash" value={`${state.txHash.slice(0, 10)}…${state.txHash.slice(-8)}`} mono />}
+      </div>
+      {state.error && (
+        <p className="rounded-xl p-3 text-xs leading-5"
+          style={{ background: failed ? 'var(--danger-muted)' : 'var(--surface-strong)', color: failed ? 'var(--danger)' : 'var(--ink-2)' }}>
+          {state.error}
+        </p>
+      )}
+      {state.explorerUrl && (
+        <a href={state.explorerUrl} target="_blank" rel="noopener noreferrer"
+          className="flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-xs font-semibold"
+          style={{ color: 'var(--accent)', borderColor: 'var(--border)' }}>
+          <ExternalLink className="size-4" /> Open transaction on Arc explorer
+        </a>
+      )}
+      {uncertain && (
+        <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>
+          Do not retry while the result is uncertain. Check your wallet Activity or the transaction explorer first.
+        </p>
+      )}
+    </aside>
   );
 }
 
