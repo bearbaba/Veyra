@@ -1,0 +1,310 @@
+/**
+ * Dedicated connected-wallet / no-signature Vercel preview shell.
+ *
+ * This application is intentionally not the live App: it permits EIP-1193
+ * account connection + public balance reads, while never importing BFF
+ * clients, wallet signers, payment execution or bridge relay code.
+ */
+import { useEffect, useState, type ReactNode } from 'react';
+import {
+  Activity, ArrowLeftRight, ArrowRight, Bot, ChevronDown, Compass, CreditCard,
+  Github, LayoutDashboard, Layers3, LockKeyhole, Menu, Route, Search, Settings2, ShieldCheck,
+  Wallet, X,
+} from 'lucide-react';
+import { UiOnlyPreviewPage } from '../components/pages/UiOnlyPreviewPage';
+import { PreviewTestnetPayPage } from './PreviewTestnetPayPage';
+import { PreviewHome, PreviewActivity, PreviewSettings } from './PreviewSurfaces';
+import { PreviewLiveAgent } from './PreviewLiveAgent';
+import { PreviewServiceStatus } from './PreviewServiceStatus';
+import { PreviewMainnetHome, PreviewMainnetPay, PreviewMainnetGate } from './PreviewMainnetSurfaces';
+import { PreviewUnified } from './PreviewUnified';
+import {
+  PreviewWalletProvider, shortPreviewAddress, usePreviewWallet, type DiscoveredWallet,
+} from './PreviewWallet';
+
+export type PreviewPage = 'home' | 'unified' | 'pay' | 'convert' | 'bridge' | 'agent' | 'activity' | 'settings';
+export type PreviewNetwork = 'testnet' | 'mainnet';
+type NavigationItem = {
+  id: PreviewPage;
+  title: string;
+  icon: typeof Compass;
+};
+const NAVIGATION: NavigationItem[] = [
+  { id: 'home', title: 'Overview', icon: LayoutDashboard },
+  { id: 'unified', title: 'Unified', icon: Layers3 },
+  { id: 'pay', title: 'Send & Pay', icon: CreditCard },
+  { id: 'convert', title: 'Convert', icon: ArrowLeftRight },
+  { id: 'bridge', title: 'Bridge USDC', icon: Route },
+  { id: 'agent', title: 'AI Assistant', icon: Bot },
+  { id: 'activity', title: 'Activity', icon: Activity },
+];
+const PAGE_LABEL: Record<PreviewPage, string> = {
+  home: 'Overview', unified: 'Unified', pay: 'Send & Pay', convert: 'Convert',
+  bridge: 'Bridge USDC', agent: 'AI Assistant', activity: 'Activity',
+  settings: 'Settings',
+};
+
+function BrandMark({ size = 36 }: { size?: number }) {
+  return (
+    <div className="vp-brand-mark" style={{ width: size, height: size }}>
+      <svg viewBox="0 0 40 40" width={size * 0.72} height={size * 0.72} aria-hidden="true" fill="none">
+        <path d="M6 11 18.8 31 34 8" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M9 11 18.8 24 28 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity=".45" />
+      </svg>
+    </div>
+  );
+}
+
+function WalletIdentityMark({ wallet }: { wallet: DiscoveredWallet }) {
+  const [failed, setFailed] = useState(false);
+  return <span className="vp-wallet-option-icon">
+    {wallet.icon && !failed
+      ? <img src={wallet.icon} alt="" width={28} height={28} referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}/>
+      : <span className="vp-wallet-monogram" aria-hidden="true">{wallet.name.slice(0, 2).toUpperCase()}</span>}
+  </span>;
+}
+
+export function PreviewWalletButton({ fullWidth = false, network = 'testnet' }: { fullWidth?: boolean; network?: PreviewNetwork }) {
+  const wallet = usePreviewWallet();
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [walletQuery, setWalletQuery] = useState('');
+  const [showAllWallets, setShowAllWallets] = useState(false);
+  const filteredWallets = wallet.wallets.filter(item => item.name.toLowerCase().includes(walletQuery.trim().toLowerCase()));
+  const shownWallets = walletQuery.trim() || showAllWallets ? filteredWallets : filteredWallets.slice(0, 4);
+
+  async function choose(id: string) {
+    if (await wallet.connect(id)) setOpen(false);
+  }
+  async function copyAddress() {
+    if (!wallet.address) return;
+    try {
+      await navigator.clipboard.writeText(wallet.address);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className={`vp-wallet-wrapper ${fullWidth ? 'vp-wallet-full' : ''}`}>
+      <button type="button" className="vp-wallet-trigger" onClick={() => setOpen(true)}>
+        <span className="vp-wallet-dot" />
+        <Wallet size={17} />
+        <span>{wallet.address ? shortPreviewAddress(wallet.address) : 'Connect Wallet'}</span>
+        <ChevronDown size={15} />
+      </button>
+      {open && (
+        <div className="vp-modal-backdrop" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setOpen(false);
+        }}>
+          <div className="vp-modal" role="dialog" aria-modal="true" aria-label="Wallet connection">
+            <div className="vp-modal-head">
+              <div>
+                <p className="vp-kicker">WALLET ACCESS</p>
+                <h2>{wallet.address ? 'Your wallet' : 'Connect a wallet'}</h2>
+              </div>
+              <button className="vp-icon-button" aria-label="Close" onClick={() => setOpen(false)}><X size={18} /></button>
+            </div>
+            <p className="vp-caption">{network === 'testnet'
+              ? 'Connect an injected wallet to view Arc Testnet balances. A real testnet USDC payment, if you later choose to initiate one, requires a separate explicit wallet approval.'
+              : 'Connect an injected wallet to read Arc Mainnet public data. Mainnet Pay only simulates: signatures and real-money transfers are disabled.'}</p>
+            {wallet.address ? (
+              <div className="vp-modal-wallet">
+                <span className="vp-status-dot" />
+                <div style={{ minWidth: 0 }}>
+                  <strong>{wallet.activeWalletName || 'Connected wallet'}</strong>
+                  <p className="vp-mono vp-truncate">{wallet.address}</p>
+                  <span className="vp-muted">{wallet.chainId === (network === 'testnet' ? 5042002 : 5042) ? (network === 'testnet' ? 'Arc Testnet' : 'Arc Mainnet') : `Wallet chain: ${wallet.chainId ?? 'Unknown'}`}</span>
+                </div>
+                <button className="vp-text-button" onClick={() => void copyAddress()}>{copied ? 'Copied' : 'Copy'}</button>
+              </div>
+            ) : (
+              <div className="vp-wallet-list">
+                {wallet.wallets.length > 4 && <label className="vp-wallet-search">
+                  <Search size={15}/>
+                  <input type="search" value={walletQuery} onChange={event => setWalletQuery(event.target.value)}
+                    placeholder="Search installed wallets" aria-label="Search installed wallets"/>
+                </label>}
+                {shownWallets.map(item => (
+                  <button key={item.id} type="button" className="vp-wallet-option"
+                    onClick={() => void choose(item.id)} disabled={wallet.busy}>
+                    <WalletIdentityMark wallet={item}/>
+                    <span>{item.name}</span>
+                    <ArrowRight size={17} />
+                  </button>
+                ))}
+                {wallet.wallets.length === 0 && <div className="vp-no-wallet">
+                  <Wallet size={27}/>
+                  <strong>No browser wallet found</strong>
+                  <p>Install or enable MetaMask, Rabby, or Coinbase Wallet, then refresh this page.</p>
+                </div>}
+                {wallet.wallets.length > 0 && shownWallets.length === 0 &&
+                  <p className="vp-caption">No installed wallet matches that name.</p>}
+                {wallet.wallets.length > 4 && !walletQuery.trim() && !showAllWallets &&
+                  <button type="button" className="vp-wallet-more"
+                    onClick={() => setShowAllWallets(true)}>Show {wallet.wallets.length - 4} more wallets</button>}
+                {showAllWallets && !walletQuery.trim() && wallet.wallets.length > 4 &&
+                  <button type="button" className="vp-wallet-more"
+                    onClick={() => setShowAllWallets(false)}>Show fewer wallets</button>}
+              </div>
+            )}
+            {wallet.error && <p className="vp-form-error" role="alert">{wallet.error}</p>}
+            {wallet.address && <button type="button" className="vp-secondary vp-full"
+              onClick={() => { wallet.disconnect(); setOpen(false); }}>Hide wallet in Veyra</button>}
+            <div className="vp-modal-note"><LockKeyhole size={16} /> {network === 'testnet'
+              ? 'Connecting only shares your public address. Direct testnet USDC Pay separately requires your explicit wallet approval; other financial actions stay disabled.'
+              : 'Connecting only shares your public address. Mainnet signing and transfers are not available in this release. Switching Veyra environments does not switch the wallet network.'}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PreviewShell({ page, onNavigate, network, onNetworkChange, children }: {
+  page: PreviewPage; onNavigate: (page: PreviewPage) => void;
+  network: PreviewNetwork; onNetworkChange: (network: PreviewNetwork) => void;
+  children: ReactNode;
+}) {
+  const wallet = usePreviewWallet();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const select = (next: PreviewPage) => { onNavigate(next); setMenuOpen(false); };
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        select('agent');
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, []);
+
+  return (
+    <div className="vp-shell">
+      <aside className={`vp-sidebar ${menuOpen ? 'vp-sidebar-open' : ''}`}>
+        <button type="button" className="vp-brand" onClick={() => select('home')}>
+          <BrandMark size={42} />
+          <span className="vp-brand-text">veyra<span>.</span><small>YOUR MONEY, SIMPLIFIED</small></span>
+        </button>
+        <div className="vp-network-box">
+          <div className="vp-network-title"><span>NETWORK</span><span>{network === 'testnet' ? 'DEVELOPMENT' : 'READ ONLY'}</span></div>
+          <div className="vp-network-segment" role="group" aria-label="Veyra network environment">
+            <button type="button" aria-pressed={network === 'testnet'}
+              className={network === 'testnet' ? 'vp-network-selected' : ''}
+              onClick={() => { onNetworkChange('testnet'); setMenuOpen(false); }}>Testnet</button>
+            <button type="button" aria-pressed={network === 'mainnet'}
+              className={network === 'mainnet' ? 'vp-network-selected vp-network-mainnet-selected' : ''}
+              onClick={() => { onNetworkChange('mainnet'); setMenuOpen(false); }}>Mainnet</button>
+          </div>
+          <p className="vp-network-description">{network === 'testnet'
+            ? 'Test tokens · Chain 5042002'
+            : 'Real network · Chain 5042 · Signing locked'}</p>
+        </div>
+        <div className="vp-sidebar-section">WORKSPACE</div>
+        <nav className="vp-main-nav" aria-label="Product navigation">
+          {NAVIGATION.map(({ id, title, icon: Icon }) => (
+            <button key={id} type="button" onClick={() => select(id)}
+              className={`vp-nav-link ${page === id ? 'vp-nav-active' : ''}`}
+              aria-current={page === id ? 'page' : undefined}>
+              <Icon size={19} strokeWidth={page === id ? 2.2 : 1.8} />
+              <span>{title}</span>
+              {id === 'agent' && <span className="vp-nav-new">LAB</span>}
+            </button>
+          ))}
+        </nav>
+        <div className="vp-sidebar-bottom">
+          <div className="vp-sidebar-card">
+            <div className="vp-card-mini-icon"><ShieldCheck size={18} /></div>
+            <strong>{network === 'testnet' ? 'Explore safely' : 'Mainnet safety preview'}</strong>
+            <p>{network === 'testnet'
+              ? 'Direct Arc Testnet USDC Pay: max 1 token per transfer. Bridge and Convert still locked.'
+              : 'Live Mainnet balances and Pay simulations only. Real-money signatures and cross-chain transfers remain locked.'}</p>
+            <span className="vp-safe-pill"><span /> {network === 'testnet' ? 'TESTNET ONLY' : 'MAINNET READ ONLY'}</span>
+          </div>
+          <button className={`vp-nav-link ${page === 'settings' ? 'vp-nav-active' : ''}`}
+            onClick={() => select('settings')}>
+            <Settings2 size={19} /> Settings
+          </button>
+          <a href="https://github.com/bearbaba/Veyra" target="_blank" rel="noreferrer"
+            className="vp-github-link"><Github size={16} /> View source on GitHub <ArrowRight size={14} /></a>
+        </div>
+      </aside>
+      {menuOpen && <button className="vp-sidebar-shade" type="button" onClick={() => setMenuOpen(false)} aria-label="Close menu" />}
+      <div className="vp-main">
+        <header className="vp-header">
+          <div className="vp-header-heading">
+            <button type="button" className="vp-menu-button" aria-label="Open navigation"
+              onClick={() => setMenuOpen(true)}><Menu size={21} /></button>
+            <span className="vp-header-breadcrumb">Workspace <span>/</span> <strong>{PAGE_LABEL[page]}</strong></span>
+          </div>
+          <div className="vp-header-actions">
+            <span className="vp-network-pill"><span className="vp-network-dot" /> {network === 'testnet' ? 'Arc Testnet' : 'Arc Mainnet'}</span>
+            <PreviewWalletButton network={network} />
+          </div>
+        </header>
+        <div className={`vp-preview-ribbon ${network === 'mainnet' ? 'vp-mainnet-ribbon' : ''}`}>
+          {network === 'testnet'
+            ? <><div><ShieldCheck size={16} /><strong>ARC TESTNET BETA</strong><span>Real capped USDC Pay via your wallet; Convert and Bridge remain read-only until independently verified.</span></div><span className="vp-ribbon-tag">TESTNET</span></>
+            : <><div><LockKeyhole size={16}/><strong>ARC MAINNET LAB</strong><span>Live onchain reads and USDC simulation only. Wallet signing and real-money transfers are disabled.</span></div><span className="vp-ribbon-tag">READ ONLY</span></>}
+        </div>
+        <main className="vp-content" id="content">{children}</main>
+        <footer className="vp-footer">
+          <span>© Veyra · Built for Arc</span>
+          <span>{wallet.address ? `Connected: ${shortPreviewAddress(wallet.address)}` : 'Connect a wallet to view live balances'} · {network === 'testnet' ? 'Capped testnet Pay only' : 'Mainnet signing locked'}</span>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function PreviewWorkspace() {
+  const [page, setPage] = useState<PreviewPage>('home');
+  const [network, setNetwork] = useState<PreviewNetwork>('testnet');
+  function switchNetwork(next: PreviewNetwork) {
+    if (next === network) return;
+    // Unmount every network-specific page and discard unsent form state.
+    // Wallet network changes still require an explicit action in the wallet.
+    setNetwork(next);
+    setPage('home');
+  }
+  function render() {
+    if (network === 'mainnet') {
+      switch (page) {
+        case 'home': return <PreviewMainnetHome onNavigate={setPage}/>;
+        case 'unified': return <PreviewUnified key="mainnet-unified" environment="mainnet"/>;
+        case 'pay': return <PreviewMainnetPay/>;
+        case 'agent': return <PreviewLiveAgent key="mainnet" network="mainnet" onNavigate={setPage}/>;
+        case 'bridge':
+        case 'convert':
+        case 'activity':
+        case 'settings': return <PreviewMainnetGate surface={page} onNavigate={setPage}/>;
+      }
+    }
+    switch (page) {
+      case 'home': return <PreviewHome onNavigate={setPage} />;
+      case 'unified': return <PreviewUnified key="testnet-unified" environment="testnet"/>;
+      case 'agent': return <PreviewLiveAgent onNavigate={setPage} />;
+      case 'pay': return import.meta.env.VITE_VEYRA_TESTNET_PAY === '1'
+        ? <PreviewTestnetPayPage /> : <UiOnlyPreviewPage surface="pay" />;
+      case 'convert':
+      case 'bridge': return <PreviewServiceStatus surface={page} onNavigate={setPage} />;
+      case 'activity': return <PreviewActivity onNavigate={setPage} />;
+      case 'settings': return <PreviewSettings />;
+      default: return <PreviewHome onNavigate={setPage} />;
+    }
+  }
+  return <PreviewShell page={page} onNavigate={setPage} network={network} onNetworkChange={switchNetwork}>
+    {render()}
+  </PreviewShell>;
+}
+
+export function PreviewApp() {
+  return (
+    <PreviewWalletProvider>
+      <PreviewWorkspace />
+    </PreviewWalletProvider>
+  );
+}

@@ -22,13 +22,16 @@ export function evaluateMainnetReadiness(
   const runtime = validateServerRuntimeConfig({ ...env, VEYRA_ENV: 'mainnet' });
   const mainnetProviders = providers.filter((p) => p.environment === 'mainnet' || p.environment === 'all');
   const executableMainnetProviders = mainnetProviders.filter((p) => p.enabled && p.lifecycleStage === 'ENABLED');
-  const unverifiedEnabled = executableMainnetProviders.filter((p) => p.trustStatus === 'UNVERIFIED');
+  const unverifiedEnabled = executableMainnetProviders.filter((p) => p.trustStatus !== 'OFFICIAL' && p.trustStatus !== 'TRUSTED');
   const now = context.now ?? Date.now();
   const freshHealthByProvider = new Map((context.providerHealth ?? []).map((record) => [record.providerId, record]));
   const unhealthyEnabled = executableMainnetProviders.filter((provider) => {
     const health = freshHealthByProvider.get(provider.providerId);
-    const stale = !health || now - health.checkedAt > SECURITY_CONFIG.MAX_PROVIDER_HEALTH_AGE_MS;
-    return stale || health.status === 'UNKNOWN' || health.status === 'DOWN';
+    const stale = !health || !Number.isFinite(health.checkedAt) || health.checkedAt > now ||
+      now - health.checkedAt > SECURITY_CONFIG.MAX_PROVIDER_HEALTH_AGE_MS;
+    // Only healthy, fresh, non-future OK probes qualify. DEGRADED must never
+    // permit real-money execution at the release readiness boundary.
+    return stale || health.status !== 'OK';
   });
 
   const checks: ReadinessCheck[] = [

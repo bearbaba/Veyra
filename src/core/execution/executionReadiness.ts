@@ -1,6 +1,7 @@
 import type { VeyraAction } from '../actions/actionSchema';
 import { assertActionValid } from '../actions/actionSchema';
 import { assertSecurityGateReady } from '../../lib/securityGate';
+import { IS_UI_ONLY_PREVIEW } from '../../lib/env';
 import { checkProviderEligibility } from '../../providers/registry/providerRegistry';
 import type {
   ProviderCapability,
@@ -41,6 +42,11 @@ export interface ExecutionReadinessSnapshot {
 export function assertExecutionReady(
   request: ExecutionReadinessRequest,
 ): ExecutionReadinessSnapshot {
+  if (IS_UI_ONLY_PREVIEW) {
+    throw new Error(
+      '[executionReadiness] Vercel UI-only preview cannot sign or broadcast financial actions.',
+    );
+  }
   assertSecurityGateReady();
   assertActionValid(request.action);
 

@@ -1,4 +1,3 @@
-import { useMemo, useState } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
 import { formatUnits } from 'viem';
 import { ConnectKitButton } from 'connectkit';
@@ -18,10 +17,9 @@ import {
 import { requireChain, getUsdc, buildTxExplorerUrl } from '@/onchain-facts';
 import { useReceiptStore } from '@/hooks/useReceiptStore';
 import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
-import { beginXLink, type MyProfile } from '@/lib/api/identityApi';
+import type { MyProfile } from '@/lib/api/identityApi';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS, REGISTRY_STATUS_COPY, type RegistryStatus } from '@/config/productRegistry';
 import { BrandLogo } from '../brand/BrandLogo';
-import { CreateVeyraIdModal } from '../identity/CreateVeyraIdModal';
 import type { VeyraPage } from '../layout/AppShell';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
@@ -40,12 +38,9 @@ interface HomePageProps {
 export function HomePage({ onNavigate }: HomePageProps) {
   const { address, isConnected } = useAccount();
   const identity = useVeyraIdentity();
-  const [identityOpen, setIdentityOpen] = useState(false);
-  const [xLoading, setXLoading] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const arcChain = requireChain(ARC_TESTNET_CHAIN_ID);
   const usdc = getUsdc(ARC_TESTNET_CHAIN_ID);
-  const { receipts } = useReceiptStore();
+  const { receipts, error: receiptError } = useReceiptStore();
 
   const { data: balanceRaw, isLoading: balanceLoading, refetch } = useReadContract({
     address: usdc?.address as `0x${string}` | undefined,
@@ -61,34 +56,8 @@ export function HomePage({ onNavigate }: HomePageProps) {
     : null;
   const recentReceipts = receipts.slice(0, 3);
   const profile = identity.profile;
-  const displayHandle = profile ? `@${profile.veyraHandle}` : 'Create your Veyra ID';
+  const displayHandle = profile ? `@${profile.veyraHandle}.veyra` : 'Sign in through Social';
 
-  async function connectX() {
-    setNotice(null);
-    if (!profile) {
-      setIdentityOpen(true);
-      setNotice('Create your Veyra ID first, then link X to it.');
-      return;
-    }
-    if (identity.preview) {
-      setNotice('X linking needs a real Veyra session. Start the BFF + Postgres, then create the signed identity.');
-      return;
-    }
-    if (profile.x) return;
-    setXLoading(true);
-    try {
-      const authorizeUrl = await beginXLink('/');
-      window.location.assign(authorizeUrl);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to start X linking');
-      setXLoading(false);
-    }
-  }
-
-  function onIdentityCreated(_profile: MyProfile, preview: boolean) {
-    void identity.refresh();
-    setNotice(preview ? 'Preview identity created locally. It is not reserved in production.' : 'Veyra ID created and wallet verified.');
-  }
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-7 md:px-7 md:py-9 space-y-6">
@@ -107,7 +76,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
               Pay anyone.<br />Veyra handles the route.
             </h1>
             <p className="mt-4 max-w-xl text-sm leading-6 md:text-base" style={{ color: 'var(--muted)' }}>
-              Use a Veyra ID, X handle, wallet, or natural language. Identity, routing, policy, and review stay underneath one simple flow.
+              Pay a verified Veyra ID or wallet on the supported Arc Testnet route. Agent can help plan; every payment still requires your review and wallet signature.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <button
@@ -130,22 +99,12 @@ export function HomePage({ onNavigate }: HomePageProps) {
 
         <IdentityCard
           profile={profile}
-          preview={identity.preview}
           address={address}
           isConnected={isConnected}
-          xLoading={xLoading}
-          onCreate={() => profile ? onNavigate('settings') : setIdentityOpen(true)}
-          onConnectX={() => void connectX()}
+          onOpenSocial={() => onNavigate('social')}
+          onOpenSettings={() => onNavigate('settings')}
         />
       </section>
-
-      {notice && (
-        <div className="flex items-center gap-2 rounded-2xl px-4 py-3 text-sm" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--muted)' }}>
-          <ShieldCheck className="size-4 shrink-0" style={{ color: 'var(--accent)' }} />
-          <span>{notice}</span>
-          <button onClick={() => setNotice(null)} className="ml-auto text-xs" style={{ color: 'var(--subtle)' }}>Dismiss</button>
-        </div>
-      )}
 
       <section className="grid gap-4 lg:grid-cols-[1fr_0.72fr]">
         <div className="rounded-3xl p-5 md:p-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
@@ -244,27 +203,26 @@ export function HomePage({ onNavigate }: HomePageProps) {
         </section>
       )}
 
-      <CreateVeyraIdModal open={identityOpen} onClose={() => setIdentityOpen(false)} onCreated={onIdentityCreated} />
+      {receiptError && <p role="alert" className="text-xs rounded-xl border p-3"
+        style={{ color: 'var(--warning)', background: 'var(--surface)', borderColor: 'var(--border)' }}>
+        Recent transaction history could not be updated. This does not mean your wallet has no transactions.
+      </p>}
     </div>
   );
 }
 
 function IdentityCard({
   profile,
-  preview,
   address,
   isConnected,
-  xLoading,
-  onCreate,
-  onConnectX,
+  onOpenSocial,
+  onOpenSettings,
 }: {
   profile: MyProfile | null;
-  preview: boolean;
   address?: `0x${string}`;
   isConnected: boolean;
-  xLoading: boolean;
-  onCreate: () => void;
-  onConnectX: () => void;
+  onOpenSocial: () => void;
+  onOpenSettings: () => void;
 }) {
   return (
     <div className="rounded-[28px] p-5 md:p-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border-strong)' }}>
@@ -274,23 +232,23 @@ function IdentityCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-xs font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--muted)' }}>Your identity</div>
-          <div className="mt-1 truncate text-xl font-bold" style={{ color: 'var(--ink)' }}>{profile ? `@${profile.veyraHandle}` : 'No Veyra ID yet'}</div>
-          <p className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>{preview ? 'Local preview identity' : 'Canonical identity for verified endpoints'}</p>
+          <div className="mt-1 truncate text-xl font-bold" style={{ color: 'var(--ink)' }}>{profile ? `@${profile.veyraHandle}.veyra` : 'Sign in to your Veyra ID'}</div>
+          <p className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>{profile ? 'One verified identity for the connected wallet' : 'Use Social to sign in or register, without a duplicate Home flow'}</p>
         </div>
       </div>
 
       <div className="mt-5 space-y-2.5">
         <IdentityRow label="Wallet" value={isConnected && address ? shortAddress(address) : 'Not connected'} ok={isConnected} icon={<Wallet className="size-3.5" />} />
-        <IdentityRow label="Veyra ID" value={profile ? `@${profile.veyraHandle}` : 'Not created'} ok={Boolean(profile)} icon={<ShieldCheck className="size-3.5" />} />
+        <IdentityRow label="Veyra ID" value={profile ? `@${profile.veyraHandle}.veyra` : 'Not signed in'} ok={Boolean(profile)} icon={<ShieldCheck className="size-3.5" />} />
         <IdentityRow label="X" value={profile?.x?.xHandle ? `@${profile.x.xHandle}` : 'Not linked'} ok={Boolean(profile?.x)} icon={<span className="text-[11px] font-black">X</span>} />
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-2">
-        <button onClick={onCreate} className="rounded-xl px-3 py-2.5 text-xs font-bold" style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}>
-          {profile ? 'View Veyra ID' : 'Create Veyra ID'}
+        <button type="button" onClick={onOpenSocial} className="rounded-xl px-3 py-2.5 text-xs font-bold" style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}>
+          {profile ? 'Open Social' : 'Continue with Veyra ID'}
         </button>
-        <button onClick={onConnectX} disabled={Boolean(profile?.x) || xLoading} className="rounded-xl px-3 py-2.5 text-xs font-bold disabled:opacity-55" style={{ background: 'var(--surface)', color: 'var(--ink)', border: '1px solid var(--border)' }}>
-          {profile?.x ? 'X linked' : xLoading ? 'Connecting…' : 'Connect X'}
+        <button type="button" onClick={onOpenSettings} className="rounded-xl px-3 py-2.5 text-xs font-bold" style={{ background: 'var(--surface)', color: 'var(--ink)', border: '1px solid var(--border)' }}>
+          Manage linked accounts
         </button>
       </div>
     </div>

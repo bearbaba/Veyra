@@ -61,6 +61,25 @@ export const SECURITY_CONFIG = {
    */
   ACTION_EXECUTION_RESERVATION_TIMEOUT_MS: 120_000, // 2 minutes
 
+  // ── Route Engine ─────────────────────────────────────────────────────────
+
+  /** Maximum time for one provider route quote. */
+  ROUTE_QUOTE_TIMEOUT_MS: 5_000,
+
+  /** Maximum route options returned to product review surfaces. */
+  ROUTE_MAX_OPTIONS: 3,
+
+  /** Stable/direct routes without provider expiry use this short TTL. */
+  ROUTE_STABLE_TTL_MS: 15_000,
+
+  /**
+   * Hard minimum output ratio used by generic route filtering.
+   * 9500 = route output must be at least 95% of input base units for
+   * like-decimal stable-asset routes unless a future asset-aware engine
+   * supplies a different deterministic comparator.
+   */
+  ROUTE_MIN_OUTPUT_RATIO_BPS: 9_500,
+
   // ── Slippage ──────────────────────────────────────────────────────────────
 
   /**

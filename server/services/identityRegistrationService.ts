@@ -13,6 +13,7 @@ import { normalizeHandle, HandleNormalizationError } from '../db/handleNormalize
 import { newRevisionId, newUserId, newWalletId } from '../db/ids.js';
 import { handleHistory, identityRevisions, veyraUsers, walletBindings } from '../db/schema/index.js';
 import { issueSessionToken } from '../auth/session.js';
+import { MANIFEST_CONSTANTS } from '../../src/providers/registry/providerManifest.js';
 
 const CLAIM_TTL_MS = 10 * 60 * 1000;
 
@@ -45,6 +46,26 @@ export class IdentityRegistrationError extends Error {
   ) {
     super(message);
     this.name = 'IdentityRegistrationError';
+  }
+}
+
+/**
+ * Phase 8F: only Arc Testnet identities may be claimed on the public hosted
+ * acceptance backend. This is intentionally narrower than local developer
+ * utilities, and prevents accidentally claiming a Mainnet wallet identity
+ * through a Testnet-only, unaudited product surface.
+ */
+export function assertHostedTestnetIdentityChain(
+  chainId: number,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (env.VEYRA_HOSTED_BACKEND !== '1' || env.VEYRA_ENV !== 'testnet') return;
+  if (chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID) {
+    throw new IdentityRegistrationError(
+      'UNSUPPORTED_TESTNET_CHAIN',
+      'Hosted Veyra ID acceptance currently supports Arc Testnet only.',
+      400,
+    );
   }
 }
 
@@ -207,6 +228,8 @@ export async function beginIdentityRegistration(
     throw new IdentityRegistrationError('INVALID_CHAIN_ID', 'chainId must be a positive safe integer');
   }
 
+  assertHostedTestnetIdentityChain(input.chainId);
+
   // Fail before asking the wallet to sign when the claim is already impossible.
   await assertHandleAndWalletAvailable(db, handle, walletAddress, input.chainId);
 
@@ -249,6 +272,7 @@ export async function completeIdentityRegistration(
   input: { claimToken: string; signature: Hex },
 ) {
   const payload = parseClaimToken(input.claimToken);
+  assertHostedTestnetIdentityChain(payload.chainId);
   const typedData = {
     domain: claimDomain(payload.chainId),
     types: VEYRA_IDENTITY_CLAIM_TYPES,

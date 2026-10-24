@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - develop
+      - 'phase*'
   workflow_dispatch:
 
 permissions:
@@ -22,6 +23,25 @@ jobs:
     name: Typecheck, lint, test, build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DATABASE_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
 
     steps:
       - name: Checkout
@@ -41,6 +61,9 @@ jobs:
       - name: DEV source isolation
         run: bun run check:dev-isolation
 
+      - name: Verify repository README, security, release and PR provenance
+        run: bun run check:repository-trust
+
       - name: Lint
         run: |
           bunx oxlint --type-aware --quiet src scripts
@@ -54,3 +77,327 @@ jobs:
 
       - name: Production bundle isolation
         run: bun run check:prod-bundle
+
+      - name: Static Vercel UI-only preview build
+        run: VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build
+
+      - name: Static Vercel preview bundle isolation
+        run: bun run check:prod-bundle
+
+      - name: Assert no wallet signing and BFF code in preview JavaScript
+        run: bun run check:vercel-preview-bundle
+
+      - name: Verify single-domain production release candidate safety
+        run: bun run scripts/check-unified-production-release.ts
+
+      - name: Build isolated Arc Mainnet safety preview (signing disabled)
+        run: VITE_VEYRA_ENV=mainnet VITE_VEYRA_MAINNET_MVP=1 VITE_VEYRA_MAINNET_PAY=0 bun run build
+
+      - name: Assert isolated Mainnet preview and production bundle safety
+        run: |
+          bun run check:prod-bundle
+          bun run scripts/check-mainnet-mvp-bundle.ts
+
+      - name: Refuse mainnet signing in the default Testnet Vercel build
+        run: |
+          if VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_MAINNET_PAY=1 bun run build >/tmp/veyra-unsafe-build.log 2>&1; then
+            echo "ERROR: unsafe dual-environment build was accepted"
+            exit 1
+          fi
+          grep -q 'Mainnet signing may only be requested' /tmp/veyra-unsafe-build.log
+
+      - name: Build separate wallet-owned Identity Beta (no payment paths)
+        run: VITE_VEYRA_ENV=testnet VITE_VEYRA_IDENTITY_BETA=1 bun run build
+
+      - name: Reject transaction signing and Mainnet in Identity Beta bundle
+        run: bun run scripts/check-identity-beta-bundle.ts
+
+      - name: Refuse mixing Identity Beta with financial Preview
+        run: |
+          if VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_IDENTITY_BETA=1 bun run build >/tmp/veyra-beta-mixed-build.log 2>&1; then
+            echo "ERROR: identity-signature and financial-preview bundles were mixed"
+            exit 1
+          fi
+          grep -q 'Identity Beta, Testnet Preview and Mainnet must have separate bundles' /tmp/veyra-beta-mixed-build.log
+
+      - name: Build hosted testnet Express BFF container
+        run: docker build -f Dockerfile.bff -t veyra-bff:ci .
+
+      - name: Assert hosted BFF refuses to start without required secrets
+        run: |
+          if docker run --rm veyra-bff:ci > /tmp/veyra-bff-boot.log 2>&1; then
+            echo "ERROR: public hosted BFF started with no database or session secret"
+            exit 1
+          fi
+          if ! grep -q 'Hosted BFF requires DATABASE_URL' /tmp/veyra-bff-boot.log; then
+            echo "ERROR: BFF did not fail for the required hosted-runtime reason"
+            cat /tmp/veyra-bff-boot.log
+            exit 1
+          fi
+          echo "Hosted testnet BFF startup safety gate: PASS"
+
+      - name: Boot production-shaped testnet BFF and check HTTP trust boundary
+        run: |
+          docker run --detach --name veyra-bff-smoke --network host \
+            -e VEYRA_ENV=testnet \
+            -e NODE_ENV=production \
+            -e VEYRA_HOSTED_BACKEND=1 \
+            -e VEYRA_APP_ORIGIN=https://veyra.example \
+            -e VEYRA_SESSION_SECRET=01234567890123456789012345678901 \
+            -e DATABASE_URL=postgres://veyra:dummy@pg.testnet.example:5432/veyra?sslmode=require \
+            -e PORT=3001 \
+            veyra-bff:ci
+          trap 'docker rm --force veyra-bff-smoke >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for i in $(seq 1 25); do
+            if curl --fail --silent --show-error http://127.0.0.1:3001/api/health > /tmp/veyra-bff-health.json 2>/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            docker logs veyra-bff-smoke
+            exit 1
+          fi
+          grep -q '"ok":true' /tmp/veyra-bff-health.json
+          result=$(curl --silent --output /tmp/veyra-bff-unauth.json --write-out '%{http_code}' \
+            --header "Origin: https://untrusted.example" \
+            --header "X-Veyra-User-Id: usr_111111111111" \
+            "http://127.0.0.1:3001/api/bridge/destination-attempts?planId=example")
+          if [ "$result" != "403" ]; then
+            echo "ERROR: hostile browser Origin was not rejected before auth (HTTP $result)"
+            cat /tmp/veyra-bff-unauth.json
+            exit 1
+          fi
+          # A hostile Origin MUST receive no cross-origin permission.
+          denied_cors=$(curl --silent --head --header "Origin: https://untrusted.example" \
+            "http://127.0.0.1:3001/api/health" | grep -i '^access-control-allow-origin:' || true)
+          if [ -n "$denied_cors" ]; then
+            echo "ERROR: hosted backend allowed a hostile CORS origin: $denied_cors"
+            exit 1
+          fi
+          # The one reviewed HTTPS UI Origin MUST be reflected exactly.
+          approved_cors=$(curl --silent --head --header "Origin: https://veyra.example" \
+            "http://127.0.0.1:3001/api/health" | grep -i '^access-control-allow-origin:' || true)
+          if ! printf '%s' "$approved_cors" | grep -qi '^access-control-allow-origin: https://veyra.example'; then
+            echo "ERROR: hosted backend did not allow its exact configured HTTPS origin"
+            exit 1
+          fi
+          # The hosted testnet has NO database or RPCs in this smoke setup:
+          # readiness must fail closed, not report generic health as release OK
+          # and not invoke mainnet-only KMS/provider activation criteria.
+          readiness_code=$(curl --silent --output /tmp/veyra-testnet-readiness.json \
+            --write-out '%{http_code}' "http://127.0.0.1:3001/api/health/readiness")
+          if [ "$readiness_code" != "503" ]; then
+            echo "ERROR: testnet readiness incorrectly claimed healthy infrastructure"
+            cat /tmp/veyra-testnet-readiness.json
+            exit 1
+          fi
+          if ! grep -q '"scope":"infrastructure-only"' /tmp/veyra-testnet-readiness.json; then
+            echo "ERROR: testnet readiness has no honest infrastructure-only scope"
+            cat /tmp/veyra-testnet-readiness.json
+            exit 1
+          fi
+          if ! grep -q '"financialAcceptanceReady":false' /tmp/veyra-testnet-readiness.json; then
+            echo "ERROR: testnet health is claiming signed financial acceptance"
+            exit 1
+          fi
+          # The public database health API must never disclose the connection
+          # host, username, password, driver error or schema/table internals.
+          db_health_code=$(curl --silent --output /tmp/veyra-db-public-health.json \
+            --write-out '%{http_code}' "http://127.0.0.1:3001/api/health/database")
+          if [ "$db_health_code" != "503" ]; then
+            echo "ERROR: unconfigured production-shaped testnet DB reported HTTP $db_health_code"
+            exit 1
+          fi
+          grep -q '"scope":"database-infrastructure-only"' /tmp/veyra-db-public-health.json
+          if grep -Eqi 'pg\.testnet\.example|dummy|password|postgresql://|database_name|schema_name|error"\s*:' /tmp/veyra-db-public-health.json; then
+            echo "ERROR: public database health endpoint disclosed internal details"
+            exit 1
+          fi
+          # New friend/block endpoints require a signed session. They must
+          # return 401 before touching Postgres or any public profile data.
+          for endpoint in '/api/social/friend/status?veyraUserId=usr_123456789ABCDEFGJ' '/api/social/block' '/api/social/unblock'; do
+            if [ "${endpoint%%\?*}" = '/api/social/friend/status' ]; then
+              code=$(curl --silent --output /tmp/veyra-social-unauth.json --write-out '%{http_code}' \
+                "http://127.0.0.1:3001${endpoint}")
+            else
+              code=$(curl --silent --output /tmp/veyra-social-unauth.json --write-out '%{http_code}' \
+                --request POST --header 'Content-Type: application/json' --data '{"veyraUserId":"usr_123456789ABCDEFGJ"}' \
+                "http://127.0.0.1:3001${endpoint}")
+            fi
+            if [ "$code" != "401" ]; then
+              echo "ERROR: unauthenticated social endpoint accepted request: $endpoint ($code)"
+              cat /tmp/veyra-social-unauth.json
+              exit 1
+            fi
+          done
+          # Friends inbox is private: anonymous clients must never learn IDs,
+          # requests, or connection state, and must fail before DB access.
+          inbox_code=$(curl --silent --output /tmp/veyra-friends-unauth.json --write-out '%{http_code}' \
+            "http://127.0.0.1:3001/api/social/friends")
+          if [ "$inbox_code" != "401" ]; then
+            echo "ERROR: unauthenticated Friends inbox returned HTTP $inbox_code"
+            cat /tmp/veyra-friends-unauth.json
+            exit 1
+          fi
+          echo "Hosted Testnet Friends inbox anonymous privacy gate: PASS"
+          echo "Hosted Testnet Friends status/block/unblock session gate: PASS"
+          echo "Hosted testnet BFF HTTP startup / auth / CORS / public DB redaction gates: PASS"
+
+
+      - name: Verify signed-session Friends lifecycle over real hosted-shaped HTTP and PostgreSQL
+        env:
+          # Test-only fixture secret, never used outside GitHub's disposable CI database.
+          VEYRA_SESSION_SECRET: '01234567890123456789012345678901'
+        run: |
+          # Bootstrap a fresh, isolated database and apply the real migration runner.
+          bun scripts/ci-hosted-social-http.ts bootstrap
+
+          # Runtime configuration must look like a hosted Testnet service.
+          # The explicit CI-only host alias routes to this disposable PostgreSQL
+          # service; it is NOT a public database or real Render connection.
+          docker run --detach --name veyra-bff-authenticated-ci --network host \
+            --add-host pg.testnet.internal:127.0.0.1 \
+            -e VEYRA_ENV=testnet \
+            -e NODE_ENV=production \
+            -e VEYRA_HOSTED_BACKEND=1 \
+            -e VEYRA_DATABASE_PRIVATE_NETWORK=1 \
+            -e VEYRA_APP_ORIGIN=https://veyra.example \
+            -e VEYRA_SESSION_SECRET \
+            -e DATABASE_URL=postgres://postgres:postgres@pg.testnet.internal:5432/veyra_hosted_http_ci \
+            -e PORT=3001 \
+            veyra-bff:ci
+          trap 'docker rm --force veyra-bff-authenticated-ci >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:3001/api/health >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            docker logs veyra-bff-authenticated-ci
+            exit 1
+          fi
+
+          bun scripts/ci-hosted-social-http.ts verify
+          bun scripts/ci-hosted-signed-identity.ts
+          echo "Hosted-shaped authenticated HTTP / signed Arc Testnet ownership / real Postgres social acceptance: PASS"
+
+
+      - name: Accept guarded Free bootstrap against disposable PostgreSQL and real Docker HTTP
+        env:
+          VEYRA_SESSION_SECRET: '01234567890123456789012345678901'
+        run: |
+          # All resources below exist solely inside this GitHub Actions job.
+          # This database name must match the explicit acceptance guard.
+          bun -e 'import { Client } from "pg"; const db = new Client({ connectionString: process.env.DATABASE_ADMIN_URL }); await db.connect(); try { await db.query("CREATE DATABASE veyra_testnet_acceptance_db"); } finally { await db.end(); }'
+          docker run --detach --name veyra-free-acceptance-ci --network host \
+            --add-host pg.testnet.internal:127.0.0.1 \
+            -e VEYRA_ENV=testnet \
+            -e NODE_ENV=production \
+            -e VEYRA_HOSTED_BACKEND=1 \
+            -e VEYRA_ACCEPTANCE_BOOTSTRAP=1 \
+            -e VEYRA_DATABASE_PRIVATE_NETWORK=1 \
+            -e VEYRA_SIGNER_BACKEND=none \
+            -e VEYRA_APP_ORIGIN=https://veyra.example \
+            -e VEYRA_SESSION_SECRET \
+            -e DATABASE_URL=postgres://postgres:postgres@pg.testnet.internal:5432/veyra_testnet_acceptance_db \
+            -e PORT=3002 \
+            veyra-bff:ci bun server/db/freeAcceptanceBootstrap.ts
+          trap 'docker rm --force veyra-free-acceptance-ci >/dev/null 2>&1 || true' EXIT
+
+          db_code=000
+          for attempt in $(seq 1 35); do
+            db_code=$(curl --silent --output /tmp/veyra-free-db-health.json --write-out '%{http_code}' \
+              http://127.0.0.1:3002/api/health/database || true)
+            if [ "$db_code" = "200" ]; then break; fi
+            sleep 1
+          done
+          if [ "$db_code" != "200" ]; then
+            echo "ERROR: isolated migration-before-start BFF did not become database-ready"
+            docker logs veyra-free-acceptance-ci
+            exit 1
+          fi
+          grep -q '"scope":"database-infrastructure-only"' /tmp/veyra-free-db-health.json
+          anon_code=$(curl --silent --output /tmp/veyra-free-anon.json --write-out '%{http_code}' \
+            "http://127.0.0.1:3002/api/social/friends")
+          [ "$anon_code" = "401" ] || { echo "Expected 401 on unsigned Friends inbox, got $anon_code"; exit 1; }
+          hostile_code=$(curl --silent --output /tmp/veyra-free-origin.json --write-out '%{http_code}' \
+            --header 'Origin: https://hostile.example' \
+            "http://127.0.0.1:3002/api/social/friends")
+          [ "$hostile_code" = "403" ] || { echo "Expected 403 on hostile Origin, got $hostile_code"; exit 1; }
+          echo "Disposable Free bootstrap migrations, BFF startup, owner auth and Origin gates: PASS"
+
+
+  browser:
+    name: Desktop and mobile network UX acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install repository dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build actual Vercel unified web entry (no Mainnet signing)
+        run: VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build
+
+      - name: Audit public bundle and release guards
+        run: |
+          bun run check:vercel-preview-bundle
+          bun run scripts/check-unified-production-release.ts
+
+      - name: Install pinned browser test harness outside repository
+        run: |
+          npm install --prefix /tmp/veyra-browser --no-save --package-lock=false playwright@1.56.1
+          node /tmp/veyra-browser/node_modules/playwright/cli.js install --with-deps chromium
+
+      - name: Start built Veyra web locally
+        run: |
+          bun run preview -- --host 127.0.0.1 --port 4173 > /tmp/veyra-vite-preview.log 2>&1 &
+          echo $! > /tmp/veyra-preview.pid
+          ready=0
+          for attempt in $(seq 1 35); do
+            if curl --silent --fail http://127.0.0.1:4173/ > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            cat /tmp/veyra-vite-preview.log
+            exit 1
+          fi
+
+      - name: Accept desktop/mobile Testnet and Mainnet safety behavior
+        env:
+          VEYRA_SMOKE_URL: http://127.0.0.1:4173
+          NODE_PATH: /tmp/veyra-browser/node_modules
+        run: node e2e/browser-acceptance.mjs
+
+      - name: Verify live Arc Mainnet RPC from Chromium (read-only; no wallet)
+        env:
+          VEYRA_SMOKE_URL: http://127.0.0.1:4173
+        run: node e2e/arc-mainnet-live-readonly.mjs
+
+      - name: Verify live Base Mainnet and Sepolia USDC reads from Chromium (no wallet)
+        env:
+          VEYRA_SMOKE_URL: http://127.0.0.1:4173
+        run: node e2e/base-usdc-live-readonly.mjs
+
+      - name: Shut down test preview
+        if: always()
+        run: |
+          if [ -f /tmp/veyra-preview.pid ]; then
+            kill "$(cat /tmp/veyra-preview.pid)" || true
+          fi

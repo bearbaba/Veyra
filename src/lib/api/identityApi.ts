@@ -1,20 +1,47 @@
+import {activeSignedIdentityToken} from './liveIdentitySession';
+import {verifyXAuthorizationUrl} from '../../identity-beta/protocol';
+
 const DEV_USER_ID = import.meta.env.VITE_DEV_VEYRA_USER_ID as string | undefined;
 
-function authHeaders(): Record<string, string> {
-  const token = sessionStorage.getItem('veyra:session-token');
+/**
+ * A payment to a human-readable ID must use the active, wallet-bound Social
+ * session, not a leftover browser storage token from another wallet.
+ * Other legacy identity endpoints retain their old behavior until migrated.
+ */
+export function requireSignedIdentityToken(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 8192 ||
+      !/^[\x21-\x7e]+$/.test(value)) {
+    throw new Error('Sign in to Veyra ID with your connected wallet before reviewing a recipient.');
+  }
+  return value;
+}
+
+function authHeaders(explicitToken?: string): Record<string, string> {
+  if (explicitToken !== undefined) return { Authorization: `Bearer ${requireSignedIdentityToken(explicitToken)}` };
+  const token = activeSignedIdentityToken();
   if (token) return { Authorization: `Bearer ${token}` };
   if (import.meta.env.DEV && DEV_USER_ID) return { 'X-Veyra-User-Id': DEV_USER_ID };
   return {};
 }
 
-async function postJson<T>(path: string, body: Record<string, unknown>): Promise<T> {
+async function postJson<T>(path: string, body: Record<string, unknown>, explicitToken?: string): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(explicitToken) },
     body: JSON.stringify(body),
   });
-  const payload = await response.json() as Record<string, unknown>;
-  if (!response.ok) {
+  // Vercel SPA fallbacks can return index.html (status 200) instead of an
+  // unconfigured API route. Do not surface a raw "Unexpected token '<'" error.
+  let payload: Record<string, unknown>;
+  try {
+    const parsed: unknown = await response.json();
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid JSON shape');
+    payload = parsed as Record<string, unknown>;
+  } catch {
+    const label = path === '/api/auth/x/start' ? 'X linking' : 'Veyra';
+    throw new Error(`${label} service is not available on this website. Your wallet and identity are unchanged.`);
+  }
+  if (!response.ok || payload.ok === false) {
     throw new Error(typeof payload.message === 'string' ? payload.message : `Request failed (${response.status})`);
   }
   return payload as T;
@@ -32,23 +59,28 @@ export interface PreparedRecipient {
     avatarUrl: string | null;
     expiresAt: string;
     walletId: string;
+    reviewToken: string;
   };
 }
 
-export async function preparePaymentRecipient(recipient: string, chainId: number): Promise<PreparedRecipient> {
+export async function preparePaymentRecipient(recipient: string, chainId: number, sessionToken: string): Promise<PreparedRecipient> {
+  const signedToken = requireSignedIdentityToken(sessionToken);
   const result = await postJson<{ ok: true; prepared: PreparedRecipient }>('/api/identity/prepare-payment', {
     recipient,
     chainId,
-  });
+  }, signedToken);
   return result.prepared;
 }
 
 export async function verifyPaymentRecipient(input: {
   snapshotId: string;
+  expectedWalletId: string;
   expectedWalletAddress: string;
   expectedChainId: number;
-}): Promise<void> {
-  const result = await postJson<{ ok: boolean; reason?: string }>('/api/identity/verify-payment', input);
+  reviewToken: string;
+}, sessionToken: string): Promise<void> {
+  const signedToken = requireSignedIdentityToken(sessionToken);
+  const result = await postJson<{ ok: boolean; reason?: string }>('/api/identity/verify-payment', input, signedToken);
   if (!result.ok) throw new Error(result.reason ?? 'Recipient identity changed since review');
 }
 
@@ -69,7 +101,7 @@ export async function getMyProfile(): Promise<MyProfile> {
 
 export async function beginXLink(returnPath = '/settings'): Promise<string> {
   const result = await postJson<{ ok: true; authorizeUrl: string }>('/api/auth/x/start', { returnPath });
-  return result.authorizeUrl;
+  return verifyXAuthorizationUrl(result.authorizeUrl);
 }
 
 export interface IdentityRegistrationChallenge {
@@ -113,6 +145,6 @@ export async function completeVeyraIdRegistration(input: {
   signature: `0x${string}`;
 }): Promise<{ profile: MyProfile; sessionToken: string }> {
   const result = await postJson<{ ok: true; profile: MyProfile; sessionToken: string }>('/api/identity/register/complete', input);
-  sessionStorage.setItem('veyra:session-token', result.sessionToken);
+  // The signed Social provider alone may activate a wallet-bound session.
   return { profile: result.profile, sessionToken: result.sessionToken };
 }

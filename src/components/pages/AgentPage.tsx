@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useAccount } from 'wagmi';
+import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Bot,
@@ -45,7 +47,31 @@ const DEFAULT_CAPABILITIES: AgentCapabilities = {
 };
 
 export function AgentPage({ onNavigate }: AgentPageProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { address, chainId, connector } = useAccount();
+  const social = useUnifiedSocial();
+  const walletKey = address
+    ? [address.toLowerCase(), chainId ?? '', connector?.uid ?? ''].join(':')
+    : 'not-connected';
+  // A guest view is transient. Persisted conversation belongs exclusively to
+  // the wallet-bound, signed Veyra identity used when the chat was created.
+  const signedSession = social.session?.walletKey === walletKey ? social.session : null;
+  const historyScope = signedSession
+    ? [walletKey, signedSession.profile.veyraUserId].join(':')
+    : null;
+  return <ScopedAgentPage key={historyScope ?? walletKey + ':unsigned'} onNavigate={onNavigate} historyScope={historyScope} />;
+}
+
+function ScopedAgentPage({ onNavigate, historyScope }: AgentPageProps & { historyScope: string | null }) {
+  const historyKey = historyScope ? 'veyra:agent-history:' + historyScope : null;
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (!historyKey) return [];
+    try {
+      const stored = sessionStorage.getItem(historyKey);
+      if (!stored) return [];
+      const parsed: unknown = JSON.parse(stored);
+      return Array.isArray(parsed) ? (parsed as Message[]).slice(-30) : [];
+    } catch { return []; }
+  });
   const [input, setInput] = useState<string>(() => {
     const pending = sessionStorage.getItem('veyra:pending-query');
     if (pending) sessionStorage.removeItem('veyra:pending-query');
@@ -57,21 +83,17 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    try {
-      const stored = sessionStorage.getItem('veyra:agent-history');
-      if (stored) {
-        const parsed = JSON.parse(stored) as Message[];
-        if (Array.isArray(parsed)) setMessages(parsed.slice(-30));
-      }
-    } catch {
-      // Corrupt preview history is non-authoritative; start clean.
-    }
+    // Do not import legacy global chat shared by every wallet in this browser.
+    try { sessionStorage.removeItem('veyra:agent-history'); } catch { /* storage denied */ }
   }, []);
 
   useEffect(() => {
-    if (messages.length > 0) sessionStorage.setItem('veyra:agent-history', JSON.stringify(messages.slice(-30)));
+    if (historyKey && messages.length > 0) {
+      try { sessionStorage.setItem(historyKey, JSON.stringify(messages.slice(-30))); }
+      catch { /* Keep conversation in memory when storage is unavailable. */ }
+    }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [historyKey, messages]);
 
   useEffect(() => {
     let cancelled = false;
@@ -144,7 +166,7 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
 
   function clearConversation() {
     setMessages([]);
-    sessionStorage.removeItem('veyra:agent-history');
+    try { if (historyKey) sessionStorage.removeItem(historyKey); } catch { /* storage denied */ }
     inputRef.current?.focus();
   }
 
@@ -296,10 +318,10 @@ function IntentGraphPreview({ graph }: { graph: CapabilityIntentGraph }) {
 
 function AgentWelcome({ onSelect }: { onSelect: (query: string) => void }) {
   const prompts = [
-    { title: 'Pay someone', text: 'Send 20 USDC to @bearcrypto2021', icon: <SendHorizontal className="size-4" /> },
+    { title: 'Plan a payment', text: 'Help me prepare a 20 USDC payment to @bearcrypto2021', icon: <SendHorizontal className="size-4" /> },
     { title: 'Ask naturally', text: 'What can Veyra do for me?', icon: <Bot className="size-4" /> },
-    { title: 'Vietnamese', text: 'Gửi 20 USDC cho @bearcrypto2021', icon: <Globe2 className="size-4" /> },
-    { title: 'Multi-step goal', text: 'Keep 300 USDC on Arc, send @bearcrypto2021 50 USDC, bridge 200 USDC to Arbitrum, then earn the rest', icon: <Sparkles className="size-4" /> },
+    { title: 'Any language', text: 'Can Veyra answer questions in my preferred language?', icon: <Globe2 className="size-4" /> },
+    { title: 'Multi-step planning', text: 'Keep 300 USDC on Arc, prepare a 50 USDC payment, and check whether a 200 USDC bridge to Base is available', icon: <Sparkles className="size-4" /> },
   ];
   return (
     <div className="mx-auto max-w-3xl py-6 md:py-12">

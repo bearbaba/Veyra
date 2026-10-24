@@ -3,6 +3,7 @@ import { CCTP_V2_MAINNET, MAINNET_CHAIN_CATALOG, validateMainnetCatalog } from '
 import { MAINNET_PROVIDER_MANIFEST } from '../providers/registry/mainnetProviderManifest.js';
 
 const expectedUsdc: Record<number, string> = {
+  5042: '0x3600000000000000000000000000000000000000',
   1: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
   43114: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
   10: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
@@ -14,8 +15,20 @@ const expectedUsdc: Record<number, string> = {
 describe('Phase 3B verified mainnet catalog', () => {
   it('contains the Circle-verified EVM mainnet launch set', () => {
     expect(validateMainnetCatalog()).toEqual([]);
-    expect(MAINNET_CHAIN_CATALOG).toHaveLength(6);
+    expect(MAINNET_CHAIN_CATALOG).toHaveLength(7);
+    const arc = MAINNET_CHAIN_CATALOG.find((chain) => chain.chainId === 5042);
+    expect(arc).toMatchObject({ cctpDomain: 26, rpcEnvKey: 'ARC_MAINNET_RPC_URL', explorerUrl: 'https://explorer.arc.io' });
     for (const chain of MAINNET_CHAIN_CATALOG) expect(chain.usdc).toBe(expectedUsdc[chain.chainId]);
+  });
+
+  it('keeps Arc Mainnet USDC at the official ERC-20 facade rather than treating native gas units as ERC-20 units', () => {
+    const arc = MAINNET_CHAIN_CATALOG.find((chain) => chain.chainId === 5042)!;
+    expect(arc.usdc).toBe('0x3600000000000000000000000000000000000000');
+    for (const provider of MAINNET_PROVIDER_MANIFEST) {
+      expect(provider.networkAssetSupport?.find((row) => row.chainId === 5042)?.assets)
+        .toContain(arc.usdc.toLowerCase());
+      expect(provider.enabled).toBe(false);
+    }
   });
 
   it('records the Circle CCTP V2 mainnet contracts', () => {

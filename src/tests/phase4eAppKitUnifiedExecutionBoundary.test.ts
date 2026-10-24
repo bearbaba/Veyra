@@ -59,6 +59,29 @@ describe('Phase 4E App Kit Unified execution boundary', () => {
     ).not.toThrow();
   });
 
+  it('rejects malformed or zero sender and recipient at the action boundary', () => {
+    const common = {
+      sourceChain: 'Arc_Testnet' as const,
+      destinationChain: 'Ethereum_Sepolia' as const,
+      recipientAddress: RECIPIENT,
+      amount: '1',
+    };
+    expect(() =>
+      assertUnifiedSpendMatchesAction({
+        ...common,
+        action: unifiedSpendAction({
+          from: '0x0000000000000000000000000000000000000000',
+        }),
+      }),
+    ).toThrow(/zero EVM address/i);
+    expect(() =>
+      assertUnifiedSpendMatchesAction({
+        ...common,
+        action: unifiedSpendAction({ to: 'not-an-address' }),
+      }),
+    ).toThrow(/invalid or zero EVM address/i);
+  });
+
   it('rejects a Unified spend recipient mismatch', () => {
     expect(() =>
       assertUnifiedSpendMatchesAction({
