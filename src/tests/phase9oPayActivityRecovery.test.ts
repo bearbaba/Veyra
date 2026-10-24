@@ -4,6 +4,7 @@ import { toEventSelector } from 'viem';
 import type { VeyraReceipt } from '../core/receipt/receiptTypes';
 import {
   canReconcilePendingPay, receiptBelongsToWallet, reconcilePendingPayReceipt,
+  hasCanonicalPayFinality, ARC_PAY_REQUIRED_CONFIRMATIONS,
 } from '../core/receipt/payReceiptReconciliation';
 
 const FROM = '0x1111111111111111111111111111111111111111';
@@ -11,6 +12,8 @@ const OTHER = '0x3333333333333333333333333333333333333333';
 const TO = '0x2222222222222222222222222222222222222222';
 const TOKEN = '0x3600000000000000000000000000000000000000';
 const HASH = `0x${'a'.repeat(64)}`;
+const BLOCK_HASH = `0x${'b'.repeat(64)}`;
+const finality = () => Promise.resolve(true);
 const transferLog = {
   address: TOKEN,
   topics: [
@@ -32,7 +35,7 @@ function pending(): VeyraReceipt {
 }
 const confirmed = {
   transactionHash: HASH, status: 'success' as const,
-  logs: [transferLog], blockNumber: 125n,
+  logs: [transferLog], blockNumber: 125n, blockHash: BLOCK_HASH,
 };
 
 describe('wallet-scoped Veyra Pay receipts recover without another signing', () => {
@@ -52,17 +55,17 @@ describe('wallet-scoped Veyra Pay receipts recover without another signing', () 
     ]) {
       const record = { ...pending(), ...mutation };
       expect(canReconcilePendingPay(record)).toBe(false);
-      expect(await reconcilePendingPayReceipt(record, read)).toBe(record);
+      expect(await reconcilePendingPayReceipt(record, read, finality)).toBe(record);
     }
     expect(read).not.toHaveBeenCalled();
   });
   it('verifies an exact transaction Transfer even with unrelated balance changes', async () => {
-    const recovered = await reconcilePendingPayReceipt(pending(), () => Promise.resolve(confirmed));
+    const recovered = await reconcilePendingPayReceipt(pending(), () => Promise.resolve(confirmed), finality);
     expect(recovered).toMatchObject({ status: 'VERIFIED', executionBlock: 125, actualAmountDelta: 1000000n });
     expect(recovered.completedAt).toBeGreaterThan(0);
   });
   it('reports on-chain revert as failed, not a successful payment', async () => {
-    const recovered = await reconcilePendingPayReceipt(pending(), () => Promise.resolve({ ...confirmed, status: 'reverted' as const, logs: [] }));
+    const recovered = await reconcilePendingPayReceipt(pending(), () => Promise.resolve({ ...confirmed, status: 'reverted' as const, logs: [] }), finality);
     expect(recovered.status).toBe('FAILED');
     expect(recovered.actualAmountDelta).toBeNull();
   });
@@ -75,19 +78,41 @@ describe('wallet-scoped Veyra Pay receipts recover without another signing', () 
       { ...confirmed, logs: [{ ...transferLog, topics: [transferLog.topics[0], transferLog.topics[1], `0x${OTHER.slice(2).padStart(64, '0')}`] }] },
     ];
     for (const chain of variants) {
-      const record = await reconcilePendingPayReceipt(pending(), () => Promise.resolve(chain));
+      const record = await reconcilePendingPayReceipt(pending(), () => Promise.resolve(chain), finality);
       expect(record.status).toBe('PENDING');
       expect(record.displaySummary).toMatch(/review|delayed/i);
     }
   });
   it('propagates temporary RPC errors without declaring failure or attempting resubmission', async () => {
-    await expect(reconcilePendingPayReceipt(pending(), () => Promise.reject(new Error('RPC unavailable'))))
+    await expect(reconcilePendingPayReceipt(pending(), () => Promise.reject(new Error('RPC unavailable')), finality))
       .rejects.toThrow('RPC unavailable');
     const hook = readFileSync(new URL('../hooks/useReceiptStore.ts', import.meta.url), 'utf8');
     expect(hook).toContain('getTransactionReceipt({ hash })');
     expect(hook).not.toContain('writeContractAsync');
     expect(hook).not.toContain('sendTransaction');
     expect(hook).toContain('receiptBelongsToWallet(receipt, walletKey)');
+  });
+  it('requires 12 confirmations and canonical block hash for BOTH final outcomes', async () => {
+    expect(ARC_PAY_REQUIRED_CONFIRMATIONS).toBe(12n);
+    expect(hasCanonicalPayFinality(confirmed, 135n, BLOCK_HASH)).toBe(false);
+    expect(hasCanonicalPayFinality(confirmed, 136n, BLOCK_HASH)).toBe(true);
+    expect(hasCanonicalPayFinality(confirmed, 136n, HASH)).toBe(false);
+    const unfinalized = await reconcilePendingPayReceipt(pending(), () => Promise.resolve(confirmed),
+      () => Promise.resolve(false));
+    expect(unfinalized.status).toBe('PENDING');
+    const reverted = await reconcilePendingPayReceipt(pending(),
+      () => Promise.resolve({ ...confirmed, status: 'reverted' as const }),
+      () => Promise.resolve(false));
+    expect(reverted.status).toBe('PENDING');
+  });
+  it('does not let stale Pending overwrite terminal records', async () => {
+    const { receiptUpdateAllowed } = await import('../core/receipt/receiptStore');
+    const terminal = { ...pending(), status: 'VERIFIED' as const };
+    expect(receiptUpdateAllowed(terminal, pending())).toBe(false);
+    expect(receiptUpdateAllowed(terminal, { ...terminal, status: 'FAILED' })).toBe(false);
+    expect(receiptUpdateAllowed(pending(), { ...pending(), ownerAddress: OTHER })).toBe(false);
+    expect(receiptUpdateAllowed(pending(), { ...pending(), recipientAddress: OTHER })).toBe(false);
+    expect(receiptUpdateAllowed(pending(), terminal)).toBe(true);
   });
   it('does not classify committed on-chain Pay as PENDING if local persistence fails', () => {
     const hook = readFileSync(new URL('../hooks/useTransferExecution.ts', import.meta.url), 'utf8');
