@@ -8,6 +8,7 @@ describe('Phase 9Q — the one protected Veyra Core Testnet build', () => {
     const config = JSON.parse(read('vercel.json')) as { buildCommand: string; rewrites: unknown[]; env?: unknown };
     expect(config.buildCommand).toContain('VITE_VEYRA_UNIFIED_STAGING=1');
     expect(config.buildCommand).toContain('VITE_VEYRA_UI_ONLY=0');
+    expect(config.buildCommand).toContain('VITE_VEYRA_TESTNET_PAY=1');
     expect(config.buildCommand).toContain('VITE_VEYRA_MAINNET_PAY=0');
     expect(config.buildCommand).toContain('VITE_VEYRA_MAINNET_MVP=0');
     expect(config.env).toBeUndefined();

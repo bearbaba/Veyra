@@ -13,7 +13,7 @@ const cfg=JSON.parse(read('vercel.json')) as {
   buildCommand?:string;framework?:string;outputDirectory?:string;
   rewrites?:unknown[];headers?:unknown[];
 };
-const STAGE='VITE_VEYRA_ENV=testnet VITE_VEYRA_UNIFIED_STAGING=1 VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=0 VITE_VEYRA_IDENTITY_BETA=0 bun run build';
+const STAGE='VITE_VEYRA_ENV=testnet VITE_VEYRA_UNIFIED_STAGING=1 VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_TESTNET_PAY=1 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=0 VITE_VEYRA_IDENTITY_BETA=0 bun run build';
 must(cfg.buildCommand===STAGE,'Staging branch must explicitly compile full App for testnet and disable Mainnet signing');
 must(cfg.framework==='vite'&&cfg.outputDirectory==='dist','Unexpected output runtime');
 must(isExactStagingBffAllowlist(cfg.rewrites),
