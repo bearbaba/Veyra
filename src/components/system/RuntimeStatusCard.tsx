@@ -25,7 +25,9 @@ export function RuntimeStatusCard() {
         const failed = payload.checks?.filter((check) => check.ok === false).length ?? 0;
         if (payload.ok === true) {
           setStatus('online');
-          setSummary('Production readiness checks are passing.');
+          setSummary(payload.environment === 'testnet'
+            ? 'Testnet backend infrastructure is reachable. Signed transaction acceptance is still required.'
+            : 'Infrastructure checks pass. Production signing and release approval are separate.');
         } else {
           setStatus('degraded');
           setSummary(`${failed} readiness gate${failed === 1 ? '' : 's'} remain closed.`);

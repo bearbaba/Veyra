@@ -53,21 +53,25 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
   const bridgeExecution = useBridgeExecution();
   const [remoteView, setRemoteView] = useState<{
     scope: string;
+    session: typeof social.session;
     candidates: BridgeRecoveryCheckpoint[];
     receipts: ActivityReceiptRemoteRecord[];
     error: string | null;
-  }>({ scope: '', candidates: [], receipts: [], error: null });
+  }>({ scope: '', session: null, candidates: [], receipts: [], error: null });
   // Hide a previous wallet's remote data during render, even before effects run.
-  const viewIsCurrent = !readOnly && Boolean(activeScope) && remoteView.scope === activeScope;
+  const viewIsCurrent = !readOnly && Boolean(activeScope) &&
+    Boolean(social.session) && remoteView.session === social.session &&
+    remoteView.scope === activeScope;
   const recoveryCandidates = viewIsCurrent ? remoteView.candidates : [];
   const remoteReceipts = viewIsCurrent && social.session ? remoteView.receipts : [];
   const remoteError = viewIsCurrent && social.session ? remoteView.error : null;
 
   useEffect(() => {
     if (readOnly) return;
-    if (!activeScope) return;
+    if (!activeScope || !social.session) return;
     let active = true;
     const scope = activeScope;
+    const signedSession = social.session;
     void Promise.all([
       bridgeExecution.loadRecoveryCandidates().catch(() => [] as BridgeRecoveryCheckpoint[]),
       loadActivityReceiptsRemote().then(
@@ -81,25 +85,26 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
       const own = candidates.filter((checkpoint) =>
         bridgeCheckpointBelongsToWallet(checkpoint, address));
       setRemoteView({
-        scope, candidates: own, receipts: remote.rows,
+        scope, session: signedSession, candidates: own, receipts: remote.rows,
         error: remote.failed
           ? 'Synced Activity is temporarily unavailable. This does not mean your transaction history is empty.'
           : null,
       });
     });
     return () => { active = false; };
-  }, [activeScope, address, bridgeExecution.loadRecoveryCandidates, readOnly]);
+  }, [activeScope, address, social.session, bridgeExecution.loadRecoveryCandidates, readOnly]);
 
   async function refreshRemoteView() {
     const scope = activeScope;
-    if (readOnly || !address || !scope) return;
+    if (readOnly || !address || !scope || !social.session) return;
+    const signedSession = social.session;
     const [candidates, rows] = await Promise.all([
       bridgeExecution.loadRecoveryCandidates(),
       loadActivityReceiptsRemote().catch(() => [] as ActivityReceiptRemoteRecord[]),
     ]);
     // A late response never acquires authority over the next signed wallet.
     setRemoteView({
-      scope,
+      scope, session: signedSession,
       candidates: candidates.filter((checkpoint) =>
         bridgeCheckpointBelongsToWallet(checkpoint, address)),
       receipts: rows, error: null,
