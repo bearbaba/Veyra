@@ -18,7 +18,7 @@ describe('Veyra one-page wallet and origin acceptance',()=>{
     expect(await probeIdentityOrigin()).toBe('origin_blocked');
     expect(mocked).toHaveBeenCalledOnce();
     expect(mocked.mock.calls[0]?.[0]).toBe('/api/identity/register/complete');
-    const init=mocked.mock.calls[0]?.[1] as RequestInit|undefined;
+    const init=mocked.mock.calls[0]?.[1];
     expect(init?.method).toBe('POST');
     expect(init?.body).toBe('{}');
     expect(init?.credentials).toBe('same-origin');
