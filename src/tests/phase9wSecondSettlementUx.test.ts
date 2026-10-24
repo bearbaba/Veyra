@@ -40,7 +40,8 @@ describe('signed owner CCTP second mint finalization', () => {
     await expect(finalizeVerifiedSecondSettlementRemote(PLAN)).resolves.toEqual({
       receiptId: 'receipt-2', settlementReceiveTxHash: HASH, status: 'COMPLETE',
     });
-    expect(f).toHaveBeenCalledExactlyOnceWith('/api/bridge/finalize-second-settlement', {
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(f).toHaveBeenCalledWith('/api/bridge/finalize-second-settlement', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json',
         Authorization: 'Bearer signed-wallet-owner-bearer' },
