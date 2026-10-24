@@ -7,6 +7,7 @@ import {createContext,useCallback,useContext,useEffect,useRef,useState,type Reac
 import {useAccount} from 'wagmi';
 import {normalizeBetaHandle,signReviewedIdentity,type BrowserProvider,type IdentityProfile,type SignedChallenge,ARC_TESTNET_CHAIN_ID} from '../../identity-beta/protocol';
 import {bindCurrentIdentityWallet,clearSignedIdentitySession,setSignedIdentitySession} from '../../lib/api/liveIdentitySession';
+import {probeIdentityOrigin,type IdentityOriginStatus} from '../../lib/api/identityOriginProbe';
 
 export type SocialFriend={veyraUserId:string;veyraHandle?:string|null;state:'CONNECTED'|'INCOMING_PENDING'|'OUTGOING_PENDING';updatedAt:string};
 export type SocialNotice={notificationId:string;kind:string;actorUserId:string|null;createdAt:string;readAt:string|null};
@@ -14,6 +15,7 @@ type Session={token:string;profile:IdentityProfile;walletKey:string};
 type SocialState={
   session:Session|null;friends:SocialFriend[];notices:SocialNotice[];unreadCount:number;busy:boolean;error:string|null;message:string|null;
   needsRegistration:boolean;connected:boolean;ready:boolean;
+  identityOrigin:IdentityOriginStatus;recheckIdentityOrigin:()=>Promise<void>;
   signIn:()=>Promise<void>;register:(handle:string)=>Promise<void>;signOut:()=>void;refresh:()=>Promise<void>;
   invite:(name:string)=>Promise<void>;respond:(id:string,decision:'ACCEPT'|'REJECT')=>Promise<void>;
   block:(id:string)=>Promise<void>;markRead:(id:string)=>Promise<void>;
@@ -22,7 +24,11 @@ const SocialContext=createContext<SocialState|null>(null);
 const USER_ID=/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/;
 export class SocialHttpError extends Error {
   constructor(readonly status:number,readonly code:string){
-    super(status===404?'Veyra account or resource not found.':status===401?'Your signed session expired. Sign in again.':'Veyra service error ('+status+'; '+code+').');
+    super(code==='ORIGIN_NOT_ALLOWED'
+      ? 'This Preview URL is not authorized by the Veyra backend. Wallet connection is intact; ID sign-in is unavailable on this domain.'
+      : status===404?'Veyra account or resource not found.'
+      : status===401?'Your signed session expired. Sign in again.'
+      : 'Veyra service error ('+status+'; '+code+').');
   }
 }
 async function api<T>(path:string,method:'GET'|'POST',token?:string,body?:Record<string,unknown>):Promise<T>{
@@ -59,6 +65,18 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   const [unreadCount,setUnreadCount]=useState(0),[busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null),[message,setMessage]=useState<string|null>(null);
   const [needsRegistration,setNeedsRegistration]=useState(false);
+  const [identityOrigin,setIdentityOrigin]=useState<IdentityOriginStatus>('checking');
+  const originRevision=useRef(0);
+  const recheckIdentityOrigin=useCallback(async()=>{
+    const revision=++originRevision.current;
+    setIdentityOrigin('checking');
+    const status=await probeIdentityOrigin();
+    if(originRevision.current===revision)setIdentityOrigin(status);
+  },[]);
+  useEffect(()=>{
+    void recheckIdentityOrigin();
+    return()=>{originRevision.current++;};
+  },[recheckIdentityOrigin]);
   const ready=Boolean(isConnected&&address&&connector&&chainId===ARC_TESTNET_CHAIN_ID);
   const signOut=useCallback(()=>{
     generation.current++;clearSignedIdentitySession();setSession(null);setFriends([]);setNotices([]);setUnreadCount(0);
@@ -76,6 +94,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
       if(cause instanceof SocialHttpError&&cause.status===404) setNeedsRegistration(true);
       if(cause instanceof SocialHttpError&&cause.status===401&&session)signOut();
       if(cause instanceof SocialHttpError&&cause.code==='WALLET_ALREADY_BOUND')setNeedsRegistration(false);
+      if(cause instanceof SocialHttpError&&cause.code==='ORIGIN_NOT_ALLOWED')setIdentityOrigin('origin_blocked');
       setError(cause instanceof Error?cause.message.slice(0,200):'Veyra request failed.');
     }finally{pending.current=false;setBusy(false);}
   }
@@ -87,6 +106,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     return {account:address,provider:raw as BrowserProvider};
   };
   const signIn=()=>action(async(key,rev)=>{
+    if(identityOrigin!=='ready')throw new Error('Veyra ID service is not ready for this website. No wallet signature requested.');
     const w=await wallet();
     const c=(await api<{challenge:SignedChallenge}>('/api/auth/wallet-login/challenge','POST',undefined,{walletAddress:w.account,chainId:5042002})).challenge;
     if(!unchanged(key,rev))return;
@@ -101,6 +121,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     setMessage('Signed in. No financial permissions granted.');
   });
   const register=(name:string)=>action(async(key,rev)=>{
+    if(identityOrigin!=='ready')throw new Error('Veyra ID service is not ready for this website. No wallet signature requested.');
     const w=await wallet(),handle=normalizeBetaHandle(name);
     const c=(await api<{challenge:SignedChallenge}>('/api/identity/register/challenge','POST',undefined,{handle,walletAddress:w.account,chainId:5042002})).challenge;
     if(!unchanged(key,rev))return;
@@ -155,6 +176,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   const active=session?.walletKey===walletKey?session:null;
   return <SocialContext.Provider value={{session:active,friends:active?friends:[],notices:active?notices:[],
     unreadCount:active?unreadCount:0,busy,error,message,needsRegistration,connected:isConnected,ready,
+    identityOrigin,recheckIdentityOrigin,
     signIn,register,signOut,refresh,invite,respond,block,markRead}}>{children}</SocialContext.Provider>;
 }
 export function useUnifiedSocial():SocialState{

@@ -1,33 +1,19 @@
 import {useState} from 'react';
-import {ConnectKitButton} from 'connectkit';
-import {Bell,Users,MessageCircle,ShieldCheck,RefreshCw} from 'lucide-react';
+import {Bell,Users,MessageCircle,RefreshCw} from 'lucide-react';
 import {friendLabel,useUnifiedSocial} from '../../features/social/UnifiedSocial';
+import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
 
 export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
   const social=useUnifiedSocial();
-  const [create,setCreate]=useState(false),[handle,setHandle]=useState(''),[friend,setFriend]=useState('');
+  const [friend,setFriend]=useState('');
   return <div className="mx-auto max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
     <header><p className="text-xs font-bold uppercase tracking-widest" style={{color:'var(--accent)'}}>Veyra Social</p>
       <h1 className="display mt-2 text-3xl font-black">One identity. Your people.</h1>
       <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Friends and notifications share your Veyra wallet and verified ID.</p></header>
     {social.error&&<p role="alert" className="rounded-xl border p-3 text-sm" style={{borderColor:'var(--danger)',color:'var(--danger)'}}>{social.error}</p>}
     {social.message&&<p role="status" className="rounded-xl border p-3 text-sm" style={{borderColor:'var(--success)',color:'var(--success)'}}>{social.message}</p>}
-    {!social.connected?<section className="rounded-3xl border p-6 space-y-3" style={{borderColor:'var(--border)',background:'var(--surface-strong)'}}>
-      <h2 className="font-bold">Connect your Veyra wallet</h2><ConnectKitButton/>
-      <p className="text-xs" style={{color:'var(--muted)'}}>Social uses the existing wallet connection, not another provider picker.</p></section>
-    :!social.ready?<p className="rounded-xl border p-5 text-sm" style={{borderColor:'var(--border)'}}>Select Arc Testnet (5042002) in your wallet for signed Veyra ID. No automatic network switching.</p>
-    :!social.session?<section className="max-w-lg space-y-3 rounded-3xl border p-6" style={{borderColor:'var(--border)',background:'var(--surface-strong)'}}>
-      <h2 className="font-bold">Continue with your Veyra ID</h2>
-      <p className="text-sm" style={{color:'var(--muted)'}}>Identity-only EIP-712 signature. No asset access, transfer or approval.</p>
-      {!create&&!social.needsRegistration?<button type="button" disabled={social.busy} onClick={()=>void social.signIn()} className="w-full rounded-xl px-4 py-3 font-bold disabled:opacity-50" style={{background:'var(--accent)',color:'var(--bg)'}}>Continue with wallet</button>:
-        <><label className="block text-xs" htmlFor="social-new-handle">Your public Veyra ID</label>
-        <input id="social-new-handle" value={handle} onChange={event=>setHandle(event.target.value)} placeholder="yourname" autoComplete="off" maxLength={30}
-          className="w-full rounded-xl border bg-transparent p-3" style={{borderColor:'var(--border)'}}/>
-        <button type="button" disabled={social.busy||handle.trim().length<3} onClick={()=>void social.register(handle)}
-          className="w-full rounded-xl px-4 py-3 font-bold disabled:opacity-50" style={{background:'var(--accent)',color:'var(--bg)'}}>Create Veyra ID</button></>}
-      <button type="button" onClick={()=>setCreate(!create)} className="text-xs underline" style={{color:'var(--muted)'}}>{create?'Already registered? Continue with wallet':'New to Veyra? Create an ID'}</button>
-      <p className="flex items-center gap-2 text-xs" style={{color:'var(--subtle)'}}><ShieldCheck size={14}/> No financial permissions granted.</p>
-    </section>:<>
+    {!social.session?<VeyraIdentityAccess/>:<>
+
       <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
         <div><span className="text-xs" style={{color:'var(--muted)'}}>Verified Veyra ID</span><p className="font-bold">@{social.session.profile.veyraHandle}.veyra</p></div>
         <div className="flex gap-2"><button type="button" disabled={social.busy} onClick={()=>void social.refresh()} aria-label="Refresh social" className="rounded-lg border p-2" style={{borderColor:'var(--border)'}}><RefreshCw size={16}/></button>
