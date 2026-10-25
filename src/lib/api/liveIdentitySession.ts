@@ -1,6 +1,6 @@
 /** Single in-memory, wallet-bound signed identity session for the full Veyra app.
  * All authenticated API calls use this session instead of browser storage.
- * Never persists or logs bearer tokens. Wallet/network/connector changes revoke
+ * Never persists or logs bearer tokens. Wallet/connector changes revoke
  * previous permissions synchronously, before child route effects run.
  */
 let activeWalletKey='';
