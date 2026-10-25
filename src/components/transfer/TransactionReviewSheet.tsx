@@ -34,7 +34,7 @@ interface TransactionReviewSheetProps {
 }
 
 export function TransactionReviewSheet({ action, recipient, sessionToken, onClose }: TransactionReviewSheetProps) {
-  const { policy, risk, loading: evalLoading, error: evalError } = usePipelineEvaluation(action);
+  const { policy, risk, loading: evalLoading, error: evalError, retry: retrySimulation } = usePipelineEvaluation(action);
   const { state: execState, execute, reset } = useTransferExecution();
 
   const highRisk = risk?.level === 'HIGH' || risk?.level === 'CRITICAL' || risk?.level === 'UNKNOWN';
@@ -140,7 +140,14 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
                   <div className="flex items-start gap-2 rounded-xl p-3"
                     style={{ background: 'var(--danger-muted)', border: '1px solid var(--border)', color: 'var(--danger)' }}>
                     <AlertTriangle className="size-4 mt-0.5 shrink-0" />
-                    <span className="text-sm">{evalError}</span>
+                    <div className="flex-1">
+                      <p className="text-sm">{evalError}</p>
+                      <button type="button" onClick={retrySimulation}
+                        className="mt-2 rounded-lg border px-3 py-2 text-xs font-bold"
+                        style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>
+                        Retry safety check
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-2">

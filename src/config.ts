@@ -4,6 +4,7 @@
  */
 
 import { http, createConfig } from 'wagmi'
+import { fallback } from 'viem'
 import { mainnet, sepolia } from 'wagmi/chains'
 import { arcTestnet } from 'viem/chains'
 import { injected } from 'wagmi/connectors'
@@ -19,7 +20,13 @@ export const config = createConfig({
   chains: [arcTestnet, sepolia, mainnet],
   connectors: [injected()],
   transports: {
-    [arcTestnet.id]: http(),
+    // Use independently verified Arc Testnet endpoints. A temporary outage/CORS
+    // failure on the official RPC should not strand Review Transfer.
+    // Contract reverts still fail closed; no simulation is ever skipped.
+    [arcTestnet.id]: fallback([
+      http('https://rpc.testnet.arc.io', { timeout: 12000, retryCount: 1 }),
+      http('https://arc-testnet.drpc.org', { timeout: 12000, retryCount: 1 }),
+    ], { rank: false }),
     [sepolia.id]: http(),
     [mainnet.id]: http(),
   },

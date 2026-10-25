@@ -11,6 +11,7 @@ export interface PipelineEvaluation {
   risk: RiskScoringResult | null;
   loading: boolean;
   error: string | null;
+  retry: () => void;
 }
 /**
  * Only a successful real Arc Testnet ERC-20 eth_call can mark a transfer
@@ -23,6 +24,7 @@ export function usePipelineEvaluation(action: VeyraAction | null): PipelineEvalu
   const [risk,setRisk]=useState<RiskScoringResult|null>(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState<string|null>(null);
+  const [retryGeneration,setRetryGeneration]=useState(0);
   useEffect(()=>{
     let cancelled=false;
     setLoading(true);setPolicy(null);setRisk(null);setError(null);
@@ -42,12 +44,16 @@ export function usePipelineEvaluation(action: VeyraAction | null): PipelineEvalu
         const result=evaluateTransferSafety(action,true);
         setRisk(result.risk);setPolicy(result.policy);
       }catch(cause){
-        if(!cancelled)setError(cause instanceof Error
-          ? 'Transfer simulation failed: '+cause.message.slice(0,180)
-          : 'Transfer simulation failed. Signing is blocked.');
+        if(!cancelled){
+          const details=cause instanceof Error?cause.message:'Simulation unavailable';
+          const rpcFailure=/HTTP request failed|fetch failed|timeout|rate limit|\b429\b|\b50[0234]\b|network error|CORS|Failed to fetch/i.test(details);
+          setError(rpcFailure
+            ? 'Arc Testnet connection is temporarily unavailable. No funds were sent. Retry the safety check.'
+            : 'Transfer simulation failed. '+details.split('\n')[0].slice(0,155));
+        }
       }finally{if(!cancelled)setLoading(false);}
     })();
     return()=>{cancelled=true;};
-  },[action,client]);
-  return {policy,risk,loading,error};
+  },[action,client,retryGeneration]);
+  return {policy,risk,loading,error,retry:()=>setRetryGeneration(n=>n+1)};
 }

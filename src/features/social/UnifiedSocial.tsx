@@ -54,7 +54,9 @@ export function friendLabel(value:SocialFriend):string{
 }
 export function UnifiedSocialProvider({children}:{children:ReactNode}){
   const {address,chainId,connector,isConnected}=useAccount();
-  const walletKey=(address?.toLowerCase()??'')+':'+(chainId??'')+':'+(connector?.uid??'');
+  // Wallet identity is stable across EVM network changes. Token authorization remains wallet+connector-bound.
+  // Switching to Arc to pay must not log users out of their Veyra ID.
+  const walletKey=(address?.toLowerCase()??'')+':'+(connector?.uid??'');
   // Conservative fail-closed invalidation during render; never grants authority.
   bindCurrentIdentityWallet(walletKey);
   const current=useRef(walletKey);

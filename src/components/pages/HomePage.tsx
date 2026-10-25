@@ -20,6 +20,7 @@ import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
 import type { MyProfile } from '@/lib/api/identityApi';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS, REGISTRY_STATUS_COPY, type RegistryStatus } from '@/config/productRegistry';
 import { BrandLogo } from '../brand/BrandLogo';
+import { VeyraIdentityAccess } from '../identity/VeyraIdentityAccess';
 import type { VeyraPage } from '../layout/AppShell';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
@@ -97,13 +98,15 @@ export function HomePage({ onNavigate }: HomePageProps) {
           </div>
         </div>
 
-        <IdentityCard
-          profile={profile}
-          address={address}
-          isConnected={isConnected}
-          onOpenSocial={() => onNavigate('social')}
-          onOpenSettings={() => onNavigate('settings')}
-        />
+        {isConnected && !profile
+          ? <VeyraIdentityAccess />
+          : <IdentityCard
+              profile={profile}
+              address={address}
+              isConnected={isConnected}
+              onOpenSocial={() => onNavigate('social')}
+              onOpenSettings={() => onNavigate('settings')}
+            />}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[1fr_0.72fr]">

@@ -15,6 +15,7 @@ import { parseAmount } from '@/onchain-money';
 import { buildTxExplorerUrl, getUsdc, requireChain } from '@/onchain-facts';
 import { createTransferAction } from '@/core/pipeline/transferPipeline';
 import { TransactionReviewSheet } from '../transfer/TransactionReviewSheet';
+import { VeyraIdentityAccess } from '../identity/VeyraIdentityAccess';
 import { BrandLogo } from '../brand/BrandLogo';
 import type { TransferAction } from '@/core/actions/actionSchema';
 import { preparePaymentRecipient, type PreparedRecipient } from '@/lib/api/identityApi';
@@ -97,7 +98,7 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
       // Literal address Pay remains possible without a Social sign-in. Every
       // person/alias payment MUST use the wallet-bound signed Veyra session.
       if (!isAddress(recipient) && !sessionToken) {
-        throw new Error('Sign in to your Veyra ID in Social before paying a person.');
+        throw new Error('Sign in to your Veyra ID on this page before paying a person.');
       }
       const prepared: PreparedRecipient = isAddress(recipient)
         ? { kind: 'WALLET', resolvedAddress: recipient, chainId: ARC_TESTNET_CHAIN_ID, snapshot: null }
@@ -150,6 +151,12 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
           </div>
         </div>
       </div>
+
+      {isConnected && !sessionToken && (
+        <div className="mb-4" aria-label="Veyra ID authorization for Pay">
+          <VeyraIdentityAccess />
+        </div>
+      )}
 
       {!isConnected ? (
         <div className="rounded-3xl p-7 text-center" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border-strong)' }}>
