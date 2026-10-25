@@ -1,0 +1,56 @@
+name: Live Veyra Testnet Origin Smoke
+on:
+  push:
+    branches:
+      - test/veyra-canonical-origin-smoke-20261025
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify Render BFF allows exact canonical Veyra Testnet Origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORIGIN='https://veyra-unified-testnet.vercel.app'
+          URL='https://veyra-testnet-acceptance-bff.onrender.com/api/identity/register/complete'
+          http_code=$(curl --silent --show-error --retry 2 --retry-delay 4 --connect-timeout 15 --max-time 90 \
+            --request POST --header "Origin: $ORIGIN" --header 'Content-Type: application/json' \
+            --header 'Accept: application/json' --data '{}' --output /tmp/veyra_probe_body \
+            --dump-header /tmp/veyra_probe_headers --write-out '%{http_code}' "$URL")
+          echo "Backend unsigned preflight HTTP status: $http_code"
+          if [ "$http_code" != "400" ]; then
+            echo "Canonical Testnet origin is not accepted by the live backend (expected 400 INVALID_REQUEST)." >&2
+            if [ "$http_code" = "403" ]; then
+              echo "Likely Render ORIGIN_NOT_ALLOWED; cannot conduct signed wallet acceptance yet." >&2
+            fi
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          with open('/tmp/veyra_probe_body') as f:
+              result=json.load(f)
+          assert result.get('error') == 'INVALID_REQUEST', "Unexpected backend auth response; cannot sign"
+          with open('/tmp/veyra_probe_headers') as f:
+              headers=f.read().lower()
+          assert 'access-control-allow-origin: https://veyra-unified-testnet.vercel.app' in headers, "Exact browser CORS origin is missing"
+          print('PASS: canonical Testnet Origin accepted, unsigned preflight returns 400 INVALID_REQUEST, exact CORS header present.')
+          PY
+      - name: Check public BFF health API without wallet signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          http_code=$(curl --silent --show-error --connect-timeout 15 --max-time 45 \
+            --header 'Accept: application/json' --output /tmp/veyra_health \
+            --write-out '%{http_code}' https://veyra-testnet-acceptance-bff.onrender.com/api/health)
+          echo "BFF health HTTP: $http_code"
+          test "$http_code" = "200"
+          python3 - <<'PY'
+          import json
+          with open('/tmp/veyra_health') as f:
+              body=json.load(f)
+          assert body.get('ok') is True, 'BFF health not ok'
+          print('PASS: live backend health JSON confirms ok=true.')
+          PY
