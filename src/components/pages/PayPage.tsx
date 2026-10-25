@@ -27,7 +27,7 @@ import { useReceiptStore } from '@/hooks/useReceiptStore';
 const ARC_TESTNET_CHAIN_ID = 5042002;
 
 export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipient?: string | null;onFriendRecipientUsed?: () => void} = {}) {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, chainId } = useAccount();
   const social = useUnifiedSocial();
   const { receipts: ownedReceipts, error: receiptError } = useReceiptStore();
   const recentPay = ownedReceipts.find((receipt) =>
@@ -174,8 +174,10 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
           <div className="flex items-start gap-3 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
             <ShieldCheck className="mt-0.5 size-4 shrink-0" style={{ color: 'var(--success)' }} />
             <div>
-              <p className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>No manual network setup required</p>
-              <p className="mt-0.5 text-xs leading-5" style={{ color: 'var(--muted)' }}>Veyra can resolve and prepare the payment regardless of the network currently selected in your wallet. If the source transaction needs Arc, Veyra requests the source network only when you are ready to sign.</p>
+              <p className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>{chainId === ARC_TESTNET_CHAIN_ID ? 'Arc Testnet connected' : 'Payment route: Arc Testnet · wallet on another network'}</p>
+              <p className="mt-0.5 text-xs leading-5" style={{ color: 'var(--muted)' }}>{chainId === ARC_TESTNET_CHAIN_ID
+                  ? 'Safety checks use Arc Testnet. You approve a transfer only after successful simulation.'
+                  : 'Your wallet is on a different network. Review here; after safety checks pass, MetaMask will request Arc Testnet before the separate USDC payment approval. Sepolia ETH is not Arc USDC.'}</p>
             </div>
           </div>
 
