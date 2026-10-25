@@ -64,6 +64,15 @@ jobs:
             --dump-header /tmp/veyra_site_headers --write-out '%{http_code}' "$site")
           echo "Canonical website GET status: $status"
           echo "Response content type: $(grep -i '^content-type:' /tmp/veyra_site_headers | tail -1 | tr -d '\r')"
+          python3 - <<'PY'
+          import re
+          with open('/tmp/veyra_site',encoding='utf-8',errors='replace') as f:
+              page=f.read()
+          title=re.search(r'<title[^>]*>(.*?)</title>',page,re.I|re.S)
+          print('Web page title:', ' '.join(title.group(1).split())[:100] if title else 'none')
+          print('Veyra app HTML root:', '<div id="root"' in page)
+          print('Vercel authentication markers:', any(x in page.lower() for x in ['vercel authentication','authentication required','vercel security checkpoint','log in to vercel']))
+          PY
           if [ "$status" = '200' ]; then
             if grep -q '<div id="root"' /tmp/veyra_site || grep -q 'type="module"' /tmp/veyra_site; then
               echo 'PASS: canonical website HTML is accessible without additional login.'
