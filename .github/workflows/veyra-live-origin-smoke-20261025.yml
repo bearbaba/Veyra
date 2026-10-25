@@ -54,3 +54,24 @@ jobs:
           assert body.get('ok') is True, 'BFF health not ok'
           print('PASS: live backend health JSON confirms ok=true.')
           PY
+
+      - name: Inspect canonical website availability and Vercel protection
+        shell: bash
+        run: |
+          set -euo pipefail
+          site='https://veyra-unified-testnet.vercel.app'
+          status=$(curl --silent --show-error --location --max-time 40 --connect-timeout 15 --output /tmp/veyra_site \
+            --dump-header /tmp/veyra_site_headers --write-out '%{http_code}' "$site")
+          echo "Canonical website GET status: $status"
+          echo "Response content type: $(grep -i '^content-type:' /tmp/veyra_site_headers | tail -1 | tr -d '\r')"
+          if [ "$status" = '200' ]; then
+            if grep -q '<div id="root"' /tmp/veyra_site || grep -q 'type="module"' /tmp/veyra_site; then
+              echo 'PASS: canonical website HTML is accessible without additional login.'
+            else
+              echo 'WARN: 200 HTML returned but Veyra app root was not recognizable.'
+            fi
+          elif [ "$status" = '401' ] || [ "$status" = '403' ]; then
+            echo 'PROTECTED: canonical website requires Vercel access. Authorized tester may need Vercel sign-in.'
+          else
+            echo 'BLOCKED: unexpected canonical website HTTP response.'
+          fi
