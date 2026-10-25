@@ -98,20 +98,16 @@ export function HomePage({ onNavigate }: HomePageProps) {
           </div>
         </div>
 
-        <IdentityCard
-          profile={profile}
-          address={address}
-          isConnected={isConnected}
-          onOpenSocial={() => onNavigate('social')}
-          onOpenSettings={() => onNavigate('settings')}
-        />
+        {isConnected && !profile
+          ? <VeyraIdentityAccess />
+          : <IdentityCard
+              profile={profile}
+              address={address}
+              isConnected={isConnected}
+              onOpenSocial={() => onNavigate('social')}
+              onOpenSettings={() => onNavigate('settings')}
+            />}
       </section>
-
-      {isConnected && !profile && (
-        <div className="max-w-lg" aria-label="Veyra ID sign-in on Home">
-          <VeyraIdentityAccess />
-        </div>
-      )}
 
       <section className="grid gap-4 lg:grid-cols-[1fr_0.72fr]">
         <div className="rounded-3xl p-5 md:p-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
