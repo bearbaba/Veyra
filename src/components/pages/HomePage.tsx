@@ -1,6 +1,6 @@
 import { useAccount, useReadContract } from 'wagmi';
-import { formatUnits } from 'viem';
-import { ConnectKitButton } from 'connectkit';
+import { VeyraIdentityAccess } from '../identity/VeyraIdentityAccess';
+import { formatUsdcBalance } from '@/core/receipt/formatUsdcBalance';
 import {
   Activity,
   ArrowRight,
@@ -13,6 +13,8 @@ import {
   ShieldCheck,
   Sparkles,
   Wallet,
+  Route,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { requireChain, getUsdc, buildTxExplorerUrl } from '@/onchain-facts';
 import { useReceiptStore } from '@/hooks/useReceiptStore';
@@ -42,7 +44,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
   const usdc = getUsdc(ARC_TESTNET_CHAIN_ID);
   const { receipts, error: receiptError } = useReceiptStore();
 
-  const { data: balanceRaw, isLoading: balanceLoading, refetch } = useReadContract({
+  const { data: balanceRaw, isLoading: balanceLoading, isFetching: balanceFetching, isError: balanceError, refetch } = useReadContract({
     address: usdc?.address as `0x${string}` | undefined,
     abi: ERC20_BALANCE_OF_ABI,
     functionName: 'balanceOf',
@@ -52,11 +54,11 @@ export function HomePage({ onNavigate }: HomePageProps) {
   });
 
   const formattedBalance = balanceRaw != null && usdc
-    ? Number(formatUnits(balanceRaw, usdc.decimals)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    ? formatUsdcBalance(balanceRaw, usdc.decimals)
     : null;
   const recentReceipts = receipts.slice(0, 3);
   const profile = identity.profile;
-  const displayHandle = profile ? `@${profile.veyraHandle}.veyra` : 'Sign in through Social';
+  const displayHandle = profile ? `@${profile.veyraHandle}.veyra` : 'Not signed in';
 
 
   return (
@@ -70,13 +72,13 @@ export function HomePage({ onNavigate }: HomePageProps) {
           <div className="pointer-events-none absolute bottom-[-110px] left-24 size-80 rounded-full opacity-20 blur-3xl" style={{ background: 'radial-gradient(circle, #b9ff66, transparent 65%)' }} />
           <div className="relative">
             <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em]" style={{ color: 'var(--accent)' }}>
-              <Sparkles className="size-4" /> Human-first payments
+              <Sparkles className="size-4" /> Your Veyra workspace
             </div>
             <h1 className="display mt-4 max-w-xl text-4xl font-black leading-[1.02] md:text-5xl" style={{ color: 'var(--ink)', letterSpacing: '-0.045em' }}>
-              Pay anyone.<br />Veyra handles the route.
+              Your money.<br />One clear next step.
             </h1>
             <p className="mt-4 max-w-xl text-sm leading-6 md:text-base" style={{ color: 'var(--muted)' }}>
-              Pay a verified Veyra ID or wallet on the supported Arc Testnet route. Agent can help plan; every payment still requires your review and wallet signature.
+              Send USDC, pay a friend, or follow a payment. You review every transfer before confirming in your wallet.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <button
@@ -117,8 +119,8 @@ export function HomePage({ onNavigate }: HomePageProps) {
               </div>
             </div>
             {isConnected && (
-              <button onClick={() => void refetch()} className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs" style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>
-                <RefreshCw className="size-3.5" /> Refresh
+              <button disabled={balanceFetching} onClick={() => void refetch()} className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs" style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                <RefreshCw className={`size-3.5 ${balanceFetching ? 'animate-spin' : ''}`} /> {balanceFetching ? 'Updating…' : 'Refresh'}
               </button>
             )}
           </div>
@@ -126,7 +128,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
           {!isConnected ? (
             <div className="py-8 text-center">
               <p className="mb-4 text-sm" style={{ color: 'var(--muted)' }}>Connect a wallet to load your live Arc balance. No manual network switch is required for reads.</p>
-              <ConnectKitButton />
+              <p className="text-xs" style={{ color: 'var(--subtle)' }}>Use the wallet connection in Your identity above.</p>
             </div>
           ) : (
             <div className="mt-6 flex items-end justify-between gap-4">
@@ -135,13 +137,16 @@ export function HomePage({ onNavigate }: HomePageProps) {
                   <div className="h-12 w-44 animate-pulse rounded-xl" style={{ background: 'var(--surface)' }} />
                 ) : (
                   <div className="flex items-baseline gap-2">
-                    <span className="display text-4xl font-black tabular-nums md:text-5xl" style={{ color: 'var(--ink)', letterSpacing: '-0.04em' }}>{formattedBalance ?? '—'}</span>
+                    <span className="display text-4xl font-black tabular-nums md:text-5xl" style={{ color: 'var(--ink)', letterSpacing: '-0.04em' }}>{balanceError ? '—' : formattedBalance ?? '—'}</span>
                     <span className="text-base font-bold" style={{ color: 'var(--muted)' }}>USDC</span>
                   </div>
                 )}
+                {balanceError && <p role="alert" className="mt-2 text-xs" style={{ color: 'var(--warning)' }}>We could not update your balance. Refresh to try again.</p>}
                 <p className="mono mt-2 text-xs" style={{ color: 'var(--subtle)' }}>{shortAddress(address)}</p>
               </div>
-              <StatusPill status="ACTIVE" />
+              <span role="status" className="rounded-full px-2 py-1 text-xs" style={{ color: balanceError ? 'var(--warning)' : 'var(--muted)' }}>
+                {balanceError ? 'Balance unavailable' : balanceFetching ? 'Updating balance' : formattedBalance !== null ? 'Balance loaded' : 'Waiting for balance'}
+              </span>
             </div>
           )}
         </div>
@@ -157,21 +162,32 @@ export function HomePage({ onNavigate }: HomePageProps) {
           </div>
           <div className="mt-5 grid grid-cols-2 gap-3 text-xs">
             <InfoTile label="Wallet" value={address ? shortAddress(address) : 'Not connected'} />
-            <InfoTile label="Veyra ID" value={profile ? displayHandle : 'Not created'} />
+            <InfoTile label="Veyra ID" value={profile ? displayHandle : 'Not signed in'} />
           </div>
         </div>
       </section>
 
       <section>
-        <SectionHeading title="Quick actions" subtitle="Two primary paths. Everything else stays underneath the routing engine." />
+        <SectionHeading title="Quick actions" subtitle="Choose what you want to do." />
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
-          <QuickAction label="Pay" description="Pay a person, not a chain." icon={<SendHorizontal className="size-5" />} onClick={() => onNavigate('pay')} primary />
+          <QuickAction label="Pay" description="Review and send USDC." icon={<SendHorizontal className="size-5" />} onClick={() => onNavigate('pay')} primary />
           <QuickAction label="Agent" description="Chat and plan in any language." icon={<Bot className="size-5" />} onClick={() => onNavigate('agent')} />
           <QuickAction label="Activity" description="Receipts and transaction history." icon={<Activity className="size-5" />} onClick={() => onNavigate('activity')} />
         </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="rounded-3xl border p-5" style={{ borderColor: 'var(--border)', background: 'var(--surface-strong)' }}>
+        <SectionHeading title="More ways to move money" subtitle="Separate tools with their own availability checks." />
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <QuickAction label="Bridge USDC" description="Move between supported test networks. Review the route first." icon={<Route className="size-5" />} onClick={() => onNavigate('bridge')} />
+          <QuickAction label="Currency conversion" description="Explore USDC / EURC conversion and check availability." icon={<ArrowLeftRight className="size-5" />} onClick={() => onNavigate('convert')} />
+        </div>
+        <p className="mt-3 text-xs" style={{ color: 'var(--muted)' }}>Token swaps are not available in this release. Currency conversion is a separate service.</p>
+      </section>
+      <details className="rounded-3xl border p-5" style={{ borderColor: 'var(--border)' }}>
+        <summary className="cursor-pointer text-sm font-semibold">Explore network & asset catalog</summary>
+        <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>Catalog entries do not indicate a balance or an available payment route.</p>
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <RegistryCard title="Networks" subtitle="Verified registry metadata. Execution remains separately gated.">
           <div className="grid grid-cols-4 gap-3 sm:grid-cols-7">
             {PRODUCT_NETWORKS.map((network) => (
@@ -189,12 +205,13 @@ export function HomePage({ onNavigate }: HomePageProps) {
             Registry also recognizes {PRODUCT_ASSETS.slice(5).map((asset) => asset.symbol).join(', ')}. New verified tokens can be added without redesigning Pay or Agent.
           </div>
         </RegistryCard>
-      </section>
+      </div>
+      </details>
 
       {recentReceipts.length > 0 && (
         <section>
           <div className="flex items-end justify-between gap-3">
-            <SectionHeading title="Recent activity" subtitle="Server-verifiable execution receipts stay separate from Agent conversation." />
+            <SectionHeading title="Recent activity" subtitle="Follow your latest payments and open their details." />
             <button onClick={() => onNavigate('activity')} className="mb-1 text-xs font-semibold" style={{ color: 'var(--accent)' }}>View all</button>
           </div>
           <div className="mt-3 space-y-2">
@@ -233,7 +250,7 @@ function IdentityCard({
         <div className="min-w-0 flex-1">
           <div className="text-xs font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--muted)' }}>Your identity</div>
           <div className="mt-1 truncate text-xl font-bold" style={{ color: 'var(--ink)' }}>{profile ? `@${profile.veyraHandle}.veyra` : 'Sign in to your Veyra ID'}</div>
-          <p className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>{profile ? 'One verified identity for the connected wallet' : 'Use Social to sign in or register, without a duplicate Home flow'}</p>
+          <p className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>{profile ? 'One verified identity for the connected wallet' : 'Connect and sign in here. Your identity stays with you across Veyra.'}</p>
         </div>
       </div>
 
@@ -243,9 +260,10 @@ function IdentityCard({
         <IdentityRow label="X" value={profile?.x?.xHandle ? `@${profile.x.xHandle}` : 'Not linked'} ok={Boolean(profile?.x)} icon={<span className="text-[11px] font-black">X</span>} />
       </div>
 
+      {!profile && <div className="mt-5"><VeyraIdentityAccess /></div>}
       <div className="mt-5 grid grid-cols-2 gap-2">
         <button type="button" onClick={onOpenSocial} className="rounded-xl px-3 py-2.5 text-xs font-bold" style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}>
-          {profile ? 'Open Social' : 'Continue with Veyra ID'}
+          Open Friends
         </button>
         <button type="button" onClick={onOpenSettings} className="rounded-xl px-3 py-2.5 text-xs font-bold" style={{ background: 'var(--surface)', color: 'var(--ink)', border: '1px solid var(--border)' }}>
           Manage linked accounts

@@ -395,6 +395,13 @@ jobs:
           VEYRA_SMOKE_URL: http://127.0.0.1:4173
         run: node e2e/base-usdc-live-readonly.mjs
 
+      - name: Build and accept full-app navigation on desktop and mobile
+        env:
+          VEYRA_SMOKE_URL: http://127.0.0.1:4173
+        run: |
+          VITE_VEYRA_ENV=testnet bun run build
+          node e2e/core-navigation-acceptance.mjs
+
       - name: Shut down test preview
         if: always()
         run: |
