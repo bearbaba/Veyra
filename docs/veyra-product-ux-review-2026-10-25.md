@@ -26,3 +26,7 @@ Backend-dependent sign-in can remain unavailable when the current host is not au
 ## Validation
 
 Exact balance formatting has numeric regression coverage. The CI browser job additionally builds the full core app and checks desktop/mobile Home identity entry, catalog expansion, Bridge navigation, Search closing and horizontal overflow without a live wallet. Existing financial safety and preview checks remain required.
+
+## Friends reliability regression
+
+Hosted signed-identity CI exposed inconsistent mixed-case ID ordering between JavaScript and PostgreSQL. Canonical friendship pairs now use the database comparison for reads, writes and block transactions, preserving the existing constraint and stored data. A database integration regression covers requests in both directions, acceptance and block/unblock revocation with the exact failing IDs. PostgreSQL execution is verified in CI; local runs without PostgreSQL do not establish database acceptance.
