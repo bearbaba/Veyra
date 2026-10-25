@@ -53,7 +53,7 @@ describe('wallet-bound Veyra session is reused by Identity Pay and pre-sign veri
     const review=read('components/transfer/TransactionReviewSheet.tsx');
     expect(pay).toContain('prepareEpoch.current += 1');
     expect(pay).toContain('epoch !== prepareEpoch.current');
-    expect(pay).toContain('Sign in to your Veyra ID in Social before paying a person.');
+    expect(pay).toContain('Sign in to your Veyra ID on this page before paying a person.');
     expect(pay).toContain('sessionToken={sessionToken}');
     expect(hook).toContain('verifyPaymentRecipient(recipientGuard, sessionToken)');
     expect(hook).toContain('Your Veyra ID session ended.');
