@@ -54,6 +54,7 @@ export function VeyraIdentityAccess(){
   if(!social.ready){
     return <section className="space-y-3 rounded-2xl border p-4" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
       <p className="text-sm font-semibold">Arc Testnet required for Veyra ID</p>
+      {lastKnownId&&<p className="text-xs" style={{color:'var(--ink)'}}>Last used Veyra ID: <b>@{lastKnownId}.veyra</b> (display only)</p>}
       <p className="text-xs" style={{color:'var(--muted)'}}>Connected: {address?.slice(0,6)}…{address?.slice(-4)}. Your wallet is already connected; switch network only once, on request.</p>
       <button type="button" disabled={social.busy} onClick={()=>{
         setSwitchError(null);
