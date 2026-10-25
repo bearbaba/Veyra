@@ -1,10 +1,13 @@
 import type { MyProfile } from '@/lib/api/identityApi';
 import { useUnifiedSocial } from '../features/social/UnifiedSocial';
+import {useAccount} from 'wagmi';
+import {readLastVerifiedVeyraId} from '../lib/api/lastVerifiedVeyraId';
 
 const PREVIEW_KEY = 'veyra:preview-identity';
 
 export interface VeyraIdentityState {
   profile: MyProfile | null;
+  lastUsedHandle: string | null;
   preview: boolean;
   loading: boolean;
   refresh: () => Promise<void>;
@@ -28,6 +31,7 @@ export function clearPreviewVeyraIdentity(): void {
 
 export function useVeyraIdentity(): VeyraIdentityState {
   const social = useUnifiedSocial();
+  const {address,isConnected}=useAccount();
   // Settings always reflects the connected, SIGNED wallet identity.
   // A local preview handle cannot pose as a live canonical ID.
   const verified = social.session?.profile;
@@ -39,5 +43,6 @@ export function useVeyraIdentity(): VeyraIdentityState {
         x: verified.x ?? null,
       }
     : null;
-  return { profile, preview: false, loading: social.busy, refresh: social.refresh };
+  const lastUsedHandle=!profile&&isConnected?readLastVerifiedVeyraId(address):null;
+  return { profile, lastUsedHandle, preview: false, loading: social.busy, refresh: social.refresh };
 }
