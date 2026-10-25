@@ -60,10 +60,20 @@ jobs:
         run: |
           set -euo pipefail
           site='https://veyra-unified-testnet.vercel.app'
-          status=$(curl --silent --show-error --location --max-time 40 --connect-timeout 15 --output /tmp/veyra_site \
-            --dump-header /tmp/veyra_site_headers --write-out '%{http_code}' "$site")
+          status=$(curl --silent --show-error --location --max-time 40 --connect-timeout 15 \
+            --header 'Cache-Control: no-cache' --output /tmp/veyra_site \
+            --dump-header /tmp/veyra_site_headers --write-out '%{http_code}' "$site?smoke=20261025")
           echo "Canonical website GET status: $status"
           echo "Response content type: $(grep -i '^content-type:' /tmp/veyra_site_headers | tail -1 | tr -d '\r')"
+          if [ "$status" != "200" ]; then
+            echo 'FAIL: Veyra Testnet website did not return HTTP 200 without authentication.' >&2
+            exit 1
+          fi
+          if ! grep -q '<div id="root"' /tmp/veyra_site; then
+            echo 'FAIL: Veyra app HTML root not found; possible Vercel authentication page.' >&2
+            exit 1
+          fi
+          echo 'PASS: public Testnet domain serves Veyra HTML root, no Vercel sign-in.'
           python3 - <<'PY'
           import re
           with open('/tmp/veyra_site',encoding='utf-8',errors='replace') as f:
