@@ -34,7 +34,7 @@ const PRIMARY_NAV: NavItem[] = [
   { id: 'pay', label: 'Pay', icon: <SendHorizontal className="size-5" /> },
   { id: 'agent', label: 'Agent', icon: <Bot className="size-5" /> },
   { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
-  { id: 'social', label: 'Social', icon: <Users className="size-5" /> },
+  { id: 'social', label: 'Friends', icon: <Users className="size-5" /> },
 ];
 
 const SETTINGS_NAV: NavItem = { id: 'settings', label: 'Settings', icon: <Settings className="size-5" /> };
@@ -60,7 +60,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
   }, []);
 
   return (
-    <div className="flex min-h-dvh w-full">
+    <div className="flex h-dvh w-full overflow-hidden">
       <aside
         className="hidden md:flex flex-col w-56 shrink-0 border-r px-3 py-5 gap-1"
         style={{ borderColor: 'var(--border)', background: 'rgba(13,27,47,0.85)', backdropFilter: 'blur(24px)' }}
@@ -93,7 +93,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col min-h-dvh overflow-hidden">
+      <main className="min-w-0 flex-1 flex flex-col overflow-hidden">
         <header
           className="md:hidden flex items-center justify-between px-4 py-3 border-b"
           style={{ borderColor: 'var(--border)', background: 'rgba(13,27,47,0.90)', backdropFilter: 'blur(20px)' }}
@@ -118,7 +118,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
               style={{ background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}
             >
               <Command className="size-3.5" />
-              Ask
+              Search
             </button>
           </div>
         </header>
@@ -128,7 +128,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
         </div>
         <WebPreviewBanner />
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <AnimatePresence mode="wait">
             <motion.div
               key={page}
@@ -144,12 +144,14 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
         </div>
 
         <nav
-          className="md:hidden flex items-center border-t"
+          aria-label="Main navigation"
+          className="md:hidden flex shrink-0 items-center border-t pb-[env(safe-area-inset-bottom)]"
           style={{ borderColor: 'var(--border)', background: 'rgba(13,27,47,0.92)', backdropFilter: 'blur(20px)' }}
         >
           {PRIMARY_NAV.map((item) => (
             <button
               key={item.id}
+              aria-current={page === item.id ? 'page' : undefined}
               onClick={() => onNavigate(item.id)}
               className="flex-1 flex flex-col items-center gap-1 py-2.5 text-xs font-medium transition-colors"
               style={{ color: page === item.id ? 'var(--accent)' : 'var(--subtle)' }}
@@ -170,6 +172,7 @@ function NavButton({ item, active, onClick }: { item: NavItem; active: boolean; 
   return (
     <button
       onClick={onClick}
+      aria-current={active ? 'page' : undefined}
       className="relative flex w-full items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all"
       style={{ color: active ? 'var(--accent)' : 'var(--muted)', background: active ? 'var(--accent-muted)' : 'transparent' }}
     >

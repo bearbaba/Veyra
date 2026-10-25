@@ -1104,3 +1104,31 @@ describe('migration-from-zero: private Friends inbox', () => {
       .items[0]?.state).toBe('OUTGOING_PENDING');
   });
 });
+
+
+describe('migration-from-zero: mixed-case friendship IDs', () => {
+  pgTest('uses database ordering for requests, reverse lookup, acceptance and block revocation', async () => {
+    // These IDs reproduced the hosted signed-identity failure under PostgreSQL's
+    // locale-aware collation; JS orders uppercase K before lowercase i.
+    const alice = 'usr_2KYJg2g36EHP2CqniMFEpYZMTc4t';
+    const bob = 'usr_2iKsChmsZK87NtYqBL5RfTbWfm7W';
+    await testPool.query(`INSERT INTO veyra_users
+      (veyr_user_id, veyr_handle, identity_revision, status)
+      VALUES ($1, 'mixedcasealice', 1, 'ACTIVE'), ($2, 'mixedcasebob', 1, 'ACTIVE')`, [alice, bob]);
+    const db = drizzle(testPool, { schema });
+    await sendConnectionRequest(db, alice, bob);
+    const pending = await getConnectionStatus(db, alice, bob);
+    expect(['PENDING_INITIATOR', 'PENDING_TARGET']).toContain(pending);
+    expect(await getConnectionStatus(db, bob, alice)).toBe(pending);
+    await expect(sendConnectionRequest(db, bob, alice)).rejects.toThrow('already pending');
+    await acceptConnection(db, bob, alice);
+    expect(await getConnectionStatus(db, alice, bob)).toBe('CONNECTED');
+    expect(await getConnectionStatus(db, bob, alice)).toBe('CONNECTED');
+    await blockUser(db, bob, alice);
+    await unblockUser(db, bob, alice);
+    expect(await getConnectionStatus(db, alice, bob)).toBe('DISCONNECTED');
+    await sendConnectionRequest(db, bob, alice);
+    await acceptConnection(db, alice, bob);
+    expect(await getConnectionStatus(db, bob, alice)).toBe('CONNECTED');
+  });
+});

@@ -13,7 +13,7 @@ export function VeyraIdentityAccess(){
   const social=useUnifiedSocial();
   const {address}=useAccount();
   const {switchChainAsync}=useSwitchChain();
-  const [create,setCreate]=useState(false);
+  const [create,setCreate]=useState<boolean | null>(null);
   const [handle,setHandle]=useState('');
   const [switchError,setSwitchError]=useState<string|null>(null);
 
@@ -62,7 +62,7 @@ export function VeyraIdentityAccess(){
     </section>;
   }
 
-  const needsCreate=create||social.needsRegistration;
+  const needsCreate=create ?? social.needsRegistration;
   return <section className="max-w-lg space-y-3 rounded-2xl border p-4"
     style={{borderColor:'var(--border)',background:'var(--surface)'}}>
     <p className="text-sm font-semibold">Continue with your connected wallet</p>
@@ -87,7 +87,7 @@ export function VeyraIdentityAccess(){
       style={{background:'var(--accent)',color:'var(--bg)'}}>
       {social.busy?'Verifying…':'Sign in to Veyra ID'}
     </button>}
-    <button type="button" onClick={()=>setCreate(value=>!value)}
+    <button type="button" disabled={social.busy} onClick={()=>setCreate(!needsCreate)}
       className="text-xs underline" style={{color:'var(--muted)'}}>
       {needsCreate?'Already have an ID? Sign in':'New to Veyra? Create an ID'}
     </button>
