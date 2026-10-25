@@ -20,6 +20,7 @@ import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
 import type { MyProfile } from '@/lib/api/identityApi';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS, REGISTRY_STATUS_COPY, type RegistryStatus } from '@/config/productRegistry';
 import { BrandLogo } from '../brand/BrandLogo';
+import { VeyraIdentityAccess } from '../identity/VeyraIdentityAccess';
 import type { VeyraPage } from '../layout/AppShell';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
@@ -105,6 +106,12 @@ export function HomePage({ onNavigate }: HomePageProps) {
           onOpenSettings={() => onNavigate('settings')}
         />
       </section>
+
+      {isConnected && !profile && (
+        <div className="max-w-lg" aria-label="Veyra ID sign-in on Home">
+          <VeyraIdentityAccess />
+        </div>
+      )}
 
       <section className="grid gap-4 lg:grid-cols-[1fr_0.72fr]">
         <div className="rounded-3xl p-5 md:p-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
