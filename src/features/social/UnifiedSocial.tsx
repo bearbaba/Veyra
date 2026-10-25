@@ -8,6 +8,7 @@ import {useAccount} from 'wagmi';
 import {normalizeBetaHandle,signReviewedIdentity,type BrowserProvider,type IdentityProfile,type SignedChallenge,ARC_TESTNET_CHAIN_ID} from '../../identity-beta/protocol';
 import {bindCurrentIdentityWallet,clearSignedIdentitySession,setSignedIdentitySession} from '../../lib/api/liveIdentitySession';
 import {probeIdentityOrigin,type IdentityOriginStatus} from '../../lib/api/identityOriginProbe';
+import {rememberVerifiedVeyraId} from '../../lib/api/lastVerifiedVeyraId';
 
 export type SocialFriend={veyraUserId:string;veyraHandle?:string|null;state:'CONNECTED'|'INCOMING_PENDING'|'OUTGOING_PENDING';updatedAt:string};
 export type SocialNotice={notificationId:string;kind:string;actorUserId:string|null;createdAt:string;readAt:string|null};
@@ -119,7 +120,8 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     const profile=(await api<{profile:IdentityProfile}>('/api/profile/me','GET',data.sessionToken)).profile;
     if(!unchanged(key,rev))return;
     if(profile.veyraUserId!==data.veyraUserId||!USER_ID.test(profile.veyraUserId))throw new Error('Signed identity does not match the returned profile.');
-    setSignedIdentitySession(data.sessionToken,key);setSession({token:data.sessionToken,profile,walletKey:key});setNeedsRegistration(false);
+    setSignedIdentitySession(data.sessionToken,key);rememberVerifiedVeyraId(w.account,profile.veyraHandle);
+    setSession({token:data.sessionToken,profile,walletKey:key});setNeedsRegistration(false);
     setMessage('Signed in. No financial permissions granted.');
   });
   const register=(name:string)=>action(async(key,rev)=>{
@@ -134,7 +136,8 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     const data=await api<{sessionToken:string;profile:IdentityProfile}>('/api/identity/register/complete','POST',undefined,{claimToken:c.claimToken,signature});
     if(!unchanged(key,rev))return;
     if(!USER_ID.test(data.profile?.veyraUserId??''))throw new Error('Incomplete registration result. Try sign-in before registering again.');
-    setSignedIdentitySession(data.sessionToken,key);setSession({token:data.sessionToken,profile:data.profile,walletKey:key});setNeedsRegistration(false);
+    setSignedIdentitySession(data.sessionToken,key);rememberVerifiedVeyraId(w.account,data.profile.veyraHandle);
+    setSession({token:data.sessionToken,profile:data.profile,walletKey:key});setNeedsRegistration(false);
     setMessage('Veyra ID created. You are signed in without a second signature.');
   });
   const refresh=useCallback(async()=>{

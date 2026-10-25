@@ -8,10 +8,13 @@ import {ConnectKitButton} from 'connectkit';
 import {useAccount,useSwitchChain} from 'wagmi';
 import {ShieldCheck} from 'lucide-react';
 import {useUnifiedSocial} from '../../features/social/UnifiedSocial';
+import {readLastVerifiedVeyraId} from '../../lib/api/lastVerifiedVeyraId';
 
 export function VeyraIdentityAccess(){
   const social=useUnifiedSocial();
   const {address}=useAccount();
+  // Last-used public ID display is not a session or proof of current ownership.
+  const lastKnownId=readLastVerifiedVeyraId(address);
   const {switchChainAsync}=useSwitchChain();
   const [create,setCreate]=useState(false);
   const [handle,setHandle]=useState('');
@@ -36,6 +39,7 @@ export function VeyraIdentityAccess(){
       <p className="text-sm font-semibold">
         {checking?'Checking Veyra ID connection…':refused?'This Preview is not authorized for Veyra ID':'Veyra ID service unavailable'}
       </p>
+      {lastKnownId&&<p className="text-sm" style={{color:'var(--ink)'}}>Last used: <b>@{lastKnownId}.veyra</b> · Sign-in required</p>}
       <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
         {checking?'Verifying the backend before requesting any wallet signature.'
           :refused?'Your wallet is connected. The backend rejected this website address (403 ORIGIN_NOT_ALLOWED). Use an approved Veyra domain after the server origin is configured. No signature was requested.'
@@ -50,6 +54,7 @@ export function VeyraIdentityAccess(){
   if(!social.ready){
     return <section className="space-y-3 rounded-2xl border p-4" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
       <p className="text-sm font-semibold">Arc Testnet required for Veyra ID</p>
+      {lastKnownId&&<p className="text-xs" style={{color:'var(--ink)'}}>Last used Veyra ID: <b>@{lastKnownId}.veyra</b> (display only)</p>}
       <p className="text-xs" style={{color:'var(--muted)'}}>Connected: {address?.slice(0,6)}…{address?.slice(-4)}. Your wallet is already connected; switch network only once, on request.</p>
       <button type="button" disabled={social.busy} onClick={()=>{
         setSwitchError(null);
@@ -65,7 +70,8 @@ export function VeyraIdentityAccess(){
   const needsCreate=create||social.needsRegistration;
   return <section className="max-w-lg space-y-3 rounded-2xl border p-4"
     style={{borderColor:'var(--border)',background:'var(--surface)'}}>
-    <p className="text-sm font-semibold">Continue with your connected wallet</p>
+    <p className="text-sm font-semibold">{lastKnownId?`Welcome back, @${lastKnownId}.veyra`:'Continue with your connected wallet'}</p>
+    {lastKnownId&&<p className="text-xs" style={{color:'var(--muted)'}}>Last used public ID; one identity signature is still required for private Friends and Pay.</p>}
     <p className="text-xs" style={{color:'var(--muted)'}}>
       {address?.slice(0,6)}…{address?.slice(-4)} · One identity-only signature. No transfer, approval or asset access.
     </p>

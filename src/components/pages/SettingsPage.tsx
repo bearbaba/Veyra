@@ -81,8 +81,8 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
               </div>
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--subtle)' }}>Veyra identity</div>
-                <div className="mt-1 text-xl font-bold" style={{ color: 'var(--ink)' }}>{profile ? `@${profile.veyraHandle}.veyra` : 'Not created'}</div>
-                <div className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>{profile ? 'Verified for your connected wallet' : 'Sign in with the connected wallet on this page'}</div>
+                <div className="mt-1 text-xl font-bold" style={{ color: 'var(--ink)' }}>{profile ? `@${profile.veyraHandle}.veyra` : identity.lastUsedHandle ? `@${identity.lastUsedHandle}.veyra` : 'Not signed in'}</div>
+                <div className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>{profile ? 'Verified for your connected wallet' : identity.lastUsedHandle ? 'Last used ID · Sign in to verify' : 'Sign in with the connected wallet on this page'}</div>
               </div>
             </div>
             {profile && (
@@ -96,7 +96,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
 
           <div className="mt-5 grid gap-2 sm:grid-cols-3">
             <AccountEndpoint label="Wallet" value={isConnected && address ? shortAddress(address) : 'Not connected'} ready={isConnected} icon={<Wallet className="size-4" />} />
-            <AccountEndpoint label="Veyra ID" value={profile ? `@${profile.veyraHandle}.veyra` : 'Not created'} ready={Boolean(profile)} icon={<ShieldCheck className="size-4" />} />
+            <AccountEndpoint label="Veyra ID" value={profile ? `@${profile.veyraHandle}.veyra` : identity.lastUsedHandle ? `@${identity.lastUsedHandle}.veyra (last used)` : 'Not signed in'} ready={Boolean(profile)} icon={<ShieldCheck className="size-4" />} />
             <AccountEndpoint label="X" value={profile?.x?.xHandle ? `@${profile.x.xHandle}` : 'Not linked'} ready={Boolean(profile?.x)} icon={<span className="text-xs font-black">X</span>} />
           </div>
 
