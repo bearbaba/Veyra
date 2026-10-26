@@ -101,7 +101,7 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
             {/* ── Receipt view (after execution) ── */}
             {execState.receipt && (
               <VeyraReceiptView receipt={execState.receipt} explorerUrl={execState.explorerUrl}
-                  reviewedVeyraHandle={recipient?.snapshot?.veyraHandle} />
+                  />
             )}
 
             {/* ── Pre-execution: action summary ── */}
@@ -201,6 +201,7 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
                       reviewToken: recipient.snapshot.reviewToken,
                       expectedWalletAddress: action.to,
                       expectedChainId: action.chainId,
+                      reviewedVeyraHandle: recipient.snapshot.veyraHandle,
                     } : undefined, sessionToken, needsConfirmation)}
                     disabled={isBlocked || evalLoading || Boolean(evalError)}
                     className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed disabled:scale-100"

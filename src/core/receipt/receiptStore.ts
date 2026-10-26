@@ -83,7 +83,8 @@ export function receiptUpdateAllowed(existing: VeyraReceipt | null, next: VeyraR
   if (existing.actionType === 'TRANSFER') {
     if (existing.recipientAddress?.toLowerCase() !== next.recipientAddress?.toLowerCase() ||
         existing.tokenAddress?.toLowerCase() !== next.tokenAddress?.toLowerCase() ||
-        existing.expectedAmountDelta !== next.expectedAmountDelta) return false;
+        existing.expectedAmountDelta !== next.expectedAmountDelta ||
+        existing.recipientVeyraHandleAtReview !== next.recipientVeyraHandleAtReview) return false;
   }
   if ((existing.status === 'VERIFIED' || existing.status === 'FAILED') &&
       next.status === 'PENDING') return false;

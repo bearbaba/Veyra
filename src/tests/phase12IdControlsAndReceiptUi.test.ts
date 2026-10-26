@@ -3,9 +3,9 @@ import {readFileSync} from 'node:fs';
 const src=(path:string)=>readFileSync(new URL('../'+path,import.meta.url),'utf8');
 describe('reviewed recipient identity and account UX',()=>{
   it('shows historical Veyra ID only when the user used an ID snapshot',()=>{
-    expect(src('components/transfer/TransactionReviewSheet.tsx')).toContain('reviewedVeyraHandle={recipient?.snapshot?.veyraHandle}');
+    expect(src('components/transfer/TransactionReviewSheet.tsx')).toContain('reviewedVeyraHandle: recipient.snapshot.veyraHandle');
     const r=src('components/receipt/VeyraReceiptView.tsx');
-    expect(r).toContain("receipt.status==='VERIFIED'&&reviewedVeyraHandle");
+    expect(r).toContain("receipt.status==='VERIFIED'&&receipt.recipientVeyraHandleAtReview");
     expect(r).toContain('Direct wallet transfer or no reviewed Veyra ID');
     expect(r).toContain('Copy receipt ID');
   });

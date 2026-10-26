@@ -840,6 +840,13 @@ function ReceiptCard({ receipt }: { receipt: VeyraReceipt }) {
       </div>
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+        {receipt.actionType==='TRANSFER' && (
+          <DetailRow label="Recipient" value={receipt.recipientVeyraHandleAtReview
+            ? `@${receipt.recipientVeyraHandleAtReview}.veyra · ID at review`
+            : receipt.recipientAddress
+              ? `${receipt.recipientAddress.slice(0,8)}…${receipt.recipientAddress.slice(-6)} · wallet`
+              : 'Not recorded'} />
+        )}
         {receipt.executionTxHash && (
           <DetailRow
             label="Tx hash"

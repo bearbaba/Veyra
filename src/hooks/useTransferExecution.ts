@@ -17,6 +17,7 @@
 import { useState, useCallback } from 'react';
 import { useWriteContract, usePublicClient, useAccount, useSwitchChain } from 'wagmi';
 import { formatUnits } from 'viem';
+import { normalizeBetaHandle } from '../identity-beta/protocol';
 import type { TransferAction } from '@/core/actions/actionSchema';
 import { generateExecutionReceiptId } from '@/core/receipt/receiptId';
 import { saveReceipt } from '@/core/receipt/receiptStore';
@@ -94,7 +95,7 @@ export function useTransferExecution() {
   const { address, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
 
-  const execute = useCallback(async (action: TransferAction, recipientGuard?: { snapshotId: string; expectedWalletId: string; expectedWalletAddress: string; expectedChainId: number; reviewToken: string }, sessionToken?: string, confirmedAtReview = false) => {
+  const execute = useCallback(async (action: TransferAction, recipientGuard?: { snapshotId: string; expectedWalletId: string; expectedWalletAddress: string; expectedChainId: number; reviewToken: string; reviewedVeyraHandle?: string }, sessionToken?: string, confirmedAtReview = false) => {
     if (!publicClient) {
       setState((s) => ({ ...s, step: 'FAILED', error: 'No public client available' }));
       return;
@@ -106,6 +107,7 @@ export function useTransferExecution() {
     let submissionStarted = false;
     let broadcastHash: `0x${string}` | null = null;
     let chainReceiptReverted = false;
+    let reviewedVeyraHandle: string | undefined;
 
     try {
       // Canonical final execution boundary. Re-check schema/provenance/provider
@@ -144,7 +146,16 @@ export function useTransferExecution() {
       // Missing/expired sessions must block before requesting a wallet signature.
       if (recipientGuard) {
         if (!sessionToken) throw new Error('Your Veyra ID session ended. Sign in and review the recipient again.');
-        await verifyPaymentRecipient(recipientGuard, sessionToken);
+        // DISPLAY label never enters signed recipient verification.
+        const { reviewedVeyraHandle: label, ...verifiedGuard } = recipientGuard;
+        await verifyPaymentRecipient(verifiedGuard, sessionToken);
+        if (label) {
+          const normalized=normalizeBetaHandle(label);
+          if(normalized!==label ||
+            verifiedGuard.expectedWalletAddress.toLowerCase()!==action.to.toLowerCase())
+            throw new Error('Reviewed Veyra ID does not match the frozen recipient wallet.');
+          reviewedVeyraHandle=normalized;
+        }
       }
 
       // Wallet network is transport state, not product state. Read/plan works
@@ -200,6 +211,7 @@ export function useTransferExecution() {
         chainId: action.chainId,
         ownerAddress: action.from,
         recipientAddress: action.to,
+        recipientVeyraHandleAtReview: reviewedVeyraHandle,
         tokenAddress: action.tokenAddress,
         tokenDecimals: action.tokenDecimals,
         tokenSymbol: 'USDC',
@@ -267,6 +279,7 @@ export function useTransferExecution() {
         chainId: action.chainId,
         ownerAddress: action.from,
         recipientAddress: action.to,
+        recipientVeyraHandleAtReview: reviewedVeyraHandle,
         tokenAddress: action.tokenAddress,
         tokenDecimals: action.tokenDecimals,
         tokenSymbol: 'USDC',
@@ -278,7 +291,9 @@ export function useTransferExecution() {
         expectedAmountDelta: action.amount,
         riskScore: null,
         policyDecision: null,
-        displaySummary: `Sent ${formatUnits(action.amount, action.tokenDecimals)} USDC to ${action.to.slice(0, 6)}...${action.to.slice(-4)}`,
+        displaySummary: reviewedVeyraHandle
+          ? `Sent ${formatUnits(action.amount, action.tokenDecimals)} USDC to @${reviewedVeyraHandle}.veyra (ID at review)`
+          : `Sent ${formatUnits(action.amount, action.tokenDecimals)} USDC to ${action.to.slice(0, 6)}...${action.to.slice(-4)}`,
         verifiedBalanceAfter: balanceAfter,
       };
 
@@ -321,6 +336,7 @@ export function useTransferExecution() {
         chainId:action.chainId,
         ownerAddress:action.from,
         recipientAddress:action.to,
+        recipientVeyraHandleAtReview:reviewedVeyraHandle,
         tokenAddress:action.tokenAddress,
         tokenDecimals:action.tokenDecimals,
         tokenSymbol:'USDC',

@@ -14,10 +14,9 @@ import type { VeyraReceipt } from '@/core/receipt/receiptTypes';
 interface VeyraReceiptViewProps {
   receipt: VeyraReceipt;
   explorerUrl: string | null;
-  reviewedVeyraHandle?: string;
 }
 
-export function VeyraReceiptView({ receipt, explorerUrl, reviewedVeyraHandle }: VeyraReceiptViewProps) {
+export function VeyraReceiptView({ receipt, explorerUrl }: VeyraReceiptViewProps) {
   const [copied,setCopied]=useState(false);
   const isVerified = receipt.status === 'VERIFIED';
   const isFailed   = receipt.status === 'FAILED';
@@ -71,8 +70,8 @@ export function VeyraReceiptView({ receipt, explorerUrl, reviewedVeyraHandle }: 
 
         {receipt.actionType==='TRANSFER'&&(
           <div className="rounded-xl border p-3 text-xs" style={{borderColor:'var(--border)'}}>
-            {receipt.status==='VERIFIED'&&reviewedVeyraHandle
-              ? <><p className="font-semibold" style={{color:'var(--ink)'}}>To @{reviewedVeyraHandle}.veyra</p>
+            {receipt.status==='VERIFIED'&&receipt.recipientVeyraHandleAtReview
+              ? <><p className="font-semibold" style={{color:'var(--ink)'}}>To @{receipt.recipientVeyraHandleAtReview}.veyra</p>
                   <p className="mt-1" style={{color:'var(--muted)'}}>Veyra ID at review · the blockchain verifies the wallet and USDC transfer, not current handle ownership.</p></>
               : <p style={{color:'var(--muted)'}}>Direct wallet transfer or no reviewed Veyra ID</p>}
           </div>

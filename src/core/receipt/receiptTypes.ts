@@ -74,6 +74,9 @@ export interface VeyraReceipt {
   tokenDecimals?: number;
   tokenSymbol?: string;
 
+  /** Display only: reviewed Veyra ID label, not on-chain name proof or payment authority. */
+  recipientVeyraHandleAtReview?: string;
+
   /** Transaction hash on the primary chain. */
   executionTxHash?: string;
 
