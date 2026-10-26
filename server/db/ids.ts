@@ -47,6 +47,7 @@ export const newIntentId       = () => makeId('int_');
 export const newChallengeId    = () => makeId('chl_');
 export const newOAuthStateId   = () => makeId('oas_');
 export const newContactId      = () => makeId('ctc_');
+export const newNotificationId = () => makeId('ntf_');
 
 /**
  * Server-issued client intent ID (amendment 5).

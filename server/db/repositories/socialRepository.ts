@@ -13,8 +13,8 @@
  */
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../client.js';
-import { socialBlocks, socialConnections, socialFollows } from '../schema/index.js';
-import { newBlockId, newConnectionId, newFollowId } from '../ids.js';
+import { socialBlocks, socialConnections, socialFollows, veyraNotifications } from '../schema/index.js';
+import { newBlockId, newConnectionId, newFollowId, newNotificationId } from '../ids.js';
 
 // ── Block check (amendment 6) ───────────────────────────────────────────────
 
@@ -196,12 +196,17 @@ export async function sendConnectionRequest(
   const status =
     initiatorUserId === userAId ? 'PENDING_INITIATOR' : 'PENDING_TARGET';
 
-  await db.insert(socialConnections).values({
-    connectionId:    newConnectionId(),
-    userAId,
-    userBId,
-    initiatorUserId,
-    status,
+  // One atomic change: do not show a friend request without a matching
+  // server-owned inbox event, and never publish a notification for a failed insert.
+  const connectionId=newConnectionId();
+  await db.transaction(async tx=>{
+    await tx.insert(socialConnections).values({
+      connectionId,userAId,userBId,initiatorUserId,status,
+    });
+    await tx.insert(veyraNotifications).values({
+      notificationId:newNotificationId(),ownerUserId:targetUserId,
+      actorUserId:initiatorUserId,kind:'FRIEND_REQUEST',eventRef:connectionId,
+    });
   });
 }
 
@@ -228,8 +233,16 @@ export async function acceptConnection(
   otherUserId: string,
 ): Promise<void> {
   const pending = await pendingConnectionForResponse(db, acceptorUserId, otherUserId);
-  await db.insert(socialConnections).values({
-    connectionId: newConnectionId(), ...pending, status: 'CONNECTED',
+  const connectionId=newConnectionId();
+  await db.transaction(async tx=>{
+    await tx.insert(socialConnections).values({
+      connectionId,...pending,status:'CONNECTED',
+    });
+    await tx.insert(veyraNotifications).values({
+      notificationId:newNotificationId(),
+      ownerUserId:pending.initiatorUserId,actorUserId:acceptorUserId,
+      kind:'FRIEND_ACCEPTED',eventRef:connectionId,
+    });
   });
 }
 
