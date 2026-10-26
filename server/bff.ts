@@ -38,7 +38,10 @@ import { createWalletChallenge, verifyWalletChallenge, WalletProofError } from '
 import { beginIdentityRegistration, completeIdentityRegistration, IdentityRegistrationError } from './services/identityRegistrationService.js';
 import { beginWalletLogin, completeWalletLogin, WalletLoginError } from './services/walletLoginService.js';
 import { freezeSnapshot, resolveRecipient, verifySnapshot, IdentityResolutionError } from './services/identityResolver.js';
-import { getAuthenticatedVeyraUserId } from './auth/session.js';
+import { getAuthenticatedVeyraUserId, issueSessionToken } from './auth/session.js';
+import {clearBrowserRestoreCookie,issueBrowserRestoreCookie,verifyBrowserRestoreCookie} from './auth/browserRestoreSession.js';
+import {resolveTrustedLoginOrigin} from './services/walletLoginService.js';
+import {sql} from 'drizzle-orm';
 import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } from './services/friendInboxService.js';
 import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
@@ -236,6 +239,18 @@ function identityError(res: Response, err: unknown): void {
   res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
 }
 
+// Cookie issuance is restricted to the exact approved Testnet browser Origins.
+// A Set-Cookie header is scoped to /api/auth and is never accepted directly by
+// existing bearer-protected finance/social endpoints.
+function maybeSetRestoreCookie(req:Request,res:Response,userId:string,walletAddress:string):void{
+  const origin=req.header('origin');
+  if(runtimeConfig.environment!=='testnet'||!runtimeConfig.hostedBackend||
+    !origin||![runtimeConfig.appOrigin,runtimeConfig.testnetSecondaryAppOrigin].includes(origin))return;
+  const secret=process.env.VEYRA_SESSION_SECRET;
+  if(!secret)return;
+  res.setHeader('Set-Cookie',issueBrowserRestoreCookie(userId,walletAddress,origin,secret));
+}
+
 // ── Existing verified wallet login ──────────────────────────────────────────
 // Sign in is NOT the wallet-binding proof or an on-chain financial approval.
 // The EIP-712 claim has a distinct purpose and a consumed-once DB record.
@@ -258,9 +273,56 @@ app.post('/api/auth/wallet-login/complete', IDENTITY_RATE, async (req: Request, 
     const signature = typeof body.signature === 'string' ? body.signature : '';
     const { db } = await import('./db/client.js');
     const login = await completeWalletLogin(db, challengeId, signature, body.appOrigin, req.header('origin'));
+    maybeSetRestoreCookie(req,res,login.veyraUserId,login.walletAddress);
     res.setHeader('Cache-Control', 'no-store');
     res.json({ ok: true, ...login });
   } catch (err) { identityError(res, err); }
+});
+
+// Restore a browser session without another wallet prompt. No cookie is ever
+// considered authority without matching the CURRENT active wallet binding in DB.
+// CSRF: require an exact, observed Origin, POST only, SameSite=Strict cookie,
+// and an exact allowlist route. No login to a different connected wallet.
+app.post('/api/auth/session/restore', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
+  const origin=req.header('origin');
+  if(!origin){res.status(403).json({ok:false,error:'LOGIN_ORIGIN_REQUIRED'});return;}
+  try{
+    resolveTrustedLoginOrigin(origin,origin);
+    const body=req.body as Record<string,unknown>;
+    const address=typeof body.walletAddress==='string'?body.walletAddress:'';
+    const secret=process.env.VEYRA_SESSION_SECRET??'';
+    const claims=verifyBrowserRestoreCookie(req.header('cookie'),secret,origin,address);
+    if(!claims){res.status(401).json({ok:false,error:'SESSION_REAUTH_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    const matching=await db.execute(sql`
+      SELECT wb.veyr_user_id AS "userId" FROM wallet_bindings wb
+      JOIN veyra_users u ON u.veyr_user_id=wb.veyr_user_id
+      WHERE wb.veyr_user_id=${claims.sub}
+        AND lower(wb.wallet_address)=${claims.wallet}
+        AND wb.chain_id=5042002 AND wb.status='ACTIVE'
+        AND wb.revoked_at IS NULL AND u.status='ACTIVE'
+        AND u.deleted_at IS NULL LIMIT 1
+    `);
+    if(!matching.rows.length){
+      res.setHeader('Set-Cookie',clearBrowserRestoreCookie());
+      res.status(401).json({ok:false,error:'SESSION_REAUTH_REQUIRED'});return;
+    }
+    const profile=await getProfile(db,claims.sub);
+    const token=issueSessionToken(claims.sub,secret,{ttlSeconds:900});
+    res.setHeader('Cache-Control','no-store');
+    res.json({ok:true,veyraUserId:claims.sub,sessionToken:token,profile});
+  }catch(err){
+    if(err instanceof WalletLoginError){identityError(res,err);return;}
+    res.status(401).json({ok:false,error:'SESSION_REAUTH_REQUIRED'});
+  }
+});
+app.post('/api/auth/session/logout', IDENTITY_RATE, (req:Request,res:Response):void=>{
+  const origin=req.header('origin');
+  if(!origin){res.status(403).json({ok:false,error:'LOGIN_ORIGIN_REQUIRED'});return;}
+  try{resolveTrustedLoginOrigin(origin,origin);}
+  catch(err){identityError(res,err);return;}
+  res.setHeader('Set-Cookie',clearBrowserRestoreCookie());
+  res.json({ok:true});
 });
 
 // ── Veyra ID registration ────────────────────────────────────────────────────
@@ -292,6 +354,7 @@ app.post('/api/identity/register/complete', IDENTITY_RATE, async (req: Request, 
     const { db } = await import('./db/client.js');
     const registration = await completeIdentityRegistration(db, { claimToken, signature: signature as `0x${string}` });
     const profile = await getProfile(db, registration.veyraUserId);
+    maybeSetRestoreCookie(req,res,registration.veyraUserId,registration.walletAddress);
     res.status(201).json({ ok: true, registration, profile, sessionToken: registration.sessionToken });
   } catch (err) {
     identityError(res, err);
