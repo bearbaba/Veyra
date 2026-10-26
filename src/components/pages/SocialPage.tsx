@@ -1,11 +1,14 @@
 import {useState} from 'react';
-import {Bell,Users,MessageCircle,RefreshCw} from 'lucide-react';
+import {Bell,Users,MessageCircle,RefreshCw,MoreHorizontal} from 'lucide-react';
 import {friendLabel,useUnifiedSocial} from '../../features/social/UnifiedSocial';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
 
 export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
   const social=useUnifiedSocial();
   const [friend,setFriend]=useState('');
+  const [profileId,setProfileId]=useState<string|null>(null);
+  const [optionsId,setOptionsId]=useState<string|null>(null);
+  const [confirmBlockId,setConfirmBlockId]=useState<string|null>(null);
   return <div className="mx-auto max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
     <header><p className="text-xs font-bold uppercase tracking-widest" style={{color:'var(--accent)'}}>Veyra Social</p>
       <h1 className="display mt-2 text-3xl font-black">Friends & notifications</h1>
@@ -28,14 +31,48 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
             <button type="submit" disabled={social.busy||friend.trim().length<3}
               className="rounded-xl px-3 text-sm font-semibold disabled:opacity-50" style={{background:'var(--accent)',color:'var(--bg)'}}>Invite</button></form>
           {social.friends.length===0?<p className="text-sm" style={{color:'var(--muted)'}}>No friends yet. Invite a registered Veyra ID above; your friend must accept in their account.</p>:
-            social.friends.map(item=><div key={item.veyraUserId} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3" style={{borderColor:'var(--border)'}}>
-              <div><b className="text-sm">{friendLabel(item)}</b><p className="text-xs" style={{color:'var(--muted)'}}>{item.state .replace(/_/g,' ').toLowerCase()}</p></div>
-              <div className="flex gap-2">{item.state==='INCOMING_PENDING'&&<>
-                <button type="button" disabled={social.busy} onClick={()=>void social.respond(item.veyraUserId,'ACCEPT')} className="rounded-lg border px-2 py-1 text-xs" style={{borderColor:'var(--success)'}}>Accept</button>
-                <button type="button" disabled={social.busy} onClick={()=>void social.respond(item.veyraUserId,'REJECT')} className="rounded-lg border px-2 py-1 text-xs" style={{borderColor:'var(--border)'}}>Decline</button></>}
-                {item.state==='CONNECTED'&&item.veyraHandle&&<button type="button" disabled={social.busy} onClick={()=>onPayFriend(friendLabel(item))}
-                  className="rounded-lg border px-2 py-1 text-xs font-semibold" style={{borderColor:'var(--accent)',color:'var(--accent)'}}>Pay</button>}
-                {item.state==='CONNECTED'&&<button type="button" disabled={social.busy} onClick={()=>void social.block(item.veyraUserId)} className="rounded-lg border px-2 py-1 text-xs" style={{borderColor:'var(--border)'}}>Block</button>}</div>
+            social.friends.map(item=><div key={item.veyraUserId} className="rounded-xl border p-3" style={{borderColor:'var(--border)'}}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <button type="button" onClick={()=>{setProfileId(profileId===item.veyraUserId?null:item.veyraUserId);setOptionsId(null);setConfirmBlockId(null);}}
+                  aria-expanded={profileId===item.veyraUserId} aria-label={'Open friend profile '+friendLabel(item)}
+                  className="min-w-0 text-left">
+                  <b className="text-sm">{friendLabel(item)}</b>
+                  <p className="text-xs" style={{color:'var(--muted)'}}>{item.state.replace(/_/g,' ').toLowerCase()}</p>
+                </button>
+                <div className="flex gap-2">
+                  {item.state==='INCOMING_PENDING'&&<>
+                    <button type="button" disabled={social.busy} onClick={()=>void social.respond(item.veyraUserId,'ACCEPT')} className="rounded-lg border px-2 py-1 text-xs" style={{borderColor:'var(--success)'}}>Accept</button>
+                    <button type="button" disabled={social.busy} onClick={()=>void social.respond(item.veyraUserId,'REJECT')} className="rounded-lg border px-2 py-1 text-xs" style={{borderColor:'var(--border)'}}>Decline</button>
+                  </>}
+                  {item.state==='CONNECTED'&&item.veyraHandle&&<>
+                    <button type="button" disabled={social.busy} onClick={()=>onPayFriend(friendLabel(item))}
+                      className="rounded-lg border px-3 py-1.5 text-xs font-semibold" style={{borderColor:'var(--accent)',color:'var(--accent)'}}>Pay</button>
+                    <button type="button" disabled title="Private messaging requires a verified, encrypted backend. It is not enabled yet."
+                      className="rounded-lg border px-3 py-1.5 text-xs opacity-50" style={{borderColor:'var(--border)'}}>Chat</button>
+                  </>}
+                </div>
+              </div>
+              {profileId===item.veyraUserId&&<div className="mt-3 border-t pt-3 text-xs" style={{borderColor:'var(--border)'}}>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{friendLabel(item)}</p>
+                    <p style={{color:'var(--muted)'}}>Friendship actions do not authorize wallet transfers.</p>
+                  </div>
+                  {item.state==='CONNECTED'&&<button type="button" aria-label="Friend options" aria-expanded={optionsId===item.veyraUserId}
+                    onClick={()=>{setOptionsId(optionsId===item.veyraUserId?null:item.veyraUserId);setConfirmBlockId(null);}}
+                    className="rounded-lg border p-2" style={{borderColor:'var(--border)'}}><MoreHorizontal size={16}/></button>}
+                </div>
+                {optionsId===item.veyraUserId&&<div className="mt-2">
+                  <button type="button" disabled={social.busy} onClick={()=>setConfirmBlockId(item.veyraUserId)}
+                    className="rounded-lg border px-3 py-2 text-xs" style={{borderColor:'var(--danger)',color:'var(--danger)'}}>Block this friend…</button>
+                  {confirmBlockId===item.veyraUserId&&<div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span>Remove the friendship and block this Veyra ID?</span>
+                    <button type="button" disabled={social.busy} onClick={()=>{setConfirmBlockId(null);setOptionsId(null);setProfileId(null);void social.block(item.veyraUserId);}}
+                      className="rounded-lg border px-3 py-1.5 font-semibold" style={{borderColor:'var(--danger)',color:'var(--danger)'}}>Confirm block</button>
+                    <button type="button" onClick={()=>setConfirmBlockId(null)} className="rounded-lg border px-3 py-1.5" style={{borderColor:'var(--border)'}}>Cancel</button>
+                  </div>}
+                </div>}
+              </div>}
             </div>)}
         </section>
         <section className="space-y-3 rounded-3xl border p-5" style={{borderColor:'var(--border)',background:'var(--surface-strong)'}}>
