@@ -9,6 +9,8 @@ export const STAGING_ALLOWED_PATHS=[
   "/api/health/readiness",
   "/api/auth/wallet-login/challenge",
   "/api/auth/wallet-login/complete",
+  "/api/auth/session/restore",
+  "/api/auth/session/logout",
   "/api/identity/register/challenge",
   "/api/identity/register/complete",
   "/api/identity/resolve",

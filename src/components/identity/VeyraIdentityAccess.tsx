@@ -67,6 +67,12 @@ export function VeyraIdentityAccess(){
     </section>;
   }
 
+  if(social.restoring){
+    return <section role="status" className="rounded-2xl border p-4 text-sm"
+      style={{borderColor:'var(--border)',background:'var(--surface)',color:'var(--muted)'}}>
+      Restoring your secure Veyra ID session… No wallet signature is needed.
+    </section>;
+  }
   const needsCreate=create||social.needsRegistration;
   return <section className="max-w-lg space-y-3 rounded-2xl border p-4"
     style={{borderColor:'var(--border)',background:'var(--surface)'}}>
