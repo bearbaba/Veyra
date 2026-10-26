@@ -34,14 +34,6 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
     receipt.actionType === 'TRANSFER' && Boolean(receipt.executionTxHash));
   // Social only returns an active session for the exact wallet/chain/connector.
   const sessionToken = social.session?.token;
-  // Suggestions are verified friendship data, never a payment authority.
-  // Every selected handle is still resolved and re-verified by the backend.
-  const connectedFriends = social.session
-    ? social.friends.filter((item) => item.state === 'CONNECTED' && item.veyraHandle && friendLabel(item).startsWith('@'))
-    : [];
-  const matchingFriends = connectedFriends.filter((item) =>
-    !recipient.trim() || friendLabel(item).toLowerCase().includes(recipient.trim().toLowerCase())
-  ).slice(0, 6);
   const prepareEpoch = useRef(0);
 
   const [recipient, setRecipient] = useState('');
@@ -50,6 +42,15 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
   const [pendingAction, setPendingAction] = useState<TransferAction | null>(null);
   const [preparedRecipient, setPreparedRecipient] = useState<PreparedRecipient | null>(null);
   const [resolving, setResolving] = useState(false);
+
+  // Suggestions are verified friendship data, never a payment authority.
+  // Every selected handle is still resolved and re-verified by the backend.
+  const connectedFriends = social.session
+    ? social.friends.filter((item) => item.state === 'CONNECTED' && item.veyraHandle && friendLabel(item).startsWith('@'))
+    : [];
+  const matchingFriends = connectedFriends.filter((item) =>
+    !recipient.trim() || friendLabel(item).toLowerCase().includes(recipient.trim().toLowerCase())
+  ).slice(0, 6);
 
   const usdc = getUsdc(ARC_TESTNET_CHAIN_ID);
   const arcChain = requireChain(ARC_TESTNET_CHAIN_ID);
