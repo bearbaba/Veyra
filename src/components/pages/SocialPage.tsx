@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import {Bell,Users,MessageCircle,RefreshCw,MoreHorizontal} from 'lucide-react';
 import {friendLabel,useUnifiedSocial} from '../../features/social/UnifiedSocial';
+import {actionableFriendRequest,notificationActorName,notificationDescription,notificationTitle} from '../../features/social/notificationPresentation';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
 
 export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
@@ -9,6 +10,11 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
   const [profileId,setProfileId]=useState<string|null>(null);
   const [optionsId,setOptionsId]=useState<string|null>(null);
   const [confirmBlockId,setConfirmBlockId]=useState<string|null>(null);
+  const [friendFilter,setFriendFilter]=useState<'all'|'connected'|'pending'>('all');
+  const filteredFriends=social.friends.filter(item=>
+    friendFilter==='all'||(friendFilter==='connected'?item.state==='CONNECTED':item.state!=='CONNECTED'));
+  const incomingCount=social.friends.filter(item=>item.state==='INCOMING_PENDING').length;
+  const connectedCount=social.friends.filter(item=>item.state==='CONNECTED').length;
   return <div className="mx-auto max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
     <header><p className="text-xs font-bold uppercase tracking-widest" style={{color:'var(--accent)'}}>Veyra Social</p>
       <h1 className="display mt-2 text-3xl font-black">Friends & notifications</h1>
@@ -30,8 +36,20 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
               className="min-w-0 flex-1 rounded-xl border bg-transparent p-3 text-sm" style={{borderColor:'var(--border)'}}/>
             <button type="submit" disabled={social.busy||friend.trim().length<3}
               className="rounded-xl px-3 text-sm font-semibold disabled:opacity-50" style={{background:'var(--accent)',color:'var(--bg)'}}>Invite</button></form>
-          {social.friends.length===0?<p className="text-sm" style={{color:'var(--muted)'}}>No friends yet. Invite a registered Veyra ID above; your friend must accept in their account.</p>:
-            social.friends.map(item=><div key={item.veyraUserId} className="rounded-xl border p-3" style={{borderColor:'var(--border)'}}>
+          <div role="group" aria-label="Friend filters" className="flex flex-wrap gap-2">
+            {([{id:'all',label:'All'},{id:'connected',label:'Friends'},{id:'pending',label:'Requests'}] as const).map(tab=>
+              <button key={tab.id} type="button" onClick={()=>setFriendFilter(tab.id)}
+                aria-pressed={friendFilter===tab.id}
+                className="rounded-lg border px-3 py-1.5 text-xs font-semibold"
+                style={{borderColor:friendFilter===tab.id?'var(--accent)':'var(--border)',color:friendFilter===tab.id?'var(--accent)':'var(--muted)'}}>
+                {tab.label}{tab.id==='connected'?' · '+connectedCount:tab.id==='pending'&&incomingCount>0?' · '+incomingCount:''}
+              </button>)}
+          </div>
+          {filteredFriends.length===0?<p className="text-sm" style={{color:'var(--muted)'}}>
+            {friendFilter==='all'?'No friends yet. Invite a registered Veyra ID above; your friend must accept in their account.':
+              friendFilter==='connected'?'No accepted friends yet. Pending invitations appear under Requests.':'No pending invitations.'}
+          </p>:
+            filteredFriends.map(item=><div key={item.veyraUserId} className="rounded-xl border p-3" style={{borderColor:'var(--border)'}}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <button type="button" onClick={()=>{setProfileId(profileId===item.veyraUserId?null:item.veyraUserId);setOptionsId(null);setConfirmBlockId(null);}}
                   aria-expanded={profileId===item.veyraUserId} aria-label={'Open friend profile '+friendLabel(item)}
@@ -74,14 +92,23 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
                 </div>}
               </div>}
             </div>)}
+          {social.friendsHasMore&&<button type="button" disabled={social.loadingMoreFriends||social.busy}
+            onClick={()=>void social.loadMoreFriends()} className="w-full rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+            style={{borderColor:'var(--border)'}}>{social.loadingMoreFriends?'Loading friends…':'Load more friends'}</button>}
         </section>
         <section className="space-y-3 rounded-3xl border p-5" style={{borderColor:'var(--border)',background:'var(--surface-strong)'}}>
           <h2 className="flex items-center gap-2 font-bold"><Bell size={18}/> Notifications</h2>
           <p className="text-xs" style={{color:'var(--muted)'}}>{social.unreadCount} unread · Authenticated events only</p>
           {social.notices.length===0?<p className="text-sm" style={{color:'var(--muted)'}}>No verified notifications.</p>:
             social.notices.map(item=><div key={item.notificationId} className="rounded-xl border p-3 text-xs" style={{borderColor:'var(--border)'}}>
-              <b>{item.kind .replace(/_/g,' ').toLowerCase()}</b><time className="block" style={{color:'var(--muted)'}}>{new Date(item.createdAt).toLocaleString()}</time>
-              {!item.readAt&&<button type="button" disabled={social.busy} className="mt-1 underline" onClick={()=>void social.markRead(item.notificationId)}>Mark read</button>}
+              <b>{notificationTitle(item.kind)}</b>
+              {notificationActorName(item,social.friends)&&<span className="ml-2" style={{color:'var(--muted)'}}>{notificationActorName(item,social.friends)}</span>}
+              <p className="mt-1" style={{color:'var(--muted)'}}>{notificationDescription(item.kind)}</p>
+              <time className="block mt-1" style={{color:'var(--subtle)'}}>{new Date(item.createdAt).toLocaleString()}</time>
+              {actionableFriendRequest(item,social.friends)&&<button type="button" disabled={social.busy}
+                className="mt-2 rounded-lg border px-3 py-1.5 font-semibold" style={{borderColor:'var(--success)'}}
+                onClick={()=>void social.respond(item.actorUserId!,'ACCEPT')}>Accept friend</button>}
+              {!item.readAt&&<button type="button" disabled={social.busy} className="ml-2 mt-2 underline" onClick={()=>void social.markRead(item.notificationId)}>Mark read</button>}
             </div>)}
         </section>
       </div>

@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {Bell} from 'lucide-react';
 import {useUnifiedSocial} from './UnifiedSocial';
+import {notificationTitle,notificationDescription,notificationActorName,actionableFriendRequest} from './notificationPresentation';
 export function NotificationBell({openSocial}:{openSocial:()=>void}){
   const social=useUnifiedSocial();
   const [open,setOpen]=useState(false);
@@ -15,7 +16,7 @@ export function NotificationBell({openSocial}:{openSocial:()=>void}){
   useEffect(()=>{if(!social.session)setOpen(false);},[social.session]);
   if(!social.session)return null;
   return <div className="relative" ref={box}>
-    <button type="button" aria-label={`Notifications: ${social.unreadCount} unread`} aria-expanded={open} onClick={()=>setOpen(!open)}
+    <button type="button" aria-label={`Notifications: ${social.unreadCount} unread`} aria-expanded={open} onClick={()=>{if(!open)void social.refresh();setOpen(!open);}}
       className="relative rounded-xl border p-2" style={{borderColor:'var(--border)',background:'var(--surface)'}}><Bell size={18}/>
       {social.unreadCount>0&&<span className="absolute -right-1 -top-2 min-w-5 rounded-full px-1 text-center text-[10px] font-bold" style={{background:'var(--accent)',color:'var(--bg)'}}>{social.unreadCount>99?'99+':social.unreadCount}</span>}
     </button>
@@ -23,10 +24,16 @@ export function NotificationBell({openSocial}:{openSocial:()=>void}){
       <h2 className="font-bold">Notifications</h2>
       <div className="max-h-56 overflow-y-auto">{social.notices.length===0?<p className="text-xs" style={{color:'var(--muted)'}}>No verified events.</p>:
         social.notices.map(item=><div key={item.notificationId} className="flex items-center justify-between gap-2 border-t py-2 text-xs" style={{borderColor:'var(--border)'}}>
-          <span>{item.kind .replace(/_/g,' ').toLowerCase()}</span>
-          {!item.readAt&&<button type="button" className="underline" onClick={()=>void social.markRead(item.notificationId)} disabled={social.busy}>Read</button>}
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">{notificationTitle(item.kind)}</p>
+            {notificationActorName(item,social.friends)&&<p style={{color:'var(--muted)'}}>{notificationActorName(item,social.friends)}</p>}
+            <p style={{color:'var(--muted)'}}>{notificationDescription(item.kind)}</p>
+            {actionableFriendRequest(item,social.friends)&&<button type="button" disabled={social.busy}
+              className="mt-1 font-semibold underline" onClick={()=>{void social.respond(item.actorUserId!,'ACCEPT');}}>Accept friend</button>}
+          </div>
+          {!item.readAt&&<button type="button" className="underline" onClick={()=>void social.markRead(item.notificationId)} disabled={social.busy}>Read</button>
         </div>)}</div>
-      <button type="button" onClick={()=>{setOpen(false);openSocial();}} className="w-full rounded-lg border px-3 py-2 text-xs" style={{borderColor:'var(--border)'}}>Open Social inbox</button>
+      <button type="button" onClick={()=>{setOpen(false);openSocial();}} className="w-full rounded-lg border px-3 py-2 text-xs" style={{borderColor:'var(--border)'}}>Open Friends & notifications</button>
     </div>}
   </div>;
 }
