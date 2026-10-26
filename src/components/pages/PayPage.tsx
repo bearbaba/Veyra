@@ -56,9 +56,11 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
   const arcChain = requireChain(ARC_TESTNET_CHAIN_ID);
 
   const recipientValid = recipient.trim().length > 0 && recipient.trim().length <= 128;
-  const amountNum = Number.parseFloat(amount);
-  const amountValid = Number.isFinite(amountNum) && amountNum > 0;
-  const canProceed = isConnected && recipientValid && amountValid && Boolean(address) && Boolean(usdc) && !resolving;
+  const amountValid = /^\d+(?:\.\d{1,6})?$/.test(amount) &&
+    Number.isFinite(Number(amount)) && Number(amount) > 0;
+  const identityRequired = recipientValid && !isAddress(recipient) && !sessionToken;
+  const canProceed = isConnected && recipientValid && amountValid && Boolean(address) &&
+    Boolean(usdc) && !resolving && !identityRequired;
 
   useEffect(() => {
     // A pending snapshot is never reusable after a wallet/session change.
@@ -66,7 +68,7 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
     setPendingAction(null);
     setPreparedRecipient(null);
     setResolving(false);
-  }, [address, sessionToken]);
+  }, [address, sessionToken, chainId]);
 
   useEffect(() => {
     if (!friendRecipient) return;
@@ -97,13 +99,22 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
     }
   }, []);
 
-  function chooseFriend(handle: string) {
+  // Input changes invalidate an in-flight identity resolution and all previously
+  // reviewed payment data. Never display a review for the wrong amount.
+  function clearPreparedReview() {
     prepareEpoch.current += 1;
-    setRecipient(handle);
     setResolving(false);
     setPendingAction(null);
     setPreparedRecipient(null);
     setActionError(null);
+  }
+  function chooseFriend(handle: string) {
+    clearPreparedReview();
+    setRecipient(handle);
+  }
+  function changeAmount(value: string) {
+    clearPreparedReview();
+    setAmount(value);
   }
 
   async function handlePrepare() {
@@ -154,7 +165,7 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--accent)' }}>
-            <Sparkles className="size-4" /> Universal Pay
+            <Sparkles className="size-4" /> Pay by Veyra ID
           </div>
           <h1 className="display mt-2 text-3xl font-black" style={{ color: 'var(--ink)', letterSpacing: '-0.04em' }}>Pay someone.</h1>
           <p className="mt-1 text-sm leading-6" style={{ color: 'var(--muted)' }}>
@@ -248,10 +259,11 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
                   <p className="mb-2 text-[11px] font-bold uppercase tracking-wider" style={{color:'var(--muted)'}}>Your friends · quick select</p>
                   <div className="flex flex-wrap gap-2">
                     {matchingFriends.map((item) => (
-                      <button key={item.veyraUserId} type="button" disabled={resolving} onClick={() => chooseFriend(friendLabel(item))}
+                      <button key={item.veyraUserId} type="button" onClick={() => chooseFriend(friendLabel(item))}
                         aria-label={'Pay friend ' + friendLabel(item)}
-                        className="rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-50"
-                        style={{borderColor:'var(--border-strong)',background:'var(--surface)',color:'var(--ink)'}}>
+                        aria-pressed={recipient.toLowerCase()===friendLabel(item).toLowerCase()}
+                        className="rounded-xl border px-3 py-2 text-xs font-semibold transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                        style={{borderColor:recipient.toLowerCase()===friendLabel(item).toLowerCase()?'var(--accent)':'var(--border-strong)',background:'var(--surface)',color:'var(--ink)'}}>
                         {friendLabel(item)}
                       </button>
                     ))}
@@ -274,7 +286,7 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
                   value={amount}
                   onChange={(event) => {
                     const value = event.target.value.replace(/[^0-9.]/g, '');
-                    if (value === '' || /^\d*\.?\d*$/.test(value)) setAmount(value);
+                    if (value.length <= 32 && (value === '' || /^\d*\.?\d*$/.test(value))) changeAmount(value);
                   }}
                   placeholder="0.00"
                   className="display min-w-0 flex-1 bg-transparent text-4xl font-black tabular-nums outline-none"
@@ -282,6 +294,9 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
                 />
                 <span className="text-lg font-semibold" style={{ color: 'var(--muted)' }}>USDC</span>
               </div>
+              {amount&& !amountValid && <p role="alert" className="mt-2 text-xs" style={{color:'var(--warning)'}}>
+                Enter a positive USDC amount with no more than 6 decimal places.
+              </p>}
             </div>
           </div>
 
@@ -291,6 +306,11 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
             <TrustItem icon={<BrandLogo logoKey="arc" size={18} />} text="Arc preview route" />
           </div>
 
+          {identityRequired && (
+            <p role="status" className="text-xs" style={{color:'var(--muted)'}}>
+              Sign in to your Veyra ID above before paying a person. No signature is needed to browse friends.
+            </p>
+          )}
           {actionError && (
             <div className="flex items-start gap-2 rounded-2xl p-3.5" style={{ background: 'var(--danger-muted)', border: '1px solid var(--border)', color: 'var(--danger)' }}>
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />

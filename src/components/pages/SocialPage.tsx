@@ -11,8 +11,10 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
   const [optionsId,setOptionsId]=useState<string|null>(null);
   const [confirmBlockId,setConfirmBlockId]=useState<string|null>(null);
   const [friendFilter,setFriendFilter]=useState<'all'|'connected'|'pending'>('all');
+  const [friendSearch,setFriendSearch]=useState('');
   const filteredFriends=social.friends.filter(item=>
-    friendFilter==='all'||(friendFilter==='connected'?item.state==='CONNECTED':item.state!=='CONNECTED'));
+    (friendFilter==='all'||(friendFilter==='connected'?item.state==='CONNECTED':item.state!=='CONNECTED')) &&
+    friendLabel(item).toLowerCase().includes(friendSearch.trim().toLowerCase()));
   const incomingCount=social.friends.filter(item=>item.state==='INCOMING_PENDING').length;
   const connectedCount=social.friends.filter(item=>item.state==='CONNECTED').length;
   return <div className="mx-auto max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
@@ -36,6 +38,10 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
               className="min-w-0 flex-1 rounded-xl border bg-transparent p-3 text-sm" style={{borderColor:'var(--border)'}}/>
             <button type="submit" disabled={social.busy||friend.trim().length<3}
               className="rounded-xl px-3 text-sm font-semibold disabled:opacity-50" style={{background:'var(--accent)',color:'var(--bg)'}}>Invite</button></form>
+          <input type="search" aria-label="Search loaded friends" placeholder="Search your friends"
+            autoComplete="off" value={friendSearch} onChange={event=>setFriendSearch(event.target.value)}
+            className="w-full rounded-xl border bg-transparent px-3 py-2.5 text-sm outline-none focus-visible:ring-2"
+            style={{borderColor:'var(--border)'}}/>
           <div role="group" aria-label="Friend filters" className="flex flex-wrap gap-2">
             {([{id:'all',label:'All'},{id:'connected',label:'Friends'},{id:'pending',label:'Requests'}] as const).map(tab=>
               <button key={tab.id} type="button" onClick={()=>setFriendFilter(tab.id)}
@@ -46,7 +52,8 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
               </button>)}
           </div>
           {filteredFriends.length===0?<p className="text-sm" style={{color:'var(--muted)'}}>
-            {friendFilter==='all'?'No friends yet. Invite a registered Veyra ID above; your friend must accept in their account.':
+            {friendSearch.trim()?'No matches in loaded contacts. Clear the search or load more friends.':
+              friendFilter==='all'?'No friends yet. Invite a registered Veyra ID above; your friend must accept in their account.':
               friendFilter==='connected'?'No accepted friends yet. Pending invitations appear under Requests.':'No pending invitations.'}
           </p>:
             filteredFriends.map(item=><div key={item.veyraUserId} className="rounded-xl border p-3" style={{borderColor:'var(--border)'}}>
@@ -54,8 +61,16 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
                 <button type="button" onClick={()=>{setProfileId(profileId===item.veyraUserId?null:item.veyraUserId);setOptionsId(null);setConfirmBlockId(null);}}
                   aria-expanded={profileId===item.veyraUserId} aria-label={'Open friend profile '+friendLabel(item)}
                   className="min-w-0 text-left">
-                  <b className="text-sm">{friendLabel(item)}</b>
-                  <p className="text-xs" style={{color:'var(--muted)'}}>{item.state.replace(/_/g,' ').toLowerCase()}</p>
+                  <span className="flex items-center gap-2.5">
+                    <span aria-hidden="true" className="flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-bold"
+                      style={{background:'var(--accent-muted)',color:'var(--accent)'}}>
+                      {(item.veyraHandle?.[0]??'?').toUpperCase()}
+                    </span>
+                    <span className="min-w-0"><b className="text-sm">{friendLabel(item)}</b>
+                      <span className="block text-xs" style={{color:'var(--muted)'}}>{item.state==='CONNECTED'?'Connected':
+                        item.state==='INCOMING_PENDING'?'Wants to connect':'Invitation sent'}</span>
+                    </span>
+                  </span>
                 </button>
                 <div className="flex gap-2">
                   {item.state==='INCOMING_PENDING'&&<>

@@ -1,5 +1,10 @@
 import { useState } from 'react';
-import { TokenIcon } from '@web3icons/react/dynamic';
+import { TokenUSDC, TokenETH, TokenWETH, TokenWBTC, TokenUSDT, TokenDAI } from '@web3icons/react';
+
+const TOKEN_MARKS = {
+  usdc: TokenUSDC, eth: TokenETH, weth: TokenWETH, wbtc: TokenWBTC,
+  usdt: TokenUSDT, dai: TokenDAI,
+} as const;
 
 const OFFICIAL_LOGOS: Partial<Record<string, string>> = {
   arc: 'https://cdn.prod.website-files.com/67116d0daddc92483c812e88/69dd3db99cf1d8ec9699856a_logo%20%285%29.avif',
@@ -37,14 +42,11 @@ export function BrandLogo({ logoKey, size = 36, className = '' }: BrandLogoProps
     );
   }
 
-  const symbols: Record<string,string> = {
-    usdc:'USDC', eth:'ETH', weth:'WETH', wbtc:'WBTC', usdt:'USDT', dai:'DAI',
-  };
-  if (symbols[logoKey]) return (
+  const TokenMark = TOKEN_MARKS[logoKey as keyof typeof TOKEN_MARKS];
+  if (TokenMark) return (
     <span className={`inline-flex items-center justify-center overflow-hidden rounded-full shrink-0 ${className}`}
-      style={{width:size,height:size}} aria-hidden="true">
-      <TokenIcon symbol={symbols[logoKey]} variant="branded" size={size}
-        fallback={<FallbackMark logoKey={logoKey} size={size}/>} />
+      style={{width:size,height:size}} role="img" aria-label={logoKey.toUpperCase()}>
+      <TokenMark variant="branded" size={size} aria-hidden="true"/>
     </span>
   );
   return (

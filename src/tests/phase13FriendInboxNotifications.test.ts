@@ -44,5 +44,10 @@ describe('Phase 13 owner-only Friends and real event presentation',()=>{
     expect(page).toContain('Accept friend');
     expect(page).toContain('Pending invitations appear under Requests');
     expect(pay).toContain('preparePaymentRecipient(recipient, ARC_TESTNET_CHAIN_ID, sessionToken!)');
+    expect(page).toContain('Search loaded friends');
+    expect(page).toContain('Wants to connect');
+    expect(pay).toContain('changeAmount(value)');
+    expect(pay).toContain('prepareEpoch.current += 1');
+    expect(pay).toContain('[address, sessionToken, chainId]');
   });
 });

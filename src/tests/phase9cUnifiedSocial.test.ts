@@ -52,7 +52,9 @@ describe('Veyra unified wallet, social and verified alerts',()=>{
    expect(wallet).toContain('await social.signOut()');
    expect(wallet).toContain('await disconnectAsync()');
    const brand=file('components/brand/BrandLogo.tsx');
-   expect(brand).toContain("TokenIcon symbol={symbols[logoKey]} variant=\"branded\"");
+   expect(brand).toContain("import { TokenUSDC, TokenETH, TokenWETH, TokenWBTC, TokenUSDT, TokenDAI }");
+   expect(brand).toContain('<TokenMark variant="branded"');
+   expect(brand).not.toContain("@web3icons/react/dynamic");
    expect(brand).not.toContain('text="Y"');
  });
  it('integrates in full app without contaminating static Vercel financial preview',()=>{
