@@ -247,5 +247,6 @@ export async function completeWalletLogin(
   return {
     sessionToken: issueSessionToken(user.userId, secret, { ttlSeconds: 900 }),
     veyraUserId: user.userId,
+    walletAddress,
   };
 }

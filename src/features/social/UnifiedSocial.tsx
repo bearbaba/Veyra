@@ -17,6 +17,7 @@ type SocialState={
   session:Session|null;friends:SocialFriend[];notices:SocialNotice[];unreadCount:number;busy:boolean;error:string|null;message:string|null;
   needsRegistration:boolean;connected:boolean;ready:boolean;
   identityOrigin:IdentityOriginStatus;recheckIdentityOrigin:()=>Promise<void>;
+  restoring:boolean;
   signIn:()=>Promise<void>;register:(handle:string)=>Promise<void>;signOut:()=>void;refresh:()=>Promise<void>;
   invite:(name:string)=>Promise<void>;respond:(id:string,decision:'ACCEPT'|'REJECT')=>Promise<void>;
   block:(id:string)=>Promise<void>;markRead:(id:string)=>Promise<void>;
@@ -68,6 +69,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   const [unreadCount,setUnreadCount]=useState(0),[busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null),[message,setMessage]=useState<string|null>(null);
   const [needsRegistration,setNeedsRegistration]=useState(false);
+  const [restoring,setRestoring]=useState(false);
   const [identityOrigin,setIdentityOrigin]=useState<IdentityOriginStatus>('checking');
   const originRevision=useRef(0);
   const recheckIdentityOrigin=useCallback(async()=>{
@@ -81,11 +83,17 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     return()=>{originRevision.current++;};
   },[recheckIdentityOrigin]);
   const ready=Boolean(isConnected&&address&&connector&&chainId===ARC_TESTNET_CHAIN_ID);
-  const signOut=useCallback(()=>{
+  const resetLocal=useCallback(()=>{
     generation.current++;clearSignedIdentitySession();setSession(null);setFriends([]);setNotices([]);setUnreadCount(0);
     setNeedsRegistration(false);setError(null);setMessage(null);
   },[]);
-  useEffect(()=>{current.current=walletKey;signOut();},[walletKey,signOut]);
+  const signOut=useCallback(()=>{
+    resetLocal();
+    // Explicit logout clears the HttpOnly restore cookie. Wallet changes
+    // only clear JS authority: never silently log out on first hydration.
+    void api('/api/auth/session/logout','POST').catch(()=>{});
+  },[resetLocal]);
+  useEffect(()=>{current.current=walletKey;resetLocal();},[walletKey,resetLocal]);
   const unchanged=(key:string,rev:number)=>current.current===key&&generation.current===rev;
   async function action(fn:(key:string,rev:number)=>Promise<void>){
     if(pending.current)return;
@@ -95,7 +103,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     catch(cause){
       if(!unchanged(key,rev))return;
       if(cause instanceof SocialHttpError&&cause.status===404) setNeedsRegistration(true);
-      if(cause instanceof SocialHttpError&&cause.status===401&&session)signOut();
+      if(cause instanceof SocialHttpError&&cause.status===401&&session)resetLocal();
       if(cause instanceof SocialHttpError&&cause.code==='WALLET_ALREADY_BOUND')setNeedsRegistration(false);
       if(cause instanceof SocialHttpError&&cause.code==='ORIGIN_NOT_ALLOWED')setIdentityOrigin('origin_blocked');
       setError(cause instanceof Error?cause.message.slice(0,200):'Veyra request failed.');
@@ -108,7 +116,28 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
       throw new Error('This wallet cannot sign a reviewed Veyra identity request.');
     return {account:address,provider:raw as BrowserProvider};
   };
+  // On reload the wallet reconnects before this restores the secure browser
+  // cookie. No MetaMask popup or localStorage bearer is involved.
+  useEffect(()=>{
+    if(!isConnected||!address||!connector||identityOrigin!=='ready'||session||busy)return;
+    let cancelled=false;
+    const key=walletKey,rev=generation.current;
+    setRestoring(true);
+    void api<{veyraUserId:string;sessionToken:string;profile:IdentityProfile}>(
+      '/api/auth/session/restore','POST',undefined,{walletAddress:address},
+    ).then(data=>{
+      if(cancelled||!unchanged(key,rev)||data.profile.veyraUserId!==data.veyraUserId||
+        !USER_ID.test(data.veyraUserId))return;
+      setSignedIdentitySession(data.sessionToken,key);
+      rememberVerifiedVeyraId(address,data.profile.veyraHandle);
+      setSession({token:data.sessionToken,profile:data.profile,walletKey:key});
+      setNeedsRegistration(false);
+    }).catch(()=>{/* No valid cookie: user can explicitly sign in once. */})
+      .finally(()=>{if(!cancelled)setRestoring(false);});
+    return()=>{cancelled=true;};
+  },[walletKey,address,connector,isConnected,identityOrigin,session,busy]);
   const signIn=()=>action(async(key,rev)=>{
+    if(restoring)throw new Error('Checking your existing Veyra ID session.');
     if(identityOrigin!=='ready')throw new Error('Veyra ID service is not ready for this website. No wallet signature requested.');
     const w=await wallet();
     const c=(await api<{challenge:SignedChallenge}>('/api/auth/wallet-login/challenge','POST',undefined,{walletAddress:w.account,chainId:5042002})).challenge;
@@ -125,6 +154,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     setMessage('Signed in. No financial permissions granted.');
   });
   const register=(name:string)=>action(async(key,rev)=>{
+    if(restoring)throw new Error('Checking your existing Veyra ID session.');
     if(identityOrigin!=='ready')throw new Error('Veyra ID service is not ready for this website. No wallet signature requested.');
     const w=await wallet(),handle=normalizeBetaHandle(name);
     const c=(await api<{challenge:SignedChallenge}>('/api/identity/register/challenge','POST',undefined,{handle,walletAddress:w.account,chainId:5042002})).challenge;
@@ -153,9 +183,9 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     if(f.status==='fulfilled')setFriends(f.value.items);
     if(n.status==='fulfilled'){setNotices(n.value.items);setUnreadCount(n.value.unreadCount);}
     const rejected=[f,n].filter(x=>x.status==='rejected');
-    if(rejected.some(x=>x.reason instanceof SocialHttpError&&x.reason.status===401)){signOut();return;}
+    if(rejected.some(x=>x.reason instanceof SocialHttpError&&x.reason.status===401)){resetLocal();return;}
     setError(rejected.length?'Some Social services are unavailable. No events are being inferred.':null);
-  },[session,signOut]);
+  },[session,resetLocal]);
   useEffect(()=>{
     if(!session)return;
     void refresh();
@@ -181,7 +211,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   const active=session?.walletKey===walletKey?session:null;
   return <SocialContext.Provider value={{session:active,friends:active?friends:[],notices:active?notices:[],
     unreadCount:active?unreadCount:0,busy,error,message,needsRegistration,connected:isConnected,ready,
-    identityOrigin,recheckIdentityOrigin,
+    identityOrigin,recheckIdentityOrigin,restoring,
     signIn,register,signOut,refresh,invite,respond,block,markRead}}>{children}</SocialContext.Provider>;
 }
 export function useUnifiedSocial():SocialState{

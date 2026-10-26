@@ -160,7 +160,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
           </div>
           <div className="mt-5 grid grid-cols-2 gap-3 text-xs">
             <InfoTile label="Wallet" value={address ? shortAddress(address) : 'Not connected'} />
-            <InfoTile label="Veyra ID" value={profile ? displayHandle : 'Not created'} />
+            <InfoTile label="Veyra ID" value={profile ? displayHandle : identity.lastUsedHandle ? '@'+identity.lastUsedHandle+'.veyra · Sign-in required' : 'Sign-in required'} />
           </div>
         </div>
       </section>
