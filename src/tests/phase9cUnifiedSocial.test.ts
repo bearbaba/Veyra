@@ -35,6 +35,26 @@ describe('Veyra unified wallet, social and verified alerts',()=>{
    expect(page).toContain('Messaging is not enabled');
    expect(page).not.toContain('Send message');
  });
+ it('makes authenticated friends quick-selectable from Pay and hides destructive actions behind profile options',()=>{
+   const pay=file('components/pages/PayPage.tsx');
+   const social=file('components/pages/SocialPage.tsx');
+   const shell=file('components/layout/AppShell.tsx');
+   const wallet=file('components/layout/WalletAccountControls.tsx');
+   expect(pay).toContain("item.state === 'CONNECTED'");
+   expect(pay).toContain('chooseFriend(friendLabel(item))');
+   expect(pay).toContain('prepareEpoch.current += 1');
+   expect(pay).toContain('preparePaymentRecipient(recipient, ARC_TESTNET_CHAIN_ID, sessionToken!)');
+   expect(social).toContain('Open friend profile');
+   expect(social).toContain('Friend options');
+   expect(social).toContain('Confirm block');
+   expect(social).toContain('Private messaging requires a verified, encrypted backend');
+   expect(shell).toContain('<WalletAccountControls');
+   expect(wallet).toContain('await social.signOut()');
+   expect(wallet).toContain('await disconnectAsync()');
+   const brand=file('components/brand/BrandLogo.tsx');
+   expect(brand).toContain("TokenIcon symbol={symbols[logoKey]} variant=\"branded\"");
+   expect(brand).not.toContain('text="Y"');
+ });
  it('integrates in full app without contaminating static Vercel financial preview',()=>{
    const app=file('App.tsx'),shell=file('components/layout/AppShell.tsx');
    const preview=file('preview/PreviewApp.tsx'), config=file('../vite.config.ts');

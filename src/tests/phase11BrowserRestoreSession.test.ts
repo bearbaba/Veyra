@@ -42,6 +42,19 @@ describe('Secure browser restored identity after F5',()=>{
     expect(api).not.toContain('localStorage');
     expect(home).toContain('Sign-in required');
   });
+  it('suppresses cookie restore during explicit logout and uses one awaited request',()=>{
+    const social=read('features/social/UnifiedSocial.tsx');
+    const settings=read('components/pages/SettingsPage.tsx');
+    const friends=read('components/pages/SocialPage.tsx');
+    expect(social).toContain('restoreSuppressedFor.current=current.current');
+    expect(social).toContain('restoreSuppressedFor.current===walletKey');
+    expect(social).toContain("api<{ok:boolean}>('/api/auth/session/logout','POST',undefined,undefined,20000)");
+    expect(social).toContain('if(response.ok!==true)throw');
+    expect(social).not.toContain("void api('/api/auth/session/logout','POST').catch");
+    expect(settings).toContain('const serverLogout=await social.signOut()');
+    expect(settings).not.toContain("fetch('/api/auth/session/logout'");
+    expect(friends).toContain('onClick={()=>void social.signOut()}');
+  });
   it('keeps only exact reviewed API rewrites',()=>{
     const stage=readFileSync(new URL('../../scripts/stagingBffAllowlist.ts',import.meta.url),'utf8');
     const vercel=JSON.parse(readFileSync(new URL('../../vercel.json',import.meta.url),'utf8')) as {rewrites:{source:string}[]};

@@ -21,7 +21,7 @@ import type { TransferAction } from '@/core/actions/actionSchema';
 import { preparePaymentRecipient, type PreparedRecipient } from '@/lib/api/identityApi';
 import type { IntentCandidate } from '@/core/intent/intentSchema';
 import {assertPreparedRecipientReview} from '@/core/execution/recipientReviewGuard';
-import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
+import { friendLabel, useUnifiedSocial } from '../../features/social/UnifiedSocial';
 import { useReceiptStore } from '@/hooks/useReceiptStore';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
@@ -42,6 +42,15 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
   const [pendingAction, setPendingAction] = useState<TransferAction | null>(null);
   const [preparedRecipient, setPreparedRecipient] = useState<PreparedRecipient | null>(null);
   const [resolving, setResolving] = useState(false);
+
+  // Suggestions are verified friendship data, never a payment authority.
+  // Every selected handle is still resolved and re-verified by the backend.
+  const connectedFriends = social.session
+    ? social.friends.filter((item) => item.state === 'CONNECTED' && item.veyraHandle && friendLabel(item).startsWith('@'))
+    : [];
+  const matchingFriends = connectedFriends.filter((item) =>
+    !recipient.trim() || friendLabel(item).toLowerCase().includes(recipient.trim().toLowerCase())
+  ).slice(0, 6);
 
   const usdc = getUsdc(ARC_TESTNET_CHAIN_ID);
   const arcChain = requireChain(ARC_TESTNET_CHAIN_ID);
@@ -87,6 +96,15 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
       // Session storage is convenience-only and never trusted for execution.
     }
   }, []);
+
+  function chooseFriend(handle: string) {
+    prepareEpoch.current += 1;
+    setRecipient(handle);
+    setResolving(false);
+    setPendingAction(null);
+    setPreparedRecipient(null);
+    setActionError(null);
+  }
 
   async function handlePrepare() {
     if (!canProceed || !address || !usdc) return;
@@ -217,7 +235,7 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
               <label className="block text-xs font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--muted)' }}>Who are you paying?</label>
               <input
                 value={recipient}
-                onChange={(event) => setRecipient(event.target.value.trim())}
+                onChange={(event) => chooseFriend(event.target.value.trim())}
                 placeholder="@friend.veyra or 0x…"
                 className="mt-3 w-full bg-transparent text-xl font-semibold outline-none"
                 style={{ color: recipient && !recipientValid ? 'var(--danger)' : 'var(--ink)' }}
@@ -225,6 +243,21 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
                 spellCheck={false}
               />
               <p className="mt-2 text-xs" style={{ color: 'var(--subtle)' }}>Human-readable recipients resolve server-side to a verified wallet snapshot before review.</p>
+              {matchingFriends.length > 0 && (
+                <div role="group" aria-label="Select a verified friend to pay" className="mt-4 border-t pt-3" style={{borderColor:'var(--border)'}}>
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wider" style={{color:'var(--muted)'}}>Your friends · quick select</p>
+                  <div className="flex flex-wrap gap-2">
+                    {matchingFriends.map((item) => (
+                      <button key={item.veyraUserId} type="button" disabled={resolving} onClick={() => chooseFriend(friendLabel(item))}
+                        aria-label={'Pay friend ' + friendLabel(item)}
+                        className="rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                        style={{borderColor:'var(--border-strong)',background:'var(--surface)',color:'var(--ink)'}}>
+                        {friendLabel(item)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="p-5">

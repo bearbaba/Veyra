@@ -18,7 +18,7 @@ type SocialState={
   needsRegistration:boolean;connected:boolean;ready:boolean;
   identityOrigin:IdentityOriginStatus;recheckIdentityOrigin:()=>Promise<void>;
   restoring:boolean;
-  signIn:()=>Promise<void>;register:(handle:string)=>Promise<void>;signOut:()=>void;refresh:()=>Promise<void>;
+  signIn:()=>Promise<void>;register:(handle:string)=>Promise<void>;signOut:()=>Promise<boolean>;refresh:()=>Promise<void>;
   invite:(name:string)=>Promise<void>;respond:(id:string,decision:'ACCEPT'|'REJECT')=>Promise<void>;
   block:(id:string)=>Promise<void>;markRead:(id:string)=>Promise<void>;
 };
@@ -33,13 +33,13 @@ export class SocialHttpError extends Error {
       : 'Veyra service error ('+status+'; '+code+').');
   }
 }
-async function api<T>(path:string,method:'GET'|'POST',token?:string,body?:Record<string,unknown>):Promise<T>{
+async function api<T>(path:string,method:'GET'|'POST',token?:string,body?:Record<string,unknown>,timeoutMs=120000):Promise<T>{
   if(!/^\/api\/[a-z0-9/?&=._-]+$/i.test(path)||path.includes('..'))throw new Error('Unrecognized Veyra endpoint.');
   const headers:Record<string,string>={Accept:'application/json'};
   if(token)headers.Authorization='Bearer '+token;
   if(body)headers['Content-Type']='application/json';
   let response:Response;
-  try{response=await fetch(path,{method,headers,cache:'no-store',credentials:'same-origin',body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(120000)});}
+  try{response=await fetch(path,{method,headers,cache:'no-store',credentials:'same-origin',body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(timeoutMs)});}
   catch{throw new Error('Identity service is unavailable. No signed request was automatically retried.');}
   const result=(await response.json().catch(()=>({}))) as Record<string,unknown>;
   if(!response.ok||result.ok===false)throw new SocialHttpError(response.status,typeof result.error==='string'&&/^[A-Z_]{2,60}$/.test(result.error)?result.error:'REQUEST_FAILED');
@@ -87,13 +87,28 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     generation.current++;clearSignedIdentitySession();setSession(null);setFriends([]);setNotices([]);setUnreadCount(0);
     setNeedsRegistration(false);setError(null);setMessage(null);
   },[]);
-  const signOut=useCallback(()=>{
+  // Prevent auto-restore from racing an explicit sign-out while the old
+  // HttpOnly cookie is still being cleared. A wallet change resets this guard.
+  const restoreSuppressedFor=useRef<string|null>(null);
+  const signOut=useCallback(async():Promise<boolean>=>{
+    restoreSuppressedFor.current=current.current;
     resetLocal();
-    // Explicit logout clears the HttpOnly restore cookie. Wallet changes
-    // only clear JS authority: never silently log out on first hydration.
-    void api('/api/auth/session/logout','POST').catch(()=>{});
+    setBusy(true);
+    try{
+      // Only a backend JSON acknowledgement is proof that the restore
+      // cookie was cleared; a Vercel HTML fallback can also return HTTP 200.
+      const response=await api<{ok:boolean}>('/api/auth/session/logout','POST',undefined,undefined,20000);
+      if(response.ok!==true)throw new Error('Server logout was not acknowledged.');
+      return true;
+    }catch{
+      setError('Signed out locally, but server logout was not confirmed. The browser session may still be valid after a reload.');
+      return false;
+    }finally{setBusy(false);}
   },[resetLocal]);
-  useEffect(()=>{current.current=walletKey;resetLocal();},[walletKey,resetLocal]);
+  useEffect(()=>{
+    if(current.current!==walletKey)restoreSuppressedFor.current=null;
+    current.current=walletKey;resetLocal();
+  },[walletKey,resetLocal]);
   const unchanged=(key:string,rev:number)=>current.current===key&&generation.current===rev;
   async function action(fn:(key:string,rev:number)=>Promise<void>){
     if(pending.current)return;
@@ -119,7 +134,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   // On reload the wallet reconnects before this restores the secure browser
   // cookie. No MetaMask popup or browser-persisted bearer is involved.
   useEffect(()=>{
-    if(!isConnected||!address||!connector||identityOrigin!=='ready'||session||busy)return;
+    if(!isConnected||!address||!connector||identityOrigin!=='ready'||session||busy||restoreSuppressedFor.current===walletKey)return;
     let cancelled=false;
     const key=walletKey,rev=generation.current;
     setRestoring(true);
@@ -190,7 +205,9 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     if(!session)return;
     void refresh();
     const timer=setInterval(()=>{if(document.visibilityState==='visible')void refresh();},60000);
-    return()=>clearInterval(timer);
+    const onVisible=()=>{if(document.visibilityState==='visible')void refresh();};
+    document.addEventListener('visibilitychange',onVisible);
+    return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);};
   },[session,refresh]);
   const mutate=(fn:(token:string)=>Promise<unknown>)=>action(async(key,rev)=>{
     const s=session;
