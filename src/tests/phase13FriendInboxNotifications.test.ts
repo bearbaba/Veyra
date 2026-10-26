@@ -39,6 +39,7 @@ describe('Phase 13 owner-only Friends and real event presentation',()=>{
     expect(social).toContain('friendRefreshEpoch.current++');
     expect(social).toContain("'/api/social/friends?limit=20&offset='+offset");
     expect(social).toContain('request!==friendRefreshEpoch.current');
+    expect(social).toContain('page.nextOffset<=offset');
     expect(page).toContain('Load more friends');
     expect(page).toContain('Accept friend');
     expect(page).toContain('Pending invitations appear under Requests');

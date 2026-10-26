@@ -202,8 +202,10 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
       api<FriendsPage>('/api/social/friends?limit=20&offset=0','GET',s.token),
       api<{items:SocialNotice[];unreadCount:number}>('/api/notifications?limit=20&offset=0','GET',s.token),
     ]);
-    if(!unchanged(key,rev))return;
-    if(f.status==='fulfilled'&&request===friendRefreshEpoch.current){
+    // Never let an older refresh overwrite the newer Friends *or* notices
+    // after a response delay, manual refresh or wallet/session replacement.
+    if(!unchanged(key,rev)||request!==friendRefreshEpoch.current)return;
+    if(f.status==='fulfilled'){
       if(validPage(f.value)){
         setFriends(f.value.items);
         setFriendsNextOffset(f.value.hasMore?f.value.nextOffset:null);
@@ -232,7 +234,8 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     try{
       const page=await api<FriendsPage>('/api/social/friends?limit=20&offset='+offset,'GET',s.token);
       if(!unchanged(key,rev)||request!==friendRefreshEpoch.current)return;
-      if(!validPage(page))throw new Error('Invalid Friends page.');
+      if(!validPage(page)||page.hasMore&&(page.nextOffset===null||page.nextOffset<=offset))
+        throw new Error('Invalid or non-advancing Friends cursor.');
       // A late page may overlap a changed friendship. Keep each ID once.
       setFriends(previous=>{
         const known=new Set(previous.map(item=>item.veyraUserId));
