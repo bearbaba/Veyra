@@ -37,7 +37,8 @@ const strictOwnerPaths = [
 
 describe('full Testnet BFF routing is exact, implemented and owner-protected', () => {
   it('all forwarded API paths exist as literal BFF handlers (not SPA/HTML fallbacks)', () => {
-    expect(STAGING_ALLOWED_PATHS.length).toBe(37);
+    // The two purpose-bound cookie restore/logout endpoints are explicitly reviewed.
+    expect(STAGING_ALLOWED_PATHS.length).toBe(39);
     const unique = new Set<string>(STAGING_ALLOWED_PATHS);
     expect(unique.size).toBe(STAGING_ALLOWED_PATHS.length);
     for (const path of STAGING_ALLOWED_PATHS) {

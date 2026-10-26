@@ -117,7 +117,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     return {account:address,provider:raw as BrowserProvider};
   };
   // On reload the wallet reconnects before this restores the secure browser
-  // cookie. No MetaMask popup or localStorage bearer is involved.
+  // cookie. No MetaMask popup or browser-persisted bearer is involved.
   useEffect(()=>{
     if(!isConnected||!address||!connector||identityOrigin!=='ready'||session||busy)return;
     let cancelled=false;
