@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { TokenUSDC, TokenETH, TokenWETH, TokenWBTC, TokenUSDT, TokenDAI } from '@web3icons/react';
+import { TokenUSDC, TokenETH, TokenWBTC, TokenUSDT, TokenDAI } from '@web3icons/react';
 
 const TOKEN_MARKS = {
-  usdc: TokenUSDC, eth: TokenETH, weth: TokenWETH, wbtc: TokenWBTC,
+  usdc: TokenUSDC, eth: TokenETH, wbtc: TokenWBTC,
   usdt: TokenUSDT, dai: TokenDAI,
 } as const;
 
@@ -60,9 +60,12 @@ export function BrandLogo({ logoKey, size = 36, className = '' }: BrandLogoProps
 function FallbackMark({ logoKey, size }: { logoKey: string; size: number }) {
   const fontSize = Math.max(9, Math.round(size * 0.28));
   switch (logoKey) {
+    case 'weth':
+      // The pinned icon catalog has no distinct WETH component. Label it
+      // honestly instead of rendering ETH as if it were the wrapped token.
+      return <CircleText size={size} background="#3A5176" text="WETH" color="white" fontSize={Math.max(8, Math.round(size * 0.2))} />;
     case 'ethereum':
     case 'eth':
-    case 'weth':
       return (
         <svg width={size} height={size} viewBox="0 0 40 40" role="img" aria-label="Ethereum">
           <circle cx="20" cy="20" r="20" fill="#eef0ff" />

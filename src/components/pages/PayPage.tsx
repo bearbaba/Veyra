@@ -254,9 +254,11 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
                 spellCheck={false}
               />
               <p className="mt-2 text-xs" style={{ color: 'var(--subtle)' }}>Human-readable recipients resolve server-side to a verified wallet snapshot before review.</p>
-              {matchingFriends.length > 0 && (
+              {social.session && (matchingFriends.length > 0 || social.friendsHasMore) && (
                 <div role="group" aria-label="Select a verified friend to pay" className="mt-4 border-t pt-3" style={{borderColor:'var(--border)'}}>
-                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wider" style={{color:'var(--muted)'}}>Your friends · quick select</p>
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wider" style={{color:'var(--muted)'}}>
+                    Your friends <span className="font-normal normal-case">· Choose a verified contact</span>
+                  </p>
                   <div className="flex flex-wrap gap-2">
                     {matchingFriends.map((item) => (
                       <button key={item.veyraUserId} type="button" onClick={() => chooseFriend(friendLabel(item))}
@@ -267,6 +269,13 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
                         {friendLabel(item)}
                       </button>
                     ))}
+                    {social.friendsHasMore && (
+                      <button type="button" disabled={social.loadingMoreFriends} onClick={() => void social.loadMoreFriends()}
+                        className="rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                        style={{borderColor:'var(--border)',color:'var(--muted)'}}>
+                        {social.loadingMoreFriends ? 'Loading friends…' : 'More friends'}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

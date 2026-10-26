@@ -47,6 +47,8 @@ describe('Phase 13 owner-only Friends and real event presentation',()=>{
     expect(page).toContain('Search loaded friends');
     expect(page).toContain('Wants to connect');
     expect(pay).toContain('changeAmount(value)');
+    expect(pay).toContain('social.loadMoreFriends()');
+    expect(pay).toContain('More friends');
     expect(pay).toContain('prepareEpoch.current += 1');
     expect(pay).toContain('[address, sessionToken, chainId]');
   });
