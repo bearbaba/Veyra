@@ -3,7 +3,7 @@
  *
  * Creates a clean `veyra_migration_test` database, applies all migration
  * files in journal order (0000 through 0013), then verifies:
- *   - all 28 expected tables exist
+ *   - all 29 expected tables exist
  *   - critical UNIQUE constraints are enforced
  *   - CHECK constraints reject invalid data
  *   - append-only triggers reject UPDATE/DELETE on execution_events
@@ -153,10 +153,12 @@ beforeAll(async () => {
     );
     // 0013: Purpose-separated, single-use EIP-712 wallet login challenges.
     await execMigration(client, loadMigration('0013_phase8g_wallet_login.sql'));
+    // 0014: Durable owner-private friend and account notifications.
+    await execMigration(client, loadMigration('0014_phase9a_owner_notifications.sql'));
   } finally {
     client.release();
   }
-}, 60_000); // 14 PostgreSQL migrations and DB recreation can exceed the default hook timeout under parallel CI.
+}, 60_000); // 15 PostgreSQL migrations and DB recreation can exceed the default hook timeout under parallel CI.
 
 afterAll(async () => {
   if (pgSkipped) return;
@@ -179,7 +181,7 @@ function pgTest(name: string, fn: () => Promise<void>) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('migration-from-zero: all 28 tables exist', () => {
+describe('migration-from-zero: all 29 tables exist', () => {
   const EXPECTED_TABLES = [
     'veyra_users',
     'handle_history',
@@ -194,6 +196,7 @@ describe('migration-from-zero: all 28 tables exist', () => {
     'social_follows',
     'social_connections',
     'social_blocks',
+    'veyra_notifications',
     'activity_receipts',
     'execution_events',
     'identity_revisions',
@@ -219,7 +222,7 @@ describe('migration-from-zero: all 28 tables exist', () => {
     for (const tbl of EXPECTED_TABLES) {
       expect(actual.has(tbl), `missing table: ${tbl}`).toBe(true);
     }
-    expect(res.rows.length).toBeGreaterThanOrEqual(28);
+    expect(res.rows.length).toBeGreaterThanOrEqual(29);
   });
 });
 
