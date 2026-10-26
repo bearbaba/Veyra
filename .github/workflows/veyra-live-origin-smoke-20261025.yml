@@ -116,3 +116,38 @@ jobs:
           assert 'content-type: application/json' in h, 'Expected JSON from BFF, not Vercel login or HTML'
           print('PASS: website identity route is proxied to BFF; accepted canonical origin, no wallet signature.')
           PY
+
+      - name: Verify live F5 session endpoints reject absent cookie and clear logout cookie
+        shell: bash
+        run: |
+          set -euo pipefail
+          site='https://veyra-unified-testnet.vercel.app'
+          response=$(curl --silent --show-error --location --max-time 35 --connect-timeout 15 \
+            --request POST --header "Origin: $site" \
+            --header 'Content-Type: application/json' --header 'Accept: application/json' \
+            --data '{"walletAddress":"0x1111111111111111111111111111111111111111"}' \
+            --output /tmp/veyra_restore_body --write-out '%{http_code}' \
+            "$site/api/auth/session/restore")
+          echo "Public website restore without cookie HTTP status: $response"
+          test "$response" = "401"
+          python3 - <<'PY'
+          import json
+          with open('/tmp/veyra_restore_body') as f: data=json.load(f)
+          assert data.get('error')=='SESSION_REAUTH_REQUIRED', 'Unexpected restore response or HTML fallback'
+          print('PASS: missing cookie cannot restore a verified wallet session.')
+          PY
+          response=$(curl --silent --show-error --max-time 35 --connect-timeout 15 \
+            --request POST --header "Origin: $site" --header 'Accept: application/json' \
+            --output /tmp/veyra_logout_body --dump-header /tmp/veyra_logout_headers \
+            --write-out '%{http_code}' "$site/api/auth/session/logout")
+          echo "Public website logout HTTP status: $response"
+          test "$response" = "200"
+          python3 - <<'PY'
+          import json
+          with open('/tmp/veyra_logout_body') as f: data=json.load(f)
+          assert data.get('ok') is True,'Invalid logout JSON'
+          with open('/tmp/veyra_logout_headers') as f: h=f.read().lower()
+          assert 'set-cookie: __secure-veyra-id-restore=' in h, 'Set-Cookie was stripped by Vercel rewrite'
+          assert 'httponly' in h and 'secure' in h and 'samesite=strict' in h and 'max-age=0' in h, 'Missing cookie safety attributes'
+          print('PASS: logout Set-Cookie safely forwarded through the canonical Vercel rewrite.')
+          PY
