@@ -67,15 +67,9 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   async function disconnectWallet(){
     if(disconnecting)return;
     setDisconnecting(true);setLogoutWarning(null);
-    let serverLogout=false;
-    try{
-      const response=await fetch('/api/auth/session/logout',{
-        method:'POST',credentials:'same-origin',cache:'no-store',
-        headers:{Accept:'application/json'}
-      });
-      serverLogout=response.ok;
-    }catch{/* Local signed session must still be cleared. */}
-    social.signOut();
+    // One awaited server logout: avoid duplicate requests and a cookie
+    // restore racing with the wallet disconnect.
+    const serverLogout=await social.signOut();
     try{await disconnectAsync();}
     catch{setLogoutWarning('Wallet extension did not disconnect. Check MetaMask and retry.');}
     if(!serverLogout)setLogoutWarning('Server sign-out was not confirmed. An unexpired session might be restored when reconnecting the same wallet.');

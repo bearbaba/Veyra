@@ -18,7 +18,7 @@ type SocialState={
   needsRegistration:boolean;connected:boolean;ready:boolean;
   identityOrigin:IdentityOriginStatus;recheckIdentityOrigin:()=>Promise<void>;
   restoring:boolean;
-  signIn:()=>Promise<void>;register:(handle:string)=>Promise<void>;signOut:()=>void;refresh:()=>Promise<void>;
+  signIn:()=>Promise<void>;register:(handle:string)=>Promise<void>;signOut:()=>Promise<boolean>;refresh:()=>Promise<void>;
   invite:(name:string)=>Promise<void>;respond:(id:string,decision:'ACCEPT'|'REJECT')=>Promise<void>;
   block:(id:string)=>Promise<void>;markRead:(id:string)=>Promise<void>;
 };
@@ -87,13 +87,25 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     generation.current++;clearSignedIdentitySession();setSession(null);setFriends([]);setNotices([]);setUnreadCount(0);
     setNeedsRegistration(false);setError(null);setMessage(null);
   },[]);
-  const signOut=useCallback(()=>{
+  // Prevent auto-restore from racing an explicit sign-out while the old
+  // HttpOnly cookie is still being cleared. A wallet change resets this guard.
+  const restoreSuppressedFor=useRef<string|null>(null);
+  const signOut=useCallback(async():Promise<boolean>=>{
+    restoreSuppressedFor.current=current.current;
     resetLocal();
-    // Explicit logout clears the HttpOnly restore cookie. Wallet changes
-    // only clear JS authority: never silently log out on first hydration.
-    void api('/api/auth/session/logout','POST').catch(()=>{});
+    setBusy(true);
+    try{
+      await api('/api/auth/session/logout','POST');
+      return true;
+    }catch{
+      setError('Signed out locally, but server logout was not confirmed. The browser session may still be valid after a reload.');
+      return false;
+    }finally{setBusy(false);}
   },[resetLocal]);
-  useEffect(()=>{current.current=walletKey;resetLocal();},[walletKey,resetLocal]);
+  useEffect(()=>{
+    if(current.current!==walletKey)restoreSuppressedFor.current=null;
+    current.current=walletKey;resetLocal();
+  },[walletKey,resetLocal]);
   const unchanged=(key:string,rev:number)=>current.current===key&&generation.current===rev;
   async function action(fn:(key:string,rev:number)=>Promise<void>){
     if(pending.current)return;
@@ -119,7 +131,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   // On reload the wallet reconnects before this restores the secure browser
   // cookie. No MetaMask popup or browser-persisted bearer is involved.
   useEffect(()=>{
-    if(!isConnected||!address||!connector||identityOrigin!=='ready'||session||busy)return;
+    if(!isConnected||!address||!connector||identityOrigin!=='ready'||session||busy||restoreSuppressedFor.current===walletKey)return;
     let cancelled=false;
     const key=walletKey,rev=generation.current;
     setRestoring(true);
@@ -190,7 +202,9 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     if(!session)return;
     void refresh();
     const timer=setInterval(()=>{if(document.visibilityState==='visible')void refresh();},60000);
-    return()=>clearInterval(timer);
+    const onVisible=()=>{if(document.visibilityState==='visible')void refresh();};
+    document.addEventListener('visibilitychange',onVisible);
+    return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);};
   },[session,refresh]);
   const mutate=(fn:(token:string)=>Promise<unknown>)=>action(async(key,rev)=>{
     const s=session;

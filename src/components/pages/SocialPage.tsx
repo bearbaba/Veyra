@@ -17,7 +17,7 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
       <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
         <div><span className="text-xs" style={{color:'var(--muted)'}}>Verified Veyra ID</span><p className="font-bold">@{social.session.profile.veyraHandle}.veyra</p></div>
         <div className="flex gap-2"><button type="button" disabled={social.busy} onClick={()=>void social.refresh()} aria-label="Refresh social" className="rounded-lg border p-2" style={{borderColor:'var(--border)'}}><RefreshCw size={16}/></button>
-          <button type="button" onClick={social.signOut} className="rounded-lg border px-3 py-2 text-xs" style={{borderColor:'var(--border)'}}>Sign out</button></div>
+          <button type="button" disabled={social.busy} onClick={()=>void social.signOut()} className="rounded-lg border px-3 py-2 text-xs disabled:opacity-50" style={{borderColor:'var(--border)'}}>Sign out</button></div>
       </section>
       <div className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
         <section className="space-y-3 rounded-3xl border p-5" style={{borderColor:'var(--border)',background:'var(--surface-strong)'}}>
