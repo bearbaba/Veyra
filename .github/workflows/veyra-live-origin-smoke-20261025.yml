@@ -94,3 +94,25 @@ jobs:
           else
             echo 'BLOCKED: unexpected canonical website HTTP response.'
           fi
+      - name: Check actual website-to-BFF identity route without user signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error --location --max-time 45 --connect-timeout 15 \
+            --request POST --header 'Origin: https://veyra-unified-testnet.vercel.app' \
+            --header 'Content-Type: application/json' --header 'Accept: application/json' \
+            --data '{}' --output /tmp/veyra_web_probe --dump-header /tmp/veyra_web_headers \
+            --write-out '%{http_code}' \
+            'https://veyra-unified-testnet.vercel.app/api/identity/register/complete')
+          echo "Website proxied identity preflight HTTP status: $status"
+          test "$status" = '400'
+          python3 - <<'PY'
+          import json
+          with open('/tmp/veyra_web_probe') as f:
+              body=json.load(f)
+          assert body.get('error')=='INVALID_REQUEST',f"Unexpected Vercel-to-BFF preflight: {body.get('error')}"
+          with open('/tmp/veyra_web_headers',encoding='utf-8') as f:
+              h=f.read().lower()
+          assert 'content-type: application/json' in h, 'Expected JSON from BFF, not Vercel login or HTML'
+          print('PASS: website identity route is proxied to BFF; accepted canonical origin, no wallet signature.')
+          PY
