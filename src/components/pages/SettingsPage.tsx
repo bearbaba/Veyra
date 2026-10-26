@@ -7,9 +7,9 @@
  */
 
 import { useState } from 'react';
-import { useAccount } from 'wagmi';
+import { useAccount, useDisconnect } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
-import { Check, Copy, Link2, Loader2, ShieldCheck, SlidersHorizontal, Wallet } from 'lucide-react';
+import { Check, Copy, Link2, Loader2, ShieldCheck, SlidersHorizontal, Wallet, LogOut } from 'lucide-react';
 import { DEFAULT_VEYRA_POLICY } from '@/core/policy/policyEngine';
 import { VEYRA_ENV } from '@/lib/env';
 import { beginXLink } from '@/lib/api/identityApi';
@@ -22,9 +22,13 @@ import { VeyraIdentityAccess } from '../identity/VeyraIdentityAccess';
 
 export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const { address, isConnected } = useAccount();
+  const {disconnectAsync}=useDisconnect();
   const identity = useVeyraIdentity();
   const social = useUnifiedSocial();
   const [copied, setCopied] = useState(false);
+  const [idCopied,setIdCopied]=useState(false);
+  const [disconnecting,setDisconnecting]=useState(false);
+  const [logoutWarning,setLogoutWarning]=useState<string|null>(null);
   const [xLoading, setXLoading] = useState(false);
   const [xError, setXError] = useState<string | null>(null);
   // The unified Testnet preview cannot complete X OAuth callbacks and must
@@ -54,6 +58,29 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
     }
   }
 
+  async function copyId(){
+    const handle=profile?.veyraHandle ?? identity.lastUsedHandle;
+    if(!handle)return;
+    try{await navigator.clipboard.writeText('@'+handle+'.veyra');setIdCopied(true);}
+    catch{setLogoutWarning('Copy failed. Select the Veyra ID above to copy it manually.');}
+  }
+  async function disconnectWallet(){
+    if(disconnecting)return;
+    setDisconnecting(true);setLogoutWarning(null);
+    let serverLogout=false;
+    try{
+      const response=await fetch('/api/auth/session/logout',{
+        method:'POST',credentials:'same-origin',cache:'no-store',
+        headers:{Accept:'application/json'}
+      });
+      serverLogout=response.ok;
+    }catch{/* Local signed session must still be cleared. */}
+    social.signOut();
+    try{await disconnectAsync();}
+    catch{setLogoutWarning('Wallet extension did not disconnect. Check MetaMask and retry.');}
+    if(!serverLogout)setLogoutWarning('Server sign-out was not confirmed. An unexpired session might be restored when reconnecting the same wallet.');
+    setDisconnecting(false);
+  }
   function copyAddress() {
     if (!address) return;
     void navigator.clipboard.writeText(address).then(() => {
@@ -101,6 +128,12 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
+            {(profile||identity.lastUsedHandle)&&<button type="button" onClick={()=>void copyId()}
+              className="flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold"
+              style={{borderColor:'var(--border)',color:'var(--ink)'}}>
+              {idCopied?<Check size={14}/>:<Copy size={14}/>}
+              {idCopied?'Veyra ID copied':'Copy Veyra ID'}
+            </button>}
             {!isConnected && <ConnectKitButton />}
             {isConnected && address && (
               <button onClick={copyAddress} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--muted)' }}>
@@ -108,11 +141,18 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
                 {copied ? 'Copied wallet' : 'Copy wallet'}
               </button>
             )}
+            {isConnected&&<button type="button" disabled={disconnecting}
+              onClick={()=>void disconnectWallet()}
+              className="flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+              style={{borderColor:'var(--border)',color:'var(--ink)'}}>
+              <LogOut size={14}/>{disconnecting?'Disconnecting…':'Disconnect wallet'}
+            </button>}
             <button onClick={() => void linkX()} disabled={xLinkUnavailable || social.identityOrigin !== 'ready' || !social.session || Boolean(profile?.x) || xLoading} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
               {xLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
               {profile?.x ? 'X linked' : xLinkUnavailable ? 'X linking unavailable' : 'Connect X'}
             </button>
           </div>
+          {logoutWarning&&<p role="alert" className="mt-3 text-xs" style={{color:"var(--warning)"}}>{logoutWarning}</p>}
           {xLinkUnavailable && <p role="status" className="mt-3 text-xs" style={{color:'var(--muted)'}}>X OAuth needs an approved callback and verified backend configuration. It is disabled on this Preview, not a second account registration.</p>}
           {xError && <p className="mt-3 text-xs" style={{ color: 'var(--warning)' }}>{xError}</p>}
         </div>

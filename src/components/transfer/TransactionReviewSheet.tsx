@@ -100,7 +100,8 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
               <div className="min-w-0 space-y-4">
             {/* ── Receipt view (after execution) ── */}
             {execState.receipt && (
-              <VeyraReceiptView receipt={execState.receipt} explorerUrl={execState.explorerUrl} />
+              <VeyraReceiptView receipt={execState.receipt} explorerUrl={execState.explorerUrl}
+                  reviewedVeyraHandle={recipient?.snapshot?.veyraHandle} />
             )}
 
             {/* ── Pre-execution: action summary ── */}
