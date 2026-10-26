@@ -243,8 +243,11 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
 
           <div className="overflow-hidden rounded-[28px]" style={{ background: 'linear-gradient(145deg,rgba(23,43,67,0.98),rgba(16,31,51,0.98))', border: '1px solid var(--border-strong)' }}>
             <div className="border-b p-5" style={{ borderColor: 'var(--border)' }}>
-              <label className="block text-xs font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--muted)' }}>Who are you paying?</label>
+              <label htmlFor="veyra-pay-recipient" className="block text-xs font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--muted)' }}>Who are you paying?</label>
               <input
+                id="veyra-pay-recipient"
+                maxLength={128}
+                aria-invalid={Boolean(recipient) && !recipientValid}
                 value={recipient}
                 onChange={(event) => chooseFriend(event.target.value.trim())}
                 placeholder="@friend.veyra or 0x…"
@@ -283,7 +286,7 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
 
             <div className="p-5">
               <div className="flex items-center justify-between gap-3">
-                <label className="text-xs font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--muted)' }}>Amount</label>
+                <label htmlFor="veyra-pay-amount" className="text-xs font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--muted)' }}>Amount</label>
                 <div className="flex items-center gap-2 rounded-xl px-2.5 py-1.5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
                   <BrandLogo logoKey="usdc" size={20} />
                   <span className="text-xs font-bold" style={{ color: 'var(--ink-2)' }}>USDC</span>
@@ -291,7 +294,10 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
               </div>
               <div className="mt-2 flex items-baseline gap-2">
                 <input
+                  id="veyra-pay-amount"
                   inputMode="decimal"
+                  aria-invalid={Boolean(amount) && !amountValid}
+                  aria-describedby="veyra-pay-amount-hint"
                   value={amount}
                   onChange={(event) => {
                     const value = event.target.value.replace(/[^0-9.]/g, '');
@@ -303,9 +309,11 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
                 />
                 <span className="text-lg font-semibold" style={{ color: 'var(--muted)' }}>USDC</span>
               </div>
-              {amount&& !amountValid && <p role="alert" className="mt-2 text-xs" style={{color:'var(--warning)'}}>
-                Enter a positive USDC amount with no more than 6 decimal places.
-              </p>}
+              <p id="veyra-pay-amount-hint" role={amount && !amountValid ? 'alert' : undefined}
+                className="mt-2 text-xs" style={{color:amount && !amountValid?'var(--warning)':'var(--subtle)'}}>
+                {amount && !amountValid ? 'Enter a positive USDC amount with no more than 6 decimal places.' :
+                  'Arc Testnet USDC · 6 decimal places · You will review before signing.'}
+              </p>
             </div>
           </div>
 
