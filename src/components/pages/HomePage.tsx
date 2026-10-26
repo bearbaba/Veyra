@@ -242,7 +242,7 @@ function IdentityCard({
             onClick={()=>void navigator.clipboard.writeText('@'+profile.veyraHandle+'.veyra').then(()=>setCopiedId(true)).catch(()=>setCopiedId(false))}
             className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold" style={{color:'var(--accent)'}}>
             <Copy className="size-3.5"/>{copiedId?'ID copied':'Copy Veyra ID'}
-          </button>
+          </button>}
           <p className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>{profile ? 'One verified identity for the connected wallet' : 'Use Social to sign in or register, without a duplicate Home flow'}</p>
         </div>
       </div>
