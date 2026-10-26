@@ -192,7 +192,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   type FriendsPage={items:SocialFriend[];hasMore:boolean;nextOffset:number|null};
   const validPage=(value:FriendsPage):boolean=>Array.isArray(value?.items)&&
     typeof value.hasMore==='boolean'&&
-    (value.nextOffset===null||(Number.isSafeInteger(value.nextOffset)&&value.nextOffset>=0));
+    (value.hasMore ? Number.isSafeInteger(value.nextOffset)&&value.nextOffset!==null&&value.nextOffset>0 : value.nextOffset===null);
   const refresh=useCallback(async()=>{
     const s=session;if(!s||s.walletKey!==current.current)return;
     const key=s.walletKey,rev=generation.current,request=++friendRefreshEpoch.current;

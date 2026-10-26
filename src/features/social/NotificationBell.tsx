@@ -31,7 +31,7 @@ export function NotificationBell({openSocial}:{openSocial:()=>void}){
             {actionableFriendRequest(item,social.friends)&&<button type="button" disabled={social.busy}
               className="mt-1 font-semibold underline" onClick={()=>{void social.respond(item.actorUserId!,'ACCEPT');}}>Accept friend</button>}
           </div>
-          {!item.readAt&&<button type="button" className="underline" onClick={()=>void social.markRead(item.notificationId)} disabled={social.busy}>Read</button>
+          {!item.readAt&&<button type="button" className="underline" onClick={()=>void social.markRead(item.notificationId)} disabled={social.busy}>Read</button>}
         </div>)}</div>
       <button type="button" onClick={()=>{setOpen(false);openSocial();}} className="w-full rounded-lg border px-3 py-2 text-xs" style={{borderColor:'var(--border)'}}>Open Friends & notifications</button>
     </div>}
