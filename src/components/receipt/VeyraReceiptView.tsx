@@ -6,8 +6,9 @@
  * The displaySummary (LLM-generated) is clearly labelled as display-only.
  */
 
-import { CheckCircle2, XCircle, Clock, ExternalLink, Shield } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, ExternalLink, Shield, Copy } from 'lucide-react';
 import { formatUnits } from 'viem';
+import {useState} from 'react';
 import type { VeyraReceipt } from '@/core/receipt/receiptTypes';
 
 interface VeyraReceiptViewProps {
@@ -16,6 +17,7 @@ interface VeyraReceiptViewProps {
 }
 
 export function VeyraReceiptView({ receipt, explorerUrl }: VeyraReceiptViewProps) {
+  const [copied,setCopied]=useState(false);
   const isVerified = receipt.status === 'VERIFIED';
   const isFailed   = receipt.status === 'FAILED';
   const isCancelled = receipt.status === 'CANCELLED';
@@ -66,6 +68,19 @@ export function VeyraReceiptView({ receipt, explorerUrl }: VeyraReceiptViewProps
           </p>
         </div>
 
+        {receipt.actionType==='TRANSFER'&&(
+          <div className="rounded-xl border p-3 text-xs" style={{borderColor:'var(--border)'}}>
+            {receipt.status==='VERIFIED'&&receipt.recipientVeyraHandleAtReview
+              ? <><p className="font-semibold" style={{color:'var(--ink)'}}>To @{receipt.recipientVeyraHandleAtReview}.veyra</p>
+                  <p className="mt-1" style={{color:'var(--muted)'}}>Veyra ID at review · the blockchain verifies the wallet and USDC transfer, not current handle ownership.</p></>
+              : <p style={{color:'var(--muted)'}}>Direct wallet transfer or no reviewed Veyra ID</p>}
+          </div>
+        )}
+        <button type="button" aria-label="Copy receipt ID"
+          onClick={()=>void navigator.clipboard.writeText(receipt.receiptId).then(()=>setCopied(true)).catch(()=>setCopied(false))}
+          className="flex items-center gap-2 text-xs" style={{color:'var(--accent)'}}>
+          <Copy size={13}/>{copied?'Receipt ID copied':'Copy receipt ID'}
+        </button>
         {/* Amount */}
         {receipt.actualAmountDelta != null && (
           <div className="flex items-center justify-between">

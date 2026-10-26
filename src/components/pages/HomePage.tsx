@@ -1,4 +1,5 @@
 import { useAccount, useReadContract } from 'wagmi';
+import { useState } from 'react';
 import { formatUnits } from 'viem';
 import { ConnectKitButton } from 'connectkit';
 import {
@@ -227,6 +228,7 @@ function IdentityCard({
   onOpenSocial: () => void;
   onOpenSettings: () => void;
 }) {
+  const [copiedId,setCopiedId]=useState(false);
   return (
     <div className="rounded-[28px] p-5 md:p-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border-strong)' }}>
       <div className="flex items-start gap-3">
@@ -236,6 +238,11 @@ function IdentityCard({
         <div className="min-w-0 flex-1">
           <div className="text-xs font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--muted)' }}>Your identity</div>
           <div className="mt-1 truncate text-xl font-bold" style={{ color: 'var(--ink)' }}>{profile ? `@${profile.veyraHandle}.veyra` : 'Sign in to your Veyra ID'}</div>
+          {profile&&<button type="button" aria-label="Copy Veyra ID"
+            onClick={()=>void navigator.clipboard.writeText('@'+profile.veyraHandle+'.veyra').then(()=>setCopiedId(true)).catch(()=>setCopiedId(false))}
+            className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold" style={{color:'var(--accent)'}}>
+            <Copy className="size-3.5"/>{copiedId?'ID copied':'Copy Veyra ID'}
+          </button>}
           <p className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>{profile ? 'One verified identity for the connected wallet' : 'Use Social to sign in or register, without a duplicate Home flow'}</p>
         </div>
       </div>

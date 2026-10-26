@@ -40,7 +40,7 @@ describe('Veyra unified wallet, social and verified alerts',()=>{
    const preview=file('preview/PreviewApp.tsx'), config=file('../vite.config.ts');
    expect(app).toContain('<UnifiedSocialProvider>');
    expect(app).toContain("case 'social':");
-   expect(shell).toContain("label: 'Social'");
+   expect(shell).toContain("label: 'Friends'");
    expect(shell).toContain('<NotificationBell');
    expect(preview).not.toContain('UnifiedSocialProvider');
    expect(preview).not.toContain('SocialPage');

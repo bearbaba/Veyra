@@ -34,7 +34,7 @@ const PRIMARY_NAV: NavItem[] = [
   { id: 'pay', label: 'Pay', icon: <SendHorizontal className="size-5" /> },
   { id: 'agent', label: 'Agent', icon: <Bot className="size-5" /> },
   { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
-  { id: 'social', label: 'Social', icon: <Users className="size-5" /> },
+  { id: 'social', label: 'Friends', icon: <Users className="size-5" /> },
 ];
 
 const SETTINGS_NAV: NavItem = { id: 'settings', label: 'Settings', icon: <Settings className="size-5" /> };

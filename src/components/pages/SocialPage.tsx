@@ -8,8 +8,8 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
   const [friend,setFriend]=useState('');
   return <div className="mx-auto max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
     <header><p className="text-xs font-bold uppercase tracking-widest" style={{color:'var(--accent)'}}>Veyra Social</p>
-      <h1 className="display mt-2 text-3xl font-black">One identity. Your people.</h1>
-      <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Friends and notifications share your Veyra wallet and verified ID.</p></header>
+      <h1 className="display mt-2 text-3xl font-black">Friends & notifications</h1>
+      <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Invite by Veyra ID, accept requests and pay connected friends. X import and private messaging are not enabled yet.</p></header>
     {social.error&&<p role="alert" className="rounded-xl border p-3 text-sm" style={{borderColor:'var(--danger)',color:'var(--danger)'}}>{social.error}</p>}
     {social.message&&<p role="status" className="rounded-xl border p-3 text-sm" style={{borderColor:'var(--success)',color:'var(--success)'}}>{social.message}</p>}
     {!social.session?<VeyraIdentityAccess/>:<>
@@ -27,7 +27,7 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
               className="min-w-0 flex-1 rounded-xl border bg-transparent p-3 text-sm" style={{borderColor:'var(--border)'}}/>
             <button type="submit" disabled={social.busy||friend.trim().length<3}
               className="rounded-xl px-3 text-sm font-semibold disabled:opacity-50" style={{background:'var(--accent)',color:'var(--bg)'}}>Invite</button></form>
-          {social.friends.length===0?<p className="text-sm" style={{color:'var(--muted)'}}>No friends or pending requests in your verified account.</p>:
+          {social.friends.length===0?<p className="text-sm" style={{color:'var(--muted)'}}>No friends yet. Invite a registered Veyra ID above; your friend must accept in their account.</p>:
             social.friends.map(item=><div key={item.veyraUserId} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3" style={{borderColor:'var(--border)'}}>
               <div><b className="text-sm">{friendLabel(item)}</b><p className="text-xs" style={{color:'var(--muted)'}}>{item.state .replace(/_/g,' ').toLowerCase()}</p></div>
               <div className="flex gap-2">{item.state==='INCOMING_PENDING'&&<>

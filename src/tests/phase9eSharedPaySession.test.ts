@@ -55,7 +55,8 @@ describe('wallet-bound Veyra session is reused by Identity Pay and pre-sign veri
     expect(pay).toContain('epoch !== prepareEpoch.current');
     expect(pay).toContain('Sign in to your Veyra ID on this page before paying a person.');
     expect(pay).toContain('sessionToken={sessionToken}');
-    expect(hook).toContain('verifyPaymentRecipient(recipientGuard, sessionToken)');
+    expect(hook).toContain('verifyPaymentRecipient(verifiedGuard, sessionToken)');
+    expect(hook).toContain('const { reviewedVeyraHandle: label, ...verifiedGuard } = recipientGuard');
     expect(hook).toContain('Your Veyra ID session ended.');
   });
 });
