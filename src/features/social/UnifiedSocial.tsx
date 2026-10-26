@@ -33,13 +33,13 @@ export class SocialHttpError extends Error {
       : 'Veyra service error ('+status+'; '+code+').');
   }
 }
-async function api<T>(path:string,method:'GET'|'POST',token?:string,body?:Record<string,unknown>):Promise<T>{
+async function api<T>(path:string,method:'GET'|'POST',token?:string,body?:Record<string,unknown>,timeoutMs=120000):Promise<T>{
   if(!/^\/api\/[a-z0-9/?&=._-]+$/i.test(path)||path.includes('..'))throw new Error('Unrecognized Veyra endpoint.');
   const headers:Record<string,string>={Accept:'application/json'};
   if(token)headers.Authorization='Bearer '+token;
   if(body)headers['Content-Type']='application/json';
   let response:Response;
-  try{response=await fetch(path,{method,headers,cache:'no-store',credentials:'same-origin',body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(120000)});}
+  try{response=await fetch(path,{method,headers,cache:'no-store',credentials:'same-origin',body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(timeoutMs)});}
   catch{throw new Error('Identity service is unavailable. No signed request was automatically retried.');}
   const result=(await response.json().catch(()=>({}))) as Record<string,unknown>;
   if(!response.ok||result.ok===false)throw new SocialHttpError(response.status,typeof result.error==='string'&&/^[A-Z_]{2,60}$/.test(result.error)?result.error:'REQUEST_FAILED');
@@ -95,7 +95,10 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     resetLocal();
     setBusy(true);
     try{
-      await api('/api/auth/session/logout','POST');
+      // Only a backend JSON acknowledgement is proof that the restore
+      // cookie was cleared; a Vercel HTML fallback can also return HTTP 200.
+      const response=await api<{ok:boolean}>('/api/auth/session/logout','POST',undefined,undefined,20000);
+      if(response.ok!==true)throw new Error('Server logout was not acknowledged.');
       return true;
     }catch{
       setError('Signed out locally, but server logout was not confirmed. The browser session may still be valid after a reload.');
