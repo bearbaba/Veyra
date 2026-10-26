@@ -175,7 +175,7 @@ export async function completeWalletLogin(
   signature: string,
   requestedOrigin?: unknown,
   observedOrigin?: string,
-): Promise<{ sessionToken: string; veyraUserId: string }> {
+): Promise<{ sessionToken: string; veyraUserId: string; walletAddress: string }> {
   const origin = resolveTrustedLoginOrigin(requestedOrigin, observedOrigin);
   if (!/^lgn_[0-9a-f]{32}$/.test(challengeId) || !/^0x[0-9a-fA-F]{130}$/.test(signature)) {
     throw new WalletLoginError('INVALID_LOGIN_PROOF', 400);
