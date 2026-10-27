@@ -21,7 +21,7 @@ export function notificationDescription(kind:string):string{
   switch(kind){
     case 'FRIEND_REQUEST': return 'Open Friends to review this invitation.';
     case 'FRIEND_ACCEPTED': return 'Your new friend is ready to receive a verified Pay request.';
-    case 'MESSAGE': return 'Open your private inbox when secure Chat is available.';
+    case 'MESSAGE': return 'A verified friend sent you a message. Open Friends to view your conversation.';
     case 'PAYMENT_RECEIVED': return 'Only the backend can publish this event after verifying a chain receipt.';
     case 'PAYMENT_STATUS': return 'Check Activity and the original transaction hash before taking action.';
     case 'SECURITY': return 'Review your wallet and account security. Never share recovery phrases.';

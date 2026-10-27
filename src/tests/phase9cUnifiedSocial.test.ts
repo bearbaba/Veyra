@@ -32,8 +32,7 @@ describe('Veyra unified wallet, social and verified alerts',()=>{
    expect(auth).toContain("'/api/notifications?limit=20&offset=0'");
    expect(auth).toContain("'/api/notifications/read'");
    expect(auth).not.toContain("'/api/notifications/create'");
-   expect(page).toContain('Messaging is not enabled');
-   expect(page).not.toContain('Send message');
+   expect(page).toContain('/api/social/chat/capability');
  });
  it('makes authenticated friends quick-selectable from Pay and hides destructive actions behind profile options',()=>{
    const pay=file('components/pages/PayPage.tsx');
@@ -47,7 +46,7 @@ describe('Veyra unified wallet, social and verified alerts',()=>{
    expect(social).toContain('Open friend profile');
    expect(social).toContain('Friend options');
    expect(social).toContain('Confirm block');
-   expect(social).toContain('Private messaging requires a verified, encrypted backend');
+   expect(social).toContain('Messaging will be available after the encrypted backend is configured.');
    expect(shell).toContain('<WalletAccountControls');
    expect(wallet).toContain('await social.signOut()');
    expect(wallet).toContain('await disconnectAsync()');
