@@ -309,14 +309,14 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   // Expose success to the UI so an invitation field is only cleared on a
   // confirmed server mutation, and a failed friend accept cannot mark its
   // notification as read. The existing identity error handler remains intact.
-  const mutate=(fn:(token:string)=>Promise<unknown>):Promise<boolean>=>{
+  const mutate=(fn:(token:string)=>Promise<unknown>,successMessage='Saved.'):Promise<boolean>=>{
     let accepted=false;
     return action(async(key,rev)=>{
       const s=session;
       if(!s||s.walletKey!==key)throw new Error('Sign in with this wallet before using Social.');
       await fn(s.token);
       if(!unchanged(key,rev))return;
-      setMessage('Saved.');await refresh();
+      setMessage(successMessage);await refresh();
       accepted=unchanged(key,rev);
     }).then(()=>accepted);
   };
@@ -325,10 +325,12 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     if(r.resolved.kind!=='VEYRA_IDENTITY'||!r.resolved.veyraUserId||!USER_ID.test(r.resolved.veyraUserId)||r.resolved.veyraUserId===session?.profile.veyraUserId)
       throw new Error('Choose another verified Veyra ID.');
     await api('/api/social/friend/request','POST',token,{veyraUserId:r.resolved.veyraUserId});
-  });
-  const respond=(id:string,decision:'ACCEPT'|'REJECT')=>mutate(token=>api('/api/social/friend/respond','POST',token,{veyraUserId:id,decision}));
-  const block=(id:string)=>mutate(token=>api('/api/social/block','POST',token,{veyraUserId:id}));
-  const markRead=(id:string)=>mutate(token=>api('/api/notifications/read','POST',token,{notificationId:id}));
+  },'Friend invitation sent.');
+  const respond=(id:string,decision:'ACCEPT'|'REJECT')=>mutate(
+    token=>api('/api/social/friend/respond','POST',token,{veyraUserId:id,decision}),
+    decision==='ACCEPT'?'Friend request accepted.':'Friend request declined.');
+  const block=(id:string)=>mutate(token=>api('/api/social/block','POST',token,{veyraUserId:id}),'Friend blocked.');
+  const markRead=(id:string)=>mutate(token=>api('/api/notifications/read','POST',token,{notificationId:id}),'Notification marked as read.');
   const active=session?.walletKey===walletKey?session:null;
   return <SocialContext.Provider value={{session:active,friends:active?friends:[],notices:active?notices:[],
     friendsHasMore:active?friendsNextOffset!==null:false,loadingMoreFriends,loadMoreFriends,
