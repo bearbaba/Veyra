@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAccount } from 'wagmi';
-import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
+import { useUnifiedSocial, type SocialFriend } from '../../features/social/UnifiedSocial';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Bot,
@@ -22,6 +22,7 @@ import {
 import type { IntentResult } from '@/core/intent/intentSchema';
 import { buildCapabilityIntentGraph, type CapabilityIntentGraph } from '@/core/agent/intentGraph';
 import { ActionCard } from '../transfer/ActionCard';
+import { AgentQuickStart } from '../agent/AgentQuickStart';
 import type { VeyraPage } from '../layout/AppShell';
 
 interface AgentPageProps {
@@ -47,10 +48,12 @@ const DEFAULT_CAPABILITIES: AgentCapabilities = {
 };
 
 export function AgentPage({ onNavigate }: AgentPageProps) {
-  const { address, chainId, connector } = useAccount();
+  const { address, connector } = useAccount();
   const social = useUnifiedSocial();
+  // The backend-signed Social session uses wallet address + connector, not
+  // signing-chain transport state. Changing chain must not discard Agent/Friends.
   const walletKey = address
-    ? [address.toLowerCase(), chainId ?? '', connector?.uid ?? ''].join(':')
+    ? [address.toLowerCase(), connector?.uid ?? ''].join(':')
     : 'not-connected';
   // A guest view is transient. Persisted conversation belongs exclusively to
   // the wallet-bound, signed Veyra identity used when the chat was created.
@@ -58,10 +61,14 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
   const historyScope = signedSession
     ? [walletKey, signedSession.profile.veyraUserId].join(':')
     : null;
-  return <ScopedAgentPage key={historyScope ?? walletKey + ':unsigned'} onNavigate={onNavigate} historyScope={historyScope} />;
+  const connectedFriends = signedSession ? social.friends.filter((f) => f.state === 'CONNECTED') : [];
+  return <ScopedAgentPage key={historyScope ?? walletKey + ':unsigned'} onNavigate={onNavigate}
+    historyScope={historyScope} friends={connectedFriends} signedIn={Boolean(signedSession)} />;
 }
 
-function ScopedAgentPage({ onNavigate, historyScope }: AgentPageProps & { historyScope: string | null }) {
+function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn }: AgentPageProps & {
+  historyScope: string | null; friends: SocialFriend[]; signedIn: boolean;
+}) {
   const historyKey = historyScope ? 'veyra:agent-history:' + historyScope : null;
   const [messages, setMessages] = useState<Message[]>(() => {
     if (!historyKey) return [];
@@ -78,6 +85,7 @@ function ScopedAgentPage({ onNavigate, historyScope }: AgentPageProps & { histor
     return pending ?? '';
   });
   const [loading, setLoading] = useState(false);
+  const [showQuickActions, setShowQuickActions] = useState(false);
   const [capabilities, setCapabilities] = useState<AgentCapabilities>(DEFAULT_CAPABILITIES);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -170,6 +178,13 @@ function ScopedAgentPage({ onNavigate, historyScope }: AgentPageProps & { histor
     inputRef.current?.focus();
   }
 
+  function prepareQuickRequest(text: string) {
+    // User explicitly submits this draft through Agent; no auto-send or wallet request.
+    setInput(text);
+    setShowQuickActions(false);
+    inputRef.current?.focus();
+  }
+
   return (
     <div className="mx-auto flex min-h-[calc(100dvh-44px)] max-w-5xl flex-col px-4 py-5 md:px-7 md:py-7">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-5" style={{ borderColor: 'var(--border)' }}>
@@ -177,9 +192,9 @@ function ScopedAgentPage({ onNavigate, historyScope }: AgentPageProps & { histor
           <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--accent)' }}>
             <Sparkles className="size-4" /> Agent V2
           </div>
-          <h1 className="display mt-2 text-3xl font-black" style={{ color: 'var(--ink)', letterSpacing: '-0.04em' }}>Ask Veyra anything.</h1>
+          <h1 className="display mt-2 text-3xl font-black" style={{ color: 'var(--ink)', letterSpacing: '-0.04em' }}>Your money, made simple.</h1>
           <p className="mt-1 max-w-2xl text-sm leading-6" style={{ color: 'var(--muted)' }}>
-            Speak naturally in your own language. Veyra chats first, then turns financial intent into a reviewable action — never an automatic signature.
+            Send, swap, bridge, explore unified routes — or just ask Veyra. Review everything before signing.
           </p>
         </div>
         {messages.length > 0 && (
@@ -197,9 +212,20 @@ function ScopedAgentPage({ onNavigate, historyScope }: AgentPageProps & { histor
 
       <div className="flex-1 overflow-y-auto py-6">
         {messages.length === 0 ? (
-          <AgentWelcome onSelect={(query) => { setInput(query); inputRef.current?.focus(); }} />
+          <AgentQuickStart friends={friends} signedIn={signedIn}
+            onPrepare={prepareQuickRequest} onNavigate={onNavigate} />
         ) : (
           <div className="mx-auto max-w-3xl space-y-5">
+            <div className="flex justify-center">
+              <button type="button" onClick={() => setShowQuickActions((current) => !current)}
+                aria-expanded={showQuickActions}
+                className="rounded-full border px-4 py-2 text-xs font-semibold"
+                style={{ color: 'var(--accent)', borderColor: 'var(--border-strong)', background: 'var(--surface)' }}>
+                {showQuickActions ? 'Close quick actions' : 'Explore Send · Swap · Bridge · Unified'}
+              </button>
+            </div>
+            {showQuickActions && <AgentQuickStart friends={friends} signedIn={signedIn}
+              onPrepare={prepareQuickRequest} onNavigate={onNavigate} compact />}
             <AnimatePresence initial={false}>
               {messages.map((message) => (
                 <motion.div
@@ -323,35 +349,6 @@ function IntentGraphPreview({ graph }: { graph: CapabilityIntentGraph }) {
         ))}
       </div>
       <div className="mt-3 text-[10px]" style={{ color: 'var(--subtle)' }}>Route, provider, exact amounts, policy, risk and required protocol signatures are calculated after context resolution.</div>
-    </div>
-  );
-}
-
-function AgentWelcome({ onSelect }: { onSelect: (query: string) => void }) {
-  const prompts = [
-    { title: 'Plan a payment', text: 'Help me prepare a 20 USDC payment to @bearcrypto2021', icon: <SendHorizontal className="size-4" /> },
-    { title: 'Ask naturally', text: 'What can Veyra do for me?', icon: <Bot className="size-4" /> },
-    { title: 'Any language', text: 'Can Veyra answer questions in my preferred language?', icon: <Globe2 className="size-4" /> },
-    { title: 'Multi-step planning', text: 'Keep 300 USDC on Arc, prepare a 50 USDC payment, and check whether a 200 USDC bridge to Base is available', icon: <Sparkles className="size-4" /> },
-  ];
-  return (
-    <div className="mx-auto max-w-3xl py-6 md:py-12">
-      <div className="mx-auto flex size-14 items-center justify-center rounded-2xl" style={{ background: 'linear-gradient(135deg,rgba(124,58,237,0.35),rgba(200,255,101,0.14))', border: '1px solid var(--border-strong)' }}>
-        <Bot className="size-6" style={{ color: 'var(--accent)' }} />
-      </div>
-      <h2 className="display mt-4 text-center text-2xl font-black" style={{ color: 'var(--ink)', letterSpacing: '-0.03em' }}>How can I help?</h2>
-      <p className="mx-auto mt-2 max-w-lg text-center text-sm leading-6" style={{ color: 'var(--muted)' }}>
-        English is the product default. If you write in another language, Veyra follows your language automatically.
-      </p>
-      <div className="mt-6 grid gap-3 sm:grid-cols-2">
-        {prompts.map((prompt) => (
-          <button key={prompt.text} onClick={() => onSelect(prompt.text)} className="rounded-2xl p-4 text-left transition-all hover:-translate-y-0.5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
-            <span className="flex size-8 items-center justify-center rounded-xl" style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}>{prompt.icon}</span>
-            <div className="mt-3 text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--subtle)' }}>{prompt.title}</div>
-            <div className="mt-1 text-sm font-semibold" style={{ color: 'var(--ink-2)' }}>{prompt.text}</div>
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
