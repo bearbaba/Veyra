@@ -5,7 +5,7 @@
 
 import { http, createConfig } from 'wagmi'
 import { fallback } from 'viem'
-import { mainnet, sepolia } from 'wagmi/chains'
+import { baseSepolia, mainnet, sepolia } from 'wagmi/chains'
 import { arcTestnet } from 'viem/chains'
 import { injected } from 'wagmi/connectors'
 import { registerChain } from './tracing'
@@ -13,11 +13,12 @@ import { registerChain } from './tracing'
 // Pre-register chain RPC URLs so trace events show correct chain names immediately
 registerChain(arcTestnet.id, arcTestnet.rpcUrls.default.http[0])
 registerChain(sepolia.id, sepolia.rpcUrls.default.http[0])
+registerChain(baseSepolia.id, 'https://sepolia.base.org')
 
 export const config = createConfig({
   // mainnet: ENS resolution
   // sepolia: CCTP V2 destination chain (receiveMessage)
-  chains: [arcTestnet, sepolia, mainnet],
+  chains: [arcTestnet, sepolia, baseSepolia, mainnet],
   connectors: [injected()],
   transports: {
     // Use independently verified Arc Testnet endpoints. A temporary outage/CORS
@@ -28,6 +29,7 @@ export const config = createConfig({
       http('https://arc-testnet.drpc.org', { timeout: 12000, retryCount: 1 }),
     ], { rank: false }),
     [sepolia.id]: http(),
+    [baseSepolia.id]: http('https://sepolia.base.org', { timeout: 12000, retryCount: 1 }),
     [mainnet.id]: http(),
   },
 })

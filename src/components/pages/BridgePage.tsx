@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
+import { useAccount, usePublicClient, useWalletClient, useSwitchChain } from 'wagmi';
 import { Globe, AlertTriangle, Info, ArrowRight, Loader2, CheckCircle, Lock } from 'lucide-react';
 import { isAddress, parseUnits, type Address } from 'viem';
 import {
@@ -39,6 +39,7 @@ import { MANIFEST_CONSTANTS, findManifestEntry } from '../../providers/registry/
 import { validateAgentBridgeDraft } from '../../core/agent/bridgeDraftGate';
 import type { IntentCandidate } from '../../core/intent/intentSchema';
 import { useBridgeExecution, type BridgeExecutionState } from '../../hooks/useBridgeExecution';
+import { ensureWalletNetworkForSigning } from '../../core/wallet/ensureWalletNetworkForSigning';
 import {
   nextBridgeResumeInstruction,
   type BridgeRecoveryCheckpoint,
@@ -51,6 +52,7 @@ const CCTP_LIFECYCLE_READY = CCTP_ENTRY?.lifecycleStage === 'ENABLED' && CCTP_EN
 type BridgeState =
   | { phase: 'INPUT' }
   | { phase: 'EVALUATING' }
+  | { phase: 'NETWORK_SWITCHING' }
   | { phase: 'APPROVAL_REQUIRED'; action: BridgeAction }
   | { phase: 'APPROVING_USDC' }
   | { phase: 'BLOCKED'; reason: string }
@@ -75,6 +77,7 @@ const DESTINATION_CHAINS = [
 export function BridgePage() {
   const { address, isConnected, chainId } = useAccount();
   const { data: walletClient } = useWalletClient();
+  const { switchChainAsync } = useSwitchChain();
   const sourcePublicClient = usePublicClient({ chainId: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID });
   const social = useUnifiedSocial();
   const bridgeExecution = useBridgeExecution();
@@ -134,6 +137,32 @@ export function BridgePage() {
   }, [isConnected, bridgeExecution.loadRecoveryCandidates]);
 
   const selectedDest = DESTINATION_CHAINS.find((c) => c.id === destChainId)!;
+
+  async function selectArcForSourceSignature(expectedSender: string) {
+    if (!walletClient || !walletClient.account ||
+        walletClient.account.address.toLowerCase() !== expectedSender.toLowerCase()) {
+      throw new Error('Your connected wallet changed. Review the sender again; nothing was submitted.');
+    }
+    // The wallet's real chain is authoritative. React's displayed chainId can
+    // lag behind MetaMask after the user changes networks manually.
+    await ensureWalletNetworkForSigning(
+      () => walletClient.getChainId(),
+      (requestedChainId) => switchChainAsync({ chainId: requestedChainId }),
+      MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
+      'Arc Testnet',
+    );
+    if (walletClient.account.address.toLowerCase() !== expectedSender.toLowerCase() ||
+        await walletClient.getChainId() !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID) {
+      throw new Error('Wallet account or network changed during selection. Nothing was signed.');
+    }
+  }
+
+  async function assertNoUnresolvedSourceBurn() {
+    if (hasUnfinishedBurn ||
+      (await bridgeExecution.loadRecoveryCandidates()).some((item) => item.stage !== 'VERIFIED')) {
+      throw new Error('An earlier Bridge is still pending. Verify the recorded transaction in Activity before starting another burn.');
+    }
+  }
 
   async function handleEvaluate() {
     if (!address || !amount || !recipientAddress) return;
@@ -297,6 +326,11 @@ export function BridgePage() {
         from: address,
         tokenDecimals: review.evaluation.action.tokenDecimals,
       });
+      await assertNoUnresolvedSourceBurn();
+      // Only this explicit confirmation, never drafting/review, requests Arc.
+      setBridgeState({ phase: 'NETWORK_SWITCHING' });
+      await selectArcForSourceSignature(executionAction.from);
+      setBridgeState({ phase: 'EVALUATING' });
       const simulation = await simulateCctpSourceBurn(sourcePublicClient, executionAction);
       if (simulation.status !== 'READY') {
         throw new Error(simulation.status === 'BLOCKED' ? simulation.reason
@@ -363,12 +397,11 @@ export function BridgePage() {
       setBridgeState({ phase: 'BLOCKED', reason: 'Cannot approve without an authorized Veyra ID, exact wallet and Arc Testnet RPC.' });
       return;
     }
-    if (chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID) {
-      setBridgeState({ phase: 'BLOCKED', reason: 'Switch your wallet to Arc Testnet before approving USDC. Nothing was submitted.' });
-      return;
-    }
-    setBridgeState({ phase: 'APPROVING_USDC' });
+    setBridgeState({ phase: 'NETWORK_SWITCHING' });
     try {
+      await assertNoUnresolvedSourceBurn();
+      await selectArcForSourceSignature(action.from);
+      setBridgeState({ phase: 'APPROVING_USDC' });
       if (await walletClient.getChainId() !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID)
         throw new Error('Wallet chain changed before approval. No approval was submitted.');
       assertExecutionReady({
@@ -552,6 +585,14 @@ export function BridgePage() {
             </div>
           </div>
 
+          {chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID && (
+            <p role="status" className="text-xs leading-5" style={{ color:'var(--muted)' }}>
+              Prepare this route on your current network. Veyra asks your wallet
+              to switch to Arc Testnet only when you approve USDC or confirm
+              the Bridge. Changing the network does not sign or send money.
+            </p>
+          )}
+
           {/* Blocked */}
           {(bridgeState.phase === 'BLOCKED' || bridgeState.phase === 'FAILED') && bridgeIdentityReady && (
             <div role="alert" className="flex items-start gap-2 rounded-xl p-3.5"
@@ -588,6 +629,12 @@ export function BridgePage() {
               : 'Review bridge'}
           </button>
         </>
+      ) : bridgeState.phase === 'NETWORK_SWITCHING' ? (
+        <div role="status" className="flex items-center gap-3 rounded-xl border p-4 text-sm"
+          style={{ borderColor:'var(--border)', background:'var(--surface)', color:'var(--ink)' }}>
+          <Loader2 className="size-4 shrink-0 animate-spin" />
+          <span>Confirm the switch to Arc Testnet in your wallet. No payment has been signed.</span>
+        </div>
       ) : bridgeState.phase === 'APPROVAL_REQUIRED' ? (
         <div className="space-y-3 rounded-2xl border p-4" style={{ borderColor:'var(--border-strong)', background:'var(--surface)' }}>
           <div className="flex items-start gap-2">
@@ -601,9 +648,11 @@ export function BridgePage() {
             </div>
           </div>
           <button type="button" onClick={() => void handleApproveExactUsdc(bridgeState)}
-            className="w-full rounded-xl py-3 text-sm font-bold"
+            disabled={hasUnfinishedBurn}
+            className="w-full rounded-xl py-3 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background:'var(--accent)', color:'#0d1b2f' }}>
-            Approve exactly {amount} USDC
+            {chainId === MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID
+              ? `Approve exactly ${amount} USDC` : `Switch to Arc & approve ${amount} USDC`}
           </button>
           <button type="button" onClick={() => setBridgeState({phase:'INPUT'})}
             className="w-full rounded-xl border py-2 text-xs"
@@ -621,6 +670,7 @@ export function BridgePage() {
           amount={amount}
           destName={selectedDest.name}
           onConfirm={() => void handleConfirmBridge(bridgeState)}
+          sourceNetworkChangeNeeded={chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID}
           onCancel={() => setBridgeState({ phase: 'INPUT' })}
         />
       ) : bridgeState.phase === 'BRIDGE_PENDING' || bridgeState.phase === 'BRIDGE_UNCONFIRMED' ? (
@@ -658,6 +708,7 @@ function BridgeReviewCard({
   destName,
   onConfirm,
   onCancel,
+  sourceNetworkChangeNeeded,
 }: {
   evaluation: ReturnType<typeof evaluateBridgeAction>;
   providerPreflight: PreflightResult[];
@@ -665,6 +716,7 @@ function BridgeReviewCard({
   destName: string;
   onConfirm: () => void;
   onCancel: () => void;
+  sourceNetworkChangeNeeded: boolean;
 }) {
   return (
     <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border-strong)' }}>
@@ -699,7 +751,9 @@ function BridgeReviewCard({
       </div>
       <div className="flex gap-2 px-4 py-3 border-t" style={{ borderColor: 'var(--border)' }}>
         <button onClick={onCancel} className="flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: 'var(--surface-strong)', color: 'var(--muted)', border: '1px solid var(--border)' }}>Cancel</button>
-        <button onClick={onConfirm} className="flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: 'var(--accent)', color: '#0d1b2f' }}>Initiate bridge</button>
+        <button onClick={onConfirm} className="flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: 'var(--accent)', color: '#0d1b2f' }}>
+          {sourceNetworkChangeNeeded ? 'Switch to Arc & continue' : 'Initiate bridge'}
+        </button>
       </div>
     </div>
   );
@@ -752,7 +806,8 @@ function BridgeRecoveryCard({
         className="w-full rounded-xl py-2.5 text-sm font-semibold"
         style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}
       >
-        Resume safely
+        {checkpoint.stage === 'DESTINATION_BROADCAST'
+          ? 'Verify recorded receive (no signing)' : 'Resume existing bridge'}
       </button>
     </div>
   );
