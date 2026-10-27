@@ -17,7 +17,7 @@ describe('Phase 25 — untrusted Preview identity and Bridge safety UX',()=>{
     expect(page).toContain("const bridgeOriginUnavailable = IS_UI_ONLY_PREVIEW");
     expect(page).toContain("social.identityOrigin === 'origin_blocked'");
     expect(page).toContain("const bridgeIdentityReady = !bridgeOriginUnavailable");
-    expect(page).toContain("!bridgeIdentityReady || bridgeState.phase === 'EVALUATING'");
+    expect(page).toContain("!bridgeIdentityReady || hasUnfinishedBurn || bridgeState.phase === 'EVALUATING'");
     expect(page).toContain('Bridge unavailable on this Preview');
     expect(page).toContain('Your draft has not been submitted.');
     expect(page).toContain('<VeyraIdentityAccess />');
