@@ -47,7 +47,7 @@ import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
 import {DirectMessageError,encryptionKey,chatPage,listDirectMessages,sendDirectMessage} from './services/directMessageService.js';
 import {IncomingUsdcError,reconcileIncomingUsdc} from './services/incomingUsdcService.js';
-import { beginXOAuthLink, completeXOAuthLink, XOAuthError } from './services/xOAuthService.js';
+import { beginXOAuthLink, completeXOAuthCallback, finishXOAuthLink, XOAuthError,checkedXReturnOrigin,buildXLinkedReturnUrl,isConfiguredXOAuth } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
 import { PaymentReviewError } from './services/paymentReviewProof.js';
 import { upsertContact, removeContact, listContacts, ContactError } from './services/contactService.js';
@@ -746,6 +746,16 @@ app.post('/api/identity/verify-payment', IDENTITY_RATE, async (req: Request, res
   }
 });
 
+// Lightweight capability; no X redirects or identity signatures are requested.
+// Returns false until provider credentials and an exact reviewed callback exist.
+app.post('/api/auth/x/capability', IDENTITY_RATE, (req:Request,res:Response):void=>{
+  try {
+    const origin=req.header('origin');
+    checkedXReturnOrigin(origin,[runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
+    res.json({ok:true,available:isConfiguredXOAuth(process.env.X_CLIENT_ID,process.env.X_REDIRECT_URI)});
+  } catch(err){identityError(res,err);}
+});
+
 // ── POST /api/auth/x/start ───────────────────────────────────────────────────
 app.post('/api/auth/x/start', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -756,11 +766,13 @@ app.post('/api/auth/x/start', IDENTITY_RATE, async (req: Request, res: Response)
     }
     const clientId = process.env.X_CLIENT_ID ?? '';
     const redirectUri = process.env.X_REDIRECT_URI ?? '';
+    const appOrigin=checkedXReturnOrigin(req.header('origin'),
+      [runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
     const returnPath = typeof (req.body as Record<string, unknown>).returnPath === 'string'
       ? String((req.body as Record<string, unknown>).returnPath)
       : '/settings';
     const { db } = await import('./db/client.js');
-    const started = await beginXOAuthLink(db, veyraUserId, { clientId, redirectUri, returnPath });
+    const started = await beginXOAuthLink(db, veyraUserId, { clientId, redirectUri, appOrigin, returnPath });
     res.status(201).json({ ok: true, ...started });
   } catch (err) {
     identityError(res, err);
@@ -779,23 +791,38 @@ app.get('/api/auth/x/callback', IDENTITY_RATE, async (req: Request, res: Respons
     const clientId = process.env.X_CLIENT_ID ?? '';
     if (!clientId) throw new XOAuthError('X_OAUTH_NOT_CONFIGURED', 'X OAuth is not configured', 503);
     const { db } = await import('./db/client.js');
-    const completed = await completeXOAuthLink(db, {
+    const completed = await completeXOAuthCallback(db, {
       state,
       code,
       clientId,
       clientSecret: process.env.X_CLIENT_SECRET,
+      allowedOrigins: [runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??''],
     });
-    const appOrigin = process.env.VEYRA_APP_ORIGIN;
-    if (appOrigin) {
-      const target = new URL(completed.returnPath, appOrigin);
-      target.searchParams.set('x_linked', '1');
-      res.redirect(303, target.toString());
-      return;
-    }
-    res.json({ ok: true, profile: completed.profile });
+    // Provider authorization only STAGES a profile. The signed originating
+    // Veyra session will independently finish linking after the redirect.
+    const target=buildXLinkedReturnUrl(completed.appOrigin,
+      [runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
+    res.redirect(303,target);
   } catch (err) {
     identityError(res, err);
   }
+});
+
+// ── POST /api/auth/x/finish ─────────────────────────────────────────────────
+// A callback alone is not proof that this browser owns the initiating Veyra
+// identity. Require its active signed session and the original one-use state.
+app.post('/api/auth/x/finish', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const veyraUserId = getAuthenticatedVeyraUserId(req);
+    if (!veyraUserId) { res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' }); return; }
+    const appOrigin = checkedXReturnOrigin(req.header('origin'),
+      [runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
+    const state = typeof (req.body as Record<string, unknown> | undefined)?.state === 'string'
+      ? String((req.body as Record<string, unknown>).state) : '';
+    const { db } = await import('./db/client.js');
+    const completed = await finishXOAuthLink(db, { state, veyraUserId, appOrigin });
+    res.json({ ok: true, profile: completed.profile });
+  } catch (err) { identityError(res, err); }
 });
 
 // ── POST /api/identity/challenge ────────────────────────────────────────────

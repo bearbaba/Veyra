@@ -127,6 +127,13 @@
       "when": 1793110000000,
       "tag": "0017_phase17_incoming_usdc",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793120000000,
+      "tag": "0018_phase18_x_oauth_confirmation",
+      "breakpoints": true
     }
   ]
 }
