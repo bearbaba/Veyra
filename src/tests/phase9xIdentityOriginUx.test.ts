@@ -79,7 +79,7 @@ describe('Veyra one-page wallet and origin acceptance',()=>{
     const banner=file('components/system/WebPreviewBanner.tsx');
     const runtime=file('components/system/RuntimeStatusCard.tsx');
     expect(banner).toContain("social.identityOrigin === 'origin_blocked'");
-    expect(banner).toContain('Veyra ID blocked on this Preview');
+    expect(banner).toContain('Sign-in unavailable on this Preview');
     expect(banner).not.toContain("'BFF online'");
     expect(runtime).toContain('Backend rejected this Preview origin (403)');
   });

@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
+import { ConnectKitButton } from 'connectkit';
 import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 import { formatUnits } from 'viem';
 import { buildTxExplorerUrl } from '@/onchain-facts';
@@ -118,6 +119,21 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
     await bridgeExecution.resumeProviderCheckpoint(cctpV2BridgeProvider, checkpoint);
     await reload();
     await refreshRemoteView();
+  }
+
+  if (!isConnected) {
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-8">
+        <h1 className="display text-2xl font-bold" style={{color:'var(--ink)'}}>Activity</h1>
+        <div className="mt-6 rounded-2xl border p-7 text-center"
+          style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+          <p className="mb-4 text-sm" style={{color:'var(--muted)'}}>
+            Connect your wallet to view activity.
+          </p>
+          <ConnectKitButton/>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -226,7 +226,7 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
             <button type="button" onClick={prepare} disabled={selectedNetwork.availability==='PLANNED'}
               className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
               style={{ background: 'linear-gradient(135deg,#c8ff65,#91e9b5)', color: '#0b1b25' }}>
-              Prepare request <ArrowRight className="size-4"/>
+              Create draft <ArrowRight className="size-4"/>
             </button>
             <p className="text-center text-[11px]" style={{ color: 'var(--subtle)' }}>Draft only · No automatic signature, quote, approval or transfer</p>
           </div>

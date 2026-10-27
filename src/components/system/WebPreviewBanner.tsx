@@ -12,7 +12,7 @@ export function WebPreviewBanner() {
   useEffect(() => {
     if (IS_UI_ONLY_PREVIEW) return;
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 2500);
+    const timer = window.setTimeout(() => controller.abort(), 8000);
 
     void fetch('/api/health', { signal: controller.signal, cache: 'no-store' })
       .then(async response => {
@@ -61,11 +61,11 @@ export function WebPreviewBanner() {
         </span>
         <span className="ml-auto flex items-center gap-1.5" style={{ color: originBlocked ? 'var(--warning)' : signInReady ? 'var(--success)' : 'var(--subtle)' }}>
           {signInReady ? <Wifi className="size-3.5" /> : <WifiOff className="size-3.5" />}
-          {IS_UI_ONLY_PREVIEW ? 'Execution locked'
-            : originBlocked ? 'Veyra ID blocked on this Preview'
-            : checking || social.identityOrigin === 'checking' ? 'Checking service'
-            : signInReady ? 'BFF and ID origin ready'
-            : 'Identity service unavailable'}
+          {IS_UI_ONLY_PREVIEW ? 'Demo only · No signing'
+            : originBlocked ? 'Sign-in unavailable on this Preview'
+            : checking || social.identityOrigin === 'checking' ? 'Checking connection'
+            : signInReady ? 'Veyra ID ready'
+            : 'Identity connection unavailable'}
         </span>
       </div>
     </div>

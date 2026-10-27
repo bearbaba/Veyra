@@ -2,19 +2,17 @@ import { useAccount, useReadContract } from 'wagmi';
 import { useState } from 'react';
 import { ConnectKitButton } from 'connectkit';
 import {
-  Activity,
   ArrowRight,
   AtSign,
   Bot,
   CheckCircle2,
+  ShieldCheck,
   Copy,
   RefreshCw,
   SendHorizontal,
-  ShieldCheck,
-  Sparkles,
   Wallet,
 } from 'lucide-react';
-import { requireChain, getUsdc, buildTxExplorerUrl } from '@/onchain-facts';
+import { getUsdc, buildTxExplorerUrl } from '@/onchain-facts';
 import { useReceiptStore } from '@/hooks/useReceiptStore';
 import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
 import { formatArcUsdcBalance } from '@/features/balance/arcUsdcBalance';
@@ -22,7 +20,6 @@ import { VEYRA_ENV } from '@/lib/env';
 import type { MyProfile } from '@/lib/api/identityApi';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS, REGISTRY_STATUS_COPY, type RegistryStatus } from '@/config/productRegistry';
 import { BrandLogo } from '../brand/BrandLogo';
-import { VeyraIdentityAccess } from '../identity/VeyraIdentityAccess';
 import type { VeyraPage } from '../layout/AppShell';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
@@ -41,7 +38,6 @@ interface HomePageProps {
 export function HomePage({ onNavigate }: HomePageProps) {
   const { address, isConnected } = useAccount();
   const identity = useVeyraIdentity();
-  const arcChain = requireChain(ARC_TESTNET_CHAIN_ID);
   const usdc = getUsdc(ARC_TESTNET_CHAIN_ID);
   const { receipts, error: receiptError } = useReceiptStore();
 
@@ -72,161 +68,120 @@ export function HomePage({ onNavigate }: HomePageProps) {
     : null;
   const recentReceipts = receipts.slice(0, 3);
   const profile = identity.profile;
-  const displayHandle = profile ? `@${profile.veyraHandle}.veyra` : 'Sign in through Social';
+  const [copiedReceive, setCopiedReceive] = useState(false);
+  const [receiveCopyError, setReceiveCopyError] = useState(false);
 
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-7 md:px-7 md:py-9 space-y-6">
       <section className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-        <div
-          className="relative overflow-hidden rounded-[28px] p-6 md:p-8"
-          style={{ background: 'linear-gradient(135deg, rgba(29,48,76,0.96), rgba(15,31,52,0.96))', border: '1px solid var(--border-strong)' }}
-        >
-          <div className="pointer-events-none absolute -right-10 -top-20 size-72 rounded-full opacity-30 blur-3xl" style={{ background: 'radial-gradient(circle, #7c3aed, transparent 68%)' }} />
-          <div className="pointer-events-none absolute bottom-[-110px] left-24 size-80 rounded-full opacity-20 blur-3xl" style={{ background: 'radial-gradient(circle, #b9ff66, transparent 65%)' }} />
-          <div className="relative">
-            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em]" style={{ color: 'var(--accent)' }}>
-              <Sparkles className="size-4" /> Human-first payments
-            </div>
-            <h1 className="display mt-4 max-w-xl text-4xl font-black leading-[1.02] md:text-5xl" style={{ color: 'var(--ink)', letterSpacing: '-0.045em' }}>
-              Pay anyone.<br />Veyra handles the route.
-            </h1>
-            <p className="mt-4 max-w-xl text-sm leading-6 md:text-base" style={{ color: 'var(--muted)' }}>
-              Pay a verified Veyra ID or wallet on the supported Arc Testnet route. Agent can help plan; every payment still requires your review and wallet signature.
-            </p>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                onClick={() => onNavigate('pay')}
-                className="flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition-transform hover:scale-[1.02]"
-                style={{ background: 'linear-gradient(135deg, #c8ff65, #91e9b5)', color: '#0b1b25' }}
-              >
-                <SendHorizontal className="size-4" /> Pay someone <ArrowRight className="size-4" />
-              </button>
-              <button
-                onClick={() => onNavigate('agent')}
-                className="flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition-colors hover:bg-white/5"
-                style={{ background: 'var(--surface)', border: '1px solid var(--border-strong)', color: 'var(--ink)' }}
-              >
-                <Bot className="size-4" /> Ask Veyra
-              </button>
-            </div>
+        <div className="rounded-3xl p-5 md:p-7" style={{ background:'var(--surface-strong)', border:'1px solid var(--border-strong)' }}>
+          <p className="text-xs font-semibold uppercase tracking-wider" style={{color:'var(--accent)'}}>Veyra · Testnet</p>
+          <h1 className="display mt-3 max-w-lg text-3xl font-black leading-tight md:text-4xl" style={{color:'var(--ink)',letterSpacing:'-0.035em'}}>
+            Send USDC, simply.
+          </h1>
+          <p className="mt-3 max-w-lg text-sm leading-6" style={{color:'var(--muted)'}}>
+            Pay a friend, Veyra ID or wallet. Check every detail before signing.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button type="button" onClick={() => onNavigate('pay')}
+              className="flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-bold focus-visible:outline focus-visible:outline-2"
+              style={{background:'var(--accent)',color:'#0d1b2f'}}>
+              <SendHorizontal className="size-4"/> Send USDC <ArrowRight className="size-4"/>
+            </button>
+            <button type="button" onClick={() => onNavigate('agent')}
+              className="flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold"
+              style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>
+              <Bot className="size-4"/> Explore Veyra
+            </button>
           </div>
         </div>
-
-        {isConnected && !profile
-          ? <VeyraIdentityAccess />
-          : <IdentityCard
-              profile={profile}
-              address={address}
-              isConnected={isConnected}
-              onOpenSocial={() => onNavigate('social')}
-              onOpenSettings={() => onNavigate('settings')}
-            />}
+        <IdentityCard
+          profile={profile}
+          address={address}
+          isConnected={isConnected}
+          onOpenSocial={() => onNavigate('social')}
+          onOpenSettings={() => onNavigate('settings')}
+        />
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[1fr_0.72fr]">
-        <div className="rounded-3xl p-5 md:p-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
+        <div className="rounded-3xl p-5 md:p-6" style={{background:'var(--surface-strong)',border:'1px solid var(--border)'}}>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <BrandLogo logoKey="usdc" size={38} />
+              <BrandLogo logoKey="usdc" size={36}/>
               <div>
-                <div className="text-xs font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--muted)' }}>USDC Balance</div>
-                <div className="mt-0.5 text-xs" style={{ color: 'var(--subtle)' }}>{arcChain.name}</div>
+                <h2 className="text-sm font-bold" style={{color:'var(--ink)'}}>USDC balance</h2>
+                <p className="mt-0.5 text-xs" style={{color:'var(--muted)'}}>Arc Testnet · On-chain</p>
               </div>
             </div>
             {balanceReadsEnabled && (
               <button type="button" onClick={() => void refetch()} disabled={balanceFetching}
+                className="flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs disabled:opacity-50"
                 aria-label="Refresh Arc Testnet USDC balance"
-                className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs disabled:opacity-50"
-                style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>
-                <RefreshCw className={`size-3.5 ${balanceFetching ? 'animate-spin' : ''}`} aria-hidden="true" />
-                {balanceFetching ? 'Syncing' : 'Refresh'}
+                style={{color:'var(--muted)',borderColor:'var(--border)'}}>
+                <RefreshCw className={`size-3.5 ${balanceFetching?'animate-spin':''}`}/>
+                {balanceFetching?'Syncing':'Refresh'}
               </button>
             )}
           </div>
-
           {!isConnected ? (
-            <div className="py-8 text-center">
-              <p className="mb-4 text-sm" style={{ color: 'var(--muted)' }}>Connect a wallet to load your live Arc balance. No manual network switch is required for reads.</p>
-              <ConnectKitButton />
-            </div>
+            <p className="mt-6 text-sm leading-6" style={{color:'var(--muted)'}}>
+              Connect your wallet to view your Arc Testnet USDC balance.
+            </p>
+          ) : VEYRA_ENV==='mainnet' ? (
+            <p className="mt-6 text-sm" style={{color:'var(--muted)'}}>Testnet balance is unavailable in Mainnet mode.</p>
+          ) : balanceError || (!balanceLoading && !balanceFetching && formattedBalance===null) ? (
+            <p role="alert" className="mt-6 text-sm" style={{color:'var(--warning)'}}>
+              Balance unavailable. Your funds have not been assumed to be zero. Try Refresh.
+            </p>
+          ) : balanceLoading || formattedBalance===null ? (
+            <div role="status" aria-label="Loading on-chain balance" className="mt-6 h-12 w-44 animate-pulse rounded-xl" style={{background:'var(--surface)' }}/>
           ) : (
-            <div className="mt-6 flex items-end justify-between gap-4">
-              <div className="min-w-0">
-                {VEYRA_ENV === 'mainnet' ? (
-                  <p role="status" className="text-sm" style={{ color: 'var(--muted)' }}>Arc Testnet balance is unavailable in Mainnet mode.</p>
-                ) : balanceError || (!balanceLoading && !balanceFetching && formattedBalance === null) ? (
-                  <div role="alert" className="max-w-xs text-sm leading-6" style={{ color: 'var(--warning)' }}>
-                    Balance unavailable. Check your connection and retry. No balance has been assumed.
-                  </div>
-                ) : (balanceLoading || formattedBalance === null) ? (
-                  <div role="status" aria-label="Loading on-chain balance" className="h-12 w-44 animate-pulse rounded-xl" style={{ background: 'var(--surface)' }} />
-                ) : (
-                  <div className="flex flex-wrap items-baseline gap-2" aria-live="polite" aria-atomic="true">
-                    <span className="display break-all text-4xl font-black tabular-nums md:text-5xl"
-                      style={{ color: 'var(--ink)', letterSpacing: '-0.04em' }}>{formattedBalance}</span>
-                    <span className="text-base font-bold" style={{ color: 'var(--muted)' }}>USDC</span>
-                  </div>
-                )}
-                <p className="mono mt-2 text-xs" style={{ color: 'var(--subtle)' }}>{shortAddress(address)}</p>
-                {formattedBalance !== null && balanceUpdatedAt > 0 && (
-                  <p className="mt-1 text-[11px]" style={{ color: 'var(--subtle)' }}>
-                    Last chain read {new Date(balanceUpdatedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                  </p>
-                )}
+            <div className="mt-6">
+              <div className="flex flex-wrap items-baseline gap-2" aria-live="polite">
+                <span className="display break-all text-4xl font-black tabular-nums" style={{color:'var(--ink)'}}>{formattedBalance}</span>
+                <span className="text-base font-semibold" style={{color:'var(--muted)'}}>USDC</span>
               </div>
-              <span className="shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider"
-                style={{ borderColor: 'var(--border)', background: 'var(--surface)',
-                  color: balanceError ? 'var(--warning)' : formattedBalance !== null ? 'var(--success)' : 'var(--muted)' }}>
-                {VEYRA_ENV === 'mainnet' ? 'Unavailable' : balanceError ? 'Read failed' : formattedBalance !== null ? 'On-chain' : 'Loading'}
-              </span>
+              {balanceUpdatedAt>0 && <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+                Last read {new Date(balanceUpdatedAt).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}
+              </p>}
             </div>
           )}
         </div>
-
-        <div className="rounded-3xl p-5 md:p-6" style={{ background: 'linear-gradient(145deg, rgba(37,33,72,0.88), rgba(19,34,54,0.98))', border: '1px solid var(--border)' }}>
+        <div className="rounded-3xl p-5 md:p-6" style={{background:'var(--surface-strong)',border:'1px solid var(--border)'}}>
           <div className="flex items-center gap-3">
-            <BrandLogo logoKey="arc" size={50} />
-            <div className="min-w-0">
-              <div className="text-xs font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--muted)' }}>Home network</div>
-              <div className="mt-1 text-lg font-bold" style={{ color: 'var(--ink)' }}>{arcChain.name}</div>
+            <Wallet className="size-5" style={{color:'var(--accent)'}}/>
+            <div>
+              <h2 className="text-sm font-bold" style={{color:'var(--ink)'}}>Receive USDC</h2>
+              <p className="mt-0.5 text-xs" style={{color:'var(--muted)'}}>Arc Testnet · Your wallet address</p>
             </div>
-            <span className="ml-auto"><StatusPill status="ACTIVE" /></span>
           </div>
-          <div className="mt-5 grid grid-cols-2 gap-3 text-xs">
-            <InfoTile label="Wallet" value={address ? shortAddress(address) : 'Not connected'} />
-            <InfoTile label="Veyra ID" value={profile ? displayHandle : identity.lastUsedHandle ? '@'+identity.lastUsedHandle+'.veyra · Sign-in required' : 'Sign-in required'} />
-          </div>
+          {isConnected && address ? (
+            <>
+              <p className="mono mt-5 break-all rounded-xl p-3 text-xs leading-5" style={{background:'var(--surface)',color:'var(--ink-2)'}}>{address}</p>
+              <button type="button" onClick={() => {
+                void navigator.clipboard.writeText(address).then(()=>{
+                  setCopiedReceive(true);setReceiveCopyError(false);
+                }).catch(()=>setReceiveCopyError(true));
+              }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold"
+                style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>
+                <Copy className="size-4"/>{copiedReceive?'Address copied':'Copy receiving address'}
+              </button>
+              {receiveCopyError && <p role="alert" className="mt-2 text-xs" style={{color:'var(--warning)'}}>
+                Clipboard unavailable. Select and copy the address above.
+              </p>}
+              <p className="mt-3 text-xs leading-5" style={{color:'var(--muted)'}}>
+                Only send supported Arc Testnet assets. Do not send from another network without a verified bridge.
+              </p>
+            </>
+          ) : (
+            <div className="mt-5 space-y-3">
+              <p className="text-sm" style={{color:'var(--muted)'}}>Connect a wallet to see your receiving address.</p>
+              <ConnectKitButton/>
+            </div>
+          )}
         </div>
-      </section>
-
-      <section>
-        <SectionHeading title="Quick actions" subtitle="Two primary paths. Everything else stays underneath the routing engine." />
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
-          <QuickAction label="Pay" description="Pay a person, not a chain." icon={<SendHorizontal className="size-5" />} onClick={() => onNavigate('pay')} primary />
-          <QuickAction label="Agent" description="Chat and plan in any language." icon={<Bot className="size-5" />} onClick={() => onNavigate('agent')} />
-          <QuickAction label="Activity" description="Receipts and transaction history." icon={<Activity className="size-5" />} onClick={() => onNavigate('activity')} />
-        </div>
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-2">
-        <RegistryCard title="Networks" subtitle="Verified registry metadata. Execution remains separately gated.">
-          <div className="grid grid-cols-4 gap-3 sm:grid-cols-7">
-            {PRODUCT_NETWORKS.map((network) => (
-              <RegistryItem key={network.id} logoKey={network.logoKey} name={network.shortName} status={network.status} active={network.executionEnabled} />
-            ))}
-          </div>
-        </RegistryCard>
-        <RegistryCard title="Assets" subtitle={`${PRODUCT_ASSETS.length} recognized assets. Only execution-enabled assets can be signed.`}>
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
-            {PRODUCT_ASSETS.slice(0, 5).map((asset) => (
-              <RegistryItem key={asset.id} logoKey={asset.logoKey} name={asset.symbol} status={asset.status} active={asset.executionEnabled} />
-            ))}
-          </div>
-          <div className="mt-3 text-xs" style={{ color: 'var(--subtle)' }}>
-            Registry also recognizes {PRODUCT_ASSETS.slice(5).map((asset) => asset.symbol).join(', ')}. New verified tokens can be added without redesigning Pay or Agent.
-          </div>
-        </RegistryCard>
       </section>
 
       {recentReceipts.length > 0 && (
@@ -240,6 +195,38 @@ export function HomePage({ onNavigate }: HomePageProps) {
           </div>
         </section>
       )}
+
+      {recentReceipts.length===0 && !receiptError && isConnected && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border p-4"
+          style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+          <p className="text-sm" style={{color:'var(--muted)'}}>No recent payments yet.</p>
+          <button type="button" onClick={() => onNavigate('activity')} className="shrink-0 text-sm font-semibold"
+            style={{color:'var(--accent)'}}>View activity</button>
+        </div>
+      )}
+
+      <details className="rounded-2xl border p-4" style={{borderColor:'var(--border)'}}>
+        <summary className="cursor-pointer text-sm font-semibold" style={{color:'var(--muted)'}}>
+          Network and asset details
+        </summary>
+        <p className="mt-2 text-xs leading-5" style={{color:'var(--muted)'}}>
+          Listing an asset here does not mean payments are enabled. Direct Pay currently supports Arc Testnet USDC.
+        </p>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <RegistryCard title="Networks" subtitle="Reference information · Not a list of enabled payment routes">
+            <div className="grid grid-cols-4 gap-3 sm:grid-cols-7">
+              {PRODUCT_NETWORKS.map(network=><RegistryItem key={network.id}
+                logoKey={network.logoKey} name={network.shortName} status={network.status} active={network.executionEnabled}/>)}
+            </div>
+          </RegistryCard>
+          <RegistryCard title="Assets" subtitle="Reference information · Only supported routes can be signed">
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
+              {PRODUCT_ASSETS.slice(0,5).map(asset=><RegistryItem key={asset.id}
+                logoKey={asset.logoKey} name={asset.symbol} status={asset.status} active={asset.executionEnabled}/>)}
+            </div>
+          </RegistryCard>
+        </div>
+      </details>
 
       {receiptError && <p role="alert" className="text-xs rounded-xl border p-3"
         style={{ color: 'var(--warning)', background: 'var(--surface)', borderColor: 'var(--border)' }}>
@@ -263,6 +250,7 @@ function IdentityCard({
   onOpenSettings: () => void;
 }) {
   const [copiedId,setCopiedId]=useState(false);
+  const [copiedWallet,setCopiedWallet]=useState(false);
   return (
     <div className="rounded-[28px] p-5 md:p-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border-strong)' }}>
       <div className="flex items-start gap-3">
@@ -272,12 +260,17 @@ function IdentityCard({
         <div className="min-w-0 flex-1">
           <div className="text-xs font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--muted)' }}>Your identity</div>
           <div className="mt-1 truncate text-xl font-bold" style={{ color: 'var(--ink)' }}>{profile ? `@${profile.veyraHandle}.veyra` : 'Sign in to your Veyra ID'}</div>
+          {address && <button type="button" aria-label="Copy wallet address"
+            onClick={() => void navigator.clipboard.writeText(address).then(()=>setCopiedWallet(true)).catch(()=>setCopiedWallet(false))}
+            className="mt-2 mr-3 inline-flex items-center gap-1.5 text-xs font-semibold" style={{color:'var(--accent)'}}>
+            <Copy className="size-3.5"/>{copiedWallet?'Wallet copied':'Copy wallet'}
+          </button>}
           {profile&&<button type="button" aria-label="Copy Veyra ID"
             onClick={()=>void navigator.clipboard.writeText('@'+profile.veyraHandle+'.veyra').then(()=>setCopiedId(true)).catch(()=>setCopiedId(false))}
             className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold" style={{color:'var(--accent)'}}>
             <Copy className="size-3.5"/>{copiedId?'ID copied':'Copy Veyra ID'}
           </button>}
-          <p className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>{profile ? 'One verified identity for the connected wallet' : 'Use Social to sign in or register, without a duplicate Home flow'}</p>
+          <p className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>{profile ? 'One verified identity for the connected wallet' : 'Connect your wallet and sign in to use Veyra ID'}</p>
         </div>
       </div>
 
@@ -310,19 +303,6 @@ function IdentityRow({ label, value, ok, icon }: { label: string; value: string;
   );
 }
 
-function QuickAction({ label, description, icon, onClick, primary = false }: { label: string; description: string; icon: React.ReactNode; onClick: () => void; primary?: boolean }) {
-  return (
-    <button onClick={onClick} className="group rounded-2xl p-4 text-left transition-all hover:-translate-y-0.5" style={{ background: primary ? 'linear-gradient(135deg,rgba(200,255,101,0.13),rgba(99,220,181,0.08))' : 'var(--surface-strong)', border: `1px solid ${primary ? 'rgba(200,255,101,0.26)' : 'var(--border)'}` }}>
-      <div className="flex items-center justify-between">
-        <span className="flex size-9 items-center justify-center rounded-xl" style={{ background: primary ? 'rgba(200,255,101,0.14)' : 'var(--accent-muted)', color: primary ? '#c8ff65' : 'var(--accent)' }}>{icon}</span>
-        <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" style={{ color: 'var(--subtle)' }} />
-      </div>
-      <div className="mt-4 text-sm font-bold" style={{ color: 'var(--ink)' }}>{label}</div>
-      <div className="mt-1 text-xs leading-5" style={{ color: 'var(--subtle)' }}>{description}</div>
-    </button>
-  );
-}
-
 function RegistryCard({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
     <div className="rounded-3xl p-5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
@@ -345,11 +325,6 @@ function RegistryItem({ logoKey, name, status, active }: { logoKey: string; name
   );
 }
 
-function StatusPill({ status }: { status: RegistryStatus }) {
-  const active = status === 'ACTIVE';
-  return <span className="rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ background: active ? 'var(--success-muted)' : 'var(--surface)', color: active ? 'var(--success)' : 'var(--muted)', border: '1px solid var(--border)' }}>{REGISTRY_STATUS_COPY[status]}</span>;
-}
-
 function SectionHeading({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div>
@@ -357,10 +332,6 @@ function SectionHeading({ title, subtitle }: { title: string; subtitle: string }
       <p className="mt-0.5 text-xs leading-5" style={{ color: 'var(--subtle)' }}>{subtitle}</p>
     </div>
   );
-}
-
-function InfoTile({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.035)', border: '1px solid var(--border)' }}><div className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--subtle)' }}>{label}</div><div className="mt-1 truncate text-xs font-semibold" style={{ color: 'var(--ink-2)' }}>{value}</div></div>;
 }
 
 function shortAddress(address?: string): string {

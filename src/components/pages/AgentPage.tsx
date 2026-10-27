@@ -5,9 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Bot,
   CheckCircle2,
-  Globe2,
   Loader2,
-  LockKeyhole,
   SendHorizontal,
   Sparkles,
   WifiOff,
@@ -138,15 +136,12 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn }: AgentP
 
     let response: AgentChatResponse;
     try {
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 25_000);
       const request = await fetch('/api/agent/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text, history: priorHistory }),
-        signal: controller.signal,
+        signal: AbortSignal.timeout(25_000),
       });
-      window.clearTimeout(timeout);
       if (!request.ok) throw new Error(`Agent service returned ${request.status}`);
       const raw: unknown = await request.json();
       response = validateAgentChatResponse(raw, text, capabilities);
@@ -204,11 +199,6 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn }: AgentP
         )}
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-2">
-        <CapabilityPill label="Chat" online={capabilities.conversation === 'ONLINE'} icon={<Globe2 className="size-3.5" />} fallbackLabel="Fallback ready" />
-        <CapabilityPill label="Planner" online={capabilities.planning === 'ONLINE'} icon={<Bot className="size-3.5" />} fallbackLabel="Local planner" />
-        <CapabilityPill label="Execution" online={capabilities.execution === 'AVAILABLE'} icon={<LockKeyhole className="size-3.5" />} fallbackLabel="Review locked" />
-      </div>
 
       <div className="flex-1 overflow-y-auto py-6">
         {messages.length === 0 ? (
@@ -245,13 +235,16 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn }: AgentP
                         <span className="flex size-6 items-center justify-center rounded-lg" style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}><Bot className="size-3.5" /></span>
                         Veyra
                         {message.locale && <span>· {message.locale}</span>}
-                        {message.degraded && <span className="flex items-center gap-1" style={{ color: 'var(--warning)' }}><WifiOff className="size-3" /> fallback</span>}
+                        {message.degraded && <span className="flex items-center gap-1" style={{ color: 'var(--warning)' }}><WifiOff className="size-3" /> Assistant offline · Draft only</span>}
                       </div>
                       <div className="rounded-2xl rounded-tl-md px-4 py-3 text-sm leading-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)', color: 'var(--ink-2)' }}>
                         {message.text}
                       </div>
                       {message.capabilityGraph && message.capabilityGraph.nodes.length > 1 && (
-                        <IntentGraphPreview graph={message.capabilityGraph} />
+                        <details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+                          <summary className="cursor-pointer py-2">How Veyra understands this request</summary>
+                          <IntentGraphPreview graph={message.capabilityGraph} />
+                        </details>
                       )}
                       {message.intent && message.intent.candidates.length > 0 && (
                         <div className="mt-3"><ActionCard intent={message.intent} onNavigate={onNavigate}
@@ -318,7 +311,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn }: AgentP
           </div>
         </div>
         <p className="mt-2 text-center text-[10px]" style={{ color: 'var(--subtle)' }}>
-          Agent conversation is not execution. Identity, amounts, routes and policy are verified by deterministic Veyra services.
+          Veyra never signs for you. Check the recipient, network and fee before confirming.
         </p>
       </div>
     </div>
@@ -349,18 +342,6 @@ function IntentGraphPreview({ graph }: { graph: CapabilityIntentGraph }) {
         ))}
       </div>
       <div className="mt-3 text-[10px]" style={{ color: 'var(--subtle)' }}>Route, provider, exact amounts, policy, risk and required protocol signatures are calculated after context resolution.</div>
-    </div>
-  );
-}
-
-function CapabilityPill({ label, online, icon, fallbackLabel }: { label: string; online: boolean; icon: React.ReactNode; fallbackLabel: string }) {
-  return (
-    <div className="flex min-w-0 items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-      <span style={{ color: online ? 'var(--success)' : 'var(--warning)' }}>{icon}</span>
-      <div className="min-w-0">
-        <div className="truncate text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--muted)' }}>{label}</div>
-        <div className="truncate text-[10px]" style={{ color: online ? 'var(--success)' : 'var(--subtle)' }}>{online ? 'Online' : fallbackLabel}</div>
-      </div>
     </div>
   );
 }
