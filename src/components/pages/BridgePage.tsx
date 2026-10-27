@@ -17,7 +17,8 @@
 import { useEffect, useState } from 'react';
 import { useAccount, usePublicClient, useWalletClient, useSwitchChain } from 'wagmi';
 import { Globe, AlertTriangle, Info, ArrowRight, Loader2, CheckCircle, Lock } from 'lucide-react';
-import { isAddress, parseUnits, type Address } from 'viem';
+import { formatUnits, isAddress, parseUnits, type Address } from 'viem';
+import { inspectReverseCctpSource, REVERSE_CCTP_SOURCES, type ReverseCctpReadiness } from '../../core/bridge/reverseCctpReadiness';
 import {
   createBridgeActionFromRoute,
   evaluateBridgeAction,
@@ -84,6 +85,8 @@ export function BridgePage() {
   const { data: walletClient } = useWalletClient();
   const { switchChainAsync } = useSwitchChain();
   const sourcePublicClient = usePublicClient({ chainId: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID });
+  const ethereumSepoliaClient = usePublicClient({chainId:MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID});
+  const baseSepoliaClient = usePublicClient({chainId:MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID});
   const social = useUnifiedSocial();
   const bridgeExecution = useBridgeExecution();
   // A preview can display a CCTP route draft, but cannot advertise a
@@ -97,6 +100,59 @@ export function BridgePage() {
   const [destChainId, setDestChainId] = useState<number>(MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID);
   const [recipientAddress, setRecipientAddress] = useState('');
   const [agentHandoff, setAgentHandoff] = useState<string | null>(null);
+  const [reverseSource, setReverseSource] = useState<number>(MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID);
+  const [reverseAmount, setReverseAmount] = useState('1');
+  const [reverseRecipient, setReverseRecipient] = useState('');
+  const [reverseStatus, setReverseStatus] = useState<ReverseCctpReadiness | null>(null);
+  const [reverseChecking, setReverseChecking] = useState(false);
+
+  useEffect(()=>{
+    // Identity switch must not leave a successful previous account's preflight
+    // displayed to the next wallet. Recipient is also wallet-specific here.
+    setReverseRecipient(address??'');
+    setReverseStatus(null);
+  },[address]);
+
+  async function checkReverseReadiness() {
+    if(reverseChecking)return;
+    setReverseStatus(null);
+    if(!address || !isConnected){
+      setReverseStatus({status:'UNAVAILABLE',reason:'Connect a wallet to check your own source-chain USDC. No signing required.'});
+      return;
+    }
+    const client=reverseSource===MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID
+      ?ethereumSepoliaClient:reverseSource===MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID
+      ?baseSepoliaClient:undefined;
+    if(!client){
+      setReverseStatus({status:'UNAVAILABLE',reason:'The selected source RPC is unavailable.'});
+      return;
+    }
+    let raw:bigint;
+    try{
+      raw=parseUnits(reverseAmount.trim(),6);
+      if(raw<=0n)throw Error('non-positive');
+    }catch{
+      setReverseStatus({status:'UNAVAILABLE',reason:'Enter a positive USDC amount with up to six decimals.'});
+      return;
+    }
+    setReverseChecking(true);
+    let timeout:ReturnType<typeof setTimeout>|undefined;
+    try{
+      const outcome=await Promise.race<ReverseCctpReadiness>([
+        inspectReverseCctpSource(client,{
+          sourceChainId:reverseSource,sender:address,recipient:reverseRecipient,amount:raw,
+        }),
+        new Promise<ReverseCctpReadiness>((resolve)=>{
+          timeout=setTimeout(()=>resolve({status:'UNAVAILABLE',
+            reason:'Source RPC timed out. No transaction was created or signed.'}),20_000);
+        }),
+      ]);
+      setReverseStatus(outcome);
+    }finally{
+      if(timeout)clearTimeout(timeout);
+      setReverseChecking(false);
+    }
+  }
   const [bridgeState, setBridgeState] = useState<BridgeState>({ phase: 'INPUT' });
   const [recoveryCandidates, setRecoveryCandidates] = useState<BridgeRecoveryCheckpoint[]>([]);
   const hasUnfinishedBurn = recoveryCandidates.some((checkpoint) => checkpoint.stage !== 'VERIFIED');
@@ -546,6 +602,69 @@ export function BridgePage() {
             Sepolia / Base → Arc · Coming soon
           </span>
         </div>
+        <details className="mt-3 rounded-xl border px-3 py-3" style={{borderColor:'var(--border)'}}>
+          <summary className="cursor-pointer text-xs font-semibold" style={{color:'var(--ink)'}}>
+            Explore reverse Bridge · read-only checks
+          </summary>
+          <div className="mt-3 space-y-3">
+            <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
+              Reverse execution is not yet supported. Inspect live source-chain contracts,
+              USDC balance and deposit simulation without switching networks, signing or moving funds.
+            </p>
+            <label className="block space-y-1 text-xs" style={{color:'var(--muted)'}}>
+              <span>Source network</span>
+              <select aria-label="Reverse Bridge source network" value={reverseSource}
+                onChange={(event)=>{
+                  setReverseSource(Number(event.target.value));setReverseStatus(null);
+                }}
+                className="w-full rounded-lg border p-2.5 text-sm"
+                style={{borderColor:'var(--border-strong)',background:'var(--surface)',color:'var(--ink)'}}>
+                {REVERSE_CCTP_SOURCES.map((entry)=>
+                  <option key={entry.chainId} value={entry.chainId}>{entry.name}</option>)}
+              </select>
+            </label>
+            <label className="block space-y-1 text-xs" style={{color:'var(--muted)'}}>
+              <span>Amount (USDC)</span>
+              <input inputMode="decimal" aria-label="Reverse Bridge amount" value={reverseAmount}
+                onChange={(event)=>{setReverseAmount(event.target.value);setReverseStatus(null);}}
+                className="w-full rounded-lg border p-2.5 text-sm"
+                style={{borderColor:'var(--border-strong)',background:'var(--surface)',color:'var(--ink)'}} />
+            </label>
+            <label className="block space-y-1 text-xs" style={{color:'var(--muted)'}}>
+              <span>Recipient on Arc Testnet</span>
+              <input aria-label="Reverse Bridge recipient wallet" value={reverseRecipient}
+                onChange={(event)=>{setReverseRecipient(event.target.value);setReverseStatus(null);}}
+                placeholder="0x…" spellCheck={false}
+                className="w-full min-w-0 rounded-lg border p-2.5 font-mono text-xs"
+                style={{borderColor:'var(--border-strong)',background:'var(--surface)',color:'var(--ink)'}} />
+            </label>
+            <button type="button" disabled={reverseChecking} onClick={()=>void checkReverseReadiness()}
+              className="w-full rounded-xl border px-3 py-2.5 text-sm font-semibold disabled:opacity-50"
+              style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>
+              {reverseChecking ? 'Reading source chain…' : 'Check reverse route (no signing)'}
+            </button>
+            {reverseStatus && (
+              <div role="status" className="rounded-xl border p-3 space-y-1"
+                style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+                <p className="text-xs font-bold" style={{color:reverseStatus.status==='UNAVAILABLE'?'var(--warning)':'var(--ink)'}}>
+                  {reverseStatus.status==='SIMULATED' ? 'Source burn eth_call succeeded'
+                    :reverseStatus.status==='APPROVAL_REQUIRED'?'Allowance is below the selected amount'
+                    :reverseStatus.status==='INSUFFICIENT_BALANCE'?'Source USDC balance is insufficient'
+                    :'Route cannot be verified'}
+                </p>
+                {reverseStatus.status==='UNAVAILABLE'
+                  ?<p className="text-xs leading-5" style={{color:'var(--muted)'}}>{reverseStatus.reason}</p>
+                  :<p className="text-xs leading-5" style={{color:'var(--muted)'}}>
+                    Source USDC balance: {formatUnits(reverseStatus.balance,6)} ·
+                    allowance: {formatUnits(reverseStatus.allowance,6)}. These are live source-RPC reads.
+                  </p>}
+                <p className="text-xs font-medium" style={{color:'var(--warning)'}}>
+                  Execution locked: destination receipt, attestation and backend safety gates are not yet enabled for reverse routes.
+                </p>
+              </div>
+            )}
+          </div>
+        </details>
       </div>
       {recentBridge && (
         <section aria-label="Recent verified Bridge activity" className="rounded-2xl border p-4 space-y-2"
