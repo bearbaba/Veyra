@@ -6,19 +6,24 @@
  * developer dashboard.
  */
 
-import { useEffect,useState } from 'react';
+import { useEffect,useRef,useState } from 'react';
 import { useAccount, useDisconnect } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { Check, ChevronDown, Copy, Link2, Loader2, ShieldCheck, SlidersHorizontal, Wallet, LogOut } from 'lucide-react';
 import { DEFAULT_VEYRA_POLICY } from '@/core/policy/policyEngine';
 import { VEYRA_ENV } from '@/lib/env';
-import { beginXLink, getXLinkCapability } from '@/lib/api/identityApi';
+import { beginXLink, finishXLink, getXLinkCapability } from '@/lib/api/identityApi';
 import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS } from '@/config/productRegistry';
 import { RuntimeStatusCard } from '../system/RuntimeStatusCard';
 import { BrandLogo } from '../brand/BrandLogo';
 import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 import { VeyraIdentityAccess } from '../identity/VeyraIdentityAccess';
+
+// Evaluated before App clears its callback navigation hint from the URL.
+const X_CALLBACK_RETURN = typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).get('x_linked') === '1';
+const X_PENDING_KEY = 'veyra:x-oauth:pending';
 
 export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const { address, isConnected } = useAccount();
@@ -30,12 +35,32 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const [disconnecting,setDisconnecting]=useState(false);
   const [logoutWarning,setLogoutWarning]=useState<string|null>(null);
   const [xLoading, setXLoading] = useState(false);
+  const xFinishAttempted=useRef(false);
   const [xError, setXError] = useState<string | null>(null);
   // Fail closed until the exact, owner-trusted Testnet BFF reports it has
   // X OAuth credentials and a pinned callback. No redirect on mere "BFF online".
   const [xCapability,setXCapability]=useState<'checking'|'available'|'unavailable'>('unavailable');
   const profile = identity.profile;
   const signedToken=social.session?.token;
+  useEffect(()=>{
+    if (!X_CALLBACK_RETURN || xFinishAttempted.current || !signedToken || !profile || social.identityOrigin!=='ready') return;
+    const raw = window.sessionStorage.getItem(X_PENDING_KEY);
+    let pending: { state: string; veyraUserId: string; startedAt: number } | null = null;
+    try { pending = raw ? JSON.parse(raw) as typeof pending : null; } catch { /* corrupt session data */ }
+    if (!pending || pending.veyraUserId !== profile.veyraUserId ||
+        !/^[-_A-Za-z0-9]{30,128}$/.test(pending.state) ||
+        !Number.isFinite(pending.startedAt) || Date.now()-pending.startedAt>10*60*1000) {
+      // A pasted or cross-wallet X callback must never link an account.
+      setXError('X authorization was not started by this signed Veyra ID in this browser. Start again.');
+      return;
+    }
+    xFinishAttempted.current = true;
+    setXLoading(true);
+    void finishXLink(pending.state, signedToken)
+      .then(async()=>{window.sessionStorage.removeItem(X_PENDING_KEY);await social.refresh();})
+      .catch(error=>{setXError(error instanceof Error?error.message:'X linking could not be confirmed.');window.sessionStorage.removeItem(X_PENDING_KEY);})
+      .finally(()=>setXLoading(false));
+  },[signedToken,profile?.veyraUserId,social.identityOrigin]);
   useEffect(()=>{
     if(!signedToken||social.identityOrigin!=='ready'||profile?.x){
       setXCapability('unavailable');return;
@@ -66,6 +91,9 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
     setXLoading(true);
     try {
       const authorizeUrl = await beginXLink('/settings');
+      const state=new URL(authorizeUrl).searchParams.get('state');
+      if(!state||!/^[-_A-Za-z0-9]{30,128}$/.test(state)) throw new Error('Invalid X authorization state.');
+      window.sessionStorage.setItem(X_PENDING_KEY,JSON.stringify({state,veyraUserId:profile.veyraUserId,startedAt:Date.now()}));
       window.location.assign(authorizeUrl);
     } catch (error) {
       setXError(error instanceof Error ? error.message : 'Unable to start X linking');

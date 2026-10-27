@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'crypto';
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, gt, isNull, isNotNull } from 'drizzle-orm';
 import type { DbClient } from '../db/client.js';
 import { newOAuthStateId } from '../db/ids.js';
 import { oauthLinkStates } from '../db/schema/index.js';
@@ -183,10 +183,10 @@ async function fetchXProfile(accessToken: string): Promise<XIdentityImport> {
   return parseXMeResponse(await response.json());
 }
 
-export async function completeXOAuthLink(
+export async function completeXOAuthCallback(
   db: DbClient,
-  input: { state: string; code: string; clientId: string; clientSecret?: string },
-): Promise<{ veyraUserId: string; appOrigin: string; returnPath: string; profile: Awaited<ReturnType<typeof linkXIdentityFromOAuth>> }> {
+  input: { state: string; code: string; clientId: string; clientSecret?: string; allowedOrigins: readonly string[] },
+): Promise<{ appOrigin: string; returnPath: string }> {
   if (!input.state || !input.code) throw new XOAuthError('INVALID_OAUTH_CALLBACK', 'Missing OAuth state or code');
   const stateHash = hashOAuthState(input.state);
   const now = new Date();
@@ -200,6 +200,8 @@ export async function completeXOAuthLink(
     )).limit(1);
     if (!candidate) throw new XOAuthError('OAUTH_STATE_INVALID', 'OAuth state is invalid, expired, or already used', 409);
     if(!candidate.appOrigin)throw new XOAuthError('OAUTH_ORIGIN_MISSING','Legacy OAuth state cannot be resumed. Start again.',409);
+    // Check the live allowlist before contacting X or staging any profile.
+    checkedXReturnOrigin(candidate.appOrigin, input.allowedOrigins);
 
     const consumed = await tx.update(oauthLinkStates)
       .set({ consumedAt: now })
@@ -220,6 +222,54 @@ export async function completeXOAuthLink(
     redirectUri: row.redirectUri,
   });
   const xProfile = await fetchXProfile(accessToken);
-  const profile = await linkXIdentityFromOAuth(db, row.veyraUserId, xProfile);
-  return { veyraUserId: row.veyraUserId, appOrigin: row.appOrigin!, returnPath: row.returnPath, profile };
+  // Do NOT link here: front-channel X consent can be shared with a different
+  // browser. Save only a short-lived pending proof; the initiating signed
+  // Veyra session must complete the link from the same browser origin.
+  await db.update(oauthLinkStates).set({ pendingProfile: xProfile })
+    .where(eq(oauthLinkStates.oauthStateId, row.oauthStateId));
+  return { appOrigin: row.appOrigin!, returnPath: row.returnPath };
 }
+
+export function assertXPendingLinkOwner(candidate: {
+  veyraUserId: string;
+  appOrigin: string | null;
+  consumedAt: Date | null;
+  linkedAt: Date | null;
+  expiresAt: Date;
+  pendingProfile: unknown;
+}, owner: string, origin: string, now = new Date()): void {
+  if (!candidate || candidate.veyraUserId !== owner || candidate.appOrigin !== origin ||
+      !candidate.consumedAt || candidate.linkedAt || candidate.expiresAt <= now ||
+      !candidate.pendingProfile) {
+    throw new XOAuthError('X_LINK_CONFIRMATION_INVALID', 'X link expired, was already used, or belongs to a different signed Veyra session.', 409);
+  }
+}
+
+export async function finishXOAuthLink(
+  db: DbClient,
+  input: { state: string; veyraUserId: string; appOrigin: string },
+): Promise<{ profile: Awaited<ReturnType<typeof linkXIdentityFromOAuth>> }> {
+  if (!/^[-_A-Za-z0-9]{30,128}$/.test(input.state)) {
+    throw new XOAuthError('X_LINK_CONFIRMATION_INVALID', 'Invalid X link confirmation.', 400);
+  }
+  const now = new Date();
+  const [candidate] = await db.select().from(oauthLinkStates).where(and(
+    eq(oauthLinkStates.stateHash, hashOAuthState(input.state)),
+    eq(oauthLinkStates.provider, 'X'),
+    eq(oauthLinkStates.veyraUserId, input.veyraUserId),
+    eq(oauthLinkStates.appOrigin, input.appOrigin),
+    isNotNull(oauthLinkStates.consumedAt),
+    isNull(oauthLinkStates.linkedAt),
+    gt(oauthLinkStates.expiresAt, now),
+  )).limit(1);
+  if (!candidate) throw new XOAuthError('X_LINK_CONFIRMATION_INVALID', 'X confirmation is missing or expired.', 409);
+  assertXPendingLinkOwner(candidate, input.veyraUserId, input.appOrigin, now);
+  // Profile service independently checks the ACTIVE wallet-bound Veyra ID,
+  // prohibits linking an X ID to two active owners, and blocks silent relinks.
+  const profile = await linkXIdentityFromOAuth(db, input.veyraUserId, candidate.pendingProfile as XIdentityImport);
+  await db.update(oauthLinkStates)
+    .set({ linkedAt: new Date(), pendingProfile: null })
+    .where(and(eq(oauthLinkStates.oauthStateId, candidate.oauthStateId), isNull(oauthLinkStates.linkedAt)));
+  return { profile };
+}
+

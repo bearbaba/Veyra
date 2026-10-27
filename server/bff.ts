@@ -47,7 +47,7 @@ import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
 import {DirectMessageError,encryptionKey,chatPage,listDirectMessages,sendDirectMessage} from './services/directMessageService.js';
 import {IncomingUsdcError,reconcileIncomingUsdc} from './services/incomingUsdcService.js';
-import { beginXOAuthLink, completeXOAuthLink, XOAuthError,checkedXReturnOrigin,buildXLinkedReturnUrl,isConfiguredXOAuth } from './services/xOAuthService.js';
+import { beginXOAuthLink, completeXOAuthCallback, finishXOAuthLink, XOAuthError,checkedXReturnOrigin,buildXLinkedReturnUrl,isConfiguredXOAuth } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
 import { PaymentReviewError } from './services/paymentReviewProof.js';
 import { upsertContact, removeContact, listContacts, ContactError } from './services/contactService.js';
@@ -791,21 +791,38 @@ app.get('/api/auth/x/callback', IDENTITY_RATE, async (req: Request, res: Respons
     const clientId = process.env.X_CLIENT_ID ?? '';
     if (!clientId) throw new XOAuthError('X_OAUTH_NOT_CONFIGURED', 'X OAuth is not configured', 503);
     const { db } = await import('./db/client.js');
-    const completed = await completeXOAuthLink(db, {
+    const completed = await completeXOAuthCallback(db, {
       state,
       code,
       clientId,
       clientSecret: process.env.X_CLIENT_SECRET,
+      allowedOrigins: [runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??''],
     });
-    // State was created from an exact, server-trusted Origin, then consumed
-    // once. Recheck the current allowlist before redirecting. Never redirect
-    // V2 users silently to the separate primary Testnet account session.
+    // Provider authorization only STAGES a profile. The signed originating
+    // Veyra session will independently finish linking after the redirect.
     const target=buildXLinkedReturnUrl(completed.appOrigin,
       [runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
     res.redirect(303,target);
   } catch (err) {
     identityError(res, err);
   }
+});
+
+// ── POST /api/auth/x/finish ─────────────────────────────────────────────────
+// A callback alone is not proof that this browser owns the initiating Veyra
+// identity. Require its active signed session and the original one-use state.
+app.post('/api/auth/x/finish', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const veyraUserId = getAuthenticatedVeyraUserId(req);
+    if (!veyraUserId) { res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' }); return; }
+    const appOrigin = checkedXReturnOrigin(req.header('origin'),
+      [runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
+    const state = typeof (req.body as Record<string, unknown> | undefined)?.state === 'string'
+      ? String((req.body as Record<string, unknown>).state) : '';
+    const { db } = await import('./db/client.js');
+    const completed = await finishXOAuthLink(db, { state, veyraUserId, appOrigin });
+    res.json({ ok: true, profile: completed.profile });
+  } catch (err) { identityError(res, err); }
 });
 
 // ── POST /api/identity/challenge ────────────────────────────────────────────

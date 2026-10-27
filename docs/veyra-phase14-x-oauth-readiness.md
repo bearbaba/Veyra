@@ -23,12 +23,18 @@ or authorizes a wallet signature or transfer.
    short-lived state and PKCE verifier are held on the server; the exact
    approved browser Origin is stored next to it.
 5. X callback exchanges the code on the backend, fetches the immutable X user
-   ID, links it to the same Veyra user, and checks the current allowlist again.
-   Return to the originating host at `/?x_linked=1` (UI hint only).
-6. Test on two wallets: link once, refresh, reject duplicate cross-ID X
+   ID and STAGES a short-lived pending profile. It does **not** link on callback.
+   Return to the originating host at `/?x_linked=1` (navigation hint only).
+6. The initiating browser tab retains the random OAuth state in sessionStorage.
+   `POST /api/auth/x/finish` requires that state, a valid signed Veyra ID session
+   for the same user, and the same approved Origin. The backend checks the
+   pending owner and clears the staged profile after linking.
+   Replayed, expired, pasted or cross-wallet callback links are rejected.
+   Apply additive migration 0018 before enabling X on Render.
+7. Test on two wallets: link once, refresh, reject duplicate cross-ID X
    linking, reject expired/replayed state, disconnect and switch wallet,
    refresh avatar and confirm the original Veyra ID stays unchanged.
-7. Keep V2 Testnet main alias unchanged until all gates pass. Do not enable
+8. Keep V2 Testnet main alias unchanged until all gates pass. Do not enable
    Mainnet financial transactions based on an OAuth acceptance result.
 
 ## Explicit non-goals

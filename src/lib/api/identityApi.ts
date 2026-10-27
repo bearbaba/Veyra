@@ -115,6 +115,11 @@ export async function getXLinkCapability():Promise<boolean>{
   }catch{return false;}
 }
 
+export async function finishXLink(state: string, signedToken: string): Promise<void> {
+  if (!/^[-_A-Za-z0-9]{30,128}$/.test(state)) throw new Error('X authorization state is invalid. Start again.');
+  await postJson<{ ok: true }>('/api/auth/x/finish', { state }, requireSignedIdentityToken(signedToken));
+}
+
 export async function beginXLink(returnPath = '/settings'): Promise<string> {
   const result = await postJson<{ ok: true; authorizeUrl: string }>('/api/auth/x/start', { returnPath });
   return verifyXAuthorizationUrl(result.authorizeUrl);

@@ -15,6 +15,7 @@ export const STAGING_ALLOWED_PATHS=[
   // callback/client configuration. The callback itself stays on Render.
   "/api/auth/x/capability",
   "/api/auth/x/start",
+  "/api/auth/x/finish",
   "/api/identity/register/challenge",
   "/api/identity/register/complete",
   "/api/identity/resolve",

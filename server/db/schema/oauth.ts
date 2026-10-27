@@ -1,4 +1,4 @@
-import { index, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { index, pgTable, text, timestamp, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
 import { veyraUsers } from './identity.js';
 
 /**
@@ -21,6 +21,10 @@ export const oauthLinkStates = pgTable(
     issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    // X verifies the provider identity first; a signed same-browser Veyra
+    // session must explicitly finish linking it to the intended owner.
+    pendingProfile: jsonb('pending_profile'),
+    linkedAt: timestamp('linked_at', { withTimezone: true }),
   },
   (t) => [
     uniqueIndex('uix_oauth_link_states_state_hash').on(t.stateHash),
