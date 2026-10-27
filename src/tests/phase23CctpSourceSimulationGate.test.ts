@@ -18,10 +18,10 @@ const action=()=>createBridgeAction({
 const fake=(allowance=10_000_000n, balance=20_000_000n)=>{
   const calls:unknown[]=[];
   const client={
-    getChainId:vi.fn(async (): Promise<number> => MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID),
-    readContract:vi.fn(async (query:{functionName:string})=>query.functionName==='balanceOf'?balance:allowance),
-    getCode:vi.fn(async()=>'0x1234'),
-    simulateContract:vi.fn(async(params:unknown)=>{calls.push(params);return {request:params};}),
+    getChainId:vi.fn((): Promise<number> => Promise.resolve(MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID)),
+    readContract:vi.fn((query:{functionName:string})=>Promise.resolve(query.functionName==='balanceOf'?balance:allowance)),
+    getCode:vi.fn(()=>Promise.resolve('0x1234')),
+    simulateContract:vi.fn((params:unknown)=>{calls.push(params);return Promise.resolve({request:params});}),
   };
   return {client:client as unknown as PublicClient,calls, mocks:client};
 };
