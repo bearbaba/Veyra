@@ -494,7 +494,7 @@ export function BridgePage() {
           state={bridgeExecution.state}
           onReset={handleBridgeAgain}
         />
-      ) : bridgeState.phase === 'INPUT' || bridgeState.phase === 'EVALUATING' || bridgeState.phase === 'BLOCKED' ? (
+      ) : bridgeState.phase === 'INPUT' || bridgeState.phase === 'EVALUATING' || bridgeState.phase === 'BLOCKED' || bridgeState.phase === 'FAILED' ? (
         <>
           {/* Route */}
           <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border-strong)' }}>
@@ -546,10 +546,21 @@ export function BridgePage() {
           </div>
 
           {/* Blocked */}
-          {bridgeState.phase === 'BLOCKED' && bridgeIdentityReady && (
-            <div className="flex items-start gap-2 rounded-xl p-3.5" style={{ background: 'var(--danger-muted)', border: '1px solid var(--border)' }}>
+          {(bridgeState.phase === 'BLOCKED' || bridgeState.phase === 'FAILED') && bridgeIdentityReady && (
+            <div role="alert" className="flex items-start gap-2 rounded-xl p-3.5"
+              style={{ background: 'var(--danger-muted)', border: '1px solid var(--border)' }}>
               <AlertTriangle className="size-4 mt-0.5 shrink-0" style={{ color: 'var(--danger)' }} />
-              <p className="text-sm" style={{ color: 'var(--danger)' }}>{bridgeState.reason}</p>
+              <div className="min-w-0">
+                <p className="text-sm leading-5" style={{ color: 'var(--danger)' }}>
+                  {bridgeState.phase === 'BLOCKED' ? bridgeState.reason
+                    : bridgeState.error.includes('SIMULATION_REQUIRED')
+                      ? 'Bridge simulation was not accepted by the Testnet receipt service. No source burn was submitted in this review.'
+                      : bridgeState.error}
+                </p>
+                <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>
+                  Your amount, destination network and wallet address are preserved. Review them and retry only after checking your wallet Activity for an existing transaction.
+                </p>
+              </div>
             </div>
           )}
 
@@ -565,6 +576,7 @@ export function BridgePage() {
               <><Loader2 className="inline size-4 mr-2 animate-spin" />Checking route…</>
             ) : bridgeOriginUnavailable ? 'Bridge unavailable on this Preview'
               : !bridgeIdentityReady ? 'Sign in to review bridge'
+              : bridgeState.phase === 'FAILED' || bridgeState.phase === 'BLOCKED' ? 'Check again'
               : 'Review bridge'}
           </button>
         </>
@@ -616,13 +628,6 @@ export function BridgePage() {
           <p className="text-sm font-mono" style={{ color: 'var(--muted)' }}>{bridgeState.burnTxHash.slice(0, 20)}...</p>
           <button onClick={() => setBridgeState({ phase: 'INPUT' })} className="w-full rounded-xl py-2.5 text-sm font-semibold" style={{ background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--border-strong)' }}>Bridge again</button>
         </div>
-      ) : bridgeState.phase === 'FAILED' ? (
-        <div className="space-y-3">
-          <div className="rounded-xl p-4" style={{ background: 'var(--danger-muted)', border: '1px solid var(--border)' }}>
-            <p className="text-sm" style={{ color: 'var(--danger)' }}>{bridgeState.error}</p>
-          </div>
-          <button onClick={() => setBridgeState({ phase: 'INPUT' })} className="w-full rounded-xl py-2.5 text-sm font-semibold" style={{ background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>Try again</button>
-        </div>
       ) : null}
 
       {/* Provider info */}
@@ -630,8 +635,8 @@ export function BridgePage() {
         <Globe className="size-3.5 mt-0.5 shrink-0" style={{ color: 'var(--accent)' }} />
         <p className="text-xs" style={{ color: 'var(--muted)' }}>
           CCTP V2 (verified 2026-10-07). Standard transfer (minFinalityThreshold=2000).
-          Source burn tx confirmed on Arc Testnet — awaits Circle attestation before relay to {selectedDest.name}.
-          Bridge completion takes ~15 min for standard transfers.
+          After your wallet signs a source burn, Veyra waits for Arc confirmation and Circle attestation before the destination mint on {selectedDest.name}.
+          Timing depends on live network and relayer conditions; no USDC has moved just by opening this page.
         </p>
       </div>
     </div>
