@@ -42,12 +42,31 @@ export function VeyraIdentityAccess(){
       {lastKnownId&&<p className="text-sm" style={{color:'var(--ink)'}}>Last used: <b>@{lastKnownId}.veyra</b> · Sign-in required</p>}
       <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
         {checking?'Verifying the backend before requesting any wallet signature.'
-          :refused?'Your wallet is connected. The backend rejected this website address (403 ORIGIN_NOT_ALLOWED). Use an approved Veyra domain after the server origin is configured. No signature was requested.'
+          :refused?'Your wallet is connected. This Preview cannot access private Veyra ID or Friends data. No signature was requested.'
           :'The identity service could not be verified. Your connected wallet remains safe; no signature or payment was submitted.'}
       </p>
+      {refused && (
+        <div className="flex flex-wrap items-center gap-3">
+          <a href="https://veyra-unified-testnet-v2.vercel.app"
+            target="_blank" rel="noopener noreferrer"
+            className="rounded-lg border px-3 py-2 text-xs font-semibold"
+            style={{borderColor:'var(--border-strong)',color:'var(--accent)'}}>
+            Open stable Testnet site
+          </a>
+          <span className="text-xs" style={{color:'var(--muted)'}}>
+            Separate release · Your wallet stays connected here
+          </span>
+        </div>
+      )}
       {!checking&&<button type="button" onClick={()=>void social.recheckIdentityOrigin()}
         className="rounded-lg border px-3 py-2 text-xs font-semibold"
         style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>Retry connection check</button>}
+      {refused && (
+        <details className="text-xs" style={{color:'var(--muted)'}}>
+          <summary className="cursor-pointer">Technical details</summary>
+          <p className="mt-1">Server rejected the browser origin: 403 ORIGIN_NOT_ALLOWED. Only exact, configured Testnet domains may sign in.</p>
+        </details>
+      )}
     </section>;
   }
 

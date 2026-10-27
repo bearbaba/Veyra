@@ -89,7 +89,7 @@ export interface MyProfile {
   veyraUserId: string;
   veyraHandle: string;
   displayName: string;
-  x: null | { xAccountId: string; xHandle: string | null };
+  x: null | { xAccountId: string; xHandle: string | null; avatarUrl?: string | null };
 }
 
 export async function getMyProfile(): Promise<MyProfile> {
@@ -97,6 +97,27 @@ export async function getMyProfile(): Promise<MyProfile> {
   const payload = await response.json() as Record<string, unknown>;
   if (!response.ok) throw new Error(typeof payload.message === 'string' ? payload.message : `Request failed (${response.status})`);
   return (payload as unknown as { profile: MyProfile }).profile;
+}
+
+// Read-only capability probe. An older BFF (404), HTML fallback or missing
+// provider config must leave the X button disabled, not offer dead OAuth.
+export async function getXLinkCapability():Promise<boolean>{
+  try{
+    const response=await fetch('/api/auth/x/capability',{
+      method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
+      credentials:'same-origin',cache:'no-store',body:'{}',
+      signal:AbortSignal.timeout(12000),
+    });
+    if(!response.ok||!response.headers.get('content-type')?.includes('application/json'))return false;
+    const payload:unknown=await response.json();
+    return Boolean(payload&&typeof payload==='object'&&!Array.isArray(payload)&&
+      'ok' in payload&&payload.ok===true&&'available' in payload&&payload.available===true);
+  }catch{return false;}
+}
+
+export async function finishXLink(state: string, signedToken: string): Promise<void> {
+  if (!/^[-_A-Za-z0-9]{30,128}$/.test(state)) throw new Error('X authorization state is invalid. Start again.');
+  await postJson<{ ok: true }>('/api/auth/x/finish', { state }, requireSignedIdentityToken(signedToken));
 }
 
 export async function beginXLink(returnPath = '/settings'): Promise<string> {

@@ -35,12 +35,27 @@ describe('Secure browser restored identity after F5',()=>{
     expect(bff).toContain('wb.revoked_at IS NULL');
     expect(bff).toContain("u.status='ACTIVE'");
     expect(bff).toContain("res.setHeader('Set-Cookie',clearBrowserRestoreCookie())");
-    expect(social).toContain("'/api/auth/session/restore','POST',undefined,{walletAddress:address}");
+    expect(social).toContain("'/api/auth/session/restore','POST',undefined,{walletAddress:address},30000");
+    expect(social).toContain('restoreAttemptedFor.current=key');
+    expect(social).toContain('restoreAttemptedFor.current===walletKey');
     expect(social).toContain('if(!isConnected||!address||!connector');
     expect(social).toContain('const signOut=useCallback');
     expect(social).toContain("'/api/auth/session/logout'");
     expect(api).not.toContain('localStorage');
-    expect(home).toContain('Sign-in required');
+    expect(home).toContain('Sign in to your Veyra ID');
+  });
+  it('suppresses cookie restore during explicit logout and uses one awaited request',()=>{
+    const social=read('features/social/UnifiedSocial.tsx');
+    const settings=read('components/pages/SettingsPage.tsx');
+    const friends=read('components/pages/SocialPage.tsx');
+    expect(social).toContain('restoreSuppressedFor.current=current.current');
+    expect(social).toContain('restoreSuppressedFor.current===walletKey');
+    expect(social).toContain("api<{ok:boolean}>('/api/auth/session/logout','POST',undefined,undefined,20000)");
+    expect(social).toContain('if(response.ok!==true)throw');
+    expect(social).not.toContain("void api('/api/auth/session/logout','POST').catch");
+    expect(settings).toContain('const serverLogout=await social.signOut()');
+    expect(settings).not.toContain("fetch('/api/auth/session/logout'");
+    expect(friends).toContain('onClick={()=>void social.signOut()}');
   });
   it('keeps only exact reviewed API rewrites',()=>{
     const stage=readFileSync(new URL('../../scripts/stagingBffAllowlist.ts',import.meta.url),'utf8');

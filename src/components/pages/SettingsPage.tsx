@@ -6,19 +6,25 @@
  * developer dashboard.
  */
 
-import { useState } from 'react';
+import { useEffect,useRef,useState } from 'react';
 import { useAccount, useDisconnect } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
-import { Check, Copy, Link2, Loader2, ShieldCheck, SlidersHorizontal, Wallet, LogOut } from 'lucide-react';
+import { Check, ChevronDown, Copy, Link2, Loader2, ShieldCheck, SlidersHorizontal, Wallet, LogOut } from 'lucide-react';
 import { DEFAULT_VEYRA_POLICY } from '@/core/policy/policyEngine';
 import { VEYRA_ENV } from '@/lib/env';
-import { beginXLink } from '@/lib/api/identityApi';
+import { beginXLink, finishXLink, getXLinkCapability } from '@/lib/api/identityApi';
 import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS } from '@/config/productRegistry';
 import { RuntimeStatusCard } from '../system/RuntimeStatusCard';
 import { BrandLogo } from '../brand/BrandLogo';
 import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 import { VeyraIdentityAccess } from '../identity/VeyraIdentityAccess';
+
+// Evaluated before App clears its callback navigation hint from the URL.
+const X_CALLBACK_RETURN = typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).get('x_linked') === '1';
+const X_PENDING_KEY = 'veyra:x-oauth:pending';
+type PendingXLink = { state: string; veyraUserId: string; startedAt: number };
 
 export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const { address, isConnected } = useAccount();
@@ -30,17 +36,52 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const [disconnecting,setDisconnecting]=useState(false);
   const [logoutWarning,setLogoutWarning]=useState<string|null>(null);
   const [xLoading, setXLoading] = useState(false);
+  const xFinishAttempted=useRef(false);
   const [xError, setXError] = useState<string | null>(null);
-  // The unified Testnet preview cannot complete X OAuth callbacks and must
-  // not offer a redirect that ends in a dead route or a second ID flow.
-  const xLinkUnavailable = import.meta.env.VITE_VEYRA_UNIFIED_STAGING === '1';
-
+  // Fail closed until the exact, owner-trusted Testnet BFF reports it has
+  // X OAuth credentials and a pinned callback. No redirect on mere "BFF online".
+  const [xCapability,setXCapability]=useState<'checking'|'available'|'unavailable'>('unavailable');
   const profile = identity.profile;
+  const signedToken=social.session?.token;
+  useEffect(()=>{
+    if (!X_CALLBACK_RETURN || xFinishAttempted.current || !signedToken || !profile || social.identityOrigin!=='ready') return;
+    const raw = window.sessionStorage.getItem(X_PENDING_KEY);
+    let pending: PendingXLink | null = null;
+    try { pending = raw ? JSON.parse(raw) as PendingXLink : null; } catch { /* corrupt session data */ }
+    if (!pending || pending.veyraUserId !== profile.veyraUserId ||
+        !/^[-_A-Za-z0-9]{30,128}$/.test(pending.state) ||
+        !Number.isFinite(pending.startedAt) || Date.now()-pending.startedAt>10*60*1000) {
+      // A pasted or cross-wallet X callback must never link an account.
+      setXError('X authorization was not started by this signed Veyra ID in this browser. Start again.');
+      return;
+    }
+    xFinishAttempted.current = true;
+    setXLoading(true);
+    void finishXLink(pending.state, signedToken)
+      .then(async()=>{window.sessionStorage.removeItem(X_PENDING_KEY);await social.refresh();})
+      .catch(error=>{setXError(error instanceof Error?error.message:'X linking could not be confirmed.');window.sessionStorage.removeItem(X_PENDING_KEY);})
+      .finally(()=>setXLoading(false));
+  },[signedToken,profile?.veyraUserId,social.identityOrigin]);
+  useEffect(()=>{
+    if(!signedToken||social.identityOrigin!=='ready'||profile?.x){
+      setXCapability('unavailable');return;
+    }
+    let cancelled=false;
+    setXCapability('checking');
+    void getXLinkCapability().then(allowed=>{
+      if(!cancelled)setXCapability(allowed?'available':'unavailable');
+    }).catch(()=>{if(!cancelled)setXCapability('unavailable');});
+    return()=>{cancelled=true;};
+  },[signedToken,social.identityOrigin,profile?.x]);
+  const xAvatar = profile?.x?.avatarUrl;
+  const approvedXAvatar = typeof xAvatar==='string' &&
+    /^https:\/\/pbs\.twimg\.com\/profile_images\/[0-9]+\/[A-Za-z0-9_-]+(?:\.[A-Za-z0-9]+)?(?:\?.*)?$/.test(xAvatar)
+    ? xAvatar : null;
 
   async function linkX() {
     setXError(null);
-    if (xLinkUnavailable) {
-      setXError('X linking is not available on this Testnet Preview. Your connected wallet and Veyra ID are unchanged.');
+    if (xCapability!=='available') {
+      setXError('X linking is not configured for this trusted Veyra domain. Your Veyra ID and wallet are unchanged.');
       return;
     }
     if (!profile || !social.session) {
@@ -51,6 +92,9 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
     setXLoading(true);
     try {
       const authorizeUrl = await beginXLink('/settings');
+      const state=new URL(authorizeUrl).searchParams.get('state');
+      if(!state||!/^[-_A-Za-z0-9]{30,128}$/.test(state)) throw new Error('Invalid X authorization state.');
+      window.sessionStorage.setItem(X_PENDING_KEY,JSON.stringify({state,veyraUserId:profile.veyraUserId,startedAt:Date.now()}));
       window.location.assign(authorizeUrl);
     } catch (error) {
       setXError(error instanceof Error ? error.message : 'Unable to start X linking');
@@ -67,15 +111,9 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   async function disconnectWallet(){
     if(disconnecting)return;
     setDisconnecting(true);setLogoutWarning(null);
-    let serverLogout=false;
-    try{
-      const response=await fetch('/api/auth/session/logout',{
-        method:'POST',credentials:'same-origin',cache:'no-store',
-        headers:{Accept:'application/json'}
-      });
-      serverLogout=response.ok;
-    }catch{/* Local signed session must still be cleared. */}
-    social.signOut();
+    // One awaited server logout: avoid duplicate requests and a cookie
+    // restore racing with the wallet disconnect.
+    const serverLogout=await social.signOut();
     try{await disconnectAsync();}
     catch{setLogoutWarning('Wallet extension did not disconnect. Check MetaMask and retry.');}
     if(!serverLogout)setLogoutWarning('Server sign-out was not confirmed. An unexpired session might be restored when reconnecting the same wallet.');
@@ -96,15 +134,17 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
           <SlidersHorizontal className="size-4" /> Account
         </div>
         <h1 className="display mt-2 text-3xl font-black" style={{ color: 'var(--ink)', letterSpacing: '-0.04em' }}>Identity & settings</h1>
-        <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>Your Veyra identity, linked endpoints, and the safety state underneath every action.</p>
+        <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>Your wallet, Veyra ID and connected accounts in one place.</p>
       </div>
 
-      <section className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+      <section className="space-y-3">
         <div className="rounded-3xl p-5 md:p-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border-strong)' }}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="flex size-12 items-center justify-center rounded-2xl" style={{ background: 'linear-gradient(135deg,#7c3aed,#ec4899)', color: 'white' }}>
-                <ShieldCheck className="size-5" />
+                {approvedXAvatar?<img src={approvedXAvatar} alt="Verified linked X profile avatar"
+                  referrerPolicy="no-referrer" loading="lazy" className="size-full rounded-2xl object-cover"/>:
+                  <ShieldCheck className="size-5" />}
               </div>
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--subtle)' }}>Veyra identity</div>
@@ -147,52 +187,83 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
               style={{borderColor:'var(--border)',color:'var(--ink)'}}>
               <LogOut size={14}/>{disconnecting?'Disconnecting…':'Disconnect wallet'}
             </button>}
-            <button onClick={() => void linkX()} disabled={xLinkUnavailable || social.identityOrigin !== 'ready' || !social.session || Boolean(profile?.x) || xLoading} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
+            <button onClick={() => void linkX()} disabled={xCapability!=='available' || social.identityOrigin !== 'ready' || !social.session || Boolean(profile?.x) || xLoading} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
               {xLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
-              {profile?.x ? 'X linked' : xLinkUnavailable ? 'X linking unavailable' : 'Connect X'}
+              {profile?.x ? 'X linked' : xCapability==='checking' ? 'Checking X…' : xCapability==='unavailable' ? 'X linking unavailable' : 'Connect X'}
             </button>
           </div>
           {logoutWarning&&<p role="alert" className="mt-3 text-xs" style={{color:"var(--warning)"}}>{logoutWarning}</p>}
-          {xLinkUnavailable && <p role="status" className="mt-3 text-xs" style={{color:'var(--muted)'}}>X OAuth needs an approved callback and verified backend configuration. It is disabled on this Preview, not a second account registration.</p>}
+          {xCapability==='unavailable'&&!profile?.x && <p role="status" className="mt-3 text-xs" style={{color:'var(--muted)'}}>Connect X will become available after the account-link service is verified. Your Veyra ID stays the same.</p>}
           {xError && <p className="mt-3 text-xs" style={{ color: 'var(--warning)' }}>{xError}</p>}
         </div>
 
         <RuntimeStatusCard />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <CapabilityCard title="Networks" subtitle="Recognized by the product registry. Execution is a separate gate.">
-          <div className="grid grid-cols-4 gap-3 sm:grid-cols-7">
-            {PRODUCT_NETWORKS.map((network) => (
-              <CapabilityItem key={network.id} logoKey={network.logoKey} name={network.shortName} active={network.executionEnabled} />
-            ))}
+      <section className="rounded-3xl border p-5" style={{background:'var(--surface-strong)',borderColor:'var(--border)'}}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="size-4" style={{color:'var(--success)'}}/>
+            <div>
+              <h2 className="text-sm font-bold" style={{color:'var(--ink)'}}>Transaction protection</h2>
+              <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
+                Every payment is reviewed before wallet approval. Testnet funds only.
+              </p>
+            </div>
           </div>
-        </CapabilityCard>
-        <CapabilityCard title="Assets" subtitle="Registry recognition never implies that signing is enabled.">
-          <div className="grid grid-cols-4 gap-3 sm:grid-cols-5">
-            {PRODUCT_ASSETS.slice(0, 5).map((asset) => (
-              <CapabilityItem key={asset.id} logoKey={asset.logoKey} name={asset.symbol} active={asset.executionEnabled} />
-            ))}
+          <span className="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider"
+            style={{background:'var(--success-muted)',color:'var(--success)'}}>{DEFAULT_VEYRA_POLICY.displayName}</span>
+        </div>
+        <details className="group mt-3 border-t pt-3" style={{borderColor:'var(--border)'}}>
+          <summary className="flex cursor-pointer items-center gap-2 text-xs font-semibold"
+            style={{color:'var(--muted)'}}>View protection rules and environment
+            <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden="true"/>
+          </summary>
+          <p className="mt-3 text-xs leading-5" style={{color:'var(--muted)'}}>
+            Agent conversation cannot override transaction safeguards. Network, amount, recipient and route are verified before signing.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {DEFAULT_VEYRA_POLICY.rules.slice(0, 6).map(rule=>
+              <span key={rule.ruleId} className="rounded-xl border px-2.5 py-1.5 font-mono text-[10px]"
+                style={{borderColor:'var(--border)',color:'var(--muted)'}}>{rule.ruleId}</span>)}
           </div>
-          {PRODUCT_ASSETS.length > 5 && <p className="mt-3 text-[11px]" style={{ color: 'var(--subtle)' }}>Also recognized: {PRODUCT_ASSETS.slice(5).map((asset) => asset.symbol).join(', ')}.</p>}
-        </CapabilityCard>
+          <p className="mt-3 text-[11px]" style={{color:'var(--subtle)'}}>Environment:
+            <span className="ml-1 font-semibold uppercase"
+              style={{color:VEYRA_ENV==='mainnet'?'var(--danger)':'var(--success)'}}>{VEYRA_ENV}</span>
+          </p>
+        </details>
       </section>
 
-      <section className="rounded-3xl p-5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-bold" style={{ color: 'var(--ink)' }}><ShieldCheck className="size-4" style={{ color: 'var(--accent)' }} /> Safety policy</div>
-            <p className="mt-1 max-w-2xl text-xs leading-5" style={{ color: 'var(--muted)' }}>Agent conversation cannot override deterministic policy. Every financial action is re-verified before the wallet is allowed to sign.</p>
-          </div>
-          <span className="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ background: 'var(--success-muted)', color: 'var(--success)' }}>{DEFAULT_VEYRA_POLICY.displayName}</span>
+      <details className="group rounded-3xl border p-5"
+        style={{background:'var(--surface-strong)',borderColor:'var(--border)'}}>
+        <summary className="flex cursor-pointer items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-bold" style={{color:'var(--ink)'}}>Networks & assets</span>
+            <span className="mt-1 block text-xs leading-5" style={{color:'var(--muted)'}}>
+              Arc Testnet USDC is enabled. Other listings are not available for sending yet.
+            </span>
+          </span>
+          <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180"
+            style={{color:'var(--muted)'}} aria-hidden="true"/>
+        </summary>
+        <div className="mt-4 grid gap-4 border-t pt-4 lg:grid-cols-2" style={{borderColor:'var(--border)'}}>
+          <CapabilityCard title="Networks" subtitle="Listed networks are not automatically supported payment routes.">
+            <div className="grid grid-cols-4 gap-3 sm:grid-cols-7">
+              {PRODUCT_NETWORKS.map(network=>
+                <CapabilityItem key={network.id} logoKey={network.logoKey} name={network.shortName} active={network.executionEnabled}/>)}
+            </div>
+          </CapabilityCard>
+          <CapabilityCard title="Assets" subtitle="Displayed assets are not spendable until a verified route is enabled.">
+            <div className="grid grid-cols-4 gap-3 sm:grid-cols-5">
+              {PRODUCT_ASSETS.slice(0,5).map(asset=>
+                <CapabilityItem key={asset.id} logoKey={asset.logoKey} name={asset.symbol} active={asset.executionEnabled}/>)}
+            </div>
+            {PRODUCT_ASSETS.length>5&&<p className="mt-3 text-[11px]" style={{color:'var(--subtle)'}}>
+              Also recognized: {PRODUCT_ASSETS.slice(5).map(asset=>asset.symbol).join(', ')}.
+            </p>}
+          </CapabilityCard>
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {DEFAULT_VEYRA_POLICY.rules.slice(0, 6).map((rule) => (
-            <span key={rule.ruleId} className="rounded-xl px-2.5 py-1.5 font-mono text-[10px]" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--subtle)' }}>{rule.ruleId}</span>
-          ))}
-        </div>
-        <div className="mt-4 text-[11px]" style={{ color: 'var(--subtle)' }}>Environment: <span className="font-semibold uppercase" style={{ color: VEYRA_ENV === 'mainnet' ? 'var(--danger)' : 'var(--success)' }}>{VEYRA_ENV}</span></div>
-      </section>
+      </details>
 
     </div>
   );

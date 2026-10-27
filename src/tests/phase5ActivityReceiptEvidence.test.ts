@@ -7,6 +7,7 @@ import {
   type TransactionReceipt,
 } from 'viem';
 import { MANIFEST_CONSTANTS } from '../providers/registry/providerManifest';
+import { CCTP_V2_SOURCE_TEMPLATE, CCTP_V2_ATTESTED_MESSAGE } from './fixtures/cctpV2MessageFixture';
 import {
   ActivityReceiptEvidenceError,
   verifyActivityReceiptTransitionEvidence,
@@ -28,7 +29,8 @@ const TRANSFER_TOPIC =
 const RECEIVE_MESSAGE_ABI = parseAbi([
   'function receiveMessage(bytes message, bytes attestation) returns (bool success)',
 ]);
-const MESSAGE = '0x12345678' as const;
+const SOURCE_MESSAGE = CCTP_V2_SOURCE_TEMPLATE;
+const MESSAGE = CCTP_V2_ATTESTED_MESSAGE;
 const ATTESTATION = '0xabcdef' as const;
 
 function receiveCall(
@@ -82,7 +84,7 @@ function bytes32Address(address: string): `0x${string}` {
 
 function sourceReceipt(
   amount = 1_000_000n,
-  message: `0x${string}` = MESSAGE,
+  message: `0x${string}` = SOURCE_MESSAGE,
 ): TransactionReceipt {
   const topics = encodeEventTopics({
     abi: [DEPOSIT_EVENT],
@@ -177,7 +179,7 @@ function context(
 
 function chainReceiptFetcher(
   recipient = RECIPIENT,
-  sourceMessage: `0x${string}` = MESSAGE,
+  sourceMessage: `0x${string}` = SOURCE_MESSAGE,
 ) {
   return vi.fn().mockImplementation((chainId: number) =>
     Promise.resolve(

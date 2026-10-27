@@ -6,7 +6,8 @@ const read = (name: string) => readFileSync(new URL('../' + name, import.meta.ur
 describe('Agent conversation privacy and safe handoff', () => {
   it('keys the entire conversation component to the connected wallet and signed ID', () => {
     const page = read('components/pages/AgentPage.tsx');
-    expect(page).toContain('const { address, chainId, connector } = useAccount()');
+    expect(page).toContain('const { address, connector } = useAccount()');
+    expect(page).toContain("[address.toLowerCase(), connector?.uid ?? ''].join(':')");
     expect(page).toContain('social.session?.walletKey === walletKey');
     expect(page).toContain('signedSession.profile.veyraUserId');
     expect(page).toContain('<ScopedAgentPage key={historyScope ?? walletKey');
@@ -17,7 +18,8 @@ describe('Agent conversation privacy and safe handoff', () => {
   it('does not sign from Agent chat or bypass deterministic execution review', () => {
     const page = read('components/pages/AgentPage.tsx');
     expect(page).toContain("execution: 'LOCKED'");
-    expect(page).toContain('<ActionCard intent={message.intent} onNavigate={onNavigate} />');
+    expect(page).toContain('<ActionCard intent={message.intent} onNavigate={onNavigate}');
+    expect(page).toContain('onClarifyDestination=');
     expect(page).not.toContain('sendTransaction(');
     expect(page).not.toContain('writeContract(');
     expect(page).not.toContain('walletClient.sign');

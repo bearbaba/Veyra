@@ -1,9 +1,13 @@
 import { useState } from 'react';
+import { TokenUSDC, TokenEURC, TokenETH, TokenWBTC, TokenUSDT, TokenDAI } from '@web3icons/react';
+
+const TOKEN_MARKS = {
+  usdc: TokenUSDC, eurc: TokenEURC, eth: TokenETH, wbtc: TokenWBTC,
+  usdt: TokenUSDT, dai: TokenDAI,
+} as const;
 
 const OFFICIAL_LOGOS: Partial<Record<string, string>> = {
   arc: 'https://cdn.prod.website-files.com/67116d0daddc92483c812e88/69dd3db99cf1d8ec9699856a_logo%20%285%29.avif',
-  usdc: 'https://cdn.prod.website-files.com/67116d0daddc92483c812e88/69dd3dbaa10d052f7061dc70_logo%20%282%29.avif',
-  eurc: 'https://cdn.prod.website-files.com/67116d0daddc92483c812e88/69dd3dba50e99a6dea4a964f_logo%20%283%29.avif',
   cirbtc: 'https://cdn.prod.website-files.com/67116d0daddc92483c812e88/6a3a95fde4bc6ee48d1ff749_cirbtc-pressroom.svg',
 };
 
@@ -14,9 +18,10 @@ interface BrandLogoProps {
 }
 
 export function BrandLogo({ logoKey, size = 36, className = '' }: BrandLogoProps) {
-  const [imageFailed, setImageFailed] = useState(false);
+  const [failedForKey, setFailedForKey] = useState<string | null>(null);
   const official = OFFICIAL_LOGOS[logoKey];
-  if (official && !imageFailed) {
+  // Do not reuse image failure state when a recycled component changes token.
+  if (official && failedForKey !== logoKey) {
     return (
       <span
         className={`inline-flex items-center justify-center overflow-hidden rounded-full shrink-0 ${className}`}
@@ -28,7 +33,7 @@ export function BrandLogo({ logoKey, size = 36, className = '' }: BrandLogoProps
           width={size}
           height={size}
           className="h-full w-full object-contain"
-          onError={() => setImageFailed(true)}
+          onError={() => setFailedForKey(logoKey)}
           loading="lazy"
           referrerPolicy="no-referrer"
         />
@@ -36,12 +41,16 @@ export function BrandLogo({ logoKey, size = 36, className = '' }: BrandLogoProps
     );
   }
 
+  const TokenMark = TOKEN_MARKS[logoKey as keyof typeof TOKEN_MARKS];
+  if (TokenMark) return (
+    <span className={`inline-flex items-center justify-center overflow-hidden rounded-full shrink-0 ${className}`}
+      style={{width:size,height:size}} role="img" aria-label={logoKey.toUpperCase()}>
+      <TokenMark variant="branded" size={size} aria-hidden="true"/>
+    </span>
+  );
   return (
-    <span
-      className={`inline-flex items-center justify-center overflow-hidden rounded-full shrink-0 ${className}`}
-      style={{ width: size, height: size }}
-      aria-hidden="true"
-    >
+    <span className={`inline-flex items-center justify-center overflow-hidden rounded-full shrink-0 ${className}`}
+      style={{ width: size, height: size }} aria-hidden="true">
       <FallbackMark logoKey={logoKey} size={size} />
     </span>
   );
@@ -50,9 +59,12 @@ export function BrandLogo({ logoKey, size = 36, className = '' }: BrandLogoProps
 function FallbackMark({ logoKey, size }: { logoKey: string; size: number }) {
   const fontSize = Math.max(9, Math.round(size * 0.28));
   switch (logoKey) {
+    case 'weth':
+      // The pinned icon catalog has no distinct WETH component. Label it
+      // honestly instead of rendering ETH as if it were the wrapped token.
+      return <CircleText size={size} background="#3A5176" text="WETH" color="white" fontSize={Math.max(8, Math.round(size * 0.2))} />;
     case 'ethereum':
     case 'eth':
-    case 'weth':
       return (
         <svg width={size} height={size} viewBox="0 0 40 40" role="img" aria-label="Ethereum">
           <circle cx="20" cy="20" r="20" fill="#eef0ff" />
@@ -88,7 +100,9 @@ function FallbackMark({ logoKey, size }: { logoKey: string; size: number }) {
     case 'dai':
       return <CircleText size={size} background="#F5AC37" text="D" color="white" fontSize={fontSize + 2} />;
     case 'usyc':
-      return <CircleText size={size} background="#1B73E8" text="Y" color="white" fontSize={fontSize + 2} />;
+      // Neutral label until a verified asset-specific icon is available;
+      // never fabricate an official trademark.
+      return <CircleText size={size} background="#304158" text="USYC" color="white" fontSize={Math.max(8, Math.round(size*0.2))} />;
     case 'arc':
       return (
         <svg width={size} height={size} viewBox="0 0 40 40" role="img" aria-label="Arc">

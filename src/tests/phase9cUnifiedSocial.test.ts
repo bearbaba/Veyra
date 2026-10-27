@@ -32,8 +32,32 @@ describe('Veyra unified wallet, social and verified alerts',()=>{
    expect(auth).toContain("'/api/notifications?limit=20&offset=0'");
    expect(auth).toContain("'/api/notifications/read'");
    expect(auth).not.toContain("'/api/notifications/create'");
-   expect(page).toContain('Messaging is not enabled');
-   expect(page).not.toContain('Send message');
+   expect(page).toContain('/api/social/chat/capability');
+ });
+ it('makes authenticated friends quick-selectable from Pay and hides destructive actions behind profile options',()=>{
+   const pay=file('components/pages/PayPage.tsx');
+   const social=file('components/pages/SocialPage.tsx');
+   const shell=file('components/layout/AppShell.tsx');
+   const wallet=file('components/layout/WalletAccountControls.tsx');
+   expect(pay).toContain("item.state === 'CONNECTED'");
+   expect(pay).toContain('chooseFriend(friendLabel(item))');
+   expect(pay).toContain('prepareEpoch.current += 1');
+   expect(pay).toContain('preparePaymentRecipient(recipient, ARC_TESTNET_CHAIN_ID, sessionToken!)');
+   expect(social).toContain('Open friend profile');
+   expect(social).toContain('Friend options');
+   expect(social).toContain('Confirm block');
+   expect(social).toContain('Messaging will be available after the encrypted backend is configured.');
+   expect(shell).toContain('<WalletAccountControls');
+   expect(wallet).toContain('await social.signOut()');
+   expect(wallet).toContain('await disconnectAsync()');
+   const brand=file('components/brand/BrandLogo.tsx');
+   for(const icon of ['TokenUSDC','TokenEURC','TokenETH','TokenWBTC','TokenUSDT','TokenDAI']) {
+     expect(brand).toContain(icon);
+   }
+   expect(brand).toContain('<TokenMark variant="branded"');
+   expect(brand).not.toContain("@web3icons/react/dynamic");
+   expect(brand).not.toContain('text="Y"');
+   expect(brand).toContain('text="WETH"');
  });
  it('integrates in full app without contaminating static Vercel financial preview',()=>{
    const app=file('App.tsx'),shell=file('components/layout/AppShell.tsx');

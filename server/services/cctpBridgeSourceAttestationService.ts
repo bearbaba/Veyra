@@ -19,6 +19,7 @@ import { MANIFEST_CONSTANTS } from '../../src/providers/registry/providerManifes
 import {
   chainIdToCctpDomain,
   extractUniqueCctpSourceMessage,
+  matchesCctpV2AttestedSourceMessage,
   parseUniqueCctpAttestationResponse,
   verifyCctpSourceReceiptEvidence,
 } from '../../src/providers/cctp/cctpV2Adapter.js';
@@ -135,12 +136,12 @@ export function assertCctpSourceCheckpointAttestation(
     !circle.message ||
     !circle.attestation ||
     !sourceMessage ||
-    circle.message.toLowerCase() !== sourceMessage.toLowerCase() ||
+    !matchesCctpV2AttestedSourceMessage(sourceMessage, circle.message) ||
     circle.message.toLowerCase() !== checkpoint.attestationMessage.toLowerCase() ||
     circle.attestation.toLowerCase() !== checkpoint.attestationSignature.toLowerCase()
   ) {
     throw new BridgeRecoveryConflictError(
-      'Circle attestation is not the exact unique canonical MessageSent from the reviewed burn.',
+      'Circle CCTP V2 attestation is not bound to the unique reviewed source burn template and finality.',
     );
   }
 }

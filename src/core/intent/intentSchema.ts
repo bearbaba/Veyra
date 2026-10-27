@@ -206,11 +206,20 @@ const REQUIRED_PARAMS_BY_ACTION: Record<ActionType, string[]> = {
   REPAY: ['amountRaw', 'tokenRaw', 'providerRaw'],
 };
 
+function hasPositiveFinancialAmount(value: UntrustedString | undefined): boolean {
+  // The model can claim RESOLVED despite supplying "0", a decimal comma, or
+  // arbitrary text. Do not turn any of these into a reviewable payment.
+  const match = value?.raw.trim().match(/^(\d{1,18}(?:\.\d{1,18})?)(?:\s+[A-Za-z]{2,12})?$/);
+  return Boolean(match && /[1-9]/.test(match[1]));
+}
+
 function computeMissingParams(candidates: IntentCandidate[]): string[] {
   if (candidates.length === 0) return [];
   const best = candidates.reduce((prev, curr) => (curr.confidence > prev.confidence ? curr : prev));
   const required = REQUIRED_PARAMS_BY_ACTION[best.actionType] ?? [];
-  return required.filter((param) => !best[param as keyof IntentCandidate]);
+  return required.filter((param) =>
+    param === 'amountRaw' ? !hasPositiveFinancialAmount(best.amountRaw)
+      : !best[param as keyof IntentCandidate]);
 }
 
 // ── Main Validation ───────────────────────────────────────────────────────────

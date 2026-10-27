@@ -38,7 +38,7 @@ const strictOwnerPaths = [
 describe('full Testnet BFF routing is exact, implemented and owner-protected', () => {
   it('all forwarded API paths exist as literal BFF handlers (not SPA/HTML fallbacks)', () => {
     // The two purpose-bound cookie restore/logout endpoints are explicitly reviewed.
-    expect(STAGING_ALLOWED_PATHS.length).toBe(39);
+    expect(STAGING_ALLOWED_PATHS.length).toBe(46);
     const unique = new Set<string>(STAGING_ALLOWED_PATHS);
     expect(unique.size).toBe(STAGING_ALLOWED_PATHS.length);
     for (const path of STAGING_ALLOWED_PATHS) {
@@ -52,6 +52,17 @@ describe('full Testnet BFF routing is exact, implemented and owner-protected', (
     expect(isExactStagingBffAllowlist(vercel.rewrites)).toBe(true);
   });
 
+  it('chat routes use wallet-bound sessions and do not allow unauthenticated creation of messages or payment notices',()=>{
+    for(const path of ['/api/social/chat','/api/social/chat/send','/api/social/chat/capability']){
+      expect(STAGING_ALLOWED_PATHS).toContain(path);
+      expect(routeSource(path)).toContain('getAuthenticatedVeyraUserId(req)');
+    }
+    expect(routeSource('/api/social/chat/send')).toContain('sendDirectMessage(db,owner');
+    expect(routeSource('/api/social/chat')).toContain('listDirectMessages(db,owner');
+    expect(root('server/services/directMessageService.ts')).toContain("getConnectionStatus(db,owner,peer)!=='CONNECTED'");
+    expect(root('server/services/directMessageService.ts')).toContain("kind:'MESSAGE'");
+    expect(STAGING_ALLOWED_PATHS).not.toContain('/api/notifications/create');
+  });
   it('each source burn or destination recovery endpoint checks signed owner identity', () => {
     for (const path of strictOwnerPaths) {
       expect(STAGING_ALLOWED_PATHS).toContain(path);
@@ -70,11 +81,15 @@ describe('full Testnet BFF routing is exact, implemented and owner-protected', (
     expect(cctp).toContain('/v2/messages/');
   });
 
-  it('exposes Agent chat but not autonomous signing or unverified FX/Swap/Gateway and X OAuth', () => {
+  it('exposes guarded X start, but not callback forwarding, autonomous signing, or unverified FX/Swap/Gateway', () => {
+    expect(routeSource('/api/auth/x/capability')).toContain('checkedXReturnOrigin(origin');
+    const xStart=routeSource('/api/auth/x/start');
+    expect(xStart).toContain('getAuthenticatedVeyraUserId(req)');
+    expect(xStart).toContain("checkedXReturnOrigin(req.header('origin')");
+    expect(xStart).toContain('beginXOAuthLink(db');
     const denied = [
       '/api/:path*',
       '/api/agent/execute',
-      '/api/auth/x/start',
       '/api/auth/x/callback',
       '/api/stablefx/quote',
       '/api/stablefx/trade',

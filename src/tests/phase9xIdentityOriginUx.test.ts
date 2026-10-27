@@ -24,6 +24,7 @@ describe('Veyra one-page wallet and origin acceptance',()=>{
     expect(init?.credentials).toBe('same-origin');
     expect(init?.cache).toBe('no-store');
     expect(init?.headers).not.toHaveProperty('Authorization');
+    expect(init?.signal).toBeDefined();
   });
   it('only accepts the BFF exact 400 INVALID_REQUEST after its Origin guard',async()=>{
     for(const response of [
@@ -50,11 +51,12 @@ describe('Veyra one-page wallet and origin acceptance',()=>{
     expect(social).toContain("if(identityOrigin!=='ready')");
     expect(social).toContain("setIdentityOrigin('origin_blocked')");
     expect(social).toContain('probeIdentityOrigin()');
+    expect(file('lib/api/identityOriginProbe.ts')).toContain('AbortSignal.timeout(30000)');
     expect(social).not.toContain('window.location.assign');
     const err=new SocialHttpError(403,'ORIGIN_NOT_ALLOWED');
     expect(err.message).toContain('Preview URL is not authorized');
   });
-  it('reuses one inline Veyra ID entry in Settings and Social; X is unavailable on staging',()=>{
+  it('reuses one inline Veyra ID entry in Settings and Social; X requires a live BFF capability',()=>{
     const entry=file('components/identity/VeyraIdentityAccess.tsx');
     const settings=file('components/pages/SettingsPage.tsx');
     const social=file('components/pages/SocialPage.tsx');
@@ -65,8 +67,10 @@ describe('Veyra one-page wallet and origin acceptance',()=>{
     expect(entry).toContain('switchChainAsync({chainId:5042002})');
     expect(settings).toContain('<VeyraIdentityAccess/>');
     expect(social).toContain('<VeyraIdentityAccess/>');
-    expect(settings).toContain("import.meta.env.VITE_VEYRA_UNIFIED_STAGING === '1'");
-    expect(settings).toContain('disabled={xLinkUnavailable || social.identityOrigin');
+    expect(settings).toContain('getXLinkCapability()');
+    expect(settings).toContain("disabled={xCapability!=='available'");
+    expect(file('lib/api/identityApi.ts')).toContain("'POST'");
+    expect(file('lib/api/identityApi.ts')).toContain('AbortSignal.timeout(12000)');
     expect(settings).not.toContain("setXError('Sign in through Social");
     expect(entry).not.toContain('window.location');
     expect(entry).not.toContain('eth_sendTransaction');
@@ -75,7 +79,7 @@ describe('Veyra one-page wallet and origin acceptance',()=>{
     const banner=file('components/system/WebPreviewBanner.tsx');
     const runtime=file('components/system/RuntimeStatusCard.tsx');
     expect(banner).toContain("social.identityOrigin === 'origin_blocked'");
-    expect(banner).toContain('Veyra ID blocked on this Preview');
+    expect(banner).toContain('Sign-in unavailable on this Preview');
     expect(banner).not.toContain("'BFF online'");
     expect(runtime).toContain('Backend rejected this Preview origin (403)');
   });

@@ -20,6 +20,7 @@ import {
 import { CommandBar } from '../command/CommandBar';
 import { WebPreviewBanner } from '../system/WebPreviewBanner';
 import { NotificationBell } from '../../features/social/NotificationBell';
+import { WalletAccountControls } from './WalletAccountControls';
 
 export type VeyraPage = 'home' | 'agent' | 'pay' | 'convert' | 'bridge' | 'activity' | 'social' | 'settings';
 
@@ -104,6 +105,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
           </div>
           <div className="flex items-center gap-2">
             <NotificationBell openSocial={() => onNavigate('social')} />
+            <WalletAccountControls compact />
             <button
               onClick={() => onNavigate('settings')}
               className="rounded-xl p-2"
@@ -112,18 +114,11 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
             >
               <Settings className="size-4" />
             </button>
-            <button
-              onClick={() => setCmdOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium"
-              style={{ background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}
-            >
-              <Command className="size-3.5" />
-              Ask
-            </button>
-          </div>
+           </div>
         </header>
 
-        <div className="hidden md:flex items-center justify-end border-b px-5 py-2" style={{ borderColor: 'var(--border)' }}>
+        <div className="hidden md:flex items-center justify-end gap-3 border-b px-5 py-2" style={{ borderColor: 'var(--border)' }}>
+          <WalletAccountControls />
           <NotificationBell openSocial={() => onNavigate('social')} />
         </div>
         <WebPreviewBanner />

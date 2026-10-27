@@ -139,7 +139,9 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     expect(agent).toContain('How do I send USDC on Arc Testnet?');
     expect(agent).toContain('Ask Veyra');
     expect(agent).toContain('Ask questions in any language.');
-    expect(fullAgent).toContain("title: 'Any language'");
+    expect(fullAgent).toContain('Message Veyra in any language');
+    expect(fullAgent).toContain('Same-language replies');
+    expect(read('src/core/agent/agentV2.ts')).toContain('export function detectAgentLocale');
     expect(fullAgent).not.toContain('Gửi 20 USDC');
     expect(ai).toMatch(/language\s+of the user's LATEST message/);
     expect(ai).toContain('default to English');

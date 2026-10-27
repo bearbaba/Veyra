@@ -7,10 +7,12 @@ import {
 } from '../providers/cctp/cctpV2Adapter';
 import { sourceReceiptContainsCctpMessage } from '../../server/services/activityReceiptVerificationService.js';
 import { MANIFEST_CONSTANTS } from '../providers/registry/providerManifest';
+import { CCTP_V2_SOURCE_TEMPLATE, CCTP_V2_ATTESTED_MESSAGE } from './fixtures/cctpV2MessageFixture';
 
 const MESSAGE_SENT_TOPIC =
   '0x8c5261668696ce22758910d05bab8f186d6eb247ceac2af2e82c7dc17669b036';
-const MESSAGE = '0x12345678' as const;
+const MESSAGE = CCTP_V2_SOURCE_TEMPLATE;
+const ATTESTED = CCTP_V2_ATTESTED_MESSAGE;
 const OTHER_MESSAGE = '0xaabbccdd' as const;
 
 function messageLog(message: `0x${string}`): { address: string; topics: string[]; data: `0x${string}` } {
@@ -29,7 +31,8 @@ describe('Phase 5 CCTP unique source message/attestation selection', () => {
   it('strictly decodes the one canonical MessageSent and matches attested bytes', () => {
     const receipt = source([messageLog(MESSAGE)]);
     expect(extractUniqueCctpSourceMessage(receipt)).toBe(MESSAGE);
-    expect(sourceReceiptContainsCctpMessage(receipt, MESSAGE)).toBe(true);
+    expect(sourceReceiptContainsCctpMessage(receipt, ATTESTED)).toBe(true);
+    expect(sourceReceiptContainsCctpMessage(receipt, MESSAGE)).toBe(false);
     expect(sourceReceiptContainsCctpMessage(receipt, OTHER_MESSAGE)).toBe(false);
     expect(verifyCctpSourceReceiptEvidence(receipt).verified).toBe(true);
   });
@@ -65,8 +68,8 @@ describe('Phase 5 CCTP unique source message/attestation selection', () => {
 
   it('parses a complete unique Circle message and retains pending status', () => {
     expect(parseUniqueCctpAttestationResponse({
-      messages: [{ status: 'complete', message: MESSAGE, attestation: '0xabcdef' }],
-    })).toEqual({ status: 'complete', message: MESSAGE, attestation: '0xabcdef' });
+      messages: [{ status: 'complete', message: ATTESTED, attestation: '0xabcdef' }],
+    })).toEqual({ status: 'complete', message: ATTESTED, attestation: '0xabcdef' });
     expect(parseUniqueCctpAttestationResponse({ messages: [] }))
       .toEqual({ status: 'pending' });
     expect(parseUniqueCctpAttestationResponse({

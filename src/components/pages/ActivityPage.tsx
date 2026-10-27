@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
+import { ConnectKitButton } from 'connectkit';
 import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 import { formatUnits } from 'viem';
 import { buildTxExplorerUrl } from '@/onchain-facts';
@@ -118,6 +119,21 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
     await bridgeExecution.resumeProviderCheckpoint(cctpV2BridgeProvider, checkpoint);
     await reload();
     await refreshRemoteView();
+  }
+
+  if (!isConnected) {
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-8">
+        <h1 className="display text-2xl font-bold" style={{color:'var(--ink)'}}>Activity</h1>
+        <div className="mt-6 rounded-2xl border p-7 text-center"
+          style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+          <p className="mb-4 text-sm" style={{color:'var(--muted)'}}>
+            Connect your wallet to view activity.
+          </p>
+          <ConnectKitButton/>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -549,6 +565,10 @@ function RecoveryCard({
   }
 
   const instruction = nextBridgeResumeInstruction(checkpoint);
+  const verifyingExistingReceive = checkpoint.stage === 'DESTINATION_BROADCAST';
+  const destinationReceiveUrl = verifyingExistingReceive && checkpoint.receiveTxHash
+    ? buildTxExplorerUrl(checkpoint.destinationChainId, checkpoint.receiveTxHash)
+    : null;
 
   return (
     <div
@@ -568,18 +588,32 @@ function RecoveryCard({
             className="text-sm font-semibold"
             style={{ color: 'var(--ink)' }}
           >
-            Bridge recovery available
+            {verifyingExistingReceive
+              ? 'Destination transaction recorded — verification pending'
+              : 'Bridge recovery available'}
           </p>
-          <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>
-            Stage {checkpoint.stage} · next {instruction}. The original source
-            burn is reused; Veyra will not submit a second burn.
+          <p className="mt-1 text-xs leading-5" style={{ color: 'var(--muted)' }}>
+            {verifyingExistingReceive
+              ? 'A receive transaction was already broadcast. Check its chain receipt before any further action. No new signing or USDC burn is needed.'
+              : <>Stage {checkpoint.stage} · next {instruction}. The original source burn is reused; Veyra will not submit a second burn.</>}
           </p>
-          <p
-            className="mt-2 truncate font-mono text-[11px]"
-            style={{ color: 'var(--subtle)' }}
-          >
-            {checkpoint.burnTxHash}
+          <p className="mt-2 break-all font-mono text-[11px]" style={{ color:'var(--muted)' }}>
+            Source burn: {checkpoint.burnTxHash}
           </p>
+          {verifyingExistingReceive && checkpoint.receiveTxHash && (
+            <div className="mt-2 space-y-1">
+              <p className="break-all font-mono text-[11px]" style={{color:'var(--ink)'}}>
+                Destination receive: {checkpoint.receiveTxHash}
+              </p>
+              {destinationReceiveUrl && (
+                <a href={destinationReceiveUrl} target="_blank" rel="noopener noreferrer"
+                  className="inline-block text-xs font-semibold underline underline-offset-2"
+                  style={{color:'var(--accent)'}}>
+                  View recorded destination transaction
+                </a>
+              )}
+            </div>
+          )}
         </div>
       </div>
       {checkpoint.stage === 'ATTESTATION_READY' && (
@@ -645,7 +679,11 @@ function RecoveryCard({
               <p>First receive: {attemptHistory.first.state}
                 {attemptHistory.first.reverted ? ' · canonical revert recorded' : ''}
               </p>
-              <p>Second receive: {attemptHistory.second.state}
+              {attemptHistory.first.receiveTxHash && (
+                <p className="break-all font-mono">First receive tx: {attemptHistory.first.receiveTxHash}</p>
+              )}
+              <p>Second receive: {attemptHistory.second.state === 'UNCLAIMED'
+                ? 'Not attempted · no action required' : attemptHistory.second.state}
                 {attemptHistory.second.verifiedMint ? ' · verified USDC mint' : ''}
               </p>
               {attemptHistory.second.receiveTxHash && (
@@ -755,6 +793,12 @@ function RecoveryCard({
         </section>
       )}
 
+      {verifyingExistingReceive && (
+        <p className="mt-3 text-xs leading-5" style={{color:'var(--muted)'}}>
+          Read-only reconciliation of the recorded destination hash. This check never broadcasts
+          another receiveMessage, burns more USDC or asks for a wallet signature.
+        </p>
+      )}
       <button
         type="button"
         onClick={onResume}
@@ -766,7 +810,8 @@ function RecoveryCard({
           border: '1px solid var(--border-strong)',
         }}
       >
-        {!connected ? 'Connect wallet to resume' : 'Resume safely'}
+        {!connected ? 'Connect wallet to check existing transaction'
+          : verifyingExistingReceive ? 'Verify recorded receive (no signing)' : 'Resume safely'}
       </button>
     </div>
   );

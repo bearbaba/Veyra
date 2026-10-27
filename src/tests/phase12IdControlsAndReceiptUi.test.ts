@@ -13,9 +13,10 @@ describe('reviewed recipient identity and account UX',()=>{
     const s=src('components/pages/SettingsPage.tsx');
     expect(s).toContain('Copy Veyra ID');
     expect(s).toContain('Disconnect wallet');
-    expect(s).toContain("fetch('/api/auth/session/logout'");
-    expect(s).toContain('social.signOut()');
+    expect(s).toContain('await social.signOut()');
+    expect(s).not.toContain("fetch('/api/auth/session/logout'");
     expect(s).toContain('await disconnectAsync()');
-    expect(s).toContain("xLinkUnavailable = import.meta.env.VITE_VEYRA_UNIFIED_STAGING === '1'");
+    expect(s).toContain("disabled={xCapability!=='available'");
+    expect(s).toContain('getXLinkCapability()');
   });
 });

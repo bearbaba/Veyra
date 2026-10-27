@@ -163,6 +163,51 @@ export function extractUniqueCctpSourceMessage(
 
   return message;
 }
+/**
+ * Compare the emitted CCTP V2 MessageSent TEMPLATE to Circle's signed relay
+ * message. Per Circle MessageV2.sol, the transmitter emits a zero nonce (32
+ * bytes at offset 12) and zero finalityThresholdExecuted (uint32 at 144).
+ * Circle assigns both before signing. All other bytes, including the source
+ * / destination domains, messenger, destination caller and full burn body,
+ * must stay byte-for-byte identical.
+ *
+ * This is NOT a generic 'ignore these bytes' comparison: it requires the
+ * on-chain template fields to be zero, Circle nonce to be nonzero, and actual
+ * finality >= the reviewed minimum, at least STANDARD (2000) for Veyra.
+ * No message substitution, truncation, extra bytes or fast-finality downgrade.
+ */
+export function matchesCctpV2AttestedSourceMessage(
+  sourceTemplate: string,
+  attestedMessage: string,
+): boolean {
+  const hex = /^0x(?:[0-9a-fA-F]{2})+$/;
+  if (!hex.test(sourceTemplate) || !hex.test(attestedMessage)) return false;
+  const source = sourceTemplate.slice(2).toLowerCase();
+  const signed = attestedMessage.slice(2).toLowerCase();
+  const HEADER_BYTES = 148;
+  const NONCE_START = 12 * 2;
+  const NONCE_END = 44 * 2;
+  const MIN_FINALITY_START = 140 * 2;
+  const ACTUAL_FINALITY_START = 144 * 2;
+  const BODY_START = HEADER_BYTES * 2;
+  const emptyNonce = '0'.repeat(NONCE_END - NONCE_START);
+  if (source.length <= BODY_START || source.length !== signed.length) return false;
+  if (source.slice(NONCE_START, NONCE_END) !== emptyNonce ||
+      signed.slice(NONCE_START, NONCE_END) === emptyNonce ||
+      source.slice(ACTUAL_FINALITY_START, BODY_START) !== '00000000') return false;
+
+  const minimum = Number.parseInt(source.slice(MIN_FINALITY_START, ACTUAL_FINALITY_START), 16);
+  const actual = Number.parseInt(signed.slice(ACTUAL_FINALITY_START, BODY_START), 16);
+  if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(actual) ||
+      minimum < MANIFEST_CONSTANTS.CCTP_STANDARD_FINALITY ||
+      actual < minimum) return false;
+
+  return source.slice(0, NONCE_START) === signed.slice(0, NONCE_START) &&
+    source.slice(NONCE_END, ACTUAL_FINALITY_START) ===
+      signed.slice(NONCE_END, ACTUAL_FINALITY_START) &&
+    source.slice(BODY_START) === signed.slice(BODY_START);
+}
+
 const ERC20_TRANSFER_TOPIC =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const ZERO_ADDRESS_TOPIC = `0x${'0'.repeat(64)}`;
@@ -307,37 +352,31 @@ export async function approveTokenMessenger(
 
 // ── Step 2: depositForBurn ────────────────────────────────────────────────────
 
+/** Identical parameters for eth_call simulation and signed on-chain burn. */
+export function cctpDepositForBurnCall(action: BridgeAction) {
+  return {
+    address: getAddress(MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER),
+    abi: TOKEN_MESSENGER_V2_ABI,
+    functionName: 'depositForBurn' as const,
+    args: [
+      action.amount,
+      chainIdToCctpDomain(action.destinationChainId),
+      addressToBytes32(getAddress(action.to)),
+      getAddress(action.tokenAddress),
+      ('0x' + '00'.repeat(32)) as `0x${string}`,
+      0n,
+      MANIFEST_CONSTANTS.CCTP_STANDARD_FINALITY,
+    ] as const,
+    account: getAddress(action.from),
+  };
+}
+
 export async function broadcastDepositForBurn(
   walletClient: WalletClient,
   action: BridgeAction,
 ): Promise<Hash> {
-  const destinationDomain = chainIdToCctpDomain(action.destinationChainId);
-  const mintRecipient = addressToBytes32(getAddress(action.to));
-  const burnToken = getAddress(action.tokenAddress);
-  const messengerAddress = getAddress(MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER);
-  const from = getAddress(action.from);
-
-  // destinationCaller = zero bytes32 (anyone can relay)
-  const destinationCaller = ('0x' + '00'.repeat(32)) as `0x${string}`;
-  // maxFee = 0 for standard transfer (no upfront fee)
-  const maxFee = 0n;
-  // minFinalityThreshold = 2000 for standard (safe) transfer
-  const minFinalityThreshold = MANIFEST_CONSTANTS.CCTP_STANDARD_FINALITY;
-
   return walletClient.writeContract({
-    address: messengerAddress,
-    abi: TOKEN_MESSENGER_V2_ABI,
-    functionName: 'depositForBurn',
-    args: [
-      action.amount,
-      destinationDomain,
-      mintRecipient,
-      burnToken,
-      destinationCaller,
-      maxFee,
-      minFinalityThreshold,
-    ],
-    account: from,
+    ...cctpDepositForBurnCall(action),
     chain: null,
   });
 }

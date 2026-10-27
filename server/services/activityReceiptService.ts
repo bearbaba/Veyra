@@ -1,5 +1,5 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { getAddress, isAddress } from 'viem';
+import { createPublicClient, getAddress, http, isAddress } from 'viem';
 import type { DbClient } from '../db/client.js';
 import { walletBindings } from '../db/schema/wallets.js';
 import {
@@ -19,6 +19,7 @@ import {
   evaluateBridgeAction,
 } from '../../src/core/pipeline/bridgePipeline.js';
 import { SECURITY_CONFIG } from '../../src/lib/securityConfig.js';
+import { simulateCctpSourceBurn } from '../../src/core/execution/cctpSourceSimulation.js';
 import type { RouteOption } from '../../src/providers/bridge/bridgeProviderTypes.js';
 import {
   CCTP_V2_PROVIDER_ID,
@@ -249,7 +250,38 @@ export async function createBridgeActivityReceipt(
     from: senderAddress,
     tokenDecimals: 6,
   });
-  const evaluation = evaluateBridgeAction(action);
+  // The backend is an independent security boundary. The browser's policy
+  // flags are untrusted; simulate the exact Circle depositForBurn on Arc RPC
+  // using the sender, amount, token and destination reconstructed above.
+  // Never issue a durable receipt for a route blocked by our own RPC.
+  const sourceRpcUrl = process.env.ARC_TESTNET_RPC_URL;
+  if (!sourceRpcUrl || !/^https:\/\//i.test(sourceRpcUrl)) {
+    throw new ActivityReceiptInputError('SOURCE_RPC_UNAVAILABLE',
+      'Arc Testnet verification is unavailable. No bridge was submitted.', 503);
+  }
+  const sourceClient = createPublicClient({
+    chain: {
+      id: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
+      name: 'Arc Testnet',
+      nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+      rpcUrls: { default: { http: [sourceRpcUrl] } },
+    },
+    transport: http(sourceRpcUrl, { timeout: 12_000, retryCount: 0 }),
+  });
+  const simulation = await simulateCctpSourceBurn(sourceClient, action);
+  if (simulation.status !== 'READY') {
+    // APPPROVAL_REQUIRED is a distinct wallet transaction, never a substitute
+    // for simulating a burn. Do not trust 'simulated' flags in the body.
+    throw new ActivityReceiptInputError(
+      simulation.status === 'APPROVAL_REQUIRED'
+        ? 'CCTP_ALLOWANCE_REQUIRED' : 'CCTP_SOURCE_SIMULATION_FAILED',
+      simulation.status === 'APPROVAL_REQUIRED'
+        ? 'Approve the exact USDC amount on Arc Testnet, then review a fresh bridge.'
+        : simulation.reason,
+      409,
+    );
+  }
+  const evaluation = evaluateBridgeAction(action, simulation.proof);
   if (!evaluation.canProceed) {
     throw new ActivityReceiptInputError(
       'SERVER_PIPELINE_BLOCKED',

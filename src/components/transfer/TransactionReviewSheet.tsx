@@ -23,6 +23,7 @@ import { formatUnits } from 'viem';
 import type { TransferAction } from '@/core/actions/actionSchema';
 import { usePipelineEvaluation } from '@/hooks/usePipelineEvaluation';
 import { useTransferExecution } from '@/hooks/useTransferExecution';
+import { useArcTransferFeeEstimate } from '@/core/execution/useArcTransferFeeEstimate';
 import { VeyraReceiptView } from '../receipt/VeyraReceiptView';
 import type { PreparedRecipient } from '@/lib/api/identityApi';
 
@@ -36,10 +37,12 @@ interface TransactionReviewSheetProps {
 export function TransactionReviewSheet({ action, recipient, sessionToken, onClose }: TransactionReviewSheetProps) {
   const { policy, risk, loading: evalLoading, error: evalError, retry: retrySimulation } = usePipelineEvaluation(action);
   const { state: execState, execute, reset } = useTransferExecution();
+  const fee = useArcTransferFeeEstimate(action);
 
   const highRisk = risk?.level === 'HIGH' || risk?.level === 'CRITICAL' || risk?.level === 'UNKNOWN';
   const missingIdentityProof = recipient?.kind === 'VEYRA_IDENTITY' && !recipient.snapshot;
-  const isBlocked = !policy || !risk || policy.decision === 'BLOCKED' || highRisk || missingIdentityProof;
+  const isBlocked = !policy || !risk || policy.decision === 'BLOCKED' || highRisk ||
+    missingIdentityProof || fee.status !== 'ready';
   const needsConfirmation = policy?.decision === 'NEEDS_CONFIRMATION';
   const isExecuting = ['PREPARING', 'SIGNING', 'BROADCAST', 'CONFIRMING', 'VERIFYING'].includes(execState.step);
 
@@ -87,7 +90,7 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
             {/* Header */}
             <div className="flex items-center justify-between">
               <h2 className="display text-lg font-bold" style={{ color: 'var(--ink)' }}>
-                Review Transfer
+                Review transfer
               </h2>
               {!isExecuting && (
                 <button onClick={handleClose} style={{ color: 'var(--muted)' }}>
@@ -125,10 +128,37 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
                       <DetailRow label="Veyra ID" value={`@${recipient.snapshot.veyraHandle}.veyra`} />
                     </>
                   ) : null}
-                  <DetailRow label="To" value={recipient?.snapshot ? action.to : `${action.to.slice(0, 8)}...${action.to.slice(-6)}`} mono />
-                  <DetailRow label="From" value={`${action.from.slice(0, 8)}...${action.from.slice(-6)}`} mono />
-                  <DetailRow label="Network" value="Arc Testnet" />
-                  <DetailRow label="Source" value={action.provenance.source} />
+                  <DetailRow label="Recipient wallet" value={action.to} mono />
+                  <DetailRow label="From wallet" value={action.from} mono />
+                  <DetailRow label="Source network" value="Arc Testnet" />
+                  <DetailRow label="Destination network" value="Arc Testnet" />
+                </div>
+
+                {/* The fee is sourced from live Arc RPC gas estimation. An
+                    unavailable fee cannot quietly become zero or unlock signing. */}
+                <div className="rounded-2xl border p-4 space-y-2"
+                  style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+                  {fee.status==='loading' ? (
+                    <p role="status" className="flex items-center gap-2 text-xs" style={{color:'var(--muted)'}}>
+                      <Loader2 className="size-4 animate-spin"/> Estimating Arc Testnet fee…
+                    </p>
+                  ) : fee.status==='error' ? (
+                    <div role="alert" className="text-xs leading-5" style={{color:'var(--warning)'}}>
+                      <p>{fee.message}</p>
+                      <button type="button" onClick={fee.retry}
+                        className="mt-2 rounded-lg border px-3 py-2 font-semibold"
+                        style={{color:'var(--ink)',borderColor:'var(--border-strong)'}}>Retry fee estimate</button>
+                    </div>
+                  ) : (
+                    <>
+                      <DetailRow label="Network fee (estimated)" value={`≈ ${fee.feeUSDC} USDC`}/>
+                      <DetailRow label="Total debit (estimated)" value={`≈ ${fee.totalUSDC} USDC`}/>
+                      <DetailRow label="Amount received (before fees)" value={`${formatUnits(action.amount,action.tokenDecimals)} USDC`}/>
+                      <p className="text-[11px] leading-5" style={{color:'var(--muted)'}}>
+                        Arc uses USDC for network fees. Actual gas charged can differ from this RPC estimate.
+                      </p>
+                    </>
+                  )}
                 </div>
 
                 {/* Pipeline evaluation */}
@@ -208,7 +238,7 @@ export function TransactionReviewSheet({ action, recipient, sessionToken, onClos
                     style={{ background: isBlocked ? 'var(--danger)' : 'var(--accent)', color: '#0d1b2f' }}
                   >
                     {isBlocked ? (
-                      <><XCircle className="size-4" /> Safety checks incomplete or blocked</>
+                      <><XCircle className="size-4" /> Review not ready</>
                     ) : needsConfirmation ? (
                       <><AlertTriangle className="size-4" /> Confirm and Sign</>
                     ) : (

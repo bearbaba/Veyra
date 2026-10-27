@@ -45,7 +45,9 @@ import {sql} from 'drizzle-orm';
 import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } from './services/friendInboxService.js';
 import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
-import { beginXOAuthLink, completeXOAuthLink, XOAuthError } from './services/xOAuthService.js';
+import {DirectMessageError,encryptionKey,chatPage,listDirectMessages,sendDirectMessage} from './services/directMessageService.js';
+import {IncomingUsdcError,reconcileIncomingUsdc} from './services/incomingUsdcService.js';
+import { beginXOAuthLink, completeXOAuthCallback, finishXOAuthLink, XOAuthError,checkedXReturnOrigin,buildXLinkedReturnUrl,isConfiguredXOAuth } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
 import { PaymentReviewError } from './services/paymentReviewProof.js';
 import { upsertContact, removeContact, listContacts, ContactError } from './services/contactService.js';
@@ -205,6 +207,8 @@ app.use('/api', GLOBAL_RATE);
 // remains available only outside production for local E2E.
 
 function identityError(res: Response, err: unknown): void {
+  if(err instanceof IncomingUsdcError){res.status(err.httpStatus).json({ok:false,error:err.code,message:err.message});return;}
+  if(err instanceof DirectMessageError){res.status(err.httpStatus).json({ok:false,error:err.code,message:err.message});return;}
   if (err instanceof NotificationInboxError) {
     res.status(err.code === 'NOTIFICATION_NOT_FOUND' ? 404 : 400)
       .json({ ok: false, error: err.code, message: err.message });
@@ -417,6 +421,45 @@ app.post('/api/social/unfollow', IDENTITY_RATE, async (req: Request, res: Respon
     const { db } = await import('./db/client.js');
     await unfollow(db, userId, target); res.json({ ok: true });
   } catch (err) { identityError(res, err); }
+});
+
+// Chat is independently capability-gated. A signed ID is still required for
+// every actual list/send call; capability does not grant financial authority.
+app.get('/api/social/chat/capability',IDENTITY_RATE,(req:Request,res:Response):void=>{
+  const owner=getAuthenticatedVeyraUserId(req);
+  if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  res.json({ok:true,available:Boolean(encryptionKey()),endToEndEncrypted:false});
+});
+app.get('/api/social/chat',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const owner=getAuthenticatedVeyraUserId(req);
+    if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    const page=chatPage(req.query.limit,req.query.offset);
+    res.json(await listDirectMessages(db,owner,req.query.peerUserId,page));
+  }catch(err){identityError(res,err);}
+});
+const CHAT_SEND_RATE=rateLimit(20,60_000);
+app.post('/api/social/chat/send',CHAT_SEND_RATE,async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const owner=getAuthenticatedVeyraUserId(req);
+    if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+    const body=req.body as Record<string,unknown>;
+    const {db}=await import('./db/client.js');
+    res.json(await sendDirectMessage(db,owner,body.peerUserId,body.body,body.clientRequestId));
+  }catch(err){identityError(res,err);}
+});
+
+// On-demand read-triggered chain reconciliation. The client cannot submit
+// transfer hashes, amounts, wallet addresses, or a claimed payment event.
+const INCOMING_SYNC_RATE=rateLimit(2,60_000);
+app.post('/api/notifications/sync-incoming',INCOMING_SYNC_RATE,async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const owner=getAuthenticatedVeyraUserId(req);
+    if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    res.json(await reconcileIncomingUsdc(db,owner));
+  }catch(err){identityError(res,err);}
 });
 
 // Phase 9A — owner-private notifications, never a public event creation API.
@@ -703,6 +746,16 @@ app.post('/api/identity/verify-payment', IDENTITY_RATE, async (req: Request, res
   }
 });
 
+// Lightweight capability; no X redirects or identity signatures are requested.
+// Returns false until provider credentials and an exact reviewed callback exist.
+app.post('/api/auth/x/capability', IDENTITY_RATE, (req:Request,res:Response):void=>{
+  try {
+    const origin=req.header('origin');
+    checkedXReturnOrigin(origin,[runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
+    res.json({ok:true,available:isConfiguredXOAuth(process.env.X_CLIENT_ID,process.env.X_REDIRECT_URI)});
+  } catch(err){identityError(res,err);}
+});
+
 // ── POST /api/auth/x/start ───────────────────────────────────────────────────
 app.post('/api/auth/x/start', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -713,11 +766,13 @@ app.post('/api/auth/x/start', IDENTITY_RATE, async (req: Request, res: Response)
     }
     const clientId = process.env.X_CLIENT_ID ?? '';
     const redirectUri = process.env.X_REDIRECT_URI ?? '';
+    const appOrigin=checkedXReturnOrigin(req.header('origin'),
+      [runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
     const returnPath = typeof (req.body as Record<string, unknown>).returnPath === 'string'
       ? String((req.body as Record<string, unknown>).returnPath)
       : '/settings';
     const { db } = await import('./db/client.js');
-    const started = await beginXOAuthLink(db, veyraUserId, { clientId, redirectUri, returnPath });
+    const started = await beginXOAuthLink(db, veyraUserId, { clientId, redirectUri, appOrigin, returnPath });
     res.status(201).json({ ok: true, ...started });
   } catch (err) {
     identityError(res, err);
@@ -736,23 +791,38 @@ app.get('/api/auth/x/callback', IDENTITY_RATE, async (req: Request, res: Respons
     const clientId = process.env.X_CLIENT_ID ?? '';
     if (!clientId) throw new XOAuthError('X_OAUTH_NOT_CONFIGURED', 'X OAuth is not configured', 503);
     const { db } = await import('./db/client.js');
-    const completed = await completeXOAuthLink(db, {
+    const completed = await completeXOAuthCallback(db, {
       state,
       code,
       clientId,
       clientSecret: process.env.X_CLIENT_SECRET,
+      allowedOrigins: [runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??''],
     });
-    const appOrigin = process.env.VEYRA_APP_ORIGIN;
-    if (appOrigin) {
-      const target = new URL(completed.returnPath, appOrigin);
-      target.searchParams.set('x_linked', '1');
-      res.redirect(303, target.toString());
-      return;
-    }
-    res.json({ ok: true, profile: completed.profile });
+    // Provider authorization only STAGES a profile. The signed originating
+    // Veyra session will independently finish linking after the redirect.
+    const target=buildXLinkedReturnUrl(completed.appOrigin,
+      [runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
+    res.redirect(303,target);
   } catch (err) {
     identityError(res, err);
   }
+});
+
+// ── POST /api/auth/x/finish ─────────────────────────────────────────────────
+// A callback alone is not proof that this browser owns the initiating Veyra
+// identity. Require its active signed session and the original one-use state.
+app.post('/api/auth/x/finish', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const veyraUserId = getAuthenticatedVeyraUserId(req);
+    if (!veyraUserId) { res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' }); return; }
+    const appOrigin = checkedXReturnOrigin(req.header('origin'),
+      [runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
+    const state = typeof (req.body as Record<string, unknown> | undefined)?.state === 'string'
+      ? String((req.body as Record<string, unknown>).state) : '';
+    const { db } = await import('./db/client.js');
+    const completed = await finishXOAuthLink(db, { state, veyraUserId, appOrigin });
+    res.json({ ok: true, profile: completed.profile });
+  } catch (err) { identityError(res, err); }
 });
 
 // ── POST /api/identity/challenge ────────────────────────────────────────────

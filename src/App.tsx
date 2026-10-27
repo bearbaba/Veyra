@@ -5,7 +5,7 @@
  * module and is served only through the separate dev.html entrypoint.
  */
 
-import { useState } from 'react';
+import { useEffect,useState } from 'react';
 import { AppShell } from './components/layout/AppShell';
 import type { VeyraPage } from './components/layout/AppShell';
 import { HomePage } from './components/pages/HomePage';
@@ -21,7 +21,14 @@ import { SocialPage } from './components/pages/SocialPage';
 import { UnifiedSocialProvider } from './features/social/UnifiedSocial';
 
 export default function App() {
-  const [page, setPage] = useState<VeyraPage>('home');
+  // OAuth success is only a UI navigation hint; it is NEVER authentication.
+  // The wallet-bound server profile will be independently restored after F5.
+  const [page, setPage] = useState<VeyraPage>(()=>
+    typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('x_linked')==='1'?'settings':'home');
+  useEffect(()=>{
+    if(new URLSearchParams(window.location.search).get('x_linked')==='1')
+      window.history.replaceState(window.history.state,'',window.location.pathname);
+  },[]);
   const [friendPayment, setFriendPayment] = useState<string | null>(null);
 
   function startFriendPayment(handle: string) {

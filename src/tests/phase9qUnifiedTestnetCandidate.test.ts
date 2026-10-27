@@ -14,7 +14,9 @@ describe('Phase 9Q — the one protected Veyra Core Testnet build', () => {
     expect(config.env).toBeUndefined();
     expect(config.rewrites).toEqual(STAGING_APPROVED_REWRITES);
     expect(STAGING_ALLOWED_PATHS).not.toContain('/api/:path*');
-    expect(STAGING_ALLOWED_PATHS).not.toContain('/api/auth/x/start');
+    expect(STAGING_ALLOWED_PATHS).toContain('/api/auth/x/start');
+    expect(STAGING_ALLOWED_PATHS).toContain('/api/auth/x/capability');
+    expect(STAGING_ALLOWED_PATHS).not.toContain('/api/auth/x/callback');
     expect(STAGING_ALLOWED_PATHS).not.toContain('/api/bridge/execute');
     expect(STAGING_ALLOWED_PATHS).toContain('/api/bridge/relay-receive');
     expect(STAGING_ALLOWED_PATHS).toContain('/api/bridge/verify-second-destination');
@@ -30,15 +32,21 @@ describe('Phase 9Q — the one protected Veyra Core Testnet build', () => {
   it('never offers an unusable X OAuth link or a fake BFF Online badge', () => {
     const settings = read('src/components/pages/SettingsPage.tsx');
     const banner = read('src/components/system/WebPreviewBanner.tsx');
-    expect(settings).toContain("import.meta.env.VITE_VEYRA_UNIFIED_STAGING === '1'");
+    expect(settings).toContain("xCapability==='unavailable'");
     expect(settings).toContain("'X linking unavailable'");
-    expect(settings).toContain('disabled={xLinkUnavailable ||');
+    expect(settings).toContain("disabled={xCapability!=='available'");
+    expect(settings).toContain('getXLinkCapability()');
+    expect(read('src/lib/api/identityApi.ts')).toContain("payload.available===true");
     expect(banner).toContain("type.toLowerCase().includes('application/json')");
     expect(banner).toContain('payload.ok === true');
   });
-  it('runs the staging config gate only on this deploy-only branch', () => {
+  it('runs staging safety checks on its branch and PRs targeting that branch only', () => {
     const workflow = read('.github/workflows/ci.yml');
     expect(workflow).toContain('phase9q-unified-core-testnet-release');
+    // A feature PR targeting the Testnet branch must not be mistaken for
+    // a legacy static Production preview; other bases retain production gates.
+    expect(workflow.match(/GITHUB_BASE_REF/g)).toHaveLength(2);
+    expect(workflow).toContain('GITHUB_HEAD_REF');
     expect(workflow).toContain('check-unified-testnet-staging.ts');
     expect(workflow).toContain('check-unified-production-release.ts');
     expect(read('scripts/check-unified-testnet-staging.ts')).toContain('isExactStagingBffAllowlist(cfg.rewrites)');
