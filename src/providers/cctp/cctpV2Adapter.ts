@@ -307,37 +307,31 @@ export async function approveTokenMessenger(
 
 // ── Step 2: depositForBurn ────────────────────────────────────────────────────
 
+/** Identical parameters for eth_call simulation and signed on-chain burn. */
+export function cctpDepositForBurnCall(action: BridgeAction) {
+  return {
+    address: getAddress(MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER),
+    abi: TOKEN_MESSENGER_V2_ABI,
+    functionName: 'depositForBurn' as const,
+    args: [
+      action.amount,
+      chainIdToCctpDomain(action.destinationChainId),
+      addressToBytes32(getAddress(action.to)),
+      getAddress(action.tokenAddress),
+      ('0x' + '00'.repeat(32)) as `0x${string}`,
+      0n,
+      MANIFEST_CONSTANTS.CCTP_STANDARD_FINALITY,
+    ] as const,
+    account: getAddress(action.from),
+  };
+}
+
 export async function broadcastDepositForBurn(
   walletClient: WalletClient,
   action: BridgeAction,
 ): Promise<Hash> {
-  const destinationDomain = chainIdToCctpDomain(action.destinationChainId);
-  const mintRecipient = addressToBytes32(getAddress(action.to));
-  const burnToken = getAddress(action.tokenAddress);
-  const messengerAddress = getAddress(MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER);
-  const from = getAddress(action.from);
-
-  // destinationCaller = zero bytes32 (anyone can relay)
-  const destinationCaller = ('0x' + '00'.repeat(32)) as `0x${string}`;
-  // maxFee = 0 for standard transfer (no upfront fee)
-  const maxFee = 0n;
-  // minFinalityThreshold = 2000 for standard (safe) transfer
-  const minFinalityThreshold = MANIFEST_CONSTANTS.CCTP_STANDARD_FINALITY;
-
   return walletClient.writeContract({
-    address: messengerAddress,
-    abi: TOKEN_MESSENGER_V2_ABI,
-    functionName: 'depositForBurn',
-    args: [
-      action.amount,
-      destinationDomain,
-      mintRecipient,
-      burnToken,
-      destinationCaller,
-      maxFee,
-      minFinalityThreshold,
-    ],
-    account: from,
+    ...cctpDepositForBurnCall(action),
     chain: null,
   });
 }

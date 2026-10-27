@@ -13,6 +13,7 @@ import type { RiskScoringResult } from '../risk/riskTypes';
 import { SECURITY_CONFIG } from '../../lib/securityConfig';
 import { MANIFEST_CONSTANTS } from '../../providers/registry/providerManifest';
 import type { RouteOption } from '../../providers/bridge/bridgeProviderTypes';
+import { matchesCctpSimulation, type BridgeSimulationEvidence } from '../execution/cctpSourceSimulation';
 
 // ── Pipeline status ───────────────────────────────────────────────────────────
 
@@ -92,7 +93,8 @@ export interface BridgePipelineEvaluation {
   blockedReason?: string;
 }
 
-export function evaluateBridgeAction(action: BridgeAction): BridgePipelineEvaluation {
+export function evaluateBridgeAction(action: BridgeAction, simulation?: BridgeSimulationEvidence): BridgePipelineEvaluation {
+  const simulationCompleted = matchesCctpSimulation(action, simulation);
   // 1. Schema
   const schemaResult = validateAction(action);
   if (!schemaResult.valid) {
@@ -112,13 +114,13 @@ export function evaluateBridgeAction(action: BridgeAction): BridgePipelineEvalua
   const riskResult = scoreAction({
     providerProfiles: [riskProfile],
     chainId: action.chainId,
-    wasSimulated: false,
+    wasSimulated: simulationCompleted,
   });
 
   // 3. Policy
   const policyResult = evaluatePolicy(action, {
     riskScore: riskResult.score,
-    simulationCompleted: false,
+    simulationCompleted,
     quoteId: action.provenance.quoteId,
     providerId: action.providerId,
   }, DEFAULT_VEYRA_POLICY);
