@@ -17,7 +17,8 @@ describe('Agent conversation privacy and safe handoff', () => {
   it('does not sign from Agent chat or bypass deterministic execution review', () => {
     const page = read('components/pages/AgentPage.tsx');
     expect(page).toContain("execution: 'LOCKED'");
-    expect(page).toContain('<ActionCard intent={message.intent} onNavigate={onNavigate} />');
+    expect(page).toContain('<ActionCard intent={message.intent} onNavigate={onNavigate}');
+    expect(page).toContain('onClarifyDestination=');
     expect(page).not.toContain('sendTransaction(');
     expect(page).not.toContain('writeContract(');
     expect(page).not.toContain('walletClient.sign');

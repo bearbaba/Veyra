@@ -340,7 +340,7 @@ function buildIntent(message: string, locale: string): IntentResult | undefined 
       : unavailableSource || tokens[0] !== 'USDC' ? 'UNSUPPORTED' : 'RESOLVED';
     const question = missing.includes('destinationChainRaw')
       ? (locale.startsWith('vi')
-        ? 'Bạn muốn gửi 2 mạng nào: Ethereum Sepolia hay Base Sepolia? Veyra hiện có tuyến CCTP từ Arc Testnet.'
+        ? 'Bạn muốn gửi tới mạng nào: Ethereum Sepolia hay Base Sepolia? Hiện Veyra hỗ trợ tuyến CCTP từ Arc Testnet.'
         : 'Which destination did you mean: Ethereum Sepolia or Base Sepolia? The currently supported CCTP source is Arc Testnet.')
       : missing.includes('recipientRaw') ? localized(locale, 'clarifyRecipient')
       : missing.includes('amountRaw') ? localized(locale, 'clarifyAmount')
