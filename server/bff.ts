@@ -45,6 +45,7 @@ import {sql} from 'drizzle-orm';
 import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } from './services/friendInboxService.js';
 import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
+import {DirectMessageError,encryptionKey,chatPage,listDirectMessages,sendDirectMessage} from './services/directMessageService.js';
 import { beginXOAuthLink, completeXOAuthLink, XOAuthError,checkedXReturnOrigin,buildXLinkedReturnUrl,isConfiguredXOAuth } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
 import { PaymentReviewError } from './services/paymentReviewProof.js';
@@ -205,6 +206,7 @@ app.use('/api', GLOBAL_RATE);
 // remains available only outside production for local E2E.
 
 function identityError(res: Response, err: unknown): void {
+  if(err instanceof DirectMessageError){res.status(err.httpStatus).json({ok:false,error:err.code,message:err.message});return;}
   if (err instanceof NotificationInboxError) {
     res.status(err.code === 'NOTIFICATION_NOT_FOUND' ? 404 : 400)
       .json({ ok: false, error: err.code, message: err.message });
@@ -417,6 +419,33 @@ app.post('/api/social/unfollow', IDENTITY_RATE, async (req: Request, res: Respon
     const { db } = await import('./db/client.js');
     await unfollow(db, userId, target); res.json({ ok: true });
   } catch (err) { identityError(res, err); }
+});
+
+// Chat is independently capability-gated. A signed ID is still required for
+// every actual list/send call; capability does not grant financial authority.
+app.get('/api/social/chat/capability',IDENTITY_RATE,(req:Request,res:Response):void=>{
+  const owner=getAuthenticatedVeyraUserId(req);
+  if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  res.json({ok:true,available:Boolean(encryptionKey()),endToEndEncrypted:false});
+});
+app.get('/api/social/chat',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const owner=getAuthenticatedVeyraUserId(req);
+    if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    const page=chatPage(req.query.limit,req.query.offset);
+    res.json(await listDirectMessages(db,owner,req.query.peerUserId,page));
+  }catch(err){identityError(res,err);}
+});
+const CHAT_SEND_RATE=rateLimit(20,60_000);
+app.post('/api/social/chat/send',CHAT_SEND_RATE,async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const owner=getAuthenticatedVeyraUserId(req);
+    if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+    const body=req.body as Record<string,unknown>;
+    const {db}=await import('./db/client.js');
+    res.json(await sendDirectMessage(db,owner,body.peerUserId,body.body,body.clientRequestId));
+  }catch(err){identityError(res,err);}
 });
 
 // Phase 9A — owner-private notifications, never a public event creation API.

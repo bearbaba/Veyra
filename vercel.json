@@ -107,6 +107,18 @@
       "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/friends"
     },
     {
+      "source": "/api/social/chat/capability",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/chat/capability"
+    },
+    {
+      "source": "/api/social/chat",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/chat"
+    },
+    {
+      "source": "/api/social/chat/send",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/chat/send"
+    },
+    {
       "source": "/api/social/friend/request",
       "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/friend/request"
     },
