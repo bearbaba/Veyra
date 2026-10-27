@@ -47,7 +47,7 @@ describe('Phase 35 — reverse CCTP Testnet readiness is strictly read-only',()=
       expect(call.account.toLowerCase()).toBe(sender.toLowerCase());
       expect(call.args[0]).toBe(2_000_000n);
       expect(call.args[1]).toBe(M.ARC_TESTNET_CCTP_DOMAIN);
-      expect(call.args[3].toString().toLowerCase()).toBe(reverseCctpSourceToken(chainId)?.toLowerCase());
+      expect(String(call.args[3]).toLowerCase()).toBe(reverseCctpSourceToken(chainId)?.toLowerCase());
       expect(spy.writeContract).not.toHaveBeenCalled();
     });
 
