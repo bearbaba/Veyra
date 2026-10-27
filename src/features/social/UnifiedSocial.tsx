@@ -16,12 +16,13 @@ type Session={token:string;profile:IdentityProfile;walletKey:string};
 type SocialState={
   session:Session|null;friends:SocialFriend[];notices:SocialNotice[];unreadCount:number;busy:boolean;error:string|null;message:string|null;
   friendsHasMore:boolean;loadingMoreFriends:boolean;loadMoreFriends:()=>Promise<void>;
+  noticesHasMore:boolean;loadingMoreNotices:boolean;loadMoreNotices:()=>Promise<void>;
   needsRegistration:boolean;connected:boolean;ready:boolean;
   identityOrigin:IdentityOriginStatus;recheckIdentityOrigin:()=>Promise<void>;
   restoring:boolean;
   signIn:()=>Promise<void>;register:(handle:string)=>Promise<void>;signOut:()=>Promise<boolean>;refresh:()=>Promise<void>;
-  invite:(name:string)=>Promise<void>;respond:(id:string,decision:'ACCEPT'|'REJECT')=>Promise<void>;
-  block:(id:string)=>Promise<void>;markRead:(id:string)=>Promise<void>;
+  invite:(name:string)=>Promise<boolean>;respond:(id:string,decision:'ACCEPT'|'REJECT')=>Promise<boolean>;
+  block:(id:string)=>Promise<boolean>;markRead:(id:string)=>Promise<boolean>;
 };
 const SocialContext=createContext<SocialState|null>(null);
 const USER_ID=/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/;
@@ -69,6 +70,9 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   const [notices,setNotices]=useState<SocialNotice[]>([]);
   const [friendsNextOffset,setFriendsNextOffset]=useState<number|null>(null);
   const [loadingMoreFriends,setLoadingMoreFriends]=useState(false);
+  const [noticesNextOffset,setNoticesNextOffset]=useState<number|null>(null);
+  const [loadingMoreNotices,setLoadingMoreNotices]=useState(false);
+  const noticePageTicket=useRef<symbol|null>(null);
   const friendRefreshEpoch=useRef(0),loadingFriendPage=useRef(false);
   const [unreadCount,setUnreadCount]=useState(0),[busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null),[message,setMessage]=useState<string|null>(null);
@@ -88,7 +92,9 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   },[recheckIdentityOrigin]);
   const ready=Boolean(isConnected&&address&&connector&&chainId===ARC_TESTNET_CHAIN_ID);
   const resetLocal=useCallback(()=>{
-    generation.current++;friendRefreshEpoch.current++;clearSignedIdentitySession();setSession(null);setFriends([]);setFriendsNextOffset(null);setLoadingMoreFriends(false);setNotices([]);setUnreadCount(0);
+    generation.current++;friendRefreshEpoch.current++;noticePageTicket.current=null;
+    clearSignedIdentitySession();setSession(null);setFriends([]);setFriendsNextOffset(null);setLoadingMoreFriends(false);
+    setNotices([]);setNoticesNextOffset(null);setLoadingMoreNotices(false);setUnreadCount(0);
     setNeedsRegistration(false);setError(null);setMessage(null);
   },[]);
   // Prevent auto-restore from racing an explicit sign-out while the old
@@ -193,6 +199,12 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   const validPage=(value:FriendsPage):boolean=>Array.isArray(value?.items)&&
     typeof value.hasMore==='boolean'&&
     (value.hasMore ? Number.isSafeInteger(value.nextOffset)&&value.nextOffset!==null&&value.nextOffset>0 : value.nextOffset===null);
+  type NoticesPage={items:SocialNotice[];unreadCount:number;hasMore:boolean;nextOffset:number|null};
+  const validNoticesPage=(value:NoticesPage):boolean=>Array.isArray(value?.items)&&
+    Number.isSafeInteger(value.unreadCount)&&value.unreadCount>=0&&
+    typeof value.hasMore==='boolean'&&
+    (value.hasMore?Number.isSafeInteger(value.nextOffset)&&value.nextOffset!==null&&value.nextOffset>0:
+      value.nextOffset===null);
   const refresh=useCallback(async()=>{
     const s=session;if(!s||s.walletKey!==current.current)return;
     const key=s.walletKey,rev=generation.current,request=++friendRefreshEpoch.current;
@@ -200,7 +212,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     // notifications from a pending transfer or a local balance change.
     const [f,n]=await Promise.allSettled([
       api<FriendsPage>('/api/social/friends?limit=20&offset=0','GET',s.token),
-      api<{items:SocialNotice[];unreadCount:number}>('/api/notifications?limit=20&offset=0','GET',s.token),
+      api<NoticesPage>('/api/notifications?limit=20&offset=0','GET',s.token),
     ]);
     // Never let an older refresh overwrite the newer Friends *or* notices
     // after a response delay, manual refresh or wallet/session replacement.
@@ -215,8 +227,9 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
       }
     }
     if(n.status==='fulfilled'){
-      if(Array.isArray(n.value?.items)&&Number.isSafeInteger(n.value.unreadCount)&&n.value.unreadCount>=0){
+      if(validNoticesPage(n.value)){
         setNotices(n.value.items);setUnreadCount(n.value.unreadCount);
+        setNoticesNextOffset(n.value.hasMore&&n.value.nextOffset!==null&&n.value.nextOffset<=1000?n.value.nextOffset:null);
       }else{
         setError('Notifications service returned invalid data. No events were inferred.');
         return;
@@ -250,6 +263,33 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
       if(unchanged(key,rev))setLoadingMoreFriends(false);
     }
   },[session,friendsNextOffset,busy]);
+  const loadMoreNotices=useCallback(async()=>{
+    const s=session,offset=noticesNextOffset;
+    if(!s||s.walletKey!==current.current||offset===null||busy||noticePageTicket.current)return;
+    const key=s.walletKey,rev=generation.current,epoch=friendRefreshEpoch.current;
+    const ticket=Symbol('notification page');
+    noticePageTicket.current=ticket;setLoadingMoreNotices(true);
+    try{
+      const page=await api<NoticesPage>('/api/notifications?limit=20&offset='+offset,'GET',s.token);
+      if(!unchanged(key,rev)||epoch!==friendRefreshEpoch.current||noticePageTicket.current!==ticket)return;
+      if(!validNoticesPage(page)||page.hasMore&&(page.nextOffset===null||page.nextOffset<=offset))
+        throw new Error('Invalid notification cursor.');
+      setNotices(previous=>{
+        const known=new Set(previous.map(item=>item.notificationId));
+        return [...previous,...page.items.filter(item=>!known.has(item.notificationId))];
+      });
+      setUnreadCount(page.unreadCount);
+      setNoticesNextOffset(page.hasMore&&page.nextOffset!==null&&page.nextOffset<=1000?page.nextOffset:null);
+    }catch{
+      if(unchanged(key,rev)&&epoch===friendRefreshEpoch.current)
+        setError('Could not load more notifications. Please retry.');
+    }finally{
+      if(noticePageTicket.current===ticket){
+        noticePageTicket.current=null;
+        if(unchanged(key,rev))setLoadingMoreNotices(false);
+      }
+    }
+  },[session,noticesNextOffset,busy]);
   useEffect(()=>{
     if(!session)return;
     void refresh();
@@ -258,13 +298,20 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     document.addEventListener('visibilitychange',onVisible);
     return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);};
   },[session,refresh]);
-  const mutate=(fn:(token:string)=>Promise<unknown>)=>action(async(key,rev)=>{
-    const s=session;
-    if(!s||s.walletKey!==key)throw new Error('Sign in with this wallet before using Social.');
-    await fn(s.token);
-    if(!unchanged(key,rev))return;
-    setMessage('Saved.');await refresh();
-  });
+  // Expose success to the UI so an invitation field is only cleared on a
+  // confirmed server mutation, and a failed friend accept cannot mark its
+  // notification as read. The existing identity error handler remains intact.
+  const mutate=(fn:(token:string)=>Promise<unknown>):Promise<boolean>=>{
+    let accepted=false;
+    return action(async(key,rev)=>{
+      const s=session;
+      if(!s||s.walletKey!==key)throw new Error('Sign in with this wallet before using Social.');
+      await fn(s.token);
+      if(!unchanged(key,rev))return;
+      accepted=true;
+      setMessage('Saved.');await refresh();
+    }).then(()=>accepted);
+  };
   const invite=(name:string)=>mutate(async token=>{
     const r=await api<{resolved:{kind:'WALLET'|'VEYRA_IDENTITY';veyraUserId?:string}}>('/api/identity/resolve','POST',token,{recipient:normalizeFriendName(name)});
     if(r.resolved.kind!=='VEYRA_IDENTITY'||!r.resolved.veyraUserId||!USER_ID.test(r.resolved.veyraUserId)||r.resolved.veyraUserId===session?.profile.veyraUserId)
@@ -277,6 +324,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   const active=session?.walletKey===walletKey?session:null;
   return <SocialContext.Provider value={{session:active,friends:active?friends:[],notices:active?notices:[],
     friendsHasMore:active?friendsNextOffset!==null:false,loadingMoreFriends,loadMoreFriends,
+    noticesHasMore:active?noticesNextOffset!==null:false,loadingMoreNotices,loadMoreNotices,
     unreadCount:active?unreadCount:0,busy,error,message,needsRegistration,connected:isConnected,ready,
     identityOrigin,recheckIdentityOrigin,restoring,
     signIn,register,signOut,refresh,invite,respond,block,markRead}}>{children}</SocialContext.Provider>;

@@ -6,6 +6,9 @@ export function NotificationBell({openSocial}:{openSocial:()=>void}){
   const social=useUnifiedSocial();
   const [open,setOpen]=useState(false);
   const box=useRef<HTMLDivElement>(null);
+  const acceptNotice=async(id:string,notificationId:string)=>{
+    if(await social.respond(id,'ACCEPT'))await social.markRead(notificationId);
+  };
   useEffect(()=>{
     if(!open)return;
     const outside=(e:MouseEvent)=>{if(box.current&&!box.current.contains(e.target as Node))setOpen(false);};
@@ -29,7 +32,7 @@ export function NotificationBell({openSocial}:{openSocial:()=>void}){
             {notificationActorName(item,social.friends)&&<p style={{color:'var(--muted)'}}>{notificationActorName(item,social.friends)}</p>}
             <p style={{color:'var(--muted)'}}>{notificationDescription(item.kind)}</p>
             {actionableFriendRequest(item,social.friends)&&<button type="button" disabled={social.busy}
-              className="mt-1 font-semibold underline" onClick={()=>{void social.respond(item.actorUserId!,'ACCEPT');}}>Accept friend</button>}
+              className="mt-1 font-semibold underline" onClick={()=>void acceptNotice(item.actorUserId!,item.notificationId)}>Accept friend</button>}
           </div>
           {!item.readAt&&<button type="button" className="underline" onClick={()=>void social.markRead(item.notificationId)} disabled={social.busy}>Read</button>}
         </div>)}</div>

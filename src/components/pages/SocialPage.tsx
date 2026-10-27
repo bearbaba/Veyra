@@ -12,6 +12,11 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
   const [confirmBlockId,setConfirmBlockId]=useState<string|null>(null);
   const [friendFilter,setFriendFilter]=useState<'all'|'connected'|'pending'>('all');
   const [friendSearch,setFriendSearch]=useState('');
+  const [noticeFilter,setNoticeFilter]=useState<'all'|'unread'>('all');
+  const filteredNotices=social.notices.filter(item=>noticeFilter==='all'||!item.readAt);
+  const acceptNotice=async(id:string,notificationId:string)=>{
+    if(await social.respond(id,'ACCEPT'))await social.markRead(notificationId);
+  };
   const filteredFriends=social.friends.filter(item=>
     (friendFilter==='all'||(friendFilter==='connected'?item.state==='CONNECTED':item.state!=='CONNECTED')) &&
     friendLabel(item).toLowerCase().includes(friendSearch.trim().toLowerCase()));
@@ -33,7 +38,8 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
       <div className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
         <section className="space-y-3 rounded-3xl border p-5" style={{borderColor:'var(--border)',background:'var(--surface-strong)'}}>
           <h2 className="flex items-center gap-2 font-bold"><Users size={18}/> Friends</h2>
-          <form onSubmit={event=>{event.preventDefault();void social.invite(friend);}} className="flex gap-2">
+          <form onSubmit={event=>{event.preventDefault();const invited=friend.trim();
+            void social.invite(invited).then(ok=>{if(ok)setFriend(current=>current.trim()===invited?'':current);});}} className="flex gap-2">
             <input value={friend} onChange={event=>setFriend(event.target.value)} placeholder="@friend.veyra" aria-label="Friend Veyra ID"
               className="min-w-0 flex-1 rounded-xl border bg-transparent p-3 text-sm" style={{borderColor:'var(--border)'}}/>
             <button type="submit" disabled={social.busy||friend.trim().length<3}
@@ -114,17 +120,29 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
         <section className="space-y-3 rounded-3xl border p-5" style={{borderColor:'var(--border)',background:'var(--surface-strong)'}}>
           <h2 className="flex items-center gap-2 font-bold"><Bell size={18}/> Notifications</h2>
           <p className="text-xs" style={{color:'var(--muted)'}}>{social.unreadCount} unread · Authenticated events only</p>
-          {social.notices.length===0?<p className="text-sm" style={{color:'var(--muted)'}}>No verified notifications.</p>:
-            social.notices.map(item=><div key={item.notificationId} className="rounded-xl border p-3 text-xs" style={{borderColor:'var(--border)'}}>
+          <div role="group" aria-label="Notification filters" className="flex flex-wrap gap-2">
+            {([{id:'all',label:'All activity'},{id:'unread',label:'Unread'}] as const).map(tab=>
+              <button type="button" key={tab.id} aria-pressed={noticeFilter===tab.id}
+                onClick={()=>setNoticeFilter(tab.id)} className="rounded-lg border px-3 py-1.5 text-xs font-semibold"
+                style={{borderColor:noticeFilter===tab.id?'var(--accent)':'var(--border)',
+                  color:noticeFilter===tab.id?'var(--accent)':'var(--muted)'}}>{tab.label}</button>)}
+          </div>
+          {filteredNotices.length===0?<p className="text-sm" style={{color:'var(--muted)'}}>
+            {noticeFilter==='unread'?'No unread events in loaded history.':'No verified notifications.'}
+          </p>:
+            filteredNotices.map(item=><div key={item.notificationId} className="rounded-xl border p-3 text-xs" style={{borderColor:'var(--border)'}}>
               <b>{notificationTitle(item.kind)}</b>
               {notificationActorName(item,social.friends)&&<span className="ml-2" style={{color:'var(--muted)'}}>{notificationActorName(item,social.friends)}</span>}
               <p className="mt-1" style={{color:'var(--muted)'}}>{notificationDescription(item.kind)}</p>
               <time className="block mt-1" style={{color:'var(--subtle)'}}>{new Date(item.createdAt).toLocaleString()}</time>
               {actionableFriendRequest(item,social.friends)&&<button type="button" disabled={social.busy}
                 className="mt-2 rounded-lg border px-3 py-1.5 font-semibold" style={{borderColor:'var(--success)'}}
-                onClick={()=>void social.respond(item.actorUserId!,'ACCEPT')}>Accept friend</button>}
+                onClick={()=>void acceptNotice(item.actorUserId!,item.notificationId)}>Accept friend</button>}
               {!item.readAt&&<button type="button" disabled={social.busy} className="ml-2 mt-2 underline" onClick={()=>void social.markRead(item.notificationId)}>Mark read</button>}
             </div>)}
+          {social.noticesHasMore&&<button type="button" disabled={social.loadingMoreNotices||social.busy}
+            onClick={()=>void social.loadMoreNotices()} className="w-full rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+            style={{borderColor:'var(--border)'}}>{social.loadingMoreNotices?'Loading history…':'Load older notifications'}</button>}
         </section>
       </div>
       <section className="rounded-2xl border p-5" style={{borderColor:'var(--border)',background:'var(--surface)'}}>

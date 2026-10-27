@@ -36,6 +36,10 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const xLinkUnavailable = import.meta.env.VITE_VEYRA_UNIFIED_STAGING === '1';
 
   const profile = identity.profile;
+  const xAvatar = profile?.x?.avatarUrl;
+  const approvedXAvatar = typeof xAvatar==='string' &&
+    /^https:\/\/pbs\.twimg\.com\/profile_images\/[0-9]+\/[A-Za-z0-9_-]+(?:\.[A-Za-z0-9]+)?(?:\?.*)?$/.test(xAvatar)
+    ? xAvatar : null;
 
   async function linkX() {
     setXError(null);
@@ -98,7 +102,9 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="flex size-12 items-center justify-center rounded-2xl" style={{ background: 'linear-gradient(135deg,#7c3aed,#ec4899)', color: 'white' }}>
-                <ShieldCheck className="size-5" />
+                {approvedXAvatar?<img src={approvedXAvatar} alt="Verified linked X profile avatar"
+                  referrerPolicy="no-referrer" loading="lazy" className="size-full rounded-2xl object-cover"/>:
+                  <ShieldCheck className="size-5" />}
               </div>
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--subtle)' }}>Veyra identity</div>
