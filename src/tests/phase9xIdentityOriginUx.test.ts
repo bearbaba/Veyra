@@ -24,6 +24,7 @@ describe('Veyra one-page wallet and origin acceptance',()=>{
     expect(init?.credentials).toBe('same-origin');
     expect(init?.cache).toBe('no-store');
     expect(init?.headers).not.toHaveProperty('Authorization');
+    expect(init?.signal).toBeDefined();
   });
   it('only accepts the BFF exact 400 INVALID_REQUEST after its Origin guard',async()=>{
     for(const response of [
@@ -50,6 +51,7 @@ describe('Veyra one-page wallet and origin acceptance',()=>{
     expect(social).toContain("if(identityOrigin!=='ready')");
     expect(social).toContain("setIdentityOrigin('origin_blocked')");
     expect(social).toContain('probeIdentityOrigin()');
+    expect(file('lib/api/identityOriginProbe.ts')).toContain('AbortSignal.timeout(30000)');
     expect(social).not.toContain('window.location.assign');
     const err=new SocialHttpError(403,'ORIGIN_NOT_ALLOWED');
     expect(err.message).toContain('Preview URL is not authorized');

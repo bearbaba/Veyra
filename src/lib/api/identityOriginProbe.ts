@@ -21,7 +21,9 @@ export async function probeIdentityOrigin(signal?: AbortSignal): Promise<Exclude
       body: '{}',
       cache: 'no-store',
       credentials: 'same-origin',
-      signal,
+      // Render Free may cold-start. Bound the spinner rather than leaving
+      // the whole identity surface in "Checking" indefinitely. No auto-sign.
+      signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
     });
     const type = response.headers.get('content-type') ?? '';
     if (!type.toLowerCase().includes('application/json')) return 'offline';

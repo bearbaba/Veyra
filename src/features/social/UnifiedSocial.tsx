@@ -15,12 +15,14 @@ export type SocialNotice={notificationId:string;kind:string;actorUserId:string|n
 type Session={token:string;profile:IdentityProfile;walletKey:string};
 type SocialState={
   session:Session|null;friends:SocialFriend[];notices:SocialNotice[];unreadCount:number;busy:boolean;error:string|null;message:string|null;
+  friendsHasMore:boolean;loadingMoreFriends:boolean;loadMoreFriends:()=>Promise<void>;
+  noticesHasMore:boolean;loadingMoreNotices:boolean;loadMoreNotices:()=>Promise<void>;
   needsRegistration:boolean;connected:boolean;ready:boolean;
   identityOrigin:IdentityOriginStatus;recheckIdentityOrigin:()=>Promise<void>;
   restoring:boolean;
-  signIn:()=>Promise<void>;register:(handle:string)=>Promise<void>;signOut:()=>void;refresh:()=>Promise<void>;
-  invite:(name:string)=>Promise<void>;respond:(id:string,decision:'ACCEPT'|'REJECT')=>Promise<void>;
-  block:(id:string)=>Promise<void>;markRead:(id:string)=>Promise<void>;
+  signIn:()=>Promise<void>;register:(handle:string)=>Promise<void>;signOut:()=>Promise<boolean>;refresh:()=>Promise<void>;
+  invite:(name:string)=>Promise<boolean>;respond:(id:string,decision:'ACCEPT'|'REJECT')=>Promise<boolean>;
+  block:(id:string)=>Promise<boolean>;markRead:(id:string)=>Promise<boolean>;
 };
 const SocialContext=createContext<SocialState|null>(null);
 const USER_ID=/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/;
@@ -33,13 +35,13 @@ export class SocialHttpError extends Error {
       : 'Veyra service error ('+status+'; '+code+').');
   }
 }
-async function api<T>(path:string,method:'GET'|'POST',token?:string,body?:Record<string,unknown>):Promise<T>{
+async function api<T>(path:string,method:'GET'|'POST',token?:string,body?:Record<string,unknown>,timeoutMs=120000):Promise<T>{
   if(!/^\/api\/[a-z0-9/?&=._-]+$/i.test(path)||path.includes('..'))throw new Error('Unrecognized Veyra endpoint.');
   const headers:Record<string,string>={Accept:'application/json'};
   if(token)headers.Authorization='Bearer '+token;
   if(body)headers['Content-Type']='application/json';
   let response:Response;
-  try{response=await fetch(path,{method,headers,cache:'no-store',credentials:'same-origin',body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(120000)});}
+  try{response=await fetch(path,{method,headers,cache:'no-store',credentials:'same-origin',body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(timeoutMs)});}
   catch{throw new Error('Identity service is unavailable. No signed request was automatically retried.');}
   const result=(await response.json().catch(()=>({}))) as Record<string,unknown>;
   if(!response.ok||result.ok===false)throw new SocialHttpError(response.status,typeof result.error==='string'&&/^[A-Z_]{2,60}$/.test(result.error)?result.error:'REQUEST_FAILED');
@@ -66,6 +68,12 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   const [session,setSession]=useState<Session|null>(null);
   const [friends,setFriends]=useState<SocialFriend[]>([]);
   const [notices,setNotices]=useState<SocialNotice[]>([]);
+  const [friendsNextOffset,setFriendsNextOffset]=useState<number|null>(null);
+  const [loadingMoreFriends,setLoadingMoreFriends]=useState(false);
+  const [noticesNextOffset,setNoticesNextOffset]=useState<number|null>(null);
+  const [loadingMoreNotices,setLoadingMoreNotices]=useState(false);
+  const noticePageTicket=useRef<symbol|null>(null);
+  const friendRefreshEpoch=useRef(0),loadingFriendPage=useRef(false);
   const [unreadCount,setUnreadCount]=useState(0),[busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null),[message,setMessage]=useState<string|null>(null);
   const [needsRegistration,setNeedsRegistration]=useState(false);
@@ -84,16 +92,37 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   },[recheckIdentityOrigin]);
   const ready=Boolean(isConnected&&address&&connector&&chainId===ARC_TESTNET_CHAIN_ID);
   const resetLocal=useCallback(()=>{
-    generation.current++;clearSignedIdentitySession();setSession(null);setFriends([]);setNotices([]);setUnreadCount(0);
+    generation.current++;friendRefreshEpoch.current++;noticePageTicket.current=null;
+    clearSignedIdentitySession();setSession(null);setFriends([]);setFriendsNextOffset(null);setLoadingMoreFriends(false);
+    setNotices([]);setNoticesNextOffset(null);setLoadingMoreNotices(false);setUnreadCount(0);
     setNeedsRegistration(false);setError(null);setMessage(null);
   },[]);
-  const signOut=useCallback(()=>{
+  // Prevent auto-restore from racing an explicit sign-out while the old
+  // HttpOnly cookie is still being cleared. A wallet change resets this guard.
+  const restoreSuppressedFor=useRef<string|null>(null);
+  const restoreAttemptedFor=useRef<string|null>(null);
+  const signOut=useCallback(async():Promise<boolean>=>{
+    restoreSuppressedFor.current=current.current;
     resetLocal();
-    // Explicit logout clears the HttpOnly restore cookie. Wallet changes
-    // only clear JS authority: never silently log out on first hydration.
-    void api('/api/auth/session/logout','POST').catch(()=>{});
+    setBusy(true);
+    try{
+      // Only a backend JSON acknowledgement is proof that the restore
+      // cookie was cleared; a Vercel HTML fallback can also return HTTP 200.
+      const response=await api<{ok:boolean}>('/api/auth/session/logout','POST',undefined,undefined,20000);
+      if(response.ok!==true)throw new Error('Server logout was not acknowledged.');
+      return true;
+    }catch{
+      setError('Signed out locally, but server logout was not confirmed. The browser session may still be valid after a reload.');
+      return false;
+    }finally{setBusy(false);}
   },[resetLocal]);
-  useEffect(()=>{current.current=walletKey;resetLocal();},[walletKey,resetLocal]);
+  useEffect(()=>{
+    if(current.current!==walletKey){
+      restoreSuppressedFor.current=null;
+      restoreAttemptedFor.current=null;
+    }
+    current.current=walletKey;resetLocal();
+  },[walletKey,resetLocal]);
   const unchanged=(key:string,rev:number)=>current.current===key&&generation.current===rev;
   async function action(fn:(key:string,rev:number)=>Promise<void>){
     if(pending.current)return;
@@ -119,12 +148,16 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   // On reload the wallet reconnects before this restores the secure browser
   // cookie. No MetaMask popup or browser-persisted bearer is involved.
   useEffect(()=>{
-    if(!isConnected||!address||!connector||identityOrigin!=='ready'||session||busy)return;
+    if(!isConnected||!address||!connector||identityOrigin!=='ready'||session||busy||
+       restoreSuppressedFor.current===walletKey||restoreAttemptedFor.current===walletKey)return;
     let cancelled=false;
     const key=walletKey,rev=generation.current;
+    // One automatic attempt for this connected wallet. A failed restore must
+    // not be retried on every unrelated busy-state transition.
+    restoreAttemptedFor.current=key;
     setRestoring(true);
     void api<{veyraUserId:string;sessionToken:string;profile:IdentityProfile}>(
-      '/api/auth/session/restore','POST',undefined,{walletAddress:address},
+      '/api/auth/session/restore','POST',undefined,{walletAddress:address},30000,
     ).then(data=>{
       if(cancelled||!unchanged(key,rev)||data.profile.veyraUserId!==data.veyraUserId||
         !USER_ID.test(data.veyraUserId))return;
@@ -170,46 +203,138 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     setSession({token:data.sessionToken,profile:data.profile,walletKey:key});setNeedsRegistration(false);
     setMessage('Veyra ID created. You are signed in without a second signature.');
   });
+  type FriendsPage={items:SocialFriend[];hasMore:boolean;nextOffset:number|null};
+  const validPage=(value:FriendsPage):boolean=>Array.isArray(value?.items)&&
+    typeof value.hasMore==='boolean'&&
+    (value.hasMore ? Number.isSafeInteger(value.nextOffset)&&value.nextOffset!==null&&value.nextOffset>0 : value.nextOffset===null);
+  type NoticesPage={items:SocialNotice[];unreadCount:number;hasMore:boolean;nextOffset:number|null};
+  const validNoticesPage=(value:NoticesPage):boolean=>Array.isArray(value?.items)&&
+    Number.isSafeInteger(value.unreadCount)&&value.unreadCount>=0&&
+    typeof value.hasMore==='boolean'&&
+    (value.hasMore?Number.isSafeInteger(value.nextOffset)&&value.nextOffset!==null&&value.nextOffset>0:
+      value.nextOffset===null);
   const refresh=useCallback(async()=>{
     const s=session;if(!s||s.walletKey!==current.current)return;
-    const key=s.walletKey,rev=generation.current;
-    // Friend data may be live even before deployment of the new notifications
-    // migration. Fail closed on missing events, never invent badge counts.
+    const key=s.walletKey,rev=generation.current,request=++friendRefreshEpoch.current;
+    // Both collections are authenticated and owner-private. Never synthesize
+    // notifications from a pending transfer or a local balance change.
     const [f,n]=await Promise.allSettled([
-      api<{items:SocialFriend[]}>('/api/social/friends?limit=20&offset=0','GET',s.token),
-      api<{items:SocialNotice[];unreadCount:number}>('/api/notifications?limit=20&offset=0','GET',s.token),
+      api<FriendsPage>('/api/social/friends?limit=20&offset=0','GET',s.token),
+      api<NoticesPage>('/api/notifications?limit=20&offset=0','GET',s.token),
     ]);
-    if(!unchanged(key,rev))return;
-    if(f.status==='fulfilled')setFriends(f.value.items);
-    if(n.status==='fulfilled'){setNotices(n.value.items);setUnreadCount(n.value.unreadCount);}
+    // Never let an older refresh overwrite the newer Friends *or* notices
+    // after a response delay, manual refresh or wallet/session replacement.
+    if(!unchanged(key,rev)||request!==friendRefreshEpoch.current)return;
+    if(f.status==='fulfilled'){
+      if(validPage(f.value)){
+        setFriends(f.value.items);
+        setFriendsNextOffset(f.value.hasMore?f.value.nextOffset:null);
+      }else{
+        setError('Friends service returned an invalid page. Try again.');
+        return;
+      }
+    }
+    if(n.status==='fulfilled'){
+      if(validNoticesPage(n.value)){
+        setNotices(n.value.items);setUnreadCount(n.value.unreadCount);
+        setNoticesNextOffset(n.value.hasMore&&n.value.nextOffset!==null&&n.value.nextOffset<=1000?n.value.nextOffset:null);
+      }else{
+        setError('Notifications service returned invalid data. No events were inferred.');
+        return;
+      }
+    }
     const rejected=[f,n].filter(x=>x.status==='rejected');
     if(rejected.some(x=>x.reason instanceof SocialHttpError&&x.reason.status===401)){resetLocal();return;}
     setError(rejected.length?'Some Social services are unavailable. No events are being inferred.':null);
   },[session,resetLocal]);
+  const loadMoreFriends=useCallback(async()=>{
+    const s=session,offset=friendsNextOffset;
+    if(!s||s.walletKey!==current.current||offset===null||busy||loadingFriendPage.current)return;
+    const key=s.walletKey,rev=generation.current,request=friendRefreshEpoch.current;
+    loadingFriendPage.current=true;setLoadingMoreFriends(true);
+    try{
+      const page=await api<FriendsPage>('/api/social/friends?limit=20&offset='+offset,'GET',s.token);
+      if(!unchanged(key,rev)||request!==friendRefreshEpoch.current)return;
+      if(!validPage(page)||page.hasMore&&(page.nextOffset===null||page.nextOffset<=offset))
+        throw new Error('Invalid or non-advancing Friends cursor.');
+      // A late page may overlap a changed friendship. Keep each ID once.
+      setFriends(previous=>{
+        const known=new Set(previous.map(item=>item.veyraUserId));
+        return [...previous,...page.items.filter(item=>!known.has(item.veyraUserId))];
+      });
+      setFriendsNextOffset(page.hasMore?page.nextOffset:null);
+    }catch{
+      if(unchanged(key,rev)&&request===friendRefreshEpoch.current)
+        setError('Could not load more friends. Please retry.');
+    }finally{
+      loadingFriendPage.current=false;
+      if(unchanged(key,rev))setLoadingMoreFriends(false);
+    }
+  },[session,friendsNextOffset,busy]);
+  const loadMoreNotices=useCallback(async()=>{
+    const s=session,offset=noticesNextOffset;
+    if(!s||s.walletKey!==current.current||offset===null||busy||noticePageTicket.current)return;
+    const key=s.walletKey,rev=generation.current,epoch=friendRefreshEpoch.current;
+    const ticket=Symbol('notification page');
+    noticePageTicket.current=ticket;setLoadingMoreNotices(true);
+    try{
+      const page=await api<NoticesPage>('/api/notifications?limit=20&offset='+offset,'GET',s.token);
+      if(!unchanged(key,rev)||epoch!==friendRefreshEpoch.current||noticePageTicket.current!==ticket)return;
+      if(!validNoticesPage(page)||page.hasMore&&(page.nextOffset===null||page.nextOffset<=offset))
+        throw new Error('Invalid notification cursor.');
+      setNotices(previous=>{
+        const known=new Set(previous.map(item=>item.notificationId));
+        return [...previous,...page.items.filter(item=>!known.has(item.notificationId))];
+      });
+      setUnreadCount(page.unreadCount);
+      setNoticesNextOffset(page.hasMore&&page.nextOffset!==null&&page.nextOffset<=1000?page.nextOffset:null);
+    }catch{
+      if(unchanged(key,rev)&&epoch===friendRefreshEpoch.current)
+        setError('Could not load more notifications. Please retry.');
+    }finally{
+      if(noticePageTicket.current===ticket){
+        noticePageTicket.current=null;
+        if(unchanged(key,rev))setLoadingMoreNotices(false);
+      }
+    }
+  },[session,noticesNextOffset,busy]);
   useEffect(()=>{
     if(!session)return;
     void refresh();
     const timer=setInterval(()=>{if(document.visibilityState==='visible')void refresh();},60000);
-    return()=>clearInterval(timer);
+    const onVisible=()=>{if(document.visibilityState==='visible')void refresh();};
+    document.addEventListener('visibilitychange',onVisible);
+    return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);};
   },[session,refresh]);
-  const mutate=(fn:(token:string)=>Promise<unknown>)=>action(async(key,rev)=>{
-    const s=session;
-    if(!s||s.walletKey!==key)throw new Error('Sign in with this wallet before using Social.');
-    await fn(s.token);
-    if(!unchanged(key,rev))return;
-    setMessage('Saved.');await refresh();
-  });
+  // Expose success to the UI so an invitation field is only cleared on a
+  // confirmed server mutation, and a failed friend accept cannot mark its
+  // notification as read. The existing identity error handler remains intact.
+  const mutate=(fn:(token:string)=>Promise<unknown>,successMessage='Saved.'):Promise<boolean>=>{
+    let accepted=false;
+    return action(async(key,rev)=>{
+      const s=session;
+      if(!s||s.walletKey!==key)throw new Error('Sign in with this wallet before using Social.');
+      await fn(s.token);
+      if(!unchanged(key,rev))return;
+      setMessage(successMessage);await refresh();
+      accepted=unchanged(key,rev);
+    }).then(()=>accepted);
+  };
   const invite=(name:string)=>mutate(async token=>{
     const r=await api<{resolved:{kind:'WALLET'|'VEYRA_IDENTITY';veyraUserId?:string}}>('/api/identity/resolve','POST',token,{recipient:normalizeFriendName(name)});
     if(r.resolved.kind!=='VEYRA_IDENTITY'||!r.resolved.veyraUserId||!USER_ID.test(r.resolved.veyraUserId)||r.resolved.veyraUserId===session?.profile.veyraUserId)
       throw new Error('Choose another verified Veyra ID.');
     await api('/api/social/friend/request','POST',token,{veyraUserId:r.resolved.veyraUserId});
-  });
-  const respond=(id:string,decision:'ACCEPT'|'REJECT')=>mutate(token=>api('/api/social/friend/respond','POST',token,{veyraUserId:id,decision}));
-  const block=(id:string)=>mutate(token=>api('/api/social/block','POST',token,{veyraUserId:id}));
-  const markRead=(id:string)=>mutate(token=>api('/api/notifications/read','POST',token,{notificationId:id}));
+  },'Friend invitation sent.');
+  const respond=(id:string,decision:'ACCEPT'|'REJECT')=>mutate(
+    token=>api('/api/social/friend/respond','POST',token,{veyraUserId:id,decision}),
+    decision==='ACCEPT'?'Friend request accepted.':'Friend request declined.');
+  const block=(id:string)=>mutate(token=>api('/api/social/block','POST',token,{veyraUserId:id}),'Friend blocked.');
+  const markRead=(id:string)=>mutate(token=>api('/api/notifications/read','POST',token,{notificationId:id}),'Notification marked as read.');
   const active=session?.walletKey===walletKey?session:null;
   return <SocialContext.Provider value={{session:active,friends:active?friends:[],notices:active?notices:[],
+    friendsHasMore:active?friendsNextOffset!==null:false,loadingMoreFriends,loadMoreFriends,
+    noticesHasMore:active?noticesNextOffset!==null:false,loadingMoreNotices,loadMoreNotices,
     unreadCount:active?unreadCount:0,busy,error,message,needsRegistration,connected:isConnected,ready,
     identityOrigin,recheckIdentityOrigin,restoring,
     signIn,register,signOut,refresh,invite,respond,block,markRead}}>{children}</SocialContext.Provider>;

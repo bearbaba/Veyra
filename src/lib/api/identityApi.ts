@@ -89,7 +89,7 @@ export interface MyProfile {
   veyraUserId: string;
   veyraHandle: string;
   displayName: string;
-  x: null | { xAccountId: string; xHandle: string | null };
+  x: null | { xAccountId: string; xHandle: string | null; avatarUrl?: string | null };
 }
 
 export async function getMyProfile(): Promise<MyProfile> {
