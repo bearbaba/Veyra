@@ -59,9 +59,13 @@ function transaction(
 }
 
 describe('Phase 5 self-relay authoritative transaction binding', () => {
-  it('accepts only exact source-attested destination calldata and recipient wallet sender', () => {
+  it('accepts reviewed source owner OR recipient to relay the exact signed destination message', () => {
     expect(() =>
       assertSelfRelayTransactionMatchesCheckpoint(checkpoint(), transaction()),
+    ).not.toThrow();
+    // Source owner can pay destination gas even when mintRecipient differs.
+    expect(() =>
+      assertSelfRelayTransactionMatchesCheckpoint(checkpoint(), transaction({from:SENDER})),
     ).not.toThrow();
     expect(() =>
       assertSelfRelayTransactionMatchesCheckpoint(
@@ -71,9 +75,9 @@ describe('Phase 5 self-relay authoritative transaction binding', () => {
     ).not.toThrow();
   });
 
-  it('blocks recipient/wallet substitution and noncanonical target', () => {
+  it('blocks unknown relayers and noncanonical target', () => {
     for (const value of [
-      { from: SENDER },
+      { from: '0x3333333333333333333333333333333333333333' },
       { to: SENDER },
       { to: null },
     ]) {
@@ -144,10 +148,10 @@ describe('Phase 5 lost-response self-relay hash reconciliation boundary', () => 
     }
   });
 
-  it('also enforces the canonical CCTP call and intended wallet sender', () => {
+  it('also enforces the canonical CCTP call and rejects an unrelated relayer', () => {
     expect(() => assertSelfRelayNetworkEvidence(
       checkpoint(), hash, MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID,
-      { ...transaction({ from: SENDER }), hash },
+      { ...transaction({ from: '0x3333333333333333333333333333333333333333' }), hash },
     )).toThrow(/sender, target or attestation checkpoint/i);
   });
 });
