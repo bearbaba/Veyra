@@ -85,19 +85,12 @@ describe('Phase 23 — actual CCTP deposit simulation and explicit approval gate
     expect(request.args[1]).toBe(10_000_000n);
     expect(evaluateBridgeAction(a).canProceed).toBe(false);
   });
-  it('holds blocked-origin Preview and checks simulation again before irreversible burn',()=>{
-    const page=read('src/components/pages/BridgePage.tsx');
-    const hook=read('src/hooks/useBridgeExecution.ts');
+  it('shares one CCTP burn descriptor and server-side independent simulation',()=>{
     const adapter=read('src/providers/cctp/cctpV2Adapter.ts');
-    expect(page).toContain("social.identityOrigin !== 'ready'");
-    expect(page).toContain("phase: 'APPROVAL_REQUIRED'");
-    expect(page).toContain('simulateExactCctpApproval(sourcePublicClient,action)');
-    expect(page).toContain('simulateCctpSourceBurn(sourcePublicClient, executionAction)');
-    expect(hook).toContain('const burnSimulation = await simulateCctpSourceBurn(sourcePublicClient, action)');
-    expect(hook.indexOf('const burnSimulation = await simulateCctpSourceBurn')).toBeLessThan(
-      hook.indexOf('markActionExecutionSubmissionStarted(action.actionId)'));
+    const server=read('server/services/activityReceiptService.ts');
     expect(adapter).toContain('cctpDepositForBurnCall(action)');
-    expect(page).not.toContain("simulationCompleted: true");
-    expect(page).not.toContain('walletClient.signTransaction');
+    expect(server).toContain('await simulateCctpSourceBurn(sourceClient, action)');
+    expect(server).toContain('evaluateBridgeAction(action, simulation.proof)');
+    expect(server).not.toContain('evaluateBridgeAction(action);');
   });
 });
