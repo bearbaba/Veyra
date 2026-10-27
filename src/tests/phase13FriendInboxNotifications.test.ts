@@ -11,6 +11,15 @@ const notice=(kind:string,actorUserId:string|null):SocialNotice=>({
   notificationId:'ntf_123456789ABCDEFGJ',kind,actorUserId,createdAt:'2026-10-27T00:00:00Z',readAt:null,
 });
 describe('Phase 13 owner-only Friends and real event presentation',()=>{
+  it('uses a signed reconciliation endpoint rather than client-authored payment notices',()=>{
+    const social=read('features/social/UnifiedSocial.tsx');
+    const page=read('components/pages/SocialPage.tsx');
+    expect(social).toContain("'/api/notifications/sync-incoming','POST',s.token");
+    expect(social).toContain('result.newNotifications>0');
+    expect(page).toContain('Check received USDC');
+    expect(page).toContain('Offline monitoring is not continuous.');
+    expect(read('features/social/notificationPresentation.ts')).toContain('verifiedIncomingTxUrl');
+  });
   it('only offers acceptance for a real pending incoming request, never for message or payment notifications',()=>{
     expect(actionableFriendRequest(notice('FRIEND_REQUEST',alice.veyraUserId),[alice,bob])).toEqual(alice);
     expect(actionableFriendRequest(notice('FRIEND_REQUEST',bob.veyraUserId),[alice,bob])).toBeNull();

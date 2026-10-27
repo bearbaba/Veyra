@@ -22,7 +22,7 @@ export function notificationDescription(kind:string):string{
     case 'FRIEND_REQUEST': return 'Open Friends to review this invitation.';
     case 'FRIEND_ACCEPTED': return 'Your new friend is ready to receive a verified Pay request.';
     case 'MESSAGE': return 'A verified friend sent you a message. Open Friends to view your conversation.';
-    case 'PAYMENT_RECEIVED': return 'Only the backend can publish this event after verifying a chain receipt.';
+    case 'PAYMENT_RECEIVED': return 'Verified Arc Testnet USDC received. Inspect the on-chain transaction for details.';
     case 'PAYMENT_STATUS': return 'Check Activity and the original transaction hash before taking action.';
     case 'SECURITY': return 'Review your wallet and account security. Never share recovery phrases.';
     default: return 'This event was recorded in your authenticated inbox.';
@@ -41,4 +41,10 @@ export function notificationActorName(notice:Pick<SocialNotice,'actorUserId'>,
   const friend=friends.find(f=>f.veyraUserId===notice.actorUserId);
   if(!friend?.veyraHandle||!/^[a-z0-9_]{3,30}$/.test(friend.veyraHandle))return null;
   return '@'+friend.veyraHandle+'.veyra';
+}
+
+export function verifiedIncomingTxUrl(notice:Pick<SocialNotice,'kind'|'eventRef'>):string|null{
+  if(notice.kind!=='PAYMENT_RECEIVED'||!notice.eventRef)return null;
+  const match=/^(0x[0-9a-fA-F]{64}):([0-9]{1,12})$/.exec(notice.eventRef);
+  return match?'https://explorer.testnet.arc.io/tx/'+match[1]:null;
 }

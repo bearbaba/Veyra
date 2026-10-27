@@ -11,12 +11,13 @@ import {probeIdentityOrigin,type IdentityOriginStatus} from '../../lib/api/ident
 import {rememberVerifiedVeyraId} from '../../lib/api/lastVerifiedVeyraId';
 
 export type SocialFriend={veyraUserId:string;veyraHandle?:string|null;state:'CONNECTED'|'INCOMING_PENDING'|'OUTGOING_PENDING';updatedAt:string};
-export type SocialNotice={notificationId:string;kind:string;actorUserId:string|null;createdAt:string;readAt:string|null};
+export type SocialNotice={notificationId:string;kind:string;actorUserId:string|null;eventRef?:string;createdAt:string;readAt:string|null};
 type Session={token:string;profile:IdentityProfile;walletKey:string};
 type SocialState={
   session:Session|null;friends:SocialFriend[];notices:SocialNotice[];unreadCount:number;busy:boolean;error:string|null;message:string|null;
   friendsHasMore:boolean;loadingMoreFriends:boolean;loadMoreFriends:()=>Promise<void>;
   noticesHasMore:boolean;loadingMoreNotices:boolean;loadMoreNotices:()=>Promise<void>;
+  incomingStatus:'idle'|'checking'|'ready'|'unavailable'|'error';checkIncoming:()=>Promise<void>;
   needsRegistration:boolean;connected:boolean;ready:boolean;
   identityOrigin:IdentityOriginStatus;recheckIdentityOrigin:()=>Promise<void>;
   restoring:boolean;
@@ -73,6 +74,8 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   const [noticesNextOffset,setNoticesNextOffset]=useState<number|null>(null);
   const [loadingMoreNotices,setLoadingMoreNotices]=useState(false);
   const noticePageTicket=useRef<symbol|null>(null);
+  const [incomingStatus,setIncomingStatus]=useState<'idle'|'checking'|'ready'|'unavailable'|'error'>('idle');
+  const incomingBusy=useRef(false),incomingLastAt=useRef(0),incomingUnavailable=useRef<string|null>(null);
   const friendRefreshEpoch=useRef(0),loadingFriendPage=useRef(false);
   const [unreadCount,setUnreadCount]=useState(0),[busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null),[message,setMessage]=useState<string|null>(null);
@@ -93,6 +96,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   const ready=Boolean(isConnected&&address&&connector&&chainId===ARC_TESTNET_CHAIN_ID);
   const resetLocal=useCallback(()=>{
     generation.current++;friendRefreshEpoch.current++;noticePageTicket.current=null;
+    incomingBusy.current=false;incomingLastAt.current=0;incomingUnavailable.current=null;setIncomingStatus('idle');
     clearSignedIdentitySession();setSession(null);setFriends([]);setFriendsNextOffset(null);setLoadingMoreFriends(false);
     setNotices([]);setNoticesNextOffset(null);setLoadingMoreNotices(false);setUnreadCount(0);
     setNeedsRegistration(false);setError(null);setMessage(null);
@@ -247,6 +251,39 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     if(rejected.some(x=>x.reason instanceof SocialHttpError&&x.reason.status===401)){resetLocal();return;}
     setError(rejected.length?'Some Social services are unavailable. No events are being inferred.':null);
   },[session,resetLocal]);
+  // Only the signed BFF can independently verify inbound on-chain transfers.
+  // Polling runs only in visible, authenticated browsers; NOT a 24/7 worker.
+  const checkIncoming=useCallback(async()=>{
+    const s=session;
+    if(!s||s.walletKey!==current.current||identityOrigin!=='ready'||
+      incomingBusy.current||incomingUnavailable.current===s.walletKey||
+      Date.now()-incomingLastAt.current<70000)return;
+    const key=s.walletKey,rev=generation.current;
+    incomingBusy.current=true;incomingLastAt.current=Date.now();setIncomingStatus('checking');
+    try{
+      const result=await api<{ok:boolean;newNotifications:number;scope:string}>(
+        '/api/notifications/sync-incoming','POST',s.token,undefined,45000);
+      if(!unchanged(key,rev))return;
+      if(result.ok!==true||!Number.isSafeInteger(result.newNotifications)||
+        result.newNotifications<0||result.scope!=='arc-testnet-usdc')
+        throw new Error('Invalid chain-sync response.');
+      setIncomingStatus('ready');
+      if(result.newNotifications>0)await refresh();
+    }catch(error){
+      if(!unchanged(key,rev))return;
+      if(error instanceof SocialHttpError&&error.status===404){
+        incomingUnavailable.current=key;setIncomingStatus('unavailable');
+      }else setIncomingStatus('error');
+    }finally{incomingBusy.current=false;}
+  },[session,identityOrigin,refresh]);
+  useEffect(()=>{
+    if(!session||identityOrigin!=='ready')return;
+    void checkIncoming();
+    const timer=window.setInterval(()=>{
+      if(document.visibilityState==='visible')void checkIncoming();
+    },90000);
+    return()=>window.clearInterval(timer);
+  },[session,identityOrigin,checkIncoming]);
   const loadMoreFriends=useCallback(async()=>{
     const s=session,offset=friendsNextOffset;
     if(!s||s.walletKey!==current.current||offset===null||busy||loadingFriendPage.current)return;
@@ -335,6 +372,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   return <SocialContext.Provider value={{session:active,friends:active?friends:[],notices:active?notices:[],
     friendsHasMore:active?friendsNextOffset!==null:false,loadingMoreFriends,loadMoreFriends,
     noticesHasMore:active?noticesNextOffset!==null:false,loadingMoreNotices,loadMoreNotices,
+    incomingStatus:active?incomingStatus:'idle',checkIncoming,
     unreadCount:active?unreadCount:0,busy,error,message,needsRegistration,connected:isConnected,ready,
     identityOrigin,recheckIdentityOrigin,restoring,
     signIn,register,signOut,refresh,invite,respond,block,markRead}}>{children}</SocialContext.Provider>;

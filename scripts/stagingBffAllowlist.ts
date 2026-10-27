@@ -31,6 +31,7 @@ export const STAGING_ALLOWED_PATHS=[
   "/api/social/unblock",
   "/api/notifications",
   "/api/notifications/read",
+  "/api/notifications/sync-incoming",
   "/api/receipts",
   "/api/receipts/resumable",
   "/api/receipts/sync",

@@ -143,6 +143,10 @@
       "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/notifications/read"
     },
     {
+      "source": "/api/notifications/sync-incoming",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/notifications/sync-incoming"
+    },
+    {
       "source": "/api/receipts",
       "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/receipts"
     },

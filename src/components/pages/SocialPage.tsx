@@ -1,7 +1,7 @@
 import {useEffect,useState} from 'react';
 import {Bell,Users,MessageCircle,RefreshCw,MoreHorizontal} from 'lucide-react';
 import {friendLabel,useUnifiedSocial} from '../../features/social/UnifiedSocial';
-import {actionableFriendRequest,notificationActorName,notificationDescription,notificationTitle} from '../../features/social/notificationPresentation';
+import {actionableFriendRequest,notificationActorName,notificationDescription,notificationTitle,verifiedIncomingTxUrl} from '../../features/social/notificationPresentation';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
 import {FriendChat} from '../../features/social/FriendChat';
 
@@ -144,7 +144,22 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
             style={{borderColor:'var(--border)'}}>{social.loadingMoreFriends?'Loading friends…':'Load more friends'}</button>}
         </section>
         <section className="space-y-3 rounded-3xl border p-5" style={{borderColor:'var(--border)',background:'var(--surface-strong)'}}>
-          <h2 className="flex items-center gap-2 font-bold"><Bell size={18}/> Notifications</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 font-bold"><Bell size={18}/> Notifications</h2>
+            <button type="button" disabled={social.incomingStatus==='checking'||social.incomingStatus==='unavailable'}
+              onClick={()=>void social.checkIncoming()}
+              className="rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+              style={{borderColor:'var(--border)',color:'var(--ink)'}}>
+              {social.incomingStatus==='checking'?'Verifying USDC…':'Check received USDC'}
+            </button>
+          </div>
+          <p className="text-[11px] leading-5" role="status" style={{color:'var(--muted)'}}>
+            {social.incomingStatus==='ready'?'Arc Testnet USDC checked against chain evidence.':
+              social.incomingStatus==='checking'?'Checking confirmed Arc Testnet transfers…':
+              social.incomingStatus==='unavailable'?'Incoming verification requires a matching backend release.':
+              social.incomingStatus==='error'?'Unable to verify transfers right now. Your funds remain in your wallet.':
+              'Checks run while Veyra is open. Offline monitoring is not continuous.'}
+          </p>
           <p className="text-xs" style={{color:'var(--muted)'}}>{social.unreadCount} unread · Authenticated events only</p>
           <div role="group" aria-label="Notification filters" className="flex flex-wrap gap-2">
             {([{id:'all',label:'All activity'},{id:'unread',label:'Unread'}] as const).map(tab=>
@@ -160,6 +175,9 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
               <b>{notificationTitle(item.kind)}</b>
               {notificationActorName(item,social.friends)&&<span className="ml-2" style={{color:'var(--muted)'}}>{notificationActorName(item,social.friends)}</span>}
               <p className="mt-1" style={{color:'var(--muted)'}}>{notificationDescription(item.kind)}</p>
+              {verifiedIncomingTxUrl(item)&&<a href={verifiedIncomingTxUrl(item)!} target="_blank"
+                rel="noopener noreferrer" className="mt-1 inline-block underline"
+                style={{color:'var(--accent)'}}>View verified transaction</a>}
               <time className="block mt-1" style={{color:'var(--subtle)'}}>{new Date(item.createdAt).toLocaleString()}</time>
               {actionableFriendRequest(item,social.friends)&&<button type="button" disabled={social.busy}
                 className="mt-2 rounded-lg border px-3 py-1.5 font-semibold" style={{borderColor:'var(--success)'}}
