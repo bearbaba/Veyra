@@ -6,13 +6,13 @@
  * developer dashboard.
  */
 
-import { useState } from 'react';
+import { useEffect,useState } from 'react';
 import { useAccount, useDisconnect } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { Check, Copy, Link2, Loader2, ShieldCheck, SlidersHorizontal, Wallet, LogOut } from 'lucide-react';
 import { DEFAULT_VEYRA_POLICY } from '@/core/policy/policyEngine';
 import { VEYRA_ENV } from '@/lib/env';
-import { beginXLink } from '@/lib/api/identityApi';
+import { beginXLink, getXLinkCapability } from '@/lib/api/identityApi';
 import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS } from '@/config/productRegistry';
 import { RuntimeStatusCard } from '../system/RuntimeStatusCard';
@@ -31,11 +31,22 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const [logoutWarning,setLogoutWarning]=useState<string|null>(null);
   const [xLoading, setXLoading] = useState(false);
   const [xError, setXError] = useState<string | null>(null);
-  // The unified Testnet preview cannot complete X OAuth callbacks and must
-  // not offer a redirect that ends in a dead route or a second ID flow.
-  const xLinkUnavailable = import.meta.env.VITE_VEYRA_UNIFIED_STAGING === '1';
-
+  // Fail closed until the exact, owner-trusted Testnet BFF reports it has
+  // X OAuth credentials and a pinned callback. No redirect on mere "BFF online".
+  const [xCapability,setXCapability]=useState<'checking'|'available'|'unavailable'>('unavailable');
   const profile = identity.profile;
+  const signedToken=social.session?.token;
+  useEffect(()=>{
+    if(!signedToken||social.identityOrigin!=='ready'||profile?.x){
+      setXCapability('unavailable');return;
+    }
+    let cancelled=false;
+    setXCapability('checking');
+    void getXLinkCapability().then(allowed=>{
+      if(!cancelled)setXCapability(allowed?'available':'unavailable');
+    }).catch(()=>{if(!cancelled)setXCapability('unavailable');});
+    return()=>{cancelled=true;};
+  },[signedToken,social.identityOrigin,profile?.x]);
   const xAvatar = profile?.x?.avatarUrl;
   const approvedXAvatar = typeof xAvatar==='string' &&
     /^https:\/\/pbs\.twimg\.com\/profile_images\/[0-9]+\/[A-Za-z0-9_-]+(?:\.[A-Za-z0-9]+)?(?:\?.*)?$/.test(xAvatar)
@@ -43,8 +54,8 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
 
   async function linkX() {
     setXError(null);
-    if (xLinkUnavailable) {
-      setXError('X linking is not available on this Testnet Preview. Your connected wallet and Veyra ID are unchanged.');
+    if (xCapability!=='available') {
+      setXError('X linking is not configured for this trusted Veyra domain. Your Veyra ID and wallet are unchanged.');
       return;
     }
     if (!profile || !social.session) {
@@ -147,13 +158,13 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
               style={{borderColor:'var(--border)',color:'var(--ink)'}}>
               <LogOut size={14}/>{disconnecting?'Disconnecting…':'Disconnect wallet'}
             </button>}
-            <button onClick={() => void linkX()} disabled={xLinkUnavailable || social.identityOrigin !== 'ready' || !social.session || Boolean(profile?.x) || xLoading} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
+            <button onClick={() => void linkX()} disabled={xCapability!=='available' || social.identityOrigin !== 'ready' || !social.session || Boolean(profile?.x) || xLoading} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
               {xLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
-              {profile?.x ? 'X linked' : xLinkUnavailable ? 'X linking unavailable' : 'Connect X'}
+              {profile?.x ? 'X linked' : xCapability==='checking' ? 'Checking X…' : xCapability==='unavailable' ? 'X linking unavailable' : 'Connect X'}
             </button>
           </div>
           {logoutWarning&&<p role="alert" className="mt-3 text-xs" style={{color:"var(--warning)"}}>{logoutWarning}</p>}
-          {xLinkUnavailable && <p role="status" className="mt-3 text-xs" style={{color:'var(--muted)'}}>X OAuth needs an approved callback and verified backend configuration. It is disabled on this Preview, not a second account registration.</p>}
+          {xCapability==='unavailable'&&!profile?.x && <p role="status" className="mt-3 text-xs" style={{color:'var(--muted)'}}>X OAuth requires a verified provider connection and exact callback. Linking never creates a second Veyra ID.</p>}
           {xError && <p className="mt-3 text-xs" style={{ color: 'var(--warning)' }}>{xError}</p>}
         </div>
 

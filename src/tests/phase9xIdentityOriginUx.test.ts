@@ -56,7 +56,7 @@ describe('Veyra one-page wallet and origin acceptance',()=>{
     const err=new SocialHttpError(403,'ORIGIN_NOT_ALLOWED');
     expect(err.message).toContain('Preview URL is not authorized');
   });
-  it('reuses one inline Veyra ID entry in Settings and Social; X is unavailable on staging',()=>{
+  it('reuses one inline Veyra ID entry in Settings and Social; X requires a live BFF capability',()=>{
     const entry=file('components/identity/VeyraIdentityAccess.tsx');
     const settings=file('components/pages/SettingsPage.tsx');
     const social=file('components/pages/SocialPage.tsx');
@@ -67,8 +67,10 @@ describe('Veyra one-page wallet and origin acceptance',()=>{
     expect(entry).toContain('switchChainAsync({chainId:5042002})');
     expect(settings).toContain('<VeyraIdentityAccess/>');
     expect(social).toContain('<VeyraIdentityAccess/>');
-    expect(settings).toContain("import.meta.env.VITE_VEYRA_UNIFIED_STAGING === '1'");
-    expect(settings).toContain('disabled={xLinkUnavailable || social.identityOrigin');
+    expect(settings).toContain('getXLinkCapability()');
+    expect(settings).toContain("disabled={xCapability!=='available'");
+    expect(read('lib/api/identityApi.ts')).toContain("'POST'");
+    expect(read('lib/api/identityApi.ts')).toContain('AbortSignal.timeout(12000)');
     expect(settings).not.toContain("setXError('Sign in through Social");
     expect(entry).not.toContain('window.location');
     expect(entry).not.toContain('eth_sendTransaction');

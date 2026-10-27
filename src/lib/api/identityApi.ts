@@ -99,6 +99,22 @@ export async function getMyProfile(): Promise<MyProfile> {
   return (payload as unknown as { profile: MyProfile }).profile;
 }
 
+// Read-only capability probe. An older BFF (404), HTML fallback or missing
+// provider config must leave the X button disabled, not offer dead OAuth.
+export async function getXLinkCapability():Promise<boolean>{
+  try{
+    const response=await fetch('/api/auth/x/capability',{
+      method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
+      credentials:'same-origin',cache:'no-store',body:'{}',
+      signal:AbortSignal.timeout(12000),
+    });
+    if(!response.ok||!response.headers.get('content-type')?.includes('application/json'))return false;
+    const payload:unknown=await response.json();
+    return Boolean(payload&&typeof payload==='object'&&!Array.isArray(payload)&&
+      'ok' in payload&&payload.ok===true&&'available' in payload&&payload.available===true);
+  }catch{return false;}
+}
+
 export async function beginXLink(returnPath = '/settings'): Promise<string> {
   const result = await postJson<{ ok: true; authorizeUrl: string }>('/api/auth/x/start', { returnPath });
   return verifyXAuthorizationUrl(result.authorizeUrl);

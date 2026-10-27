@@ -71,6 +71,14 @@
       "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/session/logout"
     },
     {
+      "source": "/api/auth/x/capability",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/x/capability"
+    },
+    {
+      "source": "/api/auth/x/start",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/x/start"
+    },
+    {
       "source": "/api/identity/register/challenge",
       "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/identity/register/challenge"
     },

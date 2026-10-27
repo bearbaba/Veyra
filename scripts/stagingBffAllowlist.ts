@@ -11,6 +11,10 @@ export const STAGING_ALLOWED_PATHS=[
   "/api/auth/wallet-login/complete",
   "/api/auth/session/restore",
   "/api/auth/session/logout",
+  // X OAuth only becomes interactive if this exact BFF reports a reviewed
+  // callback/client configuration. The callback itself stays on Render.
+  "/api/auth/x/capability",
+  "/api/auth/x/start",
   "/api/identity/register/challenge",
   "/api/identity/register/complete",
   "/api/identity/resolve",
