@@ -8,31 +8,31 @@ const read=(path:string)=>readFileSync(new URL('../../'+path,import.meta.url),'u
 
 describe('Phase 32 — request supported source network only at wallet signing boundary',()=>{
   it('does not show an unnecessary switch prompt if wallet is already on Arc, even if UI is stale',async()=>{
-    const change=vi.fn(async(_id:number)=>{throw Error('should never switch');});
-    await expect(ensureWalletNetworkForSigning(async()=>ARC,change,ARC,'Arc Testnet'))
+    const change=vi.fn((_id:number)=>Promise.reject(new Error('should never switch')));
+    await expect(ensureWalletNetworkForSigning(()=>Promise.resolve(ARC),change,ARC,'Arc Testnet'))
       .resolves.toBe('ALREADY_SELECTED');
     expect(change).not.toHaveBeenCalled();
   });
   it('offers a single switch when on Ethereum Sepolia and independently confirms the resulting network',async()=>{
     let current: number=SEPOLIA;
-    const change=vi.fn(async(id:number)=>{current=id;});
-    await expect(ensureWalletNetworkForSigning(async()=>current,change,ARC,'Arc Testnet'))
+    const change=vi.fn((id:number)=>{current=id;return Promise.resolve();});
+    await expect(ensureWalletNetworkForSigning(()=>Promise.resolve(current),change,ARC,'Arc Testnet'))
       .resolves.toBe('SWITCHED');
     expect(change).toHaveBeenCalledOnce();
     expect(change).toHaveBeenCalledWith(ARC);
   });
   it('preserves route and refuses signing when network selection is rejected or the provider lies',async()=>{
-    const rejected=vi.fn(async()=>{throw {code:4001};});
-    await expect(ensureWalletNetworkForSigning(async()=>SEPOLIA,rejected,ARC,'Arc Testnet'))
+    const rejected=vi.fn(()=>Promise.reject(Object.assign(new Error('User rejected'),{code:4001})));
+    await expect(ensureWalletNetworkForSigning(()=>Promise.resolve(SEPOLIA),rejected,ARC,'Arc Testnet'))
       .rejects.toThrow('Network switch cancelled');
-    await expect(ensureWalletNetworkForSigning(async()=>SEPOLIA,async()=>{},ARC,'Arc Testnet'))
+    await expect(ensureWalletNetworkForSigning(()=>Promise.resolve(SEPOLIA),()=>Promise.resolve(),ARC,'Arc Testnet'))
       .rejects.toThrow('has not confirmed');
   });
   it('bounds a stuck wallet network request and never starts a wallet transaction',async()=>{
     vi.useFakeTimers();
     try{
-      const result=ensureWalletNetworkForSigning(async()=>SEPOLIA,
-        async()=>new Promise(()=>{}),ARC,'Arc Testnet',40);
+      const result=ensureWalletNetworkForSigning(()=>Promise.resolve(SEPOLIA),
+        ()=>new Promise<never>(()=>{}),ARC,'Arc Testnet',40);
       const assertion=expect(result).rejects.toThrow('Network selection timed out');
       await vi.advanceTimersByTimeAsync(41);
       await assertion;
