@@ -65,7 +65,7 @@ describe('Phase 14 — X linking is opt-in, state-bound, and never creates anoth
     expect(sources).not.toContain('/api/:path*');
     expect(allowlist).toContain('STAGING_BFF_ORIGIN');
     expect(read('src/components/pages/SettingsPage.tsx')).toContain("disabled={xCapability!=='available'");
-    expect(read('src/App.tsx')).toContain("searchParams.get('x_linked')"); // guarded UI navigation only
+    expect(read('src/App.tsx')).toContain("new URLSearchParams(window.location.search).get('x_linked')"); // guarded UI navigation only
     expect(read('server/services/xOAuthService.ts')).toContain('signal:AbortSignal.timeout(PROVIDER_TIMEOUT_MS)');
   });
 });

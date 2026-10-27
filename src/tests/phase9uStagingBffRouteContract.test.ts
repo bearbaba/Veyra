@@ -38,7 +38,7 @@ const strictOwnerPaths = [
 describe('full Testnet BFF routing is exact, implemented and owner-protected', () => {
   it('all forwarded API paths exist as literal BFF handlers (not SPA/HTML fallbacks)', () => {
     // The two purpose-bound cookie restore/logout endpoints are explicitly reviewed.
-    expect(STAGING_ALLOWED_PATHS.length).toBe(39);
+    expect(STAGING_ALLOWED_PATHS.length).toBe(41);
     const unique = new Set<string>(STAGING_ALLOWED_PATHS);
     expect(unique.size).toBe(STAGING_ALLOWED_PATHS.length);
     for (const path of STAGING_ALLOWED_PATHS) {
@@ -70,11 +70,15 @@ describe('full Testnet BFF routing is exact, implemented and owner-protected', (
     expect(cctp).toContain('/v2/messages/');
   });
 
-  it('exposes Agent chat but not autonomous signing or unverified FX/Swap/Gateway and X OAuth', () => {
+  it('exposes guarded X start, but not callback forwarding, autonomous signing, or unverified FX/Swap/Gateway', () => {
+    expect(routeSource('/api/auth/x/capability')).toContain('checkedXReturnOrigin(origin');
+    const xStart=routeSource('/api/auth/x/start');
+    expect(xStart).toContain('getAuthenticatedVeyraUserId(req)');
+    expect(xStart).toContain("checkedXReturnOrigin(req.header('origin')");
+    expect(xStart).toContain('beginXOAuthLink(db');
     const denied = [
       '/api/:path*',
       '/api/agent/execute',
-      '/api/auth/x/start',
       '/api/auth/x/callback',
       '/api/stablefx/quote',
       '/api/stablefx/trade',
