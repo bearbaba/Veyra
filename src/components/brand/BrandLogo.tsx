@@ -1,14 +1,13 @@
 import { useState } from 'react';
-import { TokenUSDC, TokenETH, TokenWBTC, TokenUSDT, TokenDAI } from '@web3icons/react';
+import { TokenUSDC, TokenEURC, TokenETH, TokenWBTC, TokenUSDT, TokenDAI } from '@web3icons/react';
 
 const TOKEN_MARKS = {
-  usdc: TokenUSDC, eth: TokenETH, wbtc: TokenWBTC,
+  usdc: TokenUSDC, eurc: TokenEURC, eth: TokenETH, wbtc: TokenWBTC,
   usdt: TokenUSDT, dai: TokenDAI,
 } as const;
 
 const OFFICIAL_LOGOS: Partial<Record<string, string>> = {
   arc: 'https://cdn.prod.website-files.com/67116d0daddc92483c812e88/69dd3db99cf1d8ec9699856a_logo%20%285%29.avif',
-  eurc: 'https://cdn.prod.website-files.com/67116d0daddc92483c812e88/69dd3dba50e99a6dea4a964f_logo%20%283%29.avif',
   cirbtc: 'https://cdn.prod.website-files.com/67116d0daddc92483c812e88/6a3a95fde4bc6ee48d1ff749_cirbtc-pressroom.svg',
 };
 

@@ -9,7 +9,7 @@
 import { useEffect,useState } from 'react';
 import { useAccount, useDisconnect } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
-import { Check, Copy, Link2, Loader2, ShieldCheck, SlidersHorizontal, Wallet, LogOut } from 'lucide-react';
+import { Check, ChevronDown, Copy, Link2, Loader2, ShieldCheck, SlidersHorizontal, Wallet, LogOut } from 'lucide-react';
 import { DEFAULT_VEYRA_POLICY } from '@/core/policy/policyEngine';
 import { VEYRA_ENV } from '@/lib/env';
 import { beginXLink, getXLinkCapability } from '@/lib/api/identityApi';
@@ -105,10 +105,10 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
           <SlidersHorizontal className="size-4" /> Account
         </div>
         <h1 className="display mt-2 text-3xl font-black" style={{ color: 'var(--ink)', letterSpacing: '-0.04em' }}>Identity & settings</h1>
-        <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>Your Veyra identity, linked endpoints, and the safety state underneath every action.</p>
+        <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>Your wallet, Veyra ID and connected accounts in one place.</p>
       </div>
 
-      <section className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+      <section className="space-y-3">
         <div className="rounded-3xl p-5 md:p-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border-strong)' }}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -164,46 +164,77 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
             </button>
           </div>
           {logoutWarning&&<p role="alert" className="mt-3 text-xs" style={{color:"var(--warning)"}}>{logoutWarning}</p>}
-          {xCapability==='unavailable'&&!profile?.x && <p role="status" className="mt-3 text-xs" style={{color:'var(--muted)'}}>X OAuth requires a verified provider connection and exact callback. Linking never creates a second Veyra ID.</p>}
+          {xCapability==='unavailable'&&!profile?.x && <p role="status" className="mt-3 text-xs" style={{color:'var(--muted)'}}>Connect X will become available after the account-link service is verified. Your Veyra ID stays the same.</p>}
           {xError && <p className="mt-3 text-xs" style={{ color: 'var(--warning)' }}>{xError}</p>}
         </div>
 
         <RuntimeStatusCard />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <CapabilityCard title="Networks" subtitle="Recognized by the product registry. Execution is a separate gate.">
-          <div className="grid grid-cols-4 gap-3 sm:grid-cols-7">
-            {PRODUCT_NETWORKS.map((network) => (
-              <CapabilityItem key={network.id} logoKey={network.logoKey} name={network.shortName} active={network.executionEnabled} />
-            ))}
+      <section className="rounded-3xl border p-5" style={{background:'var(--surface-strong)',borderColor:'var(--border)'}}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="size-4" style={{color:'var(--success)'}}/>
+            <div>
+              <h2 className="text-sm font-bold" style={{color:'var(--ink)'}}>Transaction protection</h2>
+              <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
+                Every payment is reviewed before wallet approval. Testnet funds only.
+              </p>
+            </div>
           </div>
-        </CapabilityCard>
-        <CapabilityCard title="Assets" subtitle="Registry recognition never implies that signing is enabled.">
-          <div className="grid grid-cols-4 gap-3 sm:grid-cols-5">
-            {PRODUCT_ASSETS.slice(0, 5).map((asset) => (
-              <CapabilityItem key={asset.id} logoKey={asset.logoKey} name={asset.symbol} active={asset.executionEnabled} />
-            ))}
+          <span className="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider"
+            style={{background:'var(--success-muted)',color:'var(--success)'}}>{DEFAULT_VEYRA_POLICY.displayName}</span>
+        </div>
+        <details className="group mt-3 border-t pt-3" style={{borderColor:'var(--border)'}}>
+          <summary className="flex cursor-pointer items-center gap-2 text-xs font-semibold"
+            style={{color:'var(--muted)'}}>View protection rules and environment
+            <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden="true"/>
+          </summary>
+          <p className="mt-3 text-xs leading-5" style={{color:'var(--muted)'}}>
+            Agent conversation cannot override transaction safeguards. Network, amount, recipient and route are verified before signing.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {DEFAULT_VEYRA_POLICY.rules.slice(0, 6).map(rule=>
+              <span key={rule.ruleId} className="rounded-xl border px-2.5 py-1.5 font-mono text-[10px]"
+                style={{borderColor:'var(--border)',color:'var(--muted)'}}>{rule.ruleId}</span>)}
           </div>
-          {PRODUCT_ASSETS.length > 5 && <p className="mt-3 text-[11px]" style={{ color: 'var(--subtle)' }}>Also recognized: {PRODUCT_ASSETS.slice(5).map((asset) => asset.symbol).join(', ')}.</p>}
-        </CapabilityCard>
+          <p className="mt-3 text-[11px]" style={{color:'var(--subtle)'}}>Environment:
+            <span className="ml-1 font-semibold uppercase"
+              style={{color:VEYRA_ENV==='mainnet'?'var(--danger)':'var(--success)'}}>{VEYRA_ENV}</span>
+          </p>
+        </details>
       </section>
 
-      <section className="rounded-3xl p-5" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-bold" style={{ color: 'var(--ink)' }}><ShieldCheck className="size-4" style={{ color: 'var(--accent)' }} /> Safety policy</div>
-            <p className="mt-1 max-w-2xl text-xs leading-5" style={{ color: 'var(--muted)' }}>Agent conversation cannot override deterministic policy. Every financial action is re-verified before the wallet is allowed to sign.</p>
+      <details className="group rounded-3xl border p-5"
+        style={{background:'var(--surface-strong)',borderColor:'var(--border)'}}>
+        <summary className="flex cursor-pointer items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-bold" style={{color:'var(--ink)'}}>Networks & assets</h2>
+            <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
+              Arc Testnet USDC is enabled. Other listings are not available for sending yet.
+            </p>
           </div>
-          <span className="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ background: 'var(--success-muted)', color: 'var(--success)' }}>{DEFAULT_VEYRA_POLICY.displayName}</span>
+          <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180"
+            style={{color:'var(--muted)'}} aria-hidden="true"/>
+        </summary>
+        <div className="mt-4 grid gap-4 border-t pt-4 lg:grid-cols-2" style={{borderColor:'var(--border)'}}>
+          <CapabilityCard title="Networks" subtitle="Listed networks are not automatically supported payment routes.">
+            <div className="grid grid-cols-4 gap-3 sm:grid-cols-7">
+              {PRODUCT_NETWORKS.map(network=>
+                <CapabilityItem key={network.id} logoKey={network.logoKey} name={network.shortName} active={network.executionEnabled}/>)}
+            </div>
+          </CapabilityCard>
+          <CapabilityCard title="Assets" subtitle="Displayed assets are not spendable until a verified route is enabled.">
+            <div className="grid grid-cols-4 gap-3 sm:grid-cols-5">
+              {PRODUCT_ASSETS.slice(0,5).map(asset=>
+                <CapabilityItem key={asset.id} logoKey={asset.logoKey} name={asset.symbol} active={asset.executionEnabled}/>)}
+            </div>
+            {PRODUCT_ASSETS.length>5&&<p className="mt-3 text-[11px]" style={{color:'var(--subtle)'}}>
+              Also recognized: {PRODUCT_ASSETS.slice(5).map(asset=>asset.symbol).join(', ')}.
+            </p>}
+          </CapabilityCard>
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {DEFAULT_VEYRA_POLICY.rules.slice(0, 6).map((rule) => (
-            <span key={rule.ruleId} className="rounded-xl px-2.5 py-1.5 font-mono text-[10px]" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--subtle)' }}>{rule.ruleId}</span>
-          ))}
-        </div>
-        <div className="mt-4 text-[11px]" style={{ color: 'var(--subtle)' }}>Environment: <span className="font-semibold uppercase" style={{ color: VEYRA_ENV === 'mainnet' ? 'var(--danger)' : 'var(--success)' }}>{VEYRA_ENV}</span></div>
-      </section>
+      </details>
 
     </div>
   );
