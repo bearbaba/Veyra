@@ -126,7 +126,7 @@ export async function reconcileIncomingUsdc(db:DbClient,owner:string,
       address:ARC_USDC,topics:[TRANSFER_TOPIC,null,recipientTopic(wallet.walletAddress)],
     }]);
     if(!Array.isArray(logsRaw)||logsRaw.length>MAX_LOGS)return invalidRpc();
-    const evidence=[];
+    const evidence:ReturnType<typeof validateIncomingTransfer>[]=[];
     for(const item of logsRaw){
       const itemData=validateIncomingTransfer(item,wallet.walletAddress,end);
       if(itemData.blockNumber<=previous)return invalidRpc();
