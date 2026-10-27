@@ -97,13 +97,14 @@ export async function reconcileIncomingUsdc(db:DbClient,owner:string,
   let sequence=0;
   async function call<T>(method:string,params:unknown[]):Promise<T>{
     const response=await fetchImpl(rpc,{
-      method:'POST',headers:{'Content-Type':'application/json'},
+      method:'POST',headers:{'Content-Type':'application/json'},redirect:'error',
       body:JSON.stringify({jsonrpc:'2.0',id:++sequence,method,params}),
       signal:AbortSignal.timeout(8000),
     });
     if(!response.ok)return invalidRpc();
     const data:unknown=await response.json();
     if(!data||typeof data!=='object'||Array.isArray(data)||!('result' in data)||
+      !('jsonrpc' in data)||data.jsonrpc!=='2.0'||!('id' in data)||data.id!==sequence||
       'error' in data||data.result===null)return invalidRpc();
     return data.result as T;
   }
