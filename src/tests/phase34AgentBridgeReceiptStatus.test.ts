@@ -37,10 +37,12 @@ describe('Phase 34 — Agent Bridge status comes from exact durable receipt',()=
   });
   it('cannot report success from a draft, source burn, attestation, receive broadcast or unknown receipt',()=>{
     expect(agentBridgeReceiptState(undefined)).toBe('CHECKING');
-    for(const status of ['PREFLIGHT_PASSED','SIGNED','BROADCAST','SOURCE_CONFIRMED',
+    for(const status of ['SIGNED','BROADCAST','SOURCE_CONFIRMED',
       'ATTESTATION_PENDING','RECEIVE_PENDING','RECEIVE_FAILED_RETRYABLE','CONFIRMED'] as const){
       expect(agentBridgeReceiptState(stubReceipt(status))).toBe('PENDING');
     }
+    expect(agentBridgeReceiptState(stubReceipt('PREFLIGHT_PASSED'))).toBe('PREPARED');
+    expect(agentBridgeReceiptState(stubReceipt('QUOTE_RESERVED'))).toBe('PREPARED');
     expect(agentBridgeReceiptState(stubReceipt('COMPLETE'))).toBe('SUCCESS');
     expect(agentBridgeReceiptState(stubReceipt('COMPLETE','fake-provider'))).toBe('CHECKING');
     expect(agentBridgeReceiptState(stubReceipt('FAILED'))).toBe('FAILED');

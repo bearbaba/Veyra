@@ -36,7 +36,8 @@ export function ActionCard({ intent, onNavigate, onClarifyDestination, bridgeHan
   const cardStatus = linkedBridge
     ? bridgeOutcome === 'SUCCESS' ? 'Destination verified'
       : bridgeOutcome === 'FAILED' ? 'Needs attention'
-      : bridgeOutcome === 'PENDING' ? 'Bridge in progress' : 'Checking receipt'
+      : bridgeOutcome === 'PENDING' ? 'Bridge in progress'
+      : bridgeOutcome === 'PREPARED' ? 'Prepared · not submitted' : 'Checking receipt'
     : isActionable ? 'Ready to review' : isUnsupported || (transferGate && !transferGate.ok) ? 'Not available' : 'Needs input';
   const unavailableReason = bridgeGate && !bridgeGate.ok
     ? bridgeGate.reason
@@ -103,7 +104,9 @@ export function ActionCard({ intent, onNavigate, onClarifyDestination, bridgeHan
             ? bridgeOutcome === 'SUCCESS'
               ? 'Veyra has verified destination settlement for the receipt linked to this Agent request. You can start a new request below.'
               : bridgeOutcome === 'PENDING'
-                ? 'A transaction was started from this Agent request. Source confirmation does not mean destination settlement. Check Activity.'
+                ? 'This linked Bridge is being processed. Source confirmation does not mean destination settlement. Check Activity.'
+                : bridgeOutcome === 'PREPARED'
+                ? 'An Activity record was prepared but no source burn has been verified. Check Activity before deciding what to do next.'
                 : bridgeOutcome === 'FAILED'
                   ? 'This linked transaction needs attention. Inspect Activity before taking another action; do not repeat an existing burn.'
                   : linkedBridge.lookupFailed

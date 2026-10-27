@@ -268,6 +268,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
             <p className="text-sm font-semibold">
               Latest Bridge activity · {latestBridgeStatus === 'SUCCESS' ? 'Destination verified'
                 : latestBridgeStatus === 'PENDING' ? 'Destination status pending'
+                : latestBridgeStatus === 'PREPARED' ? 'Not submitted'
                 : latestBridgeStatus === 'FAILED' ? 'Needs attention' : 'Checking'}
             </p>
             <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>

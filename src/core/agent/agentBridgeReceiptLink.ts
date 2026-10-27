@@ -78,10 +78,14 @@ export function bindAgentBridgeReceipt(
 /** Only a backend-confirmed CCTP destination settlement can be called success. */
 export function agentBridgeReceiptState(
   receipt: ActivityReceiptRemoteRecord | undefined,
-): 'CHECKING' | 'SUCCESS' | 'PENDING' | 'FAILED' {
+): 'CHECKING' | 'PREPARED' | 'SUCCESS' | 'PENDING' | 'FAILED' {
   if (!receipt) return 'CHECKING';
   if (receipt.providerId !== 'cctp-v2-bridge') return 'CHECKING';
   if (receipt.status === 'COMPLETE') return 'SUCCESS';
-  if (receipt.status === 'FAILED' || receipt.status === 'CANCELLED') return 'FAILED';
+  if (receipt.status === 'FAILED' || receipt.status === 'CANCELLED' ||
+      receipt.status === 'INVALIDATED') return 'FAILED';
+  if (receipt.status === 'INTENT_CAPTURED' ||
+      receipt.status === 'QUOTE_RESERVED' ||
+      receipt.status === 'PREFLIGHT_PASSED') return 'PREPARED';
   return 'PENDING';
 }
