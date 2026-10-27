@@ -14,7 +14,7 @@ describe('Phase 32 — request supported source network only at wallet signing b
     expect(change).not.toHaveBeenCalled();
   });
   it('offers a single switch when on Ethereum Sepolia and independently confirms the resulting network',async()=>{
-    let current=SEPOLIA;
+    let current: number=SEPOLIA;
     const change=vi.fn(async(id:number)=>{current=id;});
     await expect(ensureWalletNetworkForSigning(async()=>current,change,ARC,'Arc Testnet'))
       .resolves.toBe('SWITCHED');
