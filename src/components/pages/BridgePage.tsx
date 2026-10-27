@@ -91,6 +91,7 @@ export function BridgePage() {
   const [agentHandoff, setAgentHandoff] = useState<string | null>(null);
   const [bridgeState, setBridgeState] = useState<BridgeState>({ phase: 'INPUT' });
   const [recoveryCandidates, setRecoveryCandidates] = useState<BridgeRecoveryCheckpoint[]>([]);
+  const hasUnfinishedBurn = recoveryCandidates.some((checkpoint) => checkpoint.stage !== 'VERIFIED');
 
   useEffect(() => {
     // Agent proposals are read once and untrusted. Never auto-quote, approve,
@@ -482,6 +483,12 @@ export function BridgePage() {
         </div>
       )}
 
+      {hasUnfinishedBurn && bridgeExecution.state.phase === 'IDLE' && (
+        <div role="status" className="rounded-xl border px-4 py-3 text-xs leading-5"
+          style={{borderColor:'var(--warning)',color:'var(--ink)'}}>
+          A source burn already exists for this wallet. Resume its destination receive below; do not start another burn.
+        </div>
+      )}
       {recoveryCandidates.length > 0 && bridgeExecution.state.phase === 'IDLE' && (
         <BridgeRecoveryCard
           checkpoint={recoveryCandidates[0]}
@@ -568,13 +575,14 @@ export function BridgePage() {
             onClick={() => void handleEvaluate()}
             disabled={!amount || !recipientAddress || !isAddress(recipientAddress) ||
               !/^\d{1,18}(?:\.\d{1,6})?$/.test(amount) || Number(amount) <= 0 ||
-              !bridgeIdentityReady || bridgeState.phase === 'EVALUATING'}
+              !bridgeIdentityReady || hasUnfinishedBurn || bridgeState.phase === 'EVALUATING'}
             className="w-full rounded-2xl py-3.5 font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: 'var(--accent)', color: '#0d1b2f' }}
           >
             {bridgeState.phase === 'EVALUATING' ? (
               <><Loader2 className="inline size-4 mr-2 animate-spin" />Checking route…</>
-            ) : bridgeOriginUnavailable ? 'Bridge unavailable on this Preview'
+            ) : hasUnfinishedBurn ? 'Resume your existing burn above'
+              : bridgeOriginUnavailable ? 'Bridge unavailable on this Preview'
               : !bridgeIdentityReady ? 'Sign in to review bridge'
               : bridgeState.phase === 'FAILED' || bridgeState.phase === 'BLOCKED' ? 'Check again'
               : 'Review bridge'}
@@ -791,8 +799,13 @@ function BridgeExecutionCard({
       )}
 
       {state.burnTxHash && (
-        <p className="text-xs font-mono" style={{ color: 'var(--subtle)' }}>
-          burn: {state.burnTxHash.slice(0, 22)}...
+        <p className="break-all text-xs font-mono" style={{color:'var(--muted)'}}>
+          Source burn: {state.burnTxHash}
+        </p>
+      )}
+      {state.phase === 'FAILED' && state.burnTxHash && (
+        <p role="alert" className="text-sm leading-6" style={{color:'var(--warning)'}}>
+          Your source burn was submitted. Do not bridge again. Open recovery to continue receiving USDC from that same transaction.
         </p>
       )}
 
@@ -808,7 +821,8 @@ function BridgeExecutionCard({
           className="w-full rounded-xl py-2.5 text-sm font-semibold"
           style={{ background: 'var(--surface-strong)', color: 'var(--muted)', border: '1px solid var(--border)' }}
         >
-          {state.phase === 'VERIFIED' ? 'Bridge again' : 'Back'}
+          {state.phase === 'VERIFIED' ? 'Bridge again'
+            : state.burnTxHash ? 'View existing burn recovery' : 'Edit bridge'}
         </button>
       )}
     </div>
