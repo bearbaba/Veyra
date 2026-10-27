@@ -1,14 +1,16 @@
 import { ArrowRight, CheckCircle2, HelpCircle, ShieldCheck } from 'lucide-react';
 import type { IntentResult, IntentCandidate } from '@/core/intent/intentSchema';
 import { validateAgentTransferDraft } from '@/core/agent/transferDraftGate';
+import { validateAgentBridgeDraft } from '@/core/agent/bridgeDraftGate';
 import type { VeyraPage } from '../layout/AppShell';
 
 interface ActionCardProps {
   intent: IntentResult;
   onNavigate: (page: VeyraPage) => void;
+  onClarifyDestination?: (network: 'Ethereum Sepolia' | 'Base Sepolia') => void;
 }
 
-export function ActionCard({ intent, onNavigate }: ActionCardProps) {
+export function ActionCard({ intent, onNavigate, onClarifyDestination }: ActionCardProps) {
   const best = intent.candidates[0];
   if (!best) return null;
 
@@ -18,10 +20,16 @@ export function ActionCard({ intent, onNavigate }: ActionCardProps) {
   const isUnsupported = intent.status === 'UNSUPPORTED';
   const needsClarification = intent.status === 'NEEDS_CLARIFICATION' || intent.status === 'AMBIGUOUS';
   const transferGate = isTransfer ? validateAgentTransferDraft(best) : null;
+  const bridgeGate = isBridge ? validateAgentBridgeDraft(best) : null;
   const isActionable = (isTransfer || isConvert || isBridge)
-    && intent.status === 'RESOLVED' && (transferGate === null || transferGate.ok);
-  const unavailableReason = transferGate && !transferGate.ok
-    ? transferGate.reason
+    && intent.status === 'RESOLVED'
+    && (transferGate === null || transferGate.ok)
+    && (bridgeGate === null || bridgeGate.ok);
+  const ambiguousSepolia = isBridge && best.destinationChainRaw?.raw.trim().toLowerCase() === 'sepolia';
+  const unavailableReason = bridgeGate && !bridgeGate.ok
+    ? bridgeGate.reason
+    : transferGate && !transferGate.ok
+      ? transferGate.reason
     : isUnsupported ? 'This action is not enabled on the requested network.'
     : intent.status === 'NEEDS_CLARIFICATION' ? 'Complete the missing details before reviewing.'
     : intent.status === 'AMBIGUOUS' ? 'The request needs clarification before reviewing.'
@@ -30,15 +38,18 @@ export function ActionCard({ intent, onNavigate }: ActionCardProps) {
   function handleProceed() {
     if (!isActionable) return;
     // Keep canonical positive amount, never the model's display string.
-    sessionStorage.setItem('veyra:agent-intent', JSON.stringify(
-      transferGate?.ok ? { ...best, amountRaw: { kind: 'UNTRUSTED_STRING', raw: transferGate.amount } } : best,
-    ));
+    const prepared = transferGate?.ok
+      ? { ...best, amountRaw: { kind: 'UNTRUSTED_STRING', raw: transferGate.amount } }
+      : bridgeGate?.ok
+        ? { ...best, amountRaw: { kind: 'UNTRUSTED_STRING', raw: bridgeGate.amount } }
+        : best;
+    sessionStorage.setItem('veyra:agent-intent', JSON.stringify(prepared));
     if (isTransfer) onNavigate('pay');
     else if (isConvert) onNavigate('convert');
     else if (isBridge) onNavigate('bridge');
   }
 
-  const title = isTransfer ? 'Payment intent' : isConvert ? 'Conversion intent' : isBridge ? 'Cross-chain intent' : best.actionType;
+  const title = isTransfer ? 'Payment intent' : isConvert ? 'Conversion intent' : isBridge ? 'Cross-chain payment' : best.actionType;
 
   return (
     <div className="overflow-hidden rounded-3xl" style={{ background: 'linear-gradient(145deg,rgba(23,43,67,0.98),rgba(16,31,51,0.98))', border: '1px solid var(--border-strong)' }}>
@@ -76,6 +87,16 @@ export function ActionCard({ intent, onNavigate }: ActionCardProps) {
       {!isActionable && unavailableReason && (
         <p role="status" className="border-t px-4 py-3 text-xs leading-5"
           style={{ borderColor: 'var(--border)', color: 'var(--warning)' }}>{unavailableReason}</p>
+      )}
+      {ambiguousSepolia && onClarifyDestination && (
+        <div className="grid grid-cols-2 gap-2 border-t p-3" style={{ borderColor: 'var(--border)' }}>
+          <button type="button" onClick={() => onClarifyDestination('Ethereum Sepolia')}
+            className="rounded-xl border px-2 py-3 text-xs font-semibold"
+            style={{ borderColor: 'var(--border-strong)', color: 'var(--ink)' }}>Ethereum Sepolia</button>
+          <button type="button" onClick={() => onClarifyDestination('Base Sepolia')}
+            className="rounded-xl border px-2 py-3 text-xs font-semibold"
+            style={{ borderColor: 'var(--border-strong)', color: 'var(--ink)' }}>Base Sepolia</button>
+        </div>
       )}
       {isActionable && (
         <div className="border-t p-3" style={{ borderColor: 'var(--border)' }}>

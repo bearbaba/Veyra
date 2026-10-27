@@ -298,11 +298,66 @@ export function detectAgentLocale(message: string): string {
   return 'en';
 }
 
+/**
+ * "Sepolia" alone is ambiguous (Ethereum Sepolia vs Base Sepolia).
+ * Routing a payment to a testnet is a destination request, not permission to
+ * silently pay on Arc. Only CCTP paths already enabled in the manifest can
+ * proceed to their *separate*, policy-gated Bridge review.
+ */
+function requestedSepoliaDestination(message: string): 'Ethereum Sepolia' | 'Base Sepolia' | 'Sepolia' | null {
+  if (/\bbase[ -]+sepolia\b/i.test(message)) return 'Base Sepolia';
+  if (/\b(?:ethereum|eth)[ -]+sepolia\b/i.test(message)) return 'Ethereum Sepolia';
+  if (/\bsepolia\b/i.test(message)) return 'Sepolia';
+  return null;
+}
+
+function requestedBridgeSource(message: string): string {
+  const raw = message.match(/(?:^|\s)(?:from|từ)\s+(arc(?:\s+testnet)?|base(?:\s+sepolia)?|ethereum(?:\s+sepolia)?|eth(?:\s+sepolia)?)(?=\s|$)/i)?.[1];
+  if (!raw) return 'Arc Testnet'; // Only supported bridge source; displayed explicitly in review.
+  if (/^arc/i.test(raw)) return 'Arc Testnet';
+  if (/^base\s+sepolia$/i.test(raw)) return 'Base Sepolia';
+  if (/^base$/i.test(raw)) return 'Base';
+  if (/^(?:eth|ethereum)\s+sepolia$/i.test(raw)) return 'Ethereum Sepolia';
+  return 'Ethereum';
+}
+
 function buildIntent(message: string, locale: string): IntentResult | undefined {
   const tokens = extractTokens(message);
   const chains = extractChains(message);
   const amount = extractAmount(message);
   const recipient = extractRecipient(message);
+  const sepoliaDestination = requestedSepoliaDestination(message);
+  const paymentHint = hasAny(message, TRANSFER_HINTS);
+  if (sepoliaDestination && (paymentHint || hasAny(message, BRIDGE_HINTS))) {
+    const sourceChain = requestedBridgeSource(message);
+    const missing: string[] = [];
+    if (!recipient) missing.push('recipientRaw');
+    if (!amount) missing.push('amountRaw');
+    if (!tokens[0]) missing.push('tokenRaw');
+    if (sepoliaDestination === 'Sepolia') missing.push('destinationChainRaw');
+    const unavailableSource = sourceChain !== 'Arc Testnet';
+    const status = missing.length > 0 ? 'NEEDS_CLARIFICATION'
+      : unavailableSource || tokens[0] !== 'USDC' ? 'UNSUPPORTED' : 'RESOLVED';
+    const question = missing.includes('destinationChainRaw')
+      ? (locale.startsWith('vi')
+        ? 'Bạn muốn gửi 2 mạng nào: Ethereum Sepolia hay Base Sepolia? Veyra hiện có tuyến CCTP từ Arc Testnet.'
+        : 'Which destination did you mean: Ethereum Sepolia or Base Sepolia? The currently supported CCTP source is Arc Testnet.')
+      : missing.includes('recipientRaw') ? localized(locale, 'clarifyRecipient')
+      : missing.includes('amountRaw') ? localized(locale, 'clarifyAmount')
+      : missing.includes('tokenRaw') ? localized(locale, 'clarifyToken')
+      : undefined;
+    return validateIntentResponse({
+      displaySummary: localized(locale, 'action'),
+      status,
+      candidates: [{
+        actionType: 'BRIDGE', recipient, fromAmount: amount, fromCurrency: tokens[0],
+        sourceChain, destinationChain: sepoliaDestination, confidence: 0.78,
+      }],
+      missingParams: missing,
+      clarificationQuestion: question,
+      parsedAt: Date.now(),
+    });
+  }
 
   const isBridge = hasAny(message, BRIDGE_HINTS);
   const isConvert = !isBridge && hasAny(message, CONVERT_HINTS);
@@ -440,7 +495,7 @@ export function createFallbackAgentResponse(
   // latest message looks like a financial fragment (for example "@alice" after
   // "send 20 USDC"), fold in only the recent USER context and re-run the
   // deterministic parser. Agent replies are never used as financial input.
-  if (!intent && looksLikeFinancialFragment(clean) && options.history?.length) {
+  if (!intent && (looksLikeFinancialFragment(clean) || /\bsepolia\b/i.test(clean)) && options.history?.length) {
     const recentUserContext = options.history
       .filter((item) => item.role === 'user')
       .slice(-2)
@@ -517,12 +572,17 @@ export function validateAgentChatResponse(
     execution: fallbackCapabilities?.execution === 'AVAILABLE' ? 'AVAILABLE' : 'LOCKED',
     provider: sanitizeText(rawCaps.provider, 80) || fallback.capabilities.provider,
   };
-  const intent = raw.intent ? validateIntentResponse(raw.intent) : undefined;
+  // A hosted model must not downgrade an explicit Sepolia destination to an
+  // Arc direct payment. Reconcile the user's literal destination deterministically.
+  const pinnedNetworkIntent = /\bsepolia\b/i.test(fallbackMessage) ? fallback.intent : undefined;
+  const intent = pinnedNetworkIntent ?? (raw.intent ? validateIntentResponse(raw.intent) : undefined);
   return {
     ok: true,
-    reply: reply || fallback.reply,
+    reply: pinnedNetworkIntent ? fallback.reply : reply || fallback.reply,
     locale,
-    mode: intent?.status === 'NEEDS_CLARIFICATION' ? 'CLARIFICATION' : mode,
+    mode: intent?.status === 'NEEDS_CLARIFICATION' ? 'CLARIFICATION'
+      : intent?.status === 'UNSUPPORTED' ? 'CHAT'
+      : pinnedNetworkIntent ? 'ACTION' : mode,
     ...(intent ? { intent } : {}),
     degraded: raw.degraded === true,
     capabilities,

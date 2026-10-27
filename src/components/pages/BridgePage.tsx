@@ -17,7 +17,7 @@
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { Globe, AlertTriangle, Info, ArrowRight, Loader2, CheckCircle, Lock } from 'lucide-react';
-import { parseUnits, type Address } from 'viem';
+import { isAddress, parseUnits, type Address } from 'viem';
 import {
   createBridgeActionFromRoute,
   evaluateBridgeAction,
@@ -29,6 +29,8 @@ import {
   createBridgeActivityReceiptRemote,
 } from '../../lib/api/activityReceiptApi';
 import { MANIFEST_CONSTANTS, findManifestEntry } from '../../providers/registry/providerManifest';
+import { validateAgentBridgeDraft } from '../../core/agent/bridgeDraftGate';
+import type { IntentCandidate } from '../../core/intent/intentSchema';
 import { useBridgeExecution, type BridgeExecutionState } from '../../hooks/useBridgeExecution';
 import {
   nextBridgeResumeInstruction,
@@ -68,8 +70,31 @@ export function BridgePage() {
   const [amount, setAmount] = useState('');
   const [destChainId, setDestChainId] = useState<number>(MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID);
   const [recipientAddress, setRecipientAddress] = useState('');
+  const [agentHandoff, setAgentHandoff] = useState<string | null>(null);
   const [bridgeState, setBridgeState] = useState<BridgeState>({ phase: 'INPUT' });
   const [recoveryCandidates, setRecoveryCandidates] = useState<BridgeRecoveryCheckpoint[]>([]);
+
+  useEffect(() => {
+    // Agent proposals are read once and untrusted. Never auto-quote, approve,
+    // sign or burn on navigation. The user must review the exact CCTP route.
+    const raw = sessionStorage.getItem('veyra:agent-intent');
+    if (!raw) return;
+    sessionStorage.removeItem('veyra:agent-intent');
+    try {
+      const candidate = JSON.parse(raw) as IntentCandidate;
+      const gate = validateAgentBridgeDraft(candidate);
+      if (!gate.ok) {
+        setAgentHandoff(gate.reason);
+        return;
+      }
+      setAmount(gate.amount);
+      setDestChainId(gate.destinationChainId);
+      setRecipientAddress(gate.recipientAddress);
+      setAgentHandoff('Draft imported from Agent. Source: Arc Testnet. Review the route and destination before signing.');
+    } catch {
+      setAgentHandoff('Agent draft was invalid. Enter and review the bridge details manually.');
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -94,8 +119,13 @@ export function BridgePage() {
   async function handleEvaluate() {
     if (!address || !amount || !recipientAddress) return;
 
-    const parsed = Number.parseFloat(amount);
-    if (!Number.isFinite(parsed) || parsed <= 0) return;
+    // Match the Agent handoff requirements and reject invalid manual drafts
+    // before spending RPC quota on route selection.
+    if (!isAddress(recipientAddress) || !/^\d{1,18}(?:\.\d{1,6})?$/.test(amount)
+      || parseUnits(amount, 6) <= 0n) {
+      setBridgeState({ phase: 'BLOCKED', reason: 'Enter a valid recipient EVM wallet and a positive USDC amount (up to six decimals).' });
+      return;
+    }
 
     setBridgeState({ phase: 'EVALUATING' });
 
@@ -330,6 +360,12 @@ export function BridgePage() {
         <h1 className="display text-2xl font-bold" style={{ color: 'var(--ink)', letterSpacing: '-0.02em' }}>Bridge</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>USDC Arc Testnet → Ethereum Sepolia / Base Sepolia via CCTP V2</p>
       </div>
+      {agentHandoff && (
+        <p role="status" className="rounded-xl border px-3 py-3 text-xs leading-5"
+          style={{ borderColor: 'var(--border-strong)', background: 'var(--surface)', color: 'var(--ink-2)' }}>
+          {agentHandoff}
+        </p>
+      )}
 
       {recoveryCandidates.length > 0 && bridgeExecution.state.phase === 'IDLE' && (
         <BridgeRecoveryCard

@@ -228,7 +228,18 @@ function ScopedAgentPage({ onNavigate, historyScope }: AgentPageProps & { histor
                         <IntentGraphPreview graph={message.capabilityGraph} />
                       )}
                       {message.intent && message.intent.candidates.length > 0 && (
-                        <div className="mt-3"><ActionCard intent={message.intent} onNavigate={onNavigate} /></div>
+                        <div className="mt-3"><ActionCard intent={message.intent} onNavigate={onNavigate}
+                          onClarifyDestination={(destination) => {
+                            const draft = message.intent?.candidates[0];
+                            if (!draft) return;
+                            const amount = draft.amountRaw?.raw ?? '';
+                            const token = draft.tokenRaw?.raw ?? 'USDC';
+                            const recipient = draft.recipientRaw?.raw ?? '';
+                            const source = draft.sourceChainRaw?.raw ?? 'Arc Testnet';
+                            // Populate (not execute) an explicit reviewable route.
+                            setInput(`Send ${amount} ${token} from ${source} to ${recipient} on ${destination}`);
+                            inputRef.current?.focus();
+                          }} /></div>
                       )}
                     </div>
                   )}
