@@ -46,6 +46,7 @@ import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } fr
 import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
 import {DirectMessageError,encryptionKey,chatPage,listDirectMessages,sendDirectMessage} from './services/directMessageService.js';
+import {IncomingUsdcError,reconcileIncomingUsdc} from './services/incomingUsdcService.js';
 import { beginXOAuthLink, completeXOAuthLink, XOAuthError,checkedXReturnOrigin,buildXLinkedReturnUrl,isConfiguredXOAuth } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
 import { PaymentReviewError } from './services/paymentReviewProof.js';
@@ -206,6 +207,7 @@ app.use('/api', GLOBAL_RATE);
 // remains available only outside production for local E2E.
 
 function identityError(res: Response, err: unknown): void {
+  if(err instanceof IncomingUsdcError){res.status(err.httpStatus).json({ok:false,error:err.code,message:err.message});return;}
   if(err instanceof DirectMessageError){res.status(err.httpStatus).json({ok:false,error:err.code,message:err.message});return;}
   if (err instanceof NotificationInboxError) {
     res.status(err.code === 'NOTIFICATION_NOT_FOUND' ? 404 : 400)
@@ -445,6 +447,18 @@ app.post('/api/social/chat/send',CHAT_SEND_RATE,async(req:Request,res:Response):
     const body=req.body as Record<string,unknown>;
     const {db}=await import('./db/client.js');
     res.json(await sendDirectMessage(db,owner,body.peerUserId,body.body,body.clientRequestId));
+  }catch(err){identityError(res,err);}
+});
+
+// On-demand read-triggered chain reconciliation. The client cannot submit
+// transfer hashes, amounts, wallet addresses, or a claimed payment event.
+const INCOMING_SYNC_RATE=rateLimit(2,60_000);
+app.post('/api/notifications/sync-incoming',INCOMING_SYNC_RATE,async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const owner=getAuthenticatedVeyraUserId(req);
+    if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    res.json(await reconcileIncomingUsdc(db,owner));
   }catch(err){identityError(res,err);}
 });
 

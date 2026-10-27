@@ -38,6 +38,7 @@ export const newBlockId        = () => makeId('blk_');
 export const newReceiptId      = () => makeId('rec_');
 export const newEventId        = () => makeId('evt_');
 export const newDirectMessageId = () => makeId('msg_');
+export const newIncomingUsdcId = () => makeId('rcv_');
 export const newNotificationId  = () => makeId('ntf_');
 export const newRevisionId     = () => makeId('rev_');
 export const newPostId         = () => makeId('pst_');
