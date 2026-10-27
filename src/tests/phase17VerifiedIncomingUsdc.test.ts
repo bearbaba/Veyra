@@ -34,16 +34,18 @@ function fixture(options:{wrongChain?:boolean;receipt?:Record<string,unknown>;lo
       const tx={
         insert:()=>({
           values:(value:Record<string,unknown>)=>({
-            onConflictDoNothing:()=>({
-              returning:()=>{
-                if('incomingId' in value){
-                  if(events.some(item=>item.txHash===value.txHash&&item.logIndex===value.logIndex))return Promise.resolve([]);
-                  events.push(value);added++;return Promise.resolve([{incomingId:value.incomingId}]);
-                }
-                if('notificationId' in value)alertCount++;
-                return Promise.resolve([]);
-              },
-            }),
+            onConflictDoNothing:()=>{
+              if('notificationId' in value){
+                alertCount++;
+                return Promise.resolve();
+              }
+              return {returning:()=>{
+                if(events.some(item=>item.txHash===value.txHash&&item.logIndex===value.logIndex))
+                  return Promise.resolve([]);
+                events.push(value);added++;
+                return Promise.resolve([{incomingId:value.incomingId}]);
+              }};
+            },
             onConflictDoUpdate:()=>{cursor=Number(value.lastVerifiedBlock);return Promise.resolve();},
           }),
         }),
