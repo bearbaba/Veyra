@@ -30,8 +30,15 @@ export function FriendChat({token,ownerId,friend,onClose}:{
     });
     if(!response.ok||!response.headers.get('content-type')?.includes('application/json'))
       throw new Error(response.status===403?'Chat is only available to connected, unblocked friends.':'Unable to load messages.');
-    const page:ChatPage=await response.json();
-    if(page.ok!==true||!Array.isArray(page.items)||typeof page.hasMore!=='boolean')
+    const value:unknown=await response.json();
+    if(!value||typeof value!=='object'||Array.isArray(value))
+      throw new Error('Invalid chat history returned.');
+    const page=value as ChatPage;
+    if(page.ok!==true||!Array.isArray(page.items)||typeof page.hasMore!=='boolean'||
+      !(page.nextOffset===null||Number.isSafeInteger(page.nextOffset))||
+      page.items.some(item=>!item||typeof item!=='object'||typeof item.messageId!=='string'||
+        typeof item.senderUserId!=='string'||typeof item.recipientUserId!=='string'||
+        typeof item.body!=='string'||typeof item.createdAt!=='string'))
       throw new Error('Invalid chat history returned.');
     return page;
   },[friend.veyraUserId,token]);
