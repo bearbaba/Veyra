@@ -24,6 +24,7 @@ import { VeyraIdentityAccess } from '../identity/VeyraIdentityAccess';
 const X_CALLBACK_RETURN = typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).get('x_linked') === '1';
 const X_PENDING_KEY = 'veyra:x-oauth:pending';
+type PendingXLink = { state: string; veyraUserId: string; startedAt: number };
 
 export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const { address, isConnected } = useAccount();
@@ -45,8 +46,8 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   useEffect(()=>{
     if (!X_CALLBACK_RETURN || xFinishAttempted.current || !signedToken || !profile || social.identityOrigin!=='ready') return;
     const raw = window.sessionStorage.getItem(X_PENDING_KEY);
-    let pending: { state: string; veyraUserId: string; startedAt: number } | null = null;
-    try { pending = raw ? JSON.parse(raw) as typeof pending : null; } catch { /* corrupt session data */ }
+    let pending: PendingXLink | null = null;
+    try { pending = raw ? JSON.parse(raw) as PendingXLink : null; } catch { /* corrupt session data */ }
     if (!pending || pending.veyraUserId !== profile.veyraUserId ||
         !/^[-_A-Za-z0-9]{30,128}$/.test(pending.state) ||
         !Number.isFinite(pending.startedAt) || Date.now()-pending.startedAt>10*60*1000) {
