@@ -35,7 +35,9 @@ describe('Secure browser restored identity after F5',()=>{
     expect(bff).toContain('wb.revoked_at IS NULL');
     expect(bff).toContain("u.status='ACTIVE'");
     expect(bff).toContain("res.setHeader('Set-Cookie',clearBrowserRestoreCookie())");
-    expect(social).toContain("'/api/auth/session/restore','POST',undefined,{walletAddress:address}");
+    expect(social).toContain("'/api/auth/session/restore','POST',undefined,{walletAddress:address},30000");
+    expect(social).toContain('restoreAttemptedFor.current=key');
+    expect(social).toContain('restoreAttemptedFor.current===walletKey');
     expect(social).toContain('if(!isConnected||!address||!connector');
     expect(social).toContain('const signOut=useCallback');
     expect(social).toContain("'/api/auth/session/logout'");

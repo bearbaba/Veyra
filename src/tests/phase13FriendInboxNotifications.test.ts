@@ -60,6 +60,7 @@ describe('Phase 13 owner-only Friends and real event presentation',()=>{
     expect(social).toContain("page.nextOffset<=offset");
     expect(social).toContain('noticePageTicket.current===ticket');
     expect(social).toContain('return action(async(key,rev)=>');
+    expect(social).toContain('accepted=unchanged(key,rev)');
     const bell=read('features/social/NotificationBell.tsx');
     expect(bell).toContain("if(await social.respond(id,'ACCEPT'))await social.markRead(notificationId)");
     const settings=read('components/pages/SettingsPage.tsx');

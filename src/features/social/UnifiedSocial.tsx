@@ -100,6 +100,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   // Prevent auto-restore from racing an explicit sign-out while the old
   // HttpOnly cookie is still being cleared. A wallet change resets this guard.
   const restoreSuppressedFor=useRef<string|null>(null);
+  const restoreAttemptedFor=useRef<string|null>(null);
   const signOut=useCallback(async():Promise<boolean>=>{
     restoreSuppressedFor.current=current.current;
     resetLocal();
@@ -116,7 +117,10 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     }finally{setBusy(false);}
   },[resetLocal]);
   useEffect(()=>{
-    if(current.current!==walletKey)restoreSuppressedFor.current=null;
+    if(current.current!==walletKey){
+      restoreSuppressedFor.current=null;
+      restoreAttemptedFor.current=null;
+    }
     current.current=walletKey;resetLocal();
   },[walletKey,resetLocal]);
   const unchanged=(key:string,rev:number)=>current.current===key&&generation.current===rev;
@@ -144,12 +148,16 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   // On reload the wallet reconnects before this restores the secure browser
   // cookie. No MetaMask popup or browser-persisted bearer is involved.
   useEffect(()=>{
-    if(!isConnected||!address||!connector||identityOrigin!=='ready'||session||busy||restoreSuppressedFor.current===walletKey)return;
+    if(!isConnected||!address||!connector||identityOrigin!=='ready'||session||busy||
+       restoreSuppressedFor.current===walletKey||restoreAttemptedFor.current===walletKey)return;
     let cancelled=false;
     const key=walletKey,rev=generation.current;
+    // One automatic attempt for this connected wallet. A failed restore must
+    // not be retried on every unrelated busy-state transition.
+    restoreAttemptedFor.current=key;
     setRestoring(true);
     void api<{veyraUserId:string;sessionToken:string;profile:IdentityProfile}>(
-      '/api/auth/session/restore','POST',undefined,{walletAddress:address},
+      '/api/auth/session/restore','POST',undefined,{walletAddress:address},30000,
     ).then(data=>{
       if(cancelled||!unchanged(key,rev)||data.profile.veyraUserId!==data.veyraUserId||
         !USER_ID.test(data.veyraUserId))return;
@@ -308,8 +316,8 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
       if(!s||s.walletKey!==key)throw new Error('Sign in with this wallet before using Social.');
       await fn(s.token);
       if(!unchanged(key,rev))return;
-      accepted=true;
       setMessage('Saved.');await refresh();
+      accepted=unchanged(key,rev);
     }).then(()=>accepted);
   };
   const invite=(name:string)=>mutate(async token=>{
