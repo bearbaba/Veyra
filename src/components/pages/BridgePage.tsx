@@ -31,6 +31,7 @@ import { approveTokenMessenger } from '../../providers/cctp/cctpV2Adapter';
 import { assertExecutionReady } from '../../core/execution/executionReadiness';
 import { IS_UI_ONLY_PREVIEW, VEYRA_ENV } from '../../lib/env';
 import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
+import { VeyraIdentityAccess } from '../identity/VeyraIdentityAccess';
 import {
   createBridgeActivityReceiptRemote,
 } from '../../lib/api/activityReceiptApi';
@@ -77,6 +78,12 @@ export function BridgePage() {
   const sourcePublicClient = usePublicClient({ chainId: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID });
   const social = useUnifiedSocial();
   const bridgeExecution = useBridgeExecution();
+  // A preview can display a CCTP route draft, but cannot advertise a
+  // review/signing path without a trusted identity origin and wallet session.
+  const bridgeOriginUnavailable = IS_UI_ONLY_PREVIEW || VEYRA_ENV === 'mainnet' ||
+    social.identityOrigin === 'origin_blocked' || social.identityOrigin === 'offline';
+  const bridgeIdentityReady = !bridgeOriginUnavailable && social.identityOrigin === 'ready' &&
+    Boolean(social.session) && isConnected;
 
   const [amount, setAmount] = useState('');
   const [destChainId, setDestChainId] = useState<number>(MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID);
@@ -449,6 +456,31 @@ export function BridgePage() {
           {agentHandoff}
         </p>
       )}
+      {!bridgeIdentityReady && (
+        <div role="status" className="rounded-xl border px-4 py-3 text-sm leading-6"
+          style={{ background:'var(--surface)', borderColor:bridgeOriginUnavailable?'var(--warning)':'var(--border)' }}>
+          <p className="font-semibold" style={{color:'var(--ink)'}}>
+            {bridgeOriginUnavailable ? 'Bridge signing unavailable on this Preview'
+              : social.identityOrigin === 'checking' ? 'Checking the Testnet connection'
+              : 'Sign in to Veyra ID before bridging'}
+          </p>
+          <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
+            {bridgeOriginUnavailable
+              ? 'This Preview is not authorized by the Veyra ID backend. You may edit the route, but cannot approve or burn here. Your draft has not been submitted.'
+              : 'You can prepare the amount and destination first. Signing requires your verified wallet session on an approved Testnet domain.'}
+          </p>
+          {!bridgeOriginUnavailable && social.identityOrigin === 'ready' && !social.session &&
+            <div className="mt-3"><VeyraIdentityAccess /></div>}
+          {bridgeOriginUnavailable && (
+            <a href="https://veyra-unified-testnet-v2.vercel.app"
+              target="_blank" rel="noopener noreferrer"
+              className="mt-2 inline-block text-xs font-semibold underline underline-offset-4"
+              style={{color:'var(--accent)'}}>
+              Open the stable Testnet V2 site (separate release)
+            </a>
+          )}
+        </div>
+      )}
 
       {recoveryCandidates.length > 0 && bridgeExecution.state.phase === 'IDLE' && (
         <BridgeRecoveryCard
@@ -472,7 +504,9 @@ export function BridgePage() {
                 <span className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>Arc Testnet</span>
               </div>
               <input
-                type="number"
+                type="text"
+                inputMode="decimal"
+                aria-label="USDC amount to bridge"
                 value={amount}
                 onChange={(e) => { setAmount(e.target.value); setBridgeState({ phase: 'INPUT' }); }}
                 placeholder="0.00 USDC"
@@ -488,7 +522,7 @@ export function BridgePage() {
                 <span className="text-xs uppercase tracking-wider font-medium" style={{ color: 'var(--muted)' }}>To</span>
                 <select
                   value={destChainId}
-                  onChange={(e) => setDestChainId(Number(e.target.value))}
+                  onChange={(e) => { setDestChainId(Number(e.target.value)); setBridgeState({ phase:'INPUT' }); }}
                   className="bg-transparent text-xs font-semibold outline-none border rounded-lg px-2 py-1"
                   style={{ color: 'var(--accent)', borderColor: 'var(--border)', background: 'var(--surface-strong)' }}
                 >
@@ -499,8 +533,11 @@ export function BridgePage() {
               </div>
               <input
                 type="text"
+                aria-label="Destination wallet address"
+                autoComplete="off"
+                spellCheck={false}
                 value={recipientAddress}
-                onChange={(e) => setRecipientAddress(e.target.value)}
+                onChange={(e) => { setRecipientAddress(e.target.value); setBridgeState({ phase:'INPUT' }); }}
                 placeholder="Recipient 0x... (destination chain)"
                 className="w-full bg-transparent text-sm outline-none"
                 style={{ color: 'var(--ink-2)' }}
@@ -509,7 +546,7 @@ export function BridgePage() {
           </div>
 
           {/* Blocked */}
-          {bridgeState.phase === 'BLOCKED' && (
+          {bridgeState.phase === 'BLOCKED' && bridgeIdentityReady && (
             <div className="flex items-start gap-2 rounded-xl p-3.5" style={{ background: 'var(--danger-muted)', border: '1px solid var(--border)' }}>
               <AlertTriangle className="size-4 mt-0.5 shrink-0" style={{ color: 'var(--danger)' }} />
               <p className="text-sm" style={{ color: 'var(--danger)' }}>{bridgeState.reason}</p>
@@ -518,13 +555,17 @@ export function BridgePage() {
 
           <button
             onClick={() => void handleEvaluate()}
-            disabled={!amount || !recipientAddress || bridgeState.phase === 'EVALUATING'}
+            disabled={!amount || !recipientAddress || !isAddress(recipientAddress) ||
+              !/^\d{1,18}(?:\.\d{1,6})?$/.test(amount) || Number(amount) <= 0 ||
+              !bridgeIdentityReady || bridgeState.phase === 'EVALUATING'}
             className="w-full rounded-2xl py-3.5 font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: 'var(--accent)', color: '#0d1b2f' }}
           >
             {bridgeState.phase === 'EVALUATING' ? (
-              <><Loader2 className="inline size-4 mr-2 animate-spin" />Evaluating...</>
-            ) : 'Review bridge'}
+              <><Loader2 className="inline size-4 mr-2 animate-spin" />Checking route…</>
+            ) : bridgeOriginUnavailable ? 'Bridge unavailable on this Preview'
+              : !bridgeIdentityReady ? 'Sign in to review bridge'
+              : 'Review bridge'}
           </button>
         </>
       ) : bridgeState.phase === 'APPROVAL_REQUIRED' ? (
