@@ -97,6 +97,9 @@ export function BridgePage() {
   const [destChainId, setDestChainId] = useState<number>(MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID);
   const [recipientAddress, setRecipientAddress] = useState('');
   const [agentHandoff, setAgentHandoff] = useState<string | null>(null);
+  const [bridgeState, setBridgeState] = useState<BridgeState>({ phase: 'INPUT' });
+  const [recoveryCandidates, setRecoveryCandidates] = useState<BridgeRecoveryCheckpoint[]>([]);
+  const hasUnfinishedBurn = recoveryCandidates.some((checkpoint) => checkpoint.stage !== 'VERIFIED');
   const owner = address?.toLowerCase() ?? '';
   const agentWalletKey = address ? [address.toLowerCase(), connector?.uid ?? ''].join(':') : null;
   const agentHandoffScope = social.session && agentWalletKey &&
