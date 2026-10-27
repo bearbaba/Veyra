@@ -20,6 +20,7 @@ import { BrandLogo } from '../brand/BrandLogo';
 import type { TransferAction } from '@/core/actions/actionSchema';
 import { preparePaymentRecipient, type PreparedRecipient } from '@/lib/api/identityApi';
 import type { IntentCandidate } from '@/core/intent/intentSchema';
+import { validateAgentTransferDraft } from '@/core/agent/transferDraftGate';
 import {assertPreparedRecipientReview} from '@/core/execution/recipientReviewGuard';
 import { friendLabel, useUnifiedSocial } from '../../features/social/UnifiedSocial';
 import { useReceiptStore } from '@/hooks/useReceiptStore';
@@ -88,12 +89,15 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
     sessionStorage.removeItem('veyra:agent-intent');
     try {
       const candidate = JSON.parse(raw) as IntentCandidate;
-      if (candidate.actionType !== 'TRANSFER') return;
-      if (candidate.recipientRaw?.raw) setRecipient(candidate.recipientRaw.raw);
-      if (candidate.amountRaw?.raw) {
-        const match = candidate.amountRaw.raw.match(/\d+(?:\.\d+)?/);
-        if (match) setAmount(match[0]);
+      // Defense in depth: never interpret a decimal prefix or silently
+      // change the explicitly requested network during Agent handoff.
+      const gate = validateAgentTransferDraft(candidate);
+      if (!gate.ok) {
+        setActionError(gate.reason);
+        return;
       }
+      setRecipient(candidate.recipientRaw!.raw);
+      setAmount(gate.amount);
     } catch {
       // Session storage is convenience-only and never trusted for execution.
     }

@@ -1,5 +1,6 @@
 import { ArrowRight, CheckCircle2, HelpCircle, ShieldCheck } from 'lucide-react';
 import type { IntentResult, IntentCandidate } from '@/core/intent/intentSchema';
+import { validateAgentTransferDraft } from '@/core/agent/transferDraftGate';
 import type { VeyraPage } from '../layout/AppShell';
 
 interface ActionCardProps {
@@ -16,11 +17,22 @@ export function ActionCard({ intent, onNavigate }: ActionCardProps) {
   const isBridge = best.actionType === 'BRIDGE';
   const isUnsupported = intent.status === 'UNSUPPORTED';
   const needsClarification = intent.status === 'NEEDS_CLARIFICATION' || intent.status === 'AMBIGUOUS';
-  const isActionable = (isTransfer || isConvert || isBridge) && !isUnsupported && !needsClarification;
+  const transferGate = isTransfer ? validateAgentTransferDraft(best) : null;
+  const isActionable = (isTransfer || isConvert || isBridge)
+    && intent.status === 'RESOLVED' && (transferGate === null || transferGate.ok);
+  const unavailableReason = transferGate && !transferGate.ok
+    ? transferGate.reason
+    : isUnsupported ? 'This action is not enabled on the requested network.'
+    : intent.status === 'NEEDS_CLARIFICATION' ? 'Complete the missing details before reviewing.'
+    : intent.status === 'AMBIGUOUS' ? 'The request needs clarification before reviewing.'
+    : !isActionable ? 'This action is not available for review.' : null;
 
   function handleProceed() {
     if (!isActionable) return;
-    sessionStorage.setItem('veyra:agent-intent', JSON.stringify(best));
+    // Keep canonical positive amount, never the model's display string.
+    sessionStorage.setItem('veyra:agent-intent', JSON.stringify(
+      transferGate?.ok ? { ...best, amountRaw: { kind: 'UNTRUSTED_STRING', raw: transferGate.amount } } : best,
+    ));
     if (isTransfer) onNavigate('pay');
     else if (isConvert) onNavigate('convert');
     else if (isBridge) onNavigate('bridge');
@@ -33,15 +45,15 @@ export function ActionCard({ intent, onNavigate }: ActionCardProps) {
       <div className="flex items-center justify-between gap-3 border-b px-4 py-3.5" style={{ borderColor: 'var(--border)' }}>
         <div className="flex items-center gap-2.5">
           <span className="flex size-8 items-center justify-center rounded-xl" style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}>
-            {needsClarification ? <HelpCircle className="size-4" /> : <CheckCircle2 className="size-4" />}
+            {!isActionable ? <HelpCircle className="size-4" /> : <CheckCircle2 className="size-4" />}
           </span>
           <div>
             <div className="text-sm font-bold" style={{ color: 'var(--ink)' }}>{title}</div>
             <div className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--subtle)' }}>Agent proposal · {(best.confidence * 100).toFixed(0)}% confidence</div>
           </div>
         </div>
-        <span className="rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ background: needsClarification ? 'var(--warning-muted)' : 'var(--success-muted)', color: needsClarification ? 'var(--warning)' : 'var(--success)' }}>
-          {needsClarification ? 'Needs input' : 'Ready to review'}
+        <span className="rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ background: !isActionable ? 'var(--warning-muted)' : 'var(--success-muted)', color: !isActionable ? 'var(--warning)' : 'var(--success)' }}>
+          {isActionable ? 'Ready to review' : isUnsupported || (transferGate && !transferGate.ok) ? 'Not available' : 'Needs input'}
         </span>
       </div>
 
@@ -61,6 +73,10 @@ export function ActionCard({ intent, onNavigate }: ActionCardProps) {
         </p>
       </div>
 
+      {!isActionable && unavailableReason && (
+        <p role="status" className="border-t px-4 py-3 text-xs leading-5"
+          style={{ borderColor: 'var(--border)', color: 'var(--warning)' }}>{unavailableReason}</p>
+      )}
       {isActionable && (
         <div className="border-t p-3" style={{ borderColor: 'var(--border)' }}>
           <button onClick={handleProceed} className="flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-sm font-bold transition-transform hover:scale-[1.01]" style={{ background: 'linear-gradient(135deg,#c8ff65,#91e9b5)', color: '#0b1b25' }}>

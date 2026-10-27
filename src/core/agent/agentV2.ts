@@ -75,8 +75,20 @@ function sanitizeText(value: unknown, max = 800): string {
 }
 
 function extractAmount(message: string): string | undefined {
-  const match = message.match(/(?:^|\s)(\d{1,18}(?:[.,]\d{1,8})?)(?=\s|$|\p{L}|\p{S})/u);
-  return match?.[1];
+  // EVM addresses start with "0x". The previous first-number parser silently
+  // interpreted that prefix as a zero USDC amount when an address came first.
+  // Scrub all hex-address-like fragments before extracting financial numbers.
+  const readable = message.replace(/\b0x[0-9a-f]*/gi, ' ');
+  const assetNames = TOKEN_SYMBOLS.join('|');
+  const beforeAsset = readable.match(new RegExp(
+    `(?:^|\\s)(\\d{1,18}(?:[.,]\\d{1,8})?)(?=\\s*(?:${assetNames})\\b)`, 'i',
+  ));
+  if (beforeAsset) return beforeAsset[1];
+  const afterAsset = readable.match(new RegExp(
+    `\\b(?:${assetNames})\\s+(\\d{1,18}(?:[.,]\\d{1,8})?)(?=\\s|$)`, 'i',
+  ));
+  if (afterAsset) return afterAsset[1];
+  return readable.match(/(?:^|\s)(\d{1,18}(?:[.,]\d{1,8})?)(?=\s|$|\p{L}|\p{S})/u)?.[1];
 }
 
 function extractTokens(message: string): string[] {
@@ -302,7 +314,11 @@ function buildIntent(message: string, locale: string): IntentResult | undefined 
     if (!recipient) missing.push('recipientRaw');
     if (!amount) missing.push('amountRaw');
     if (!tokens[0]) missing.push('tokenRaw');
-    const status = missing.length ? 'NEEDS_CLARIFICATION' : 'RESOLVED';
+    // Transfer execution currently supports Arc Testnet USDC only. A user
+    // explicitly asking for Base must NEVER be silently redirected to Arc.
+    const unsupportedNetwork = chains.some((network) => network !== 'Arc');
+    const status = missing.length ? 'NEEDS_CLARIFICATION'
+      : unsupportedNetwork ? 'UNSUPPORTED' : 'RESOLVED';
     const clarificationQuestion = missing.includes('recipientRaw')
       ? localized(locale, 'clarifyRecipient')
       : missing.includes('amountRaw')
@@ -443,13 +459,18 @@ export function createFallbackAgentResponse(
 
   if (intent) {
     const needsClarification = intent.status === 'NEEDS_CLARIFICATION';
+    const unsupported = intent.status === 'UNSUPPORTED';
     return {
       ok: true,
       reply: needsClarification
         ? (intent.clarificationQuestion ?? localized(locale, 'fallback'))
-        : localized(locale, 'action'),
+        : unsupported
+          ? (locale.startsWith('vi')
+              ? 'Mình đã nhận ra mạng bạn yêu cầu, nhưng hiện Veyra chỉ cho phép gửi USDC trên Arc Testnet. Mình sẽ không tự đổi sang mạng khác.'
+              : 'I recognized your requested network, but Veyra currently executes USDC payments on Arc Testnet only. I will not silently change networks.')
+          : localized(locale, 'action'),
       locale,
-      mode: needsClarification ? 'CLARIFICATION' : 'ACTION',
+      mode: needsClarification ? 'CLARIFICATION' : unsupported ? 'CHAT' : 'ACTION',
       intent,
       degraded: true,
       capabilities,
