@@ -10,7 +10,7 @@ describe('Phase 29: a confirmed source burn must never be offered as a new payme
   });
   it('disables new Review while an owned unresolved checkpoint exists',()=>{
     expect(bridge).toContain("checkpoint.stage !== 'VERIFIED'");
-    expect(bridge).toContain("!bridgeIdentityReady || hasUnfinishedBurn || bridgeState.phase === 'EVALUATING'");
+    expect(bridge).toContain("!bridgeIdentityReady || newBridgeLocked || bridgeState.phase === 'EVALUATING'");
     expect(bridge).toContain('Resume your existing burn above');
     expect(bridge).toContain('bridgeExecution.loadRecoveryCandidates()');
     expect(bridge).toContain('<BridgeRecoveryCard');
