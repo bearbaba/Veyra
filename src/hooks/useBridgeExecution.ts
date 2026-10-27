@@ -16,7 +16,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import { usePublicClient, useWalletClient, useSwitchChain } from 'wagmi';
+import { useAccount, usePublicClient, useWalletClient, useSwitchChain } from 'wagmi';
 import { getAddress, createPublicClient, http, type Hash, type Address } from 'viem';
 import {
   approveTokenMessenger,
@@ -34,19 +34,24 @@ import { checkProviderEligibility } from '../providers/registry/providerRegistry
 import type { BridgeAction } from '../core/actions/actionSchema';
 import { generateExecutionReceiptId } from '../core/receipt/receiptId';
 import type { VeyraReceipt } from '../core/receipt/receiptTypes';
-import { VEYRA_ENV } from '../lib/env';
+import { IS_UI_ONLY_PREVIEW, VEYRA_ENV } from '../lib/env';
 import { assertExecutionReady } from '../core/execution/executionReadiness';
 import { saveReceipt } from '../core/receipt/receiptStore';
 import {
+  bridgeCheckpointBelongsToWallet,
+  excludeAuthoritativelyResolvedBridgeCheckpoints,
   loadResumableBridgeCheckpoints,
   reconcileBridgeRecoveryCandidates,
   saveBridgeCheckpoint,
   type BridgeRecoveryCheckpoint,
 } from '../core/execution/bridgeCheckpointStore';
 import {
+  claimSelfRelayDestinationRemote,
   loadRemoteBridgeCheckpoints,
   persistBridgeCheckpointRemote,
+  recordSelfRelayDestinationRemote,
   relayBridgeReceiveRemote,
+  resolveFirstDestinationRevertRemote,
 } from '../lib/api/bridgeRecoveryApi';
 import {
   lockActionExecution,
@@ -54,6 +59,21 @@ import {
   releaseActionExecutionReservation,
   reserveActionExecution,
 } from '../core/execution/actionExecutionReplayStore';
+import {
+  advanceActivityReceiptRemote,
+  finalizeRevertedCctpSourceReceiptRemote,
+  loadActivityReceiptsRemote,
+  loadResumableActivityReceiptsRemote,
+  type ActivityReceiptHandle,
+  type ActivityReceiptStatus,
+} from '../lib/api/activityReceiptApi';
+import type {
+  ActivityTrace,
+  BridgeProviderAdapter,
+  BridgeProviderExecutionRuntime,
+  ResumePayload,
+  RouteOption,
+} from '../providers/bridge/bridgeProviderTypes';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -141,10 +161,235 @@ async function tryAuthenticatedRemoteRelay(
   };
 }
 
+interface BridgeActivityProgress {
+  handle: ActivityReceiptHandle;
+  status: ActivityReceiptStatus;
+}
+
+const BRIDGE_ACTIVITY_RANK: Partial<Record<ActivityReceiptStatus, number>> = {
+  INTENT_CAPTURED: 0,
+  QUOTE_RESERVED: 1,
+  PREFLIGHT_PASSED: 2,
+  SIGNED: 3,
+  BROADCAST: 4,
+  SOURCE_CONFIRMED: 5,
+  ATTESTATION_PENDING: 6,
+  RECEIVE_FAILED_RETRYABLE: 7,
+  RECEIVE_PENDING: 8,
+  CONFIRMED: 9,
+  COMPLETE: 10,
+};
+
+function bridgeResumePayload(planId: string): Record<string, unknown> {
+  return {
+    provider: 'cctp-v2-bridge',
+    version: 1,
+    payload: { planId },
+  };
+}
+
+async function advanceBridgeActivity(
+  progress: BridgeActivityProgress,
+  status: ActivityReceiptStatus,
+  extra: Parameters<typeof advanceActivityReceiptRemote>[2] = {},
+): Promise<BridgeActivityProgress> {
+  const currentRank = BRIDGE_ACTIVITY_RANK[progress.status];
+  const targetRank = BRIDGE_ACTIVITY_RANK[status];
+
+  // Destination receive can legitimately move between pending and retryable.
+  // Those are a cycle, not a monotonic rank progression.
+  const isReceiveRetryTransition =
+    (progress.status === 'RECEIVE_PENDING' &&
+      status === 'RECEIVE_FAILED_RETRYABLE') ||
+    (progress.status === 'RECEIVE_FAILED_RETRYABLE' &&
+      status === 'RECEIVE_PENDING');
+
+  if (
+    currentRank !== undefined &&
+    targetRank !== undefined &&
+    currentRank > targetRank &&
+    !isReceiveRetryTransition
+  ) {
+    return progress;
+  }
+
+  let result = await advanceActivityReceiptRemote(
+    progress.handle,
+    status,
+    extra,
+  );
+
+  // Another browser/device may have advanced the receipt revision first.
+  // Adopt the server revision; retry only when the server is still behind the
+  // requested lifecycle state.
+  if (result.conflict) {
+    const serverRank = BRIDGE_ACTIVITY_RANK[result.status];
+    if (
+      serverRank !== undefined &&
+      targetRank !== undefined &&
+      serverRank < targetRank
+    ) {
+      result = await advanceActivityReceiptRemote(
+        result.handle,
+        status,
+        extra,
+      );
+    }
+  }
+
+  return {
+    handle: result.handle,
+    status: result.status,
+  };
+}
+
+interface RecoveryActivityEvidence {
+  planId: string;
+  burnTxHash: string;
+  sourceChainId: number;
+  sourceBlockNumber?: number;
+  receiveTxHash?: string;
+  destinationChainId: number;
+  destinationBlockNumber?: number;
+}
+
+async function loadBridgeActivityProgress(
+  routeId: string,
+): Promise<BridgeActivityProgress | null> {
+  try {
+    const receipts = await loadResumableActivityReceiptsRemote();
+    const receipt = receipts.find((item) => item.routeId === routeId);
+    if (!receipt) return null;
+    return {
+      handle: {
+        receiptId: receipt.receiptId,
+        revision: receipt.revision,
+        status: receipt.status,
+      },
+      status: receipt.status,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function catchUpRecoveryActivity(
+  progress: BridgeActivityProgress,
+  target: ActivityReceiptStatus,
+  evidence: RecoveryActivityEvidence,
+): Promise<BridgeActivityProgress> {
+  let current = progress;
+
+  const advance = async (
+    status: ActivityReceiptStatus,
+    extra: Parameters<typeof advanceActivityReceiptRemote>[2],
+  ) => {
+    current = await advanceBridgeActivity(current, status, extra);
+  };
+
+  if (
+    current.status === 'FAILED' ||
+    current.status === 'INVALIDATED' ||
+    current.status === 'DUPLICATE_DETECTED' ||
+    current.status === 'CANCELLED' ||
+    current.status === 'COMPLETE'
+  ) {
+    return current;
+  }
+
+  const targetRank = BRIDGE_ACTIVITY_RANK[target];
+  if (targetRank === undefined) return current;
+
+  const rank = () => BRIDGE_ACTIVITY_RANK[current.status] ?? -1;
+
+  if (rank() < (BRIDGE_ACTIVITY_RANK.PREFLIGHT_PASSED ?? 2)) {
+    await advance('PREFLIGHT_PASSED', {});
+  }
+  if (rank() < (BRIDGE_ACTIVITY_RANK.SIGNED ?? 3)) {
+    // SIGNED alone carries no confirmed burn hash; the server forbids
+    // resumable=true until BROADCAST persists that immutable evidence.
+    await advance('SIGNED', { resumable: false });
+  }
+  if (rank() < (BRIDGE_ACTIVITY_RANK.BROADCAST ?? 4)) {
+    await advance('BROADCAST', {
+      burnTxHash: evidence.burnTxHash,
+      burnChainId: evidence.sourceChainId,
+      resumable: true,
+      resumePayload: bridgeResumePayload(evidence.planId),
+    });
+  }
+  if (
+    targetRank >= (BRIDGE_ACTIVITY_RANK.SOURCE_CONFIRMED ?? 5) &&
+    rank() < (BRIDGE_ACTIVITY_RANK.SOURCE_CONFIRMED ?? 5)
+  ) {
+    await advance('SOURCE_CONFIRMED', {
+      burnTxHash: evidence.burnTxHash,
+      burnChainId: evidence.sourceChainId,
+      burnBlockNumber: evidence.sourceBlockNumber,
+      resumable: true,
+      resumePayload: bridgeResumePayload(evidence.planId),
+    });
+  }
+  if (
+    targetRank >= (BRIDGE_ACTIVITY_RANK.ATTESTATION_PENDING ?? 6) &&
+    rank() < (BRIDGE_ACTIVITY_RANK.ATTESTATION_PENDING ?? 6)
+  ) {
+    await advance('ATTESTATION_PENDING', {
+      resumable: true,
+      resumePayload: bridgeResumePayload(evidence.planId),
+    });
+  }
+
+  if (
+    targetRank >= (BRIDGE_ACTIVITY_RANK.RECEIVE_PENDING ?? 8) &&
+    current.status === 'RECEIVE_FAILED_RETRYABLE'
+  ) {
+    await advance('RECEIVE_PENDING', {
+      receiveTxHash: evidence.receiveTxHash,
+      receiveChainId: evidence.destinationChainId,
+      resumable: true,
+      resumePayload: bridgeResumePayload(evidence.planId),
+    });
+  } else if (
+    targetRank >= (BRIDGE_ACTIVITY_RANK.RECEIVE_PENDING ?? 8) &&
+    rank() < (BRIDGE_ACTIVITY_RANK.RECEIVE_PENDING ?? 8)
+  ) {
+    await advance('RECEIVE_PENDING', {
+      receiveTxHash: evidence.receiveTxHash,
+      receiveChainId: evidence.destinationChainId,
+      resumable: true,
+      resumePayload: bridgeResumePayload(evidence.planId),
+    });
+  }
+
+  if (
+    targetRank >= (BRIDGE_ACTIVITY_RANK.CONFIRMED ?? 9) &&
+    rank() < (BRIDGE_ACTIVITY_RANK.CONFIRMED ?? 9)
+  ) {
+    await advance('CONFIRMED', {
+      receiveTxHash: evidence.receiveTxHash,
+      receiveChainId: evidence.destinationChainId,
+      receiveBlockNumber: evidence.destinationBlockNumber,
+      resumable: false,
+      resumePayload: null,
+    });
+  }
+
+  if (target === 'COMPLETE') {
+    await advance('COMPLETE', {
+      resumable: false,
+      resumePayload: null,
+    });
+  }
+
+  return current;
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useBridgeExecution() {
   const [state, setState] = useState<BridgeExecutionState>({ phase: 'IDLE' });
+  const { address: connectedOwner } = useAccount();
   const sourcePublicClient = usePublicClient({ chainId: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID });
   const { data: walletClient } = useWalletClient();
   const { switchChainAsync } = useSwitchChain();
@@ -153,8 +398,13 @@ export function useBridgeExecution() {
   const executeBridge = useCallback(async (
     action: BridgeAction,
     walletAddress: Address,
+    activityReceipt: ActivityReceiptHandle,
   ) => {
     abortRef.current = false;
+    let activityProgress: BridgeActivityProgress = {
+      handle: activityReceipt,
+      status: activityReceipt.status ?? 'PREFLIGHT_PASSED',
+    };
 
     // Canonical final execution boundary. This runs before allowance checks or
     // any wallet signature and revalidates the action plus provider state.
@@ -269,7 +519,27 @@ export function useBridgeExecution() {
       let approveTxHash: Hash | undefined;
       if (allowance < action.amount) {
         setState({ phase: 'APPROVING' });
-        approveTxHash = await approveTokenMessenger(walletClient, sourcePublicClient, action);
+        approveTxHash = await approveTokenMessenger(
+          walletClient,
+          sourcePublicClient,
+          action,
+        );
+
+        const confirmedAllowance = await sourcePublicClient.readContract({
+          address: getAddress(action.tokenAddress),
+          abi: ERC20_ALLOWANCE_ABI,
+          functionName: 'allowance',
+          args: [
+            walletAddress,
+            getAddress(MANIFEST_CONSTANTS.CCTP_V2_TOKEN_MESSENGER),
+          ],
+        });
+        if (confirmedAllowance < action.amount) {
+          throw new Error(
+            'USDC approval confirmed but allowance is still below the reviewed bridge amount.',
+          );
+        }
+
         setState({ phase: 'APPROVE_CONFIRMED', approveTxHash });
       }
 
@@ -307,6 +577,13 @@ export function useBridgeExecution() {
       // disappears around submission, SUBMISSION_STARTED itself is fail-closed.
       await markActionExecutionSubmissionStarted(action.actionId);
       sourceSubmissionStarted = true;
+      activityProgress = await advanceBridgeActivity(
+        activityProgress,
+        'SIGNED',
+        {
+          resumable: false,
+        },
+      );
 
       const burnTxHash = await broadcastDepositForBurn(walletClient, action);
       setState({ phase: 'BRIDGE_PENDING', approveTxHash, burnTxHash });
@@ -332,6 +609,17 @@ export function useBridgeExecution() {
       // actionId. All later progress uses the persisted bridge checkpoint.
       await lockActionExecution(action.actionId);
 
+      activityProgress = await advanceBridgeActivity(
+        activityProgress,
+        'BROADCAST',
+        {
+          burnTxHash,
+          burnChainId: action.sourceChainId,
+          resumable: true,
+          resumePayload: bridgeResumePayload(planId),
+        },
+      );
+
       if (abortRef.current) return;
 
       // ── Step 3: Verify source tx receipt ─────────────────────────────────
@@ -339,12 +627,40 @@ export function useBridgeExecution() {
         hash: burnTxHash,
         timeout: 60_000,
       });
-      const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt);
+      const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt, {
+        burnToken: getAddress(action.tokenAddress),
+        amount: action.amount,
+        depositor: getAddress(action.from),
+        mintRecipient: getAddress(action.to),
+        destinationChainId: action.destinationChainId,
+      });
       if (!sourceEvidence.verified) {
+        if (sourceReceipt.status !== 'success') {
+          // A reverted source transaction is visible to the user, but an
+          // unverified browser FAILED claim must never close the durable
+          // ActivityReceipt after the wallet submission boundary. Preserve the
+          // broadcast hash/checkpoint and replay lock until an authoritative
+          // server-side failure-resolution path is available.
+          setState({
+            phase: 'FAILED',
+            burnTxHash,
+            error:
+              `Source CCTP transaction reverted: ${sourceEvidence.detail}. ` +
+              'The source action remains locked for reconciliation; do not resend this bridge action.',
+          });
+          return;
+        }
+
+        // The source transaction succeeded, so never terminal-fail or reopen
+        // fresh execution merely because the exact CCTP evidence could not be
+        // established. Keep the broadcast checkpoint resumable for explicit
+        // reconciliation against authoritative chain/Circle state.
         setState({
-          phase: 'FAILED',
+          phase: 'BRIDGE_UNCONFIRMED',
           burnTxHash,
-          error: `Source CCTP verification failed: ${sourceEvidence.detail}`,
+          error:
+            `Source transaction succeeded but exact CCTP evidence is unverified: ${sourceEvidence.detail}. ` +
+            'The source action remains locked and must be reconciled; no second burn will be submitted.',
         });
         return;
       }
@@ -354,6 +670,26 @@ export function useBridgeExecution() {
         stage: 'SOURCE_CONFIRMED',
         updatedAt: Date.now(),
       });
+
+      activityProgress = await advanceBridgeActivity(
+        activityProgress,
+        'SOURCE_CONFIRMED',
+        {
+          burnTxHash,
+          burnChainId: action.sourceChainId,
+          burnBlockNumber: Number(sourceReceipt.blockNumber),
+          resumable: true,
+          resumePayload: bridgeResumePayload(planId),
+        },
+      );
+      activityProgress = await advanceBridgeActivity(
+        activityProgress,
+        'ATTESTATION_PENDING',
+        {
+          resumable: true,
+          resumePayload: bridgeResumePayload(planId),
+        },
+      );
 
       if (abortRef.current) return;
 
@@ -395,11 +731,20 @@ export function useBridgeExecution() {
         updatedAt: Date.now(),
       };
       await persistRecoveryCheckpoint(attestationCheckpoint);
+      activityProgress = await advanceBridgeActivity(
+        activityProgress,
+        'ATTESTATION_PENDING',
+        {
+          resumable: true,
+          resumePayload: bridgeResumePayload(planId),
+        },
+      );
 
       if (abortRef.current) return;
 
       let receiveTxHash: Hash;
       let destinationReceipt;
+      let selfRelayHash: Hash | null = null;
 
       const remoteRelay = await tryAuthenticatedRemoteRelay(attestationCheckpoint);
       if (remoteRelay.mode === 'ALREADY_RECEIVED') {
@@ -427,6 +772,15 @@ export function useBridgeExecution() {
         try {
           await switchChainAsync({ chainId: action.destinationChainId });
         } catch {
+          activityProgress = await advanceBridgeActivity(
+            activityProgress,
+            'RECEIVE_FAILED_RETRYABLE',
+            {
+              resumable: true,
+              resumePayload: bridgeResumePayload(planId),
+              failureReason: 'Destination chain switch failed.',
+            },
+          );
           setState({
             phase: 'FAILED',
             burnTxHash,
@@ -441,6 +795,16 @@ export function useBridgeExecution() {
           !connected ||
           connected.toLowerCase() !== recipientAddress.toLowerCase()
         ) {
+          activityProgress = await advanceBridgeActivity(
+            activityProgress,
+            'RECEIVE_FAILED_RETRYABLE',
+            {
+              resumable: true,
+              resumePayload: bridgeResumePayload(planId),
+              failureReason:
+                'Destination recipient wallet is not connected for self-relay.',
+            },
+          );
           setState({
             phase: 'FAILED',
             burnTxHash,
@@ -450,6 +814,11 @@ export function useBridgeExecution() {
           return;
         }
 
+        // Server relay and self-relay share one DB claim. Without it, two
+        // tabs/devices could race past attestation and both ask for signatures.
+        // Never request a wallet signature unless the claim transaction
+        // commits successfully; uncertain claims are NOT auto-released.
+        await claimSelfRelayDestinationRemote(planId);
         setState({ phase: 'RECEIVING', approveTxHash, burnTxHash });
         receiveTxHash = await broadcastReceiveMessage(
           walletClient,
@@ -458,6 +827,7 @@ export function useBridgeExecution() {
           attestation.message,
           attestation.attestation,
         );
+        selfRelayHash = receiveTxHash;
       }
 
       // Persist the destination tx hash before waiting for confirmation. This
@@ -472,6 +842,25 @@ export function useBridgeExecution() {
         updatedAt: Date.now(),
       });
 
+      if (selfRelayHash) {
+        // Local crash recovery is durable first; the server independently
+        // verifies the broadcast tx whenever its destination RPC can see it.
+        // An indexing delay preserves the claim as UNCERTAIN (fail-closed).
+        await recordSelfRelayDestinationRemote(planId, selfRelayHash)
+          .catch(() => undefined);
+      }
+
+      activityProgress = await advanceBridgeActivity(
+        activityProgress,
+        'RECEIVE_PENDING',
+        {
+          receiveTxHash,
+          receiveChainId: action.destinationChainId,
+          resumable: true,
+          resumePayload: bridgeResumePayload(planId),
+        },
+      );
+
       if (abortRef.current) return;
 
       destinationReceipt = await destPublicClient.waitForTransactionReceipt({
@@ -485,6 +874,17 @@ export function useBridgeExecution() {
         action.amount,
       );
       if (!destinationEvidence.verified) {
+        activityProgress = await advanceBridgeActivity(
+          activityProgress,
+          'RECEIVE_FAILED_RETRYABLE',
+          {
+            receiveTxHash,
+            receiveChainId: action.destinationChainId,
+            failureReason: destinationEvidence.detail,
+            resumable: true,
+            resumePayload: bridgeResumePayload(planId),
+          },
+        );
         setState({
           phase: 'FAILED',
           burnTxHash,
@@ -507,6 +907,18 @@ export function useBridgeExecution() {
       );
 
       if (!verification.verified) {
+        activityProgress = await advanceBridgeActivity(
+          activityProgress,
+          'RECEIVE_FAILED_RETRYABLE',
+          {
+            receiveTxHash,
+            receiveChainId: action.destinationChainId,
+            receiveBlockNumber: Number(destinationReceipt.blockNumber),
+            failureReason: verification.detail,
+            resumable: true,
+            resumePayload: bridgeResumePayload(planId),
+          },
+        );
         setState({
           phase: 'FAILED',
           burnTxHash,
@@ -557,6 +969,26 @@ export function useBridgeExecution() {
         updatedAt: Date.now(),
       });
 
+      activityProgress = await advanceBridgeActivity(
+        activityProgress,
+        'CONFIRMED',
+        {
+          receiveTxHash,
+          receiveChainId: action.destinationChainId,
+          receiveBlockNumber: Number(destReceiptObj.blockNumber),
+          resumable: false,
+          resumePayload: null,
+        },
+      );
+      activityProgress = await advanceBridgeActivity(
+        activityProgress,
+        'COMPLETE',
+        {
+          resumable: false,
+          resumePayload: null,
+        },
+      );
+
       setState({
         phase: 'VERIFIED',
         approveTxHash,
@@ -574,6 +1006,20 @@ export function useBridgeExecution() {
         } catch {
           // Preserve the original error. A failed release remains fail-closed.
         }
+
+        try {
+          activityProgress = await advanceBridgeActivity(
+            activityProgress,
+            'FAILED',
+            {
+              failureReason:
+                err instanceof Error ? err.message : 'Bridge execution failed',
+              resumable: false,
+            },
+          );
+        } catch {
+          // Preserve the original execution error.
+        }
       }
 
       setState((prev) => ({
@@ -584,13 +1030,86 @@ export function useBridgeExecution() {
     }
   }, [walletClient, sourcePublicClient, switchChainAsync]);
 
+  const executeProviderRoute = useCallback(async (
+    adapter: BridgeProviderAdapter,
+    route: RouteOption,
+    action: BridgeAction,
+    walletAddress: Address,
+    activityReceipt: ActivityReceiptHandle,
+  ) => {
+    if (
+      action.actionId !== route.routeId ||
+      action.providerId !== route.provider ||
+      action.sourceChainId !== route.sourceChainId ||
+      action.destinationChainId !== route.destinationChainId ||
+      action.tokenAddress.toLowerCase() !==
+        route.sourceTokenAddress.toLowerCase() ||
+      action.amount !== route.amountIn ||
+      action.to.toLowerCase() !== route.destinationAddress.toLowerCase()
+    ) {
+      throw new Error(
+        '[bridgeExecution] Provider route is not bound to the deterministic BridgeAction.',
+      );
+    }
+
+    const runtime: BridgeProviderExecutionRuntime = {
+      providerId: adapter.providerId,
+      execute: async (
+        runtimeRoute: RouteOption,
+        onProgress: (trace: ActivityTrace) => void,
+      ) => {
+        if (runtimeRoute.routeId !== route.routeId) {
+          throw new Error(
+            '[bridgeExecution] Provider runtime route changed after review.',
+          );
+        }
+        onProgress({
+          step: 'EXECUTION_BOUNDARY',
+          timestamp: Date.now(),
+          data: { routeId: route.routeId },
+        });
+        await executeBridge(action, walletAddress, activityReceipt);
+      },
+      resume: (
+        _resumePayload: ResumePayload,
+        _onProgress: (trace: ActivityTrace) => void,
+      ) =>
+        Promise.reject(
+          new Error(
+            '[bridgeExecution] Fresh execution runtime cannot resume a bridge.',
+          ),
+        ),
+    };
+
+    await adapter.execute(route, runtime, () => undefined);
+  }, [executeBridge]);
+
   const resumeBridge = useCallback(async (
     checkpoint: BridgeRecoveryCheckpoint,
   ) => {
+    if (IS_UI_ONLY_PREVIEW) {
+      setState({
+        phase: 'FAILED',
+        error: 'Static Vercel preview cannot sign, relay or resume a bridge.',
+      });
+      return;
+    }
+
     abortRef.current = false;
 
-    if (!walletClient || !sourcePublicClient) {
+    if (!walletClient || !sourcePublicClient || !connectedOwner) {
       setState({ phase: 'FAILED', error: 'Wallet not connected' });
+      return;
+    }
+    // A foreign local/server checkpoint must never reach a wallet signature,
+    // even when resumeBridge is called directly instead of from Activity.
+    if (!bridgeCheckpointBelongsToWallet(checkpoint, connectedOwner) ||
+        !walletClient.account?.address ||
+        !bridgeCheckpointBelongsToWallet(checkpoint, walletClient.account.address)) {
+      setState({
+        phase: 'FAILED',
+        error: 'Recovery checkpoint belongs to another wallet. No wallet signature requested.',
+      });
       return;
     }
 
@@ -627,6 +1146,7 @@ export function useBridgeExecution() {
     const recipientAddress = getAddress(checkpoint.recipientAddress);
     const amount = BigInt(checkpoint.amount);
     const balanceBefore = BigInt(checkpoint.balanceBefore);
+    let recoveryActivity = await loadBridgeActivityProgress(checkpoint.planId);
 
     if (amount <= 0n || balanceBefore < 0n) {
       setState({ phase: 'FAILED', error: 'Invalid recovery amount metadata.' });
@@ -669,13 +1189,60 @@ export function useBridgeExecution() {
         return;
       }
 
-      const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt);
+      if (sourceReceipt.status === 'reverted') {
+        // Do not trust browser-side revert observations to close a receipt.
+        // BFF independently verifies sender, depositForBurn calldata,
+        // canonical block hash and finality before changing durable state.
+        if (!recoveryActivity) {
+          setState({
+            phase: 'FAILED',
+            burnTxHash,
+            error:
+              'Source transaction reverted, but no authenticated ActivityReceipt is available for authoritative reconciliation. ' +
+              'Keep the action locked; do not resubmit the burn.',
+          });
+          return;
+        }
+        try {
+          await finalizeRevertedCctpSourceReceiptRemote(
+            recoveryActivity.handle.receiptId,
+          );
+          setState({
+            phase: 'FAILED',
+            burnTxHash,
+            error:
+              'Source CCTP depositForBurn was independently verified as reverted and the ActivityReceipt was safely closed. ' +
+              'No USDC was bridged by that source transaction. A new intent requires a new review.',
+          });
+        } catch {
+          setState({
+            phase: 'FAILED',
+            burnTxHash,
+            error:
+              'Source transaction appears reverted, but server-side finality or calldata verification is not complete. ' +
+              'The original source action remains locked; reconcile later, do not resubmit.',
+          });
+        }
+        return;
+      }
+
+      const sourceEvidence = verifyCctpSourceReceiptEvidence(sourceReceipt, {
+        burnToken: getAddress(current.tokenAddress),
+        amount: BigInt(current.amount),
+        depositor: getAddress(current.walletAddress),
+        mintRecipient: getAddress(current.recipientAddress),
+        destinationChainId: current.destinationChainId,
+      });
       if (!sourceEvidence.verified) {
         setState({
-          phase: 'FAILED',
+          phase: sourceReceipt.status === 'success'
+            ? 'BRIDGE_UNCONFIRMED'
+            : 'FAILED',
           burnTxHash,
           error:
-            `Persisted source burn failed CCTP verification: ${sourceEvidence.detail}`,
+            sourceReceipt.status === 'success'
+              ? `Persisted source transaction succeeded but exact CCTP evidence remains unverified: ${sourceEvidence.detail}. No replay will be attempted.`
+              : `Persisted source burn failed CCTP verification: ${sourceEvidence.detail}`,
         });
         return;
       }
@@ -689,10 +1256,47 @@ export function useBridgeExecution() {
         await persistRecoveryCheckpoint(current);
       }
 
+      if (recoveryActivity) {
+        try {
+          recoveryActivity = await catchUpRecoveryActivity(
+            recoveryActivity,
+            'SOURCE_CONFIRMED',
+            {
+              planId: current.planId,
+              burnTxHash,
+              sourceChainId: current.sourceChainId,
+              sourceBlockNumber: Number(sourceReceipt.blockNumber),
+              destinationChainId: current.destinationChainId,
+            },
+          );
+        } catch {
+          // Never strand already-submitted funds because Activity persistence
+          // is temporarily unavailable. Chain/checkpoint recovery remains live.
+        }
+      }
+
       const sourceDomain = chainIdToCctpDomain(current.sourceChainId);
 
       if (current.stage === 'SOURCE_CONFIRMED') {
         setState({ phase: 'BRIDGE_UNCONFIRMED', burnTxHash });
+
+        if (recoveryActivity) {
+          try {
+            recoveryActivity = await catchUpRecoveryActivity(
+              recoveryActivity,
+              'ATTESTATION_PENDING',
+              {
+                planId: current.planId,
+                burnTxHash,
+                sourceChainId: current.sourceChainId,
+                sourceBlockNumber: Number(sourceReceipt.blockNumber),
+                destinationChainId: current.destinationChainId,
+              },
+            );
+          } catch {
+            // Activity mirror is additive during recovery.
+          }
+        }
 
         let attestation: { message: string; attestation: string } | null = null;
         let attempts = 0;
@@ -775,6 +1379,7 @@ export function useBridgeExecution() {
 
       if (current.stage === 'ATTESTATION_READY') {
         let receiveTxHash: Hash;
+        let selfRelayHash: Hash | null = null;
         const remoteRelay = await tryAuthenticatedRemoteRelay(current);
 
         if (remoteRelay.mode === 'ALREADY_RECEIVED') {
@@ -812,6 +1417,9 @@ export function useBridgeExecution() {
           setState({ phase: 'SWITCHING_CHAIN', burnTxHash });
           await switchChainAsync({ chainId: current.destinationChainId });
 
+          // Recovered self-relay must compete for the SAME claim as the
+          // server relayer and any other browser session.
+          await claimSelfRelayDestinationRemote(current.planId);
           setState({ phase: 'RECEIVING', burnTxHash });
           receiveTxHash = await broadcastReceiveMessage(
             walletClient,
@@ -820,6 +1428,7 @@ export function useBridgeExecution() {
             current.attestationMessage!,
             current.attestationSignature!,
           );
+          selfRelayHash = receiveTxHash;
         }
 
         // Persist before any confirmation/read. If the page disappears now,
@@ -831,6 +1440,30 @@ export function useBridgeExecution() {
           updatedAt: Date.now(),
         };
         await persistRecoveryCheckpoint(current);
+
+        if (selfRelayHash) {
+          await recordSelfRelayDestinationRemote(current.planId, selfRelayHash)
+            .catch(() => undefined);
+        }
+
+        if (recoveryActivity) {
+          try {
+            recoveryActivity = await catchUpRecoveryActivity(
+              recoveryActivity,
+              'RECEIVE_PENDING',
+              {
+                planId: current.planId,
+                burnTxHash,
+                sourceChainId: current.sourceChainId,
+                sourceBlockNumber: Number(sourceReceipt.blockNumber),
+                receiveTxHash,
+                destinationChainId: current.destinationChainId,
+              },
+            );
+          } catch {
+            // Activity mirror is additive during recovery.
+          }
+        }
       }
 
       if (current.stage === 'DESTINATION_BROADCAST') {
@@ -839,6 +1472,31 @@ export function useBridgeExecution() {
         }
 
         const receiveTxHash = current.receiveTxHash as Hash;
+        // Reconcile a previously signed self-relay once the destination RPC
+        // has indexed it. Server receipt truth remains independent of browser
+        // success, and a failed call cannot authorize another signature.
+        await recordSelfRelayDestinationRemote(current.planId, receiveTxHash)
+          .catch(() => undefined);
+
+        if (recoveryActivity) {
+          try {
+            recoveryActivity = await catchUpRecoveryActivity(
+              recoveryActivity,
+              'RECEIVE_PENDING',
+              {
+                planId: current.planId,
+                burnTxHash,
+                sourceChainId: current.sourceChainId,
+                sourceBlockNumber: Number(sourceReceipt.blockNumber),
+                receiveTxHash,
+                destinationChainId: current.destinationChainId,
+              },
+            );
+          } catch {
+            // Activity mirror is additive during recovery.
+          }
+        }
+
         let destReceiptObj;
         try {
           destReceiptObj = await destPublicClient.getTransactionReceipt({
@@ -854,6 +1512,47 @@ export function useBridgeExecution() {
           return;
         }
 
+        if (destReceiptObj.status === 'reverted') {
+          // A browser RPC saying 'reverted' is NOT sufficient to unlock a
+          // destination retry. The BFF checks calldata, original hash,
+          // canonical block and >=12 confirmations and appends immutable
+          // evidence. Neither outcome signs another receiveMessage.
+          const resolved = await resolveFirstDestinationRevertRemote(
+            current.planId,
+          ).catch(() => false);
+
+          if (recoveryActivity) {
+            try {
+              recoveryActivity = await advanceBridgeActivity(
+                recoveryActivity,
+                'RECEIVE_FAILED_RETRYABLE',
+                {
+                  receiveTxHash,
+                  receiveChainId: current.destinationChainId,
+                  failureReason: resolved
+                    ? 'DESTINATION_RECEIVE_REVERTED_VERIFIED'
+                    : 'DESTINATION_RECEIVE_REVERT_PENDING_VERIFICATION',
+                  resumable: true,
+                  resumePayload: bridgeResumePayload(current.planId),
+                },
+              );
+            } catch {
+              // Authenticated receipt sync is additive; original checkpoint
+              // and source replay lock remain the safety authorities.
+            }
+          }
+
+          setState({
+            phase: 'FAILED',
+            burnTxHash,
+            receiveTxHash,
+            error: resolved
+              ? 'First destination receive is independently verified as reverted. Evidence is preserved; another receive attempt is NOT authorized yet. Never burn again on the source.'
+              : 'Destination receive appears reverted, but server-side canonical finality proof is not complete. The first receive remains locked; retry recovery later without signing again.',
+          });
+          return;
+        }
+
         const destinationEvidence = verifyCctpDestinationReceiptEvidence(
           destReceiptObj,
           recipientAddress,
@@ -861,6 +1560,24 @@ export function useBridgeExecution() {
           amount,
         );
         if (!destinationEvidence.verified) {
+          if (recoveryActivity) {
+            try {
+              recoveryActivity = await advanceBridgeActivity(
+                recoveryActivity,
+                'RECEIVE_FAILED_RETRYABLE',
+                {
+                  receiveTxHash,
+                  receiveChainId: current.destinationChainId,
+                  failureReason: destinationEvidence.detail,
+                  resumable: true,
+                  resumePayload: bridgeResumePayload(current.planId),
+                },
+              );
+            } catch {
+              // Recovery remains checkpoint-driven.
+            }
+          }
+
           setState({
             phase: 'FAILED',
             burnTxHash,
@@ -886,6 +1603,25 @@ export function useBridgeExecution() {
         );
 
         if (!verification.verified) {
+          if (recoveryActivity) {
+            try {
+              recoveryActivity = await advanceBridgeActivity(
+                recoveryActivity,
+                'RECEIVE_FAILED_RETRYABLE',
+                {
+                  receiveTxHash,
+                  receiveChainId: current.destinationChainId,
+                  receiveBlockNumber: Number(destReceiptObj.blockNumber),
+                  failureReason: verification.detail,
+                  resumable: true,
+                  resumePayload: bridgeResumePayload(current.planId),
+                },
+              );
+            } catch {
+              // Recovery remains checkpoint-driven.
+            }
+          }
+
           setState({
             phase: 'FAILED',
             burnTxHash,
@@ -934,6 +1670,27 @@ export function useBridgeExecution() {
         };
         await persistRecoveryCheckpoint(current);
 
+        if (recoveryActivity) {
+          try {
+            recoveryActivity = await catchUpRecoveryActivity(
+              recoveryActivity,
+              'COMPLETE',
+              {
+                planId: current.planId,
+                burnTxHash,
+                sourceChainId: current.sourceChainId,
+                sourceBlockNumber: Number(sourceReceipt.blockNumber),
+                receiveTxHash,
+                destinationChainId: current.destinationChainId,
+                destinationBlockNumber: Number(destReceiptObj.blockNumber),
+              },
+            );
+          } catch {
+            // Receipt reconciliation can retry later; execution is already
+            // authoritatively verified on-chain.
+          }
+        }
+
         setState({
           phase: 'VERIFIED',
           burnTxHash,
@@ -948,29 +1705,79 @@ export function useBridgeExecution() {
         error: error instanceof Error ? error.message : 'Bridge recovery failed',
       }));
     }
-  }, [walletClient, sourcePublicClient, switchChainAsync]);
+  }, [walletClient, sourcePublicClient, switchChainAsync, connectedOwner]);
+
+  const resumeProviderCheckpoint = useCallback(async (
+    adapter: BridgeProviderAdapter,
+    checkpoint: BridgeRecoveryCheckpoint,
+  ) => {
+    const payload: ResumePayload = {
+      provider: adapter.providerId,
+      version: 1,
+      payload: { planId: checkpoint.planId },
+    };
+
+    const runtime: BridgeProviderExecutionRuntime = {
+      providerId: adapter.providerId,
+      execute: (
+        _routeOption: RouteOption,
+        _onProgress: (trace: ActivityTrace) => void,
+      ) =>
+        Promise.reject(
+          new Error(
+            '[bridgeExecution] Recovery runtime cannot start a fresh bridge.',
+          ),
+        ),
+      resume: async (
+        runtimePayload: ResumePayload,
+        onProgress: (trace: ActivityTrace) => void,
+      ) => {
+        if (runtimePayload.payload.planId !== checkpoint.planId) {
+          throw new Error(
+            '[bridgeExecution] Resume payload does not match the persisted checkpoint.',
+          );
+        }
+        onProgress({
+          step: 'RESUME_BOUNDARY',
+          timestamp: Date.now(),
+          data: { planId: checkpoint.planId },
+        });
+        await resumeBridge(checkpoint);
+      },
+    };
+
+    await adapter.resume(payload, runtime, () => undefined);
+  }, [resumeBridge]);
 
   const loadRecoveryCandidates = useCallback(async () => {
-    const local = await loadResumableBridgeCheckpoints();
+    // A shared browser IndexedDB can hold checkpoints from multiple wallets.
+    // Never hydrate, show or cache another owner's source-burn workflow.
+    if (!connectedOwner) return [];
+    const belongsToOwner = (checkpoint: BridgeRecoveryCheckpoint) =>
+      bridgeCheckpointBelongsToWallet(checkpoint, connectedOwner);
+    const local = (await loadResumableBridgeCheckpoints()).filter(belongsToOwner);
     let remote: BridgeRecoveryCheckpoint[] = [];
-
     try {
-      remote = await loadRemoteBridgeCheckpoints();
+      remote = (await loadRemoteBridgeCheckpoints()).filter(belongsToOwner);
     } catch {
-      // Server recovery is additive. Local recovery remains available if the
-      // BFF/database is offline.
+      // Local, owner-bound recovery remains available if the BFF is offline.
     }
-
-    const reconciled = reconcileBridgeRecoveryCandidates(local, remote);
-
-    // Cache accepted remote-only/advanced checkpoints locally so subsequent
-    // reloads do not depend on server availability.
-    for (const checkpoint of reconciled) {
+    const reconciled = reconcileBridgeRecoveryCandidates(local, remote)
+      .filter(belongsToOwner);
+    let unresolved = reconciled;
+    try {
+      const receipts = await loadActivityReceiptsRemote(250);
+      unresolved = excludeAuthoritativelyResolvedBridgeCheckpoints(
+        reconciled, receipts,
+      );
+    } catch {
+      // A missing server response cannot prove a bridge settled.
+    }
+    for (const checkpoint of unresolved) {
       await saveBridgeCheckpoint(checkpoint);
     }
-
-    return reconciled;
-  }, []);
+    return unresolved;
+  }, [connectedOwner]);
 
   const reset = useCallback(() => {
     abortRef.current = true;
@@ -980,7 +1787,9 @@ export function useBridgeExecution() {
   return {
     state,
     executeBridge,
+    executeProviderRoute,
     resumeBridge,
+    resumeProviderCheckpoint,
     loadRecoveryCandidates,
     reset,
   };

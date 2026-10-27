@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, CircleAlert, Loader2, Server } from 'lucide-react';
+import {useUnifiedSocial} from '../../features/social/UnifiedSocial';
 
 type Status = 'loading' | 'online' | 'degraded' | 'offline';
 
@@ -11,6 +12,8 @@ interface ReadinessPayload {
 
 export function RuntimeStatusCard() {
   const [status, setStatus] = useState<Status>('loading');
+  const social=useUnifiedSocial();
+  const originBlocked=social.identityOrigin==='origin_blocked';
   const [environment, setEnvironment] = useState<string>('unknown');
   const [summary, setSummary] = useState('Checking backend readiness...');
 
@@ -25,7 +28,9 @@ export function RuntimeStatusCard() {
         const failed = payload.checks?.filter((check) => check.ok === false).length ?? 0;
         if (payload.ok === true) {
           setStatus('online');
-          setSummary('Production readiness checks are passing.');
+          setSummary(payload.environment === 'testnet'
+            ? 'Testnet backend infrastructure is reachable. Signed transaction acceptance is still required.'
+            : 'Infrastructure checks pass. Production signing and release approval are separate.');
         } else {
           setStatus('degraded');
           setSummary(`${failed} readiness gate${failed === 1 ? '' : 's'} remain closed.`);
@@ -43,13 +48,13 @@ export function RuntimeStatusCard() {
     };
   }, []);
 
-  const icon = status === 'loading'
+  const icon = originBlocked ? <CircleAlert className="size-4" /> : status === 'loading'
     ? <Loader2 className="size-4 animate-spin" />
     : status === 'online'
       ? <CheckCircle2 className="size-4" />
       : <CircleAlert className="size-4" />;
 
-  const color = status === 'online'
+  const color = originBlocked ? 'var(--warning)' : status === 'online'
     ? 'var(--success)'
     : status === 'loading'
       ? 'var(--accent)'
@@ -67,9 +72,11 @@ export function RuntimeStatusCard() {
         <span className="mt-0.5" style={{ color }}>{icon}</span>
         <div>
           <p className="text-sm font-medium" style={{ color: 'var(--ink)' }}>
-            {status === 'loading' ? 'Checking' : status === 'online' ? 'Ready' : status === 'degraded' ? 'Protected' : 'UI-only'}
+            {originBlocked ? 'ID sign-in blocked' : status === 'loading' ? 'Checking' : status === 'online' ? 'Infrastructure reachable' : status === 'degraded' ? 'Protected' : 'UI-only'}
           </p>
-          <p className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>{summary}</p>
+          <p className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>{originBlocked
+            ? 'Backend rejected this Preview origin (403). Veyra ID signing is unavailable; no need to reconnect your wallet.'
+            : summary}</p>
           <p className="mt-2 text-xs font-mono" style={{ color: 'var(--subtle)' }}>environment: {environment}</p>
         </div>
       </div>

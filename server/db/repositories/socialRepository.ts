@@ -11,7 +11,7 @@
  * A BLOCKED status from the latest row for a pair is definitive.
  * Block always overrides follow and connection state.
  */
-import { and, desc, eq, or } from 'drizzle-orm';
+import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../client.js';
 import { socialBlocks, socialConnections, socialFollows } from '../schema/index.js';
 import { newBlockId, newConnectionId, newFollowId } from '../ids.js';
@@ -65,11 +65,27 @@ export async function blockUser(
   blockerUserId: string,
   blockedUserId: string,
 ): Promise<void> {
-  await db.insert(socialBlocks).values({
-    blockId:       newBlockId(),
-    blockerUserId,
-    blockedUserId,
-    status:        'BLOCKED',
+  if (blockerUserId === blockedUserId) throw new Error('You cannot block your own Veyra ID.');
+  // A block revokes the friendship itself. Without this append-only
+  // DISCONNECTED event, unblocking would silently restore an old CONNECTED
+  // edge and its social visibility without a new friend request.
+  await db.transaction(async tx => {
+    await tx.insert(socialBlocks).values({
+      blockId: newBlockId(),
+      blockerUserId,
+      blockedUserId,
+      status: 'BLOCKED',
+    });
+    const [userAId, userBId] = await canonicalPair(tx, blockerUserId, blockedUserId);
+    const [latest] = await tx.select().from(socialConnections)
+      .where(and(eq(socialConnections.userAId, userAId), eq(socialConnections.userBId, userBId)))
+      .orderBy(desc(socialConnections.createdAt), desc(socialConnections.connectionId)).limit(1);
+    if (latest && ['PENDING_INITIATOR', 'PENDING_TARGET', 'CONNECTED'].includes(latest.status)) {
+      await tx.insert(socialConnections).values({
+        connectionId: newConnectionId(), userAId, userBId,
+        initiatorUserId: latest.initiatorUserId, status: 'DISCONNECTED',
+      });
+    }
   });
 }
 
@@ -145,9 +161,15 @@ export async function getFollowStatus(
 
 // ── Connections (friendship) ─────────────────────────────────────────────────
 
-/** Returns canonical [userA, userB] pair with userA < userB (lexicographic). */
-function canonicalPair(a: string, b: string): [string, string] {
-  return a < b ? [a, b] : [b, a];
+/** Match the database collation used by chk_social_connections_canonical_order.
+ * JavaScript's binary ordering differs for mixed-case IDs on locale-aware databases.
+ * Use the same connection/transaction as the caller so reads and writes agree.
+ */
+async function canonicalPair(db: Pick<DbClient, 'execute'>, a: string, b: string): Promise<[string, string]> {
+  const result = await db.execute<{ a_first: boolean }>(sql`SELECT ${a}::text < ${b}::text AS a_first`);
+  const first = result.rows[0]?.a_first;
+  if (typeof first !== 'boolean') throw new Error('Could not determine friendship ordering.');
+  return first ? [a, b] : [b, a];
 }
 
 /**
@@ -162,7 +184,13 @@ export async function sendConnectionRequest(
   const blocked = await isBlockedEither(db, initiatorUserId, targetUserId);
   if (blocked) throw new Error('Cannot send connection request: a block relationship exists.');
 
-  const [userAId, userBId] = canonicalPair(initiatorUserId, targetUserId);
+  if (initiatorUserId === targetUserId) throw new Error('You cannot send yourself a friend request.');
+  const [userAId, userBId] = await canonicalPair(db, initiatorUserId, targetUserId);
+  const current = await getConnectionStatus(db, initiatorUserId, targetUserId);
+  if (current === 'CONNECTED') throw new Error('These Veyra IDs are already friends.');
+  if (current === 'PENDING_INITIATOR' || current === 'PENDING_TARGET') {
+    throw new Error('A friend request is already pending for this pair.');
+  }
 
   // Determine PENDING_INITIATOR vs PENDING_TARGET based on canonical order.
   const status =
@@ -178,7 +206,7 @@ export async function sendConnectionRequest(
 }
 
 async function pendingConnectionForResponse(db: DbClient, responderUserId: string, otherUserId: string) {
-  const [userAId, userBId] = canonicalPair(responderUserId, otherUserId);
+  const [userAId, userBId] = await canonicalPair(db, responderUserId, otherUserId);
   const [latest] = await db.select().from(socialConnections)
     .where(and(eq(socialConnections.userAId, userAId), eq(socialConnections.userBId, userBId)))
     .orderBy(desc(socialConnections.createdAt)).limit(1);
@@ -222,7 +250,10 @@ export async function getConnectionStatus(
   userA: string,
   userB: string,
 ): Promise<typeof socialConnections.$inferSelect['status'] | 'NONE'> {
-  const [a, b] = canonicalPair(userA, userB);
+  const [a, b] = await canonicalPair(db, userA, userB);
+  // A block must never be represented as an active friendship even if the
+  // connection log has not yet recorded DISCONNECTED.
+  if (await isBlockedEither(db, userA, userB)) return 'DISCONNECTED';
   const [latest] = await db
     .select({ status: socialConnections.status })
     .from(socialConnections)

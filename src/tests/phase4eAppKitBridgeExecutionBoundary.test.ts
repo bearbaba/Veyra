@@ -67,6 +67,15 @@ describe('Phase 4E App Kit bridge execution boundary', () => {
     ).not.toThrow();
   });
 
+  it('rejects a zero bridge recipient before reaching wallet or provider execution', () => {
+    expect(() =>
+      assertReviewedAppKitBridgeMatchesAction(
+        reviewed({ recipientAddress: '0x0000000000000000000000000000000000000000' }),
+        action({ to: '0x0000000000000000000000000000000000000000' }),
+      ),
+    ).toThrow(/zero EVM address/i);
+  });
+
   it('rejects a reviewed amount that differs from the deterministic action', () => {
     expect(() =>
       assertReviewedAppKitBridgeMatchesAction(

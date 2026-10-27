@@ -27,7 +27,6 @@ import { assertExecutionReady } from '@/core/execution/executionReadiness';
 import { VEYRA_ENV } from '@/lib/env';
 import {
   verifyErc20TransferReceiptEvidence,
-  verifyExactTokenDelta,
 } from '@/core/execution/receiptVerification';
 import {
   lockActionExecution,
@@ -36,13 +35,18 @@ import {
   reserveActionExecution,
 } from '@/core/execution/actionExecutionReplayStore';
 import { MANIFEST_CONSTANTS } from '@/providers/registry/providerManifest';
+import {evaluateTransferSafety,assertTransferSafety,REVIEWED_TRANSFER_ABI,assertSuccessfulTransferSimulation} from '@/core/execution/transferSafetyGate';
+import {classifyTransferOutcome,isExplicitWalletRejection} from '@/core/execution/transferOutcome';
 
 export type TransferStep =
   | 'IDLE'
+  | 'PREPARING'
   | 'SIGNING'
   | 'BROADCAST'
   | 'CONFIRMING'
   | 'VERIFYING'
+  | 'PENDING'
+  | 'CANCELLED'
   | 'DONE'
   | 'FAILED';
 
@@ -90,17 +94,18 @@ export function useTransferExecution() {
   const { address, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
 
-  const execute = useCallback(async (action: TransferAction, recipientGuard?: { snapshotId: string; expectedWalletAddress: string; expectedChainId: number }) => {
+  const execute = useCallback(async (action: TransferAction, recipientGuard?: { snapshotId: string; expectedWalletId: string; expectedWalletAddress: string; expectedChainId: number; reviewToken: string }, sessionToken?: string, confirmedAtReview = false) => {
     if (!publicClient) {
       setState((s) => ({ ...s, step: 'FAILED', error: 'No public client available' }));
       return;
     }
 
-    setState({ step: 'SIGNING', txHash: null, receipt: null, explorerUrl: null, error: null });
+    setState({ step: 'PREPARING', txHash: null, receipt: null, explorerUrl: null, error: null });
 
     let actionReservationHeld = false;
     let submissionStarted = false;
     let broadcastHash: `0x${string}` | null = null;
+    let chainReceiptReverted = false;
 
     try {
       // Canonical final execution boundary. Re-check schema/provenance/provider
@@ -134,9 +139,13 @@ export function useTransferExecution() {
       }
       actionReservationHeld = true;
 
-      // Revalidate a frozen Veyra identity immediately before wallet signature.
-      // If profile/wallet/revision changed since review, execution fails closed.
-      if (recipientGuard) await verifyPaymentRecipient(recipientGuard);
+      // Revalidate the frozen recipient with the same signed, wallet-bound
+      // identity session used to prepare it. No stored or fallback token.
+      // Missing/expired sessions must block before requesting a wallet signature.
+      if (recipientGuard) {
+        if (!sessionToken) throw new Error('Your Veyra ID session ended. Sign in and review the recipient again.');
+        await verifyPaymentRecipient(recipientGuard, sessionToken);
+      }
 
       // Wallet network is transport state, not product state. Read/plan works
       // cross-network; only request the actual source network when signing.
@@ -144,14 +153,22 @@ export function useTransferExecution() {
         await switchChainAsync({ chainId: action.chainId });
       }
 
-      // Snapshot authoritative recipient balance before signing. A successful
-      // transaction receipt alone is not sufficient for a VERIFIED Veyra receipt.
-      const balanceBefore = await publicClient.readContract({
-        address: action.tokenAddress as `0x${string}`,
-        abi: ERC20_TRANSFER_ABI,
-        functionName: 'balanceOf',
-        args: [action.to as `0x${string}`],
+      // Fail closed if action/provenance aged during recipient verification or
+      // wallet chain switching. Re-simulate the actual token transfer from the
+      // approved sender, and redo ALL deterministic policy/risk checks.
+      assertExecutionReady({
+        action,providerId:'arc-erc20-transfer',providerCapability:'TRANSFER',
+        assetAddress:action.tokenAddress,runtimeEnvironment:VEYRA_ENV,
       });
+      const simulation=await publicClient.simulateContract({
+        address:action.tokenAddress as `0x${string}`,
+        abi:REVIEWED_TRANSFER_ABI,
+        functionName:'transfer',
+        args:[action.to as `0x${string}`,action.amount],
+        account:action.from as `0x${string}`,
+      });
+      assertSuccessfulTransferSimulation(simulation.result);
+      assertTransferSafety(evaluateTransferSafety(action,true),confirmedAtReview);
 
       // ── Step 1: Sign + broadcast ───────────────────────────────────────────
       // Fail closed before opening the wallet request. A browser disappearance
@@ -159,6 +176,7 @@ export function useTransferExecution() {
       // executable again.
       await markActionExecutionSubmissionStarted(action.actionId);
       submissionStarted = true;
+      setState((previous) => ({ ...previous, step: 'SIGNING' }));
 
       const hash = await writeContractAsync({
         address: action.tokenAddress as `0x${string}`,
@@ -174,10 +192,37 @@ export function useTransferExecution() {
       await lockActionExecution(action.actionId);
 
       const explorerUrl = buildTxExplorerUrl(action.chainId, hash);
-      setState((s) => ({ ...s, step: 'CONFIRMING', txHash: hash, explorerUrl }));
+      const pendingReceipt: VeyraReceipt = {
+        receiptId: generateExecutionReceiptId(action.chainId, hash),
+        planId: action.actionId,
+        actionType: action.actionType,
+        status: 'PENDING',
+        chainId: action.chainId,
+        ownerAddress: action.from,
+        recipientAddress: action.to,
+        tokenAddress: action.tokenAddress,
+        tokenDecimals: action.tokenDecimals,
+        tokenSymbol: 'USDC',
+        executionTxHash: hash,
+        createdAt: action.createdAt,
+        actualAmountDelta: null,
+        expectedAmountDelta: action.amount,
+        riskScore: null,
+        policyDecision: null,
+        displaySummary: 'Transaction submitted. Waiting for independent on-chain verification.',
+      };
+      setState((previous) => ({ ...previous, step: 'CONFIRMING',
+        txHash: hash, explorerUrl, receipt: pendingReceipt }));
+      // Persist the hash before waiting: closing the dialog or an RPC outage
+      // must not erase a real submitted transfer from Activity.
+      try { await saveReceipt(pendingReceipt); }
+      catch { /* IndexedDB failure does not imply a failed on-chain payment. */ }
 
       // ── Step 2: Wait for receipt ───────────────────────────────────────────
-      const txReceipt = await publicClient.waitForTransactionReceipt({ hash });
+      // Match read-only crash recovery: 12 canonical confirmations before
+      // calling a transaction terminal. The UI stays CONFIRMING meanwhile.
+      const txReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 12 });
+      chainReceiptReverted = txReceipt.status === 'reverted';
 
       const transferEvidence = verifyErc20TransferReceiptEvidence({
         receipt: txReceipt,
@@ -194,21 +239,22 @@ export function useTransferExecution() {
 
       setState((s) => ({ ...s, step: 'VERIFYING' }));
 
-      // ── Step 3: Verify final state — read actual balance delta ─────────────
-      const balanceAfter = await publicClient.readContract({
-        address: action.tokenAddress as `0x${string}`,
-        abi: ERC20_TRANSFER_ABI,
-        functionName: 'balanceOf',
-        args: [action.to as `0x${string}`],
-      });
-
-      const verification = verifyExactTokenDelta(
-        balanceBefore,
-        balanceAfter,
-        action.amount,
-      );
-      if (!verification.verified) {
-        throw new Error(`Final-state verification failed: ${verification.detail}`);
+      // ── Step 3: Confirm the exact transfer event in THIS transaction ──────
+      // The verified Transfer(token, sender, recipient, amount) event above
+      // identifies this specific payment. A before/after balance subtraction
+      // could be wrong when the recipient has concurrent transactions.
+      // A separate balance read is diagnostic only; it cannot demote verified
+      // transaction evidence to PENDING when an RPC fails.
+      let balanceAfter: bigint | undefined;
+      try {
+        balanceAfter = await publicClient.readContract({
+          address: action.tokenAddress as `0x${string}`,
+          abi: ERC20_TRANSFER_ABI,
+          functionName: 'balanceOf',
+          args: [action.to as `0x${string}`],
+        });
+      } catch {
+        // The exact successful Transfer log remains authoritative.
       }
 
       // Build receipt
@@ -219,11 +265,16 @@ export function useTransferExecution() {
         actionType: action.actionType,
         status: 'VERIFIED',
         chainId: action.chainId,
+        ownerAddress: action.from,
+        recipientAddress: action.to,
+        tokenAddress: action.tokenAddress,
+        tokenDecimals: action.tokenDecimals,
+        tokenSymbol: 'USDC',
         executionTxHash: hash,
         executionBlock: Number(txReceipt.blockNumber),
         createdAt: action.createdAt,
         completedAt: Date.now(),
-        actualAmountDelta: verification.actualDelta,
+        actualAmountDelta: transferEvidence.transferAmount,
         expectedAmountDelta: action.amount,
         riskScore: null,
         policyDecision: null,
@@ -231,8 +282,15 @@ export function useTransferExecution() {
         verifiedBalanceAfter: balanceAfter,
       };
 
-      await saveReceipt(veyraReceipt);
-      setState((s) => ({ ...s, step: 'DONE', receipt: veyraReceipt }));
+      // A local storage failure is not a blockchain failure. Never rewrite an
+      // independently VERIFIED payment as PENDING because IndexedDB is down.
+      let persistenceWarning: string | null = null;
+      try {
+        await saveReceipt(veyraReceipt);
+      } catch {
+        persistenceWarning = 'Transfer verified on-chain, but local history could not be saved. Keep the explorer link.';
+      }
+      setState((s) => ({ ...s, step: 'DONE', receipt: veyraReceipt, error: persistenceWarning }));
     } catch (err) {
       if (actionReservationHeld && !submissionStarted) {
         try {
@@ -243,24 +301,57 @@ export function useTransferExecution() {
       }
 
       const msg = err instanceof Error ? err.message : String(err);
-      const failedReceipt: VeyraReceipt = {
-        receiptId: `veyra-fail-${Date.now()}`,
-        planId: action.actionId,
-        actionType: action.actionType,
-        status: 'FAILED',
-        chainId: action.chainId,
-        executionTxHash: broadcastHash ?? undefined,
-        createdAt: action.createdAt,
-        completedAt: Date.now(),
-        actualAmountDelta: null,
-        expectedAmountDelta: action.amount,
-        riskScore: null,
-        policyDecision: null,
-        displaySummary: `Transfer failed: ${msg}`,
-        verifiedBalanceAfter: undefined,
+      // Ambiguous wallet/RPC outcomes must never be labeled as a confirmed
+      // failure. Only RPC code 4001 proves explicit user cancellation.
+      const outcomeKind = classifyTransferOutcome({
+        submissionStarted,
+        broadcastHash,
+        revertedOnChain:chainReceiptReverted,
+        userExplicitlyRejected:isExplicitWalletRejection(err),
+      });
+      const pending = outcomeKind === 'PENDING';
+      const cancelled = outcomeKind === 'CANCELLED';
+      const outcome: VeyraReceipt = {
+        receiptId: broadcastHash
+          ? generateExecutionReceiptId(action.chainId,broadcastHash)
+          : submissionStarted ? `veyra-plan-${action.actionId}` : `veyra-fail-${Date.now()}`,
+        planId:action.actionId,
+        actionType:action.actionType,
+        status:outcomeKind,
+        chainId:action.chainId,
+        ownerAddress:action.from,
+        recipientAddress:action.to,
+        tokenAddress:action.tokenAddress,
+        tokenDecimals:action.tokenDecimals,
+        tokenSymbol:'USDC',
+        executionTxHash:broadcastHash ?? undefined,
+        createdAt:action.createdAt,
+        completedAt:pending ? undefined : Date.now(),
+        actualAmountDelta:null,
+        expectedAmountDelta:action.amount,
+        riskScore:null,
+        policyDecision:null,
+        displaySummary:pending
+          ? broadcastHash
+            ? 'Transaction submitted. Final confirmation is still unknown. Do not send again.'
+            : 'Wallet submission result is unknown. Check your wallet activity before trying again.'
+          : cancelled ? 'Wallet signature request rejected by the user.'
+          : chainReceiptReverted ? 'Arc Testnet confirmed that the transfer reverted.'
+          : 'Transfer was blocked before wallet submission.',
       };
-      await saveReceipt(failedReceipt);
-      setState((s) => ({ ...s, step: 'FAILED', error: msg, receipt: failedReceipt }));
+      try { await saveReceipt(outcome); } catch { /* Keep the UI informative. */ }
+      setState((previous) => ({
+        ...previous,
+        step:outcomeKind,
+        txHash:broadcastHash,
+        explorerUrl:broadcastHash ? buildTxExplorerUrl(action.chainId,broadcastHash) : null,
+        error:pending ? broadcastHash
+          ? 'Final verification is unavailable. Inspect the transaction before sending again.'
+          : 'The wallet may have submitted this payment. Check wallet history before retrying.'
+          : cancelled ? 'You rejected the wallet request. No confirmed transfer was submitted.'
+          : chainReceiptReverted ? 'The on-chain transaction reverted.' : msg,
+        receipt:outcome,
+      }));
     }
   }, [
     address,

@@ -14,10 +14,24 @@ import { PayPage } from './components/pages/PayPage';
 import { ConvertPage } from './components/pages/ConvertPage';
 import { BridgePage } from './components/pages/BridgePage';
 import { ActivityPage } from './components/pages/ActivityPage';
+import { UiOnlyPreviewPage } from './components/pages/UiOnlyPreviewPage';
+import { IS_UI_ONLY_PREVIEW } from './lib/env';
 import { SettingsPage } from './components/pages/SettingsPage';
+import { SocialPage } from './components/pages/SocialPage';
+import { UnifiedSocialProvider } from './features/social/UnifiedSocial';
 
 export default function App() {
   const [page, setPage] = useState<VeyraPage>('home');
+  const [friendPayment, setFriendPayment] = useState<string | null>(null);
+
+  function startFriendPayment(handle: string) {
+    // A friendly label is only a suggestion. Pay resolves a fresh 30-second
+    // verified recipient snapshot and requires normal wallet review/signing.
+    // A pending AI intent must never overwrite an explicitly chosen friend.
+    sessionStorage.removeItem('veyra:agent-intent');
+    setFriendPayment(handle);
+    setPage('pay');
+  }
 
   function renderPage() {
     switch (page) {
@@ -26,23 +40,27 @@ export default function App() {
       case 'agent':
         return <AgentPage onNavigate={setPage} />;
       case 'pay':
-        return <PayPage />;
+        return IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
       case 'convert':
-        return <ConvertPage />;
+        return IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="convert" /> : <ConvertPage />;
       case 'bridge':
-        return <BridgePage />;
+        return IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="bridge" /> : <BridgePage />;
       case 'activity':
-        return <ActivityPage />;
+        return <ActivityPage readOnly={IS_UI_ONLY_PREVIEW} />;
       case 'settings':
-        return <SettingsPage />;
+        return <SettingsPage onOpenSocial={() => setPage('social')} />;
+      case 'social':
+        return <SocialPage onPayFriend={startFriendPayment} />;
       default:
         return <HomePage onNavigate={setPage} />;
     }
   }
 
   return (
-    <AppShell page={page} onNavigate={setPage}>
-      {renderPage()}
-    </AppShell>
+    <UnifiedSocialProvider>
+      <AppShell page={page} onNavigate={setPage}>
+        {renderPage()}
+      </AppShell>
+    </UnifiedSocialProvider>
   );
 }

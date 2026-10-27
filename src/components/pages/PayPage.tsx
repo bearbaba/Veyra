@@ -6,24 +6,34 @@
  * policy/risk/simulation still run before the user can sign.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
-import { isAddress } from 'viem';
+import { formatUnits, isAddress } from 'viem';
 import { AlertTriangle, ArrowRight, CheckCircle2, SendHorizontal, ShieldCheck, Sparkles } from 'lucide-react';
 import { parseAmount } from '@/onchain-money';
-import { getUsdc, requireChain } from '@/onchain-facts';
+import { buildTxExplorerUrl, getUsdc, requireChain } from '@/onchain-facts';
 import { createTransferAction } from '@/core/pipeline/transferPipeline';
 import { TransactionReviewSheet } from '../transfer/TransactionReviewSheet';
 import { BrandLogo } from '../brand/BrandLogo';
 import type { TransferAction } from '@/core/actions/actionSchema';
 import { preparePaymentRecipient, type PreparedRecipient } from '@/lib/api/identityApi';
 import type { IntentCandidate } from '@/core/intent/intentSchema';
+import {assertPreparedRecipientReview} from '@/core/execution/recipientReviewGuard';
+import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
+import { useReceiptStore } from '@/hooks/useReceiptStore';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
 
-export function PayPage() {
+export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipient?: string | null;onFriendRecipientUsed?: () => void} = {}) {
   const { address, isConnected } = useAccount();
+  const social = useUnifiedSocial();
+  const { receipts: ownedReceipts, error: receiptError } = useReceiptStore();
+  const recentPay = ownedReceipts.find((receipt) =>
+    receipt.actionType === 'TRANSFER' && Boolean(receipt.executionTxHash));
+  // Social only returns an active session for the exact wallet/chain/connector.
+  const sessionToken = social.session?.token;
+  const prepareEpoch = useRef(0);
 
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
@@ -39,6 +49,26 @@ export function PayPage() {
   const amountNum = Number.parseFloat(amount);
   const amountValid = Number.isFinite(amountNum) && amountNum > 0;
   const canProceed = isConnected && recipientValid && amountValid && Boolean(address) && Boolean(usdc) && !resolving;
+
+  useEffect(() => {
+    // A pending snapshot is never reusable after a wallet/session change.
+    prepareEpoch.current += 1;
+    setPendingAction(null);
+    setPreparedRecipient(null);
+    setResolving(false);
+  }, [address, sessionToken]);
+
+  useEffect(() => {
+    if (!friendRecipient) return;
+    prepareEpoch.current += 1;
+    setRecipient(friendRecipient);
+    setAmount('');
+    setPendingAction(null);
+    setPreparedRecipient(null);
+    setResolving(false);
+    setActionError(null);
+    onFriendRecipientUsed?.();
+  }, [friendRecipient, onFriendRecipientUsed]);
 
   useEffect(() => {
     const raw = sessionStorage.getItem('veyra:agent-intent');
@@ -59,14 +89,25 @@ export function PayPage() {
 
   async function handlePrepare() {
     if (!canProceed || !address || !usdc) return;
+    const epoch = ++prepareEpoch.current;
     setActionError(null);
     setResolving(true);
 
     try {
+      // Literal address Pay remains possible without a Social sign-in. Every
+      // person/alias payment MUST use the wallet-bound signed Veyra session.
+      if (!isAddress(recipient) && !sessionToken) {
+        throw new Error('Sign in to your Veyra ID in Social before paying a person.');
+      }
       const prepared: PreparedRecipient = isAddress(recipient)
         ? { kind: 'WALLET', resolvedAddress: recipient, chainId: ARC_TESTNET_CHAIN_ID, snapshot: null }
-        : await preparePaymentRecipient(recipient, ARC_TESTNET_CHAIN_ID);
-      if (!isAddress(prepared.resolvedAddress)) throw new Error('Resolved recipient is not a valid EVM address');
+        : await preparePaymentRecipient(recipient, ARC_TESTNET_CHAIN_ID, sessionToken!);
+      // Ignore a late backend response after switching wallet/session/friend.
+      if (epoch !== prepareEpoch.current) return;
+      assertPreparedRecipientReview({
+        prepared,originalRecipient:recipient,senderAddress:address,
+        expectedChainId:ARC_TESTNET_CHAIN_ID,
+      });
 
       const amountParsed = parseAmount(ARC_TESTNET_CHAIN_ID, amount);
       const action = createTransferAction({
@@ -80,10 +121,12 @@ export function PayPage() {
       setPreparedRecipient(prepared);
       setPendingAction(action);
     } catch (error) {
-      setPreparedRecipient(null);
-      setActionError(error instanceof Error ? error.message : 'Failed to resolve recipient');
+      if (epoch === prepareEpoch.current) {
+        setPreparedRecipient(null);
+        setActionError(error instanceof Error ? error.message : 'Failed to resolve recipient');
+      }
     } finally {
-      setResolving(false);
+      if (epoch === prepareEpoch.current) setResolving(false);
     }
   }
 
@@ -129,13 +172,44 @@ export function PayPage() {
             </div>
           </div>
 
+          {recentPay && (
+            <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl p-4"
+              style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
+              <div className="min-w-0">
+                <p className="text-xs font-bold" style={{ color: 'var(--ink)' }}>Latest payment · {recentPay.status === 'VERIFIED'
+                  ? 'Verified on Arc Testnet'
+                  : recentPay.status === 'FAILED' ? 'Transaction failed'
+                  : 'Pending confirmation'}</p>
+                <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>
+                  {recentPay.expectedAmountDelta != null && recentPay.tokenSymbol === 'USDC' && recentPay.tokenDecimals === 6
+                    ? `${formatUnits(recentPay.expectedAmountDelta, 6)} USDC · `
+                    : ''}
+                  {recentPay.status === 'PENDING'
+                    ? 'Do not resend until this payment is verified.'
+                    : 'Your payment record remains available after reload.'}
+                </p>
+              </div>
+              {recentPay.executionTxHash && (
+                <a href={buildTxExplorerUrl(recentPay.chainId, recentPay.executionTxHash)}
+                  target="_blank" rel="noopener noreferrer"
+                  className="shrink-0 text-xs font-bold underline underline-offset-4"
+                  style={{ color: 'var(--accent)' }}>View transaction</a>
+              )}
+            </div>
+          )}
+          {receiptError && (
+            <p role="alert" className="text-xs" style={{ color: 'var(--warning)' }}>
+              Local payment history is temporarily unavailable. Check wallet activity before resending.
+            </p>
+          )}
+
           <div className="overflow-hidden rounded-[28px]" style={{ background: 'linear-gradient(145deg,rgba(23,43,67,0.98),rgba(16,31,51,0.98))', border: '1px solid var(--border-strong)' }}>
             <div className="border-b p-5" style={{ borderColor: 'var(--border)' }}>
               <label className="block text-xs font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--muted)' }}>Who are you paying?</label>
               <input
                 value={recipient}
                 onChange={(event) => setRecipient(event.target.value.trim())}
-                placeholder="@veyra, @xhandle, or 0x…"
+                placeholder="@friend.veyra or 0x…"
                 className="mt-3 w-full bg-transparent text-xl font-semibold outline-none"
                 style={{ color: recipient && !recipientValid ? 'var(--danger)' : 'var(--ink)' }}
                 autoComplete="off"
@@ -202,6 +276,7 @@ export function PayPage() {
         <TransactionReviewSheet
           action={pendingAction}
           recipient={preparedRecipient}
+          sessionToken={sessionToken}
           onClose={() => { setPendingAction(null); setPreparedRecipient(null); }}
         />
       )}

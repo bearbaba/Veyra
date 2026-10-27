@@ -12,6 +12,8 @@ import type { PolicyEvaluationResult } from '../policy/policyTypes';
 import type { RiskScoringResult } from '../risk/riskTypes';
 import { SECURITY_CONFIG } from '../../lib/securityConfig';
 import { MANIFEST_CONSTANTS } from '../../providers/registry/providerManifest';
+import type { RouteOption } from '../../providers/bridge/bridgeProviderTypes';
+import { matchesCctpSimulation, type BridgeSimulationEvidence } from '../execution/cctpSourceSimulation';
 
 // ── Pipeline status ───────────────────────────────────────────────────────────
 
@@ -91,7 +93,8 @@ export interface BridgePipelineEvaluation {
   blockedReason?: string;
 }
 
-export function evaluateBridgeAction(action: BridgeAction): BridgePipelineEvaluation {
+export function evaluateBridgeAction(action: BridgeAction, simulation?: BridgeSimulationEvidence): BridgePipelineEvaluation {
+  const simulationCompleted = matchesCctpSimulation(action, simulation);
   // 1. Schema
   const schemaResult = validateAction(action);
   if (!schemaResult.valid) {
@@ -111,13 +114,13 @@ export function evaluateBridgeAction(action: BridgeAction): BridgePipelineEvalua
   const riskResult = scoreAction({
     providerProfiles: [riskProfile],
     chainId: action.chainId,
-    wasSimulated: false,
+    wasSimulated: simulationCompleted,
   });
 
   // 3. Policy
   const policyResult = evaluatePolicy(action, {
     riskScore: riskResult.score,
-    simulationCompleted: false,
+    simulationCompleted,
     quoteId: action.provenance.quoteId,
     providerId: action.providerId,
   }, DEFAULT_VEYRA_POLICY);
@@ -166,5 +169,41 @@ export function createBridgeAction(params: {
     to: params.to.toLowerCase(),
     providerId: 'cctp-v2-bridge',
     quoteExpiresAt: now + 30 * 60 * 1000,
+  };
+}
+
+
+/**
+ * Convert a reviewed provider route into the deterministic BridgeAction that
+ * crosses the final execution boundary. The routeId becomes the actionId so
+ * the same client intent/route cannot obtain a fresh replay identity.
+ */
+export function createBridgeActionFromRoute(params: {
+  route: RouteOption;
+  from: string;
+  tokenDecimals: number;
+}): BridgeAction {
+  const { route } = params;
+
+  return {
+    actionType: 'BRIDGE',
+    actionId: route.routeId,
+    chainId: route.sourceChainId,
+    createdAt: route.quotedAt,
+    provenance: {
+      source: 'PROVIDER_QUOTE',
+      fetchedAt: route.quotedAt,
+      quoteId: route.routeId,
+      providerId: route.provider,
+    },
+    sourceChainId: route.sourceChainId,
+    destinationChainId: route.destinationChainId,
+    tokenAddress: route.sourceTokenAddress.toLowerCase(),
+    tokenDecimals: params.tokenDecimals,
+    amount: route.amountIn,
+    from: params.from.toLowerCase(),
+    to: route.destinationAddress.toLowerCase(),
+    providerId: route.provider,
+    quoteExpiresAt: route.expiresAt,
   };
 }

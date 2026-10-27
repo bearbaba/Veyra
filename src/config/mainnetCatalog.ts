@@ -25,6 +25,17 @@ export const CCTP_V2_MAINNET = {
 } as const;
 
 export const MAINNET_CHAIN_CATALOG: readonly MainnetChainCatalogEntry[] = [
+  // Arc is Veyra's home network. The ERC-20 facade uses 6 decimals; native gas uses 18.
+  // Contract and CCTP domain: https://docs.arc.io/arc/references/contract-addresses
+  // RPC and chain ID: https://docs.arc.io/arc/references/connect-to-arc
+  {
+    chainId: 5042,
+    name: 'Arc',
+    usdc: '0x3600000000000000000000000000000000000000',
+    cctpDomain: 26,
+    rpcEnvKey: 'ARC_MAINNET_RPC_URL',
+    explorerUrl: 'https://explorer.arc.io',
+  },
   {
     chainId: 1,
     name: 'Ethereum',
@@ -78,7 +89,7 @@ export const MAINNET_CHAIN_CATALOG: readonly MainnetChainCatalogEntry[] = [
 export const MAINNET_CATALOG_PROVENANCE = {
   usdcSourceUrl: 'https://developers.circle.com/stablecoins/usdc-contract-addresses',
   cctpSourceUrl: CCTP_V2_MAINNET.sourceUrl,
-  verifiedAt: '2026-10-08',
+  verifiedAt: '2026-10-16',
 } as const;
 
 export function getMainnetChain(chainId: number): MainnetChainCatalogEntry | undefined {
@@ -89,6 +100,10 @@ export function validateMainnetCatalog(): string[] {
   const errors: string[] = [];
   const seen = new Set<number>();
   const domains = new Set<number>();
+  const arc = MAINNET_CHAIN_CATALOG.find((chain) => chain.chainId === 5042);
+  if (!arc || arc.usdc.toLowerCase() !== '0x3600000000000000000000000000000000000000' || arc.cctpDomain !== 26 || arc.rpcEnvKey !== 'ARC_MAINNET_RPC_URL') {
+    errors.push('Arc Mainnet (5042) must use its verified USDC facade, CCTP domain 26 and dedicated mainnet RPC configuration.');
+  }
   for (const chain of MAINNET_CHAIN_CATALOG) {
     if (seen.has(chain.chainId)) errors.push(`Duplicate mainnet chainId ${chain.chainId}.`);
     if (domains.has(chain.cctpDomain)) errors.push(`Duplicate CCTP domain ${chain.cctpDomain}.`);

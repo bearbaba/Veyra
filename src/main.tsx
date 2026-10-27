@@ -42,12 +42,12 @@ const StudioLogo = () => (
 // Studio watermark component - links back to Studio
 const StudioWatermark = () => (
   <a
+    className="bottom-[calc(5rem+env(safe-area-inset-bottom))] md:bottom-4"
     href="https://studio.arc.io/"
     target="_blank"
     rel="noopener noreferrer"
     style={{
       position: 'fixed',
-      bottom: '16px',
       right: '16px',
       display: 'flex',
       alignItems: 'center',
@@ -64,7 +64,7 @@ const StudioWatermark = () => (
       WebkitBackdropFilter: 'blur(12px) saturate(180%)',
       borderRadius: '20px',
       border: '1px solid rgba(255, 255, 255, 0.4)',
-      zIndex: 9999,
+      zIndex: 20,
       boxShadow: '0 4px 20px rgba(27, 49, 88, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.5)',
     }}
   >

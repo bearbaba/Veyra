@@ -65,6 +65,15 @@ export interface VeyraReceipt {
   /** Chain ID of the primary action. */
   chainId: number;
 
+  /** Wallet that owns this local receipt. Legacy entries without owner stay hidden. */
+  ownerAddress?: string;
+
+  /** Immutable Pay evidence required to resume verification after reload. */
+  recipientAddress?: string;
+  tokenAddress?: string;
+  tokenDecimals?: number;
+  tokenSymbol?: string;
+
   /** Transaction hash on the primary chain. */
   executionTxHash?: string;
 

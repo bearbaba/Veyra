@@ -30,6 +30,16 @@ export interface BridgeRecoveryCheckpoint {
   updatedAt: number;
 }
 
+/** A shared browser may retain checkpoints from multiple wallets. Never surface
+ * or resume a recovery plan owned by a different connected address. */
+export function bridgeCheckpointBelongsToWallet(
+  checkpoint: BridgeRecoveryCheckpoint,
+  connectedAddress: string | undefined,
+): boolean {
+  return Boolean(connectedAddress && /^0x[0-9a-fA-F]{40}$/.test(connectedAddress) &&
+    checkpoint.walletAddress.toLowerCase() === connectedAddress.toLowerCase());
+}
+
 export type BridgeResumeInstruction =
   | 'POLL_ATTESTATION'
   | 'SUBMIT_RECEIVE'
@@ -257,6 +267,37 @@ export async function loadResumableBridgeCheckpoints(): Promise<BridgeRecoveryCh
 /**
  * Deterministic resume decision. Intentionally has no REBURN outcome.
  */
+/**
+ * Only authenticated terminal ActivityReceipt evidence can hide a previously
+ * saved recovery checkpoint. In particular a VERIFIED/COMPLETE receipt from
+ * server is authoritative even if another device still has an older local
+ * checkpoint or the recovery mirror remains at DESTINATION_BROADCAST.
+ *
+ * A generic FAILED receipt does NOT prove funds are safe: CCTP may have
+ * irreversible source execution. Only the independently resolved source
+ * revert reason is allowed to suppress that recovery candidate.
+ */
+export function excludeAuthoritativelyResolvedBridgeCheckpoints(
+  checkpoints: BridgeRecoveryCheckpoint[],
+  receipts: ReadonlyArray<{
+    providerId: string;
+    routeId: string;
+    status: string;
+    failureReason?: string | null;
+  }>,
+): BridgeRecoveryCheckpoint[] {
+  const resolvedRoutes = new Set(
+    receipts.filter(
+      (receipt) =>
+        receipt.providerId === 'cctp-v2-bridge' &&
+        (receipt.status === 'COMPLETE' ||
+          (receipt.status === 'FAILED' &&
+            receipt.failureReason === 'SOURCE_TRANSACTION_REVERTED_VERIFIED')),
+    ).map((receipt) => receipt.routeId),
+  );
+  return checkpoints.filter((checkpoint) => !resolvedRoutes.has(checkpoint.planId));
+}
+
 export function nextBridgeResumeInstruction(
   checkpoint: BridgeRecoveryCheckpoint,
 ): BridgeResumeInstruction {

@@ -18,20 +18,21 @@ interface CommandBarProps {
 
 const PRIMARY_ACTIONS = [
   { label: 'Ask Veyra', page: 'agent' as VeyraPage, icon: <Bot className="size-4" />, hint: 'Chat or plan in any language' },
-  { label: 'Pay someone', page: 'pay' as VeyraPage, icon: <SendHorizontal className="size-4" />, hint: 'Veyra ID, X handle, or wallet' },
+  { label: 'Pay someone', page: 'pay' as VeyraPage, icon: <SendHorizontal className="size-4" />, hint: 'Veyra ID or wallet' },
   { label: 'Activity', page: 'activity' as VeyraPage, icon: <LayoutList className="size-4" />, hint: 'Receipts and history' },
   { label: 'Home', page: 'home' as VeyraPage, icon: <Home className="size-4" />, hint: 'Identity and balances' },
 ];
 
 const SECONDARY_ACTIONS = [
-  { label: 'Settings', page: 'settings' as VeyraPage, icon: <Settings className="size-4" />, hint: 'Identity, runtime, and policy' },
-  { label: 'Convert (advanced)', page: 'convert' as VeyraPage, icon: <ArrowLeftRight className="size-4" />, hint: 'Direct conversion flow' },
-  { label: 'Bridge (advanced)', page: 'bridge' as VeyraPage, icon: <Route className="size-4" />, hint: 'Direct CCTP test flow' },
+  { label: 'Settings', page: 'settings' as VeyraPage, icon: <Settings className="size-4" />, hint: 'Account and preferences' },
+  { label: 'Convert (advanced)', page: 'convert' as VeyraPage, icon: <ArrowLeftRight className="size-4" />, hint: 'USDC / EURC · check availability' },
+  { label: 'Bridge (advanced)', page: 'bridge' as VeyraPage, icon: <Route className="size-4" />, hint: 'USDC between test networks' },
 ];
 
 export function CommandBar({ open, onClose, onNavigate }: CommandBarProps) {
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -43,8 +44,9 @@ export function CommandBar({ open, onClose, onNavigate }: CommandBarProps) {
 
   useEffect(() => {
     if (!open) return;
+    const previousFocus = document.activeElement;
     const timer = setTimeout(() => inputRef.current?.focus(), 50);
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); if (previousFocus instanceof HTMLElement) previousFocus.focus(); };
   }, [open]);
 
   useEffect(() => {
@@ -80,6 +82,15 @@ export function CommandBar({ open, onClose, onNavigate }: CommandBarProps) {
         >
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
           <motion.div
+            ref={panelRef} role="dialog" aria-modal="true" aria-label="Search Veyra"
+            onKeyDown={(event) => {
+              if (event.key !== 'Tab') return;
+              const items = panelRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input, a[href]');
+              if (!items?.length) return;
+              const first = items[0], last = items[items.length - 1];
+              if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+              else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+            }}
             className="relative w-full max-w-xl overflow-hidden rounded-3xl"
             style={{ background: 'rgba(14,24,40,0.96)', backdropFilter: 'blur(40px) saturate(200%)', border: '1px solid var(--border-strong)', boxShadow: '0 24px 64px rgba(0,0,0,0.6)' }}
             initial={{ opacity: 0, y: -12, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -12, scale: 0.97 }}
@@ -92,12 +103,14 @@ export function CommandBar({ open, onClose, onNavigate }: CommandBarProps) {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => { if (event.key === 'Enter' && query.trim()) handleAskAgent(); }}
-                placeholder="Ask Veyra in any language, or navigate…"
+                aria-label="Search pages or ask Veyra"
+                placeholder="Search pages or ask Veyra…"
                 className="flex-1 bg-transparent text-sm outline-none"
                 style={{ color: 'var(--ink)' }}
               />
-              {query && <button onClick={() => setQuery('')} style={{ color: 'var(--subtle)' }}><X className="size-3.5" /></button>}
-              <kbd className="rounded-md px-1.5 py-0.5 font-mono text-[10px]" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--subtle)' }}>ESC</kbd>
+              {query && <button aria-label="Clear search" onClick={() => setQuery('')} style={{ color: 'var(--subtle)' }}><X className="size-3.5" /></button>}
+              <button type="button" aria-label="Close search" onClick={onClose} className="rounded-lg p-2" style={{ color: 'var(--muted)' }}><X className="size-4" /></button>
+              <kbd className="hidden sm:block rounded-md px-1.5 py-0.5 font-mono text-[10px]" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--subtle)' }}>ESC</kbd>
             </div>
 
             {query.trim() && (
@@ -134,7 +147,7 @@ function ActionSection({ title, items, onSelect }: { title: string; items: typeo
         <button key={action.page} onClick={() => onSelect(action.page)} className="flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-white/5">
           <span style={{ color: 'var(--muted)' }}>{action.icon}</span>
           <span style={{ color: 'var(--ink)' }}>{action.label}</span>
-          <span className="ml-auto text-xs" style={{ color: 'var(--subtle)' }}>{action.hint}</span>
+          <span className="ml-auto hidden text-xs sm:block" style={{ color: 'var(--subtle)' }}>{action.hint}</span>
         </button>
       ))}
     </div>

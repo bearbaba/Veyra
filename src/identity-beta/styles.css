@@ -1,0 +1,79 @@
+:root{font-family:Inter,"DM Sans",ui-sans-serif,system-ui,sans-serif;color:#f0f5f3;background:#090e14;font-synthesis:none;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}*{box-sizing:border-box}body{margin:0}button,input{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.5}a{color:inherit;text-decoration:none}button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid #b9f27c;outline-offset:3px}.vi-root{min-height:100vh;background:radial-gradient(ellipse 750px 390px at 70% -140px,#193e3b 0,transparent 80%),#090e14}.vi-header{height:76px;border-bottom:1px solid #1c2a33;display:flex;align-items:center;justify-content:space-between;padding:0 max(22px,calc((100vw - 1100px)/2));gap:20px}.vi-logo{display:inline-flex;align-items:center;gap:10px;font-family:"Space Grotesk",sans-serif;font-weight:700;letter-spacing:-1px;font-size:29px}.vi-mark{width:36px;height:36px;border:1px solid #b9f27c;border-radius:12px;display:grid;place-items:center;color:#b9f27c;transform:rotate(-6deg);font-size:22px}.vi-dot{color:#b9f27c}.vi-header-pill,.vi-header-right{display:inline-flex;align-items:center;gap:9px;color:#aabcb9;font-size:11px;font-weight:700;letter-spacing:1px}.vi-header-right{letter-spacing:0;font-size:12px}.vi-led{width:7px;height:7px;border-radius:50%;background:#aef49c;box-shadow:0 0 15px #70cb64}.vi-container{max-width:1100px;margin:0 auto;padding:54px 24px 70px}.vi-intro{max-width:720px}.vi-eyebrow{display:flex;align-items:center;gap:9px;font-size:11px;font-weight:700;letter-spacing:2.1px;color:#a7e586}.vi-intro h1{font-family:"Space Grotesk",sans-serif;letter-spacing:-3px;font-size:clamp(42px,6.5vw,66px);line-height:1.07;margin:18px 0 17px}.vi-intro h1 span{color:#b9f27c}.vi-intro p{max-width:620px;font-size:16px;color:#a1b1b8;line-height:1.7}.vi-steps{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:36px 0;color:#b3c2c7}.vi-steps>div{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:600}.vi-steps>div span{background:#19262a;color:#b9f27c;border:1px solid #304737;border-radius:7px;padding:5px 7px}.vi-steps>svg{color:#56666e}.vi-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.vi-card{background:#101820;border:1px solid #27333c;border-radius:19px;padding:26px;box-shadow:0 20px 45px #01080b36}.vi-card-heading{display:flex;align-items:center;gap:13px;margin-bottom:24px}.vi-icon{width:43px;height:43px;display:grid;place-items:center;background:#21332d;border:1px solid #3b5745;color:#b9f27c;border-radius:12px}.vi-card-heading h2{font-family:"Space Grotesk",sans-serif;letter-spacing:-.5px;margin:0;font-size:20px}.vi-card-heading p{color:#92a5ae;margin:3px 0 0;font-size:12px}.vi-card-heading .vi-icon-btn{margin-left:auto}.vi-network{display:flex;flex-direction:column;background:#151f28;border:1px solid #293942;border-radius:12px;padding:19px;margin-bottom:18px;min-height:127px}.vi-network span,.vi-field>span,.vi-id-row>span{color:#91a5a9;letter-spacing:1.25px;font-size:10px;font-weight:800}.vi-network strong{font-size:23px;letter-spacing:-.6px;margin:6px 0}.vi-network small{color:#9facb1}.vi-button{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:44px;padding:9px 18px;border-radius:10px;border:1px solid transparent;font-weight:700;font-size:13px;transition:filter .16s}.vi-button:hover:not(:disabled){filter:brightness(1.08)}.vi-primary{background:#b9f27c;color:#101b12}.vi-outline{border-color:#3c5355;background:#1b292d;color:#e9f3ef}.vi-card>.vi-button{width:100%}.vi-footnote{display:flex;align-items:flex-start;gap:8px;color:#83969c;font-size:12px;margin:19px 0 0;line-height:1.6}.vi-footnote svg{flex-shrink:0;margin-top:1px}.vi-field{display:flex;flex-direction:column;gap:9px;margin-bottom:15px}.vi-field input{min-width:0;width:100%;background:#151f28;color:#f0f5f3;padding:12px 14px;border:1px solid #314148;border-radius:9px;outline:0}.vi-field input:focus{border-color:#a7e586}.vi-field input::placeholder{color:#667a7e}.vi-or{text-align:center;font-size:11px;color:#80939b;font-weight:700;letter-spacing:1px;margin:18px 0}.vi-profile{display:flex;align-items:center;gap:14px;padding:15px 0 21px}.vi-profile>svg{color:#b9f27c;margin-left:auto}.vi-avatar{width:50px;height:50px;display:grid;place-items:center;background:#a9ed7a;border-radius:16px;color:#102519;font-weight:800;font-size:22px}.vi-profile>div:nth-child(2){display:flex;flex-direction:column}.vi-profile strong{font-size:20px}.vi-profile span{font-size:12px;color:#90a4ae}.vi-id-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px;border-radius:9px;border:1px solid #273f3b;margin-bottom:15px}.vi-id-row>span{width:100%}.vi-id-row code{font-size:12px;word-break:break-word;color:#c8dbd5}.vi-id-row button,.vi-icon-btn{display:grid;place-items:center;padding:7px;color:#b9f27c;background:none;border:none}.vi-friends{margin-top:19px}.vi-empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;padding:45px 15px;color:#95acb0;border:1px dashed #365059;border-radius:12px;background:#141f26}.vi-empty strong{color:#dbece4}.vi-empty p{margin:0;font-size:12px;line-height:1.55}.vi-small-empty{padding:25px}.vi-stats{display:grid;grid-template-columns:repeat(3,1fr);margin-bottom:25px;gap:10px}.vi-stats>div{border:1px solid #263840;border-radius:12px;background:#141f26;padding:18px;display:flex;flex-direction:column;gap:3px}.vi-stats strong{font-size:25px;color:#b9f27c}.vi-stats span{font-size:12px;color:#90a4ad}.vi-inline{display:flex;gap:10px}.vi-inline .vi-button{flex-shrink:0}.vi-caption{font-size:12px;color:#8499a0;line-height:1.7}.vi-list{border:1px solid #2c4045;border-radius:12px;overflow:hidden}.vi-friend{padding:14px;display:flex;gap:11px;align-items:center}.vi-friend+.vi-friend{border-top:1px solid #25343a}.vi-friend-avatar{height:39px;width:39px;flex-shrink:0;display:grid;place-items:center;color:#b9f27c;background:#1e302c;border-radius:50%;font-weight:800}.vi-friend-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.vi-friend-body strong{font-size:12px;overflow-wrap:anywhere}.vi-friend-body span{font-size:11px;color:#8ca6aa}.vi-friend-actions{display:flex;gap:6px;flex-wrap:wrap}.vi-friend-actions button{background:#253933;color:#d6f8d2;border:1px solid #405448;padding:7px 10px;border-radius:7px;font-size:12px}.vi-unblock{margin-top:22px}.vi-alert{display:flex;align-items:center;gap:12px;padding:14px;border-radius:11px;font-size:13px;margin-bottom:17px}.vi-error{color:#ffd3ca;border:1px solid #754b4c;background:#392325}.vi-info{color:#d6f3d1;border:1px solid #446f4c;background:#1d322a}.vi-alert svg{flex-shrink:0}.vi-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:28px;padding-top:18px;border-top:1px solid #253038;color:#718b92;font-size:11px}.vi-footer a{display:flex;gap:8px;align-items:center;color:#a9bbbd}@media(max-width:760px){.vi-header{padding:0 18px}.vi-header-pill{display:none}.vi-container{padding:35px 17px 50px}.vi-grid{grid-template-columns:1fr}.vi-card{padding:20px}.vi-intro h1{letter-spacing:-2px}.vi-steps{gap:9px}.vi-stats{gap:7px}.vi-stats>div{padding:11px}.vi-friend{flex-wrap:wrap}.vi-friend-actions{width:100%;padding-left:50px}}@media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* Explicit provider choice: EIP-6963 names are wallet-reported, not proof of brand. */
+.vi-field select{appearance:auto;width:100%;background:#111e27;color:#f0f5f3;border:1px solid #34434b;border-radius:10px;padding:13px 15px;font:inherit;min-height:45px;cursor:pointer}
+.vi-field select:focus-visible{outline:2px solid #b9f27c;outline-offset:2px}
+.vi-field select:disabled{opacity:.65}
+
+/* A pending wallet popup/backend request must never feel like a dead page. */
+.vi-wait-panel{margin:18px 0 20px;padding:17px 20px;border:1px solid #77916c;background:#15241e;border-radius:13px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.vi-wait-copy{display:flex;flex-direction:column;gap:5px;min-width:0}
+.vi-wait-copy strong{color:#c4f39b;font-weight:700}
+.vi-wait-copy span{color:#f0f5f3}
+.vi-wait-copy small{color:#a8b8ae}
+.vi-wait-stop{border:1px solid #879c85;background:transparent;color:#e9f3e6;border-radius:9px;min-height:42px;padding:10px 16px;white-space:nowrap;font-weight:600}
+.vi-wait-stop:hover{background:#28382d}
+.vi-wait-stop:focus-visible{outline:2px solid #b9f27c;outline-offset:3px}
+@media(max-width:560px){.vi-wait-panel{align-items:stretch;flex-direction:column}.vi-wait-stop{width:100%}}
+
+/* Phase 8Q — quiet product layout. One primary task, no mandatory pre-connect form. */
+.vi-root{background:radial-gradient(ellipse 700px 320px at 60% -185px,#19362c 0,transparent 87%),#0b1015}
+.vi-header{height:65px;border-color:#223037}
+.vi-header-pill{letter-spacing:.6px}
+.vi-container{max-width:1010px;padding:33px 24px 52px}
+.vi-intro{max-width:900px}
+.vi-eyebrow{letter-spacing:1.1px;font-size:10px}
+.vi-intro h1{font-size:clamp(30px,4.6vw,46px);letter-spacing:-1.8px;line-height:1.16;margin:12px 0 8px}
+.vi-intro p{font-size:14px;line-height:1.5;margin:0;color:#96a7ad}
+.vi-grid{margin-top:25px;gap:14px}
+.vi-card{padding:22px;background:#121b22;border:1px solid #2a373c;border-radius:16px;box-shadow:none}
+.vi-card-heading{gap:11px;margin-bottom:16px}
+.vi-icon{width:37px;height:37px;border-radius:11px;background:#1b3128;border-color:#345040}
+.vi-card-heading h2{font-size:18px;letter-spacing:-.3px}
+.vi-card-heading p{margin-top:1px;font-size:11px}
+.vi-network{min-height:unset;padding:13px 15px;margin-bottom:12px;background:#162129}
+.vi-network strong{font-size:20px;margin:3px 0}
+.vi-network small{font-size:11px}
+.vi-button{min-height:43px;font-size:13px;border-radius:10px}
+.vi-field{margin-bottom:12px}
+.vi-or{text-align:left;text-transform:none;font-size:11px;font-weight:500;letter-spacing:0;margin:12px 0 9px;color:#829ba1}
+.vi-footnote{margin-top:12px;color:#87999d;font-size:11px;line-height:1.4}
+.vi-profile{padding:2px 0 13px}
+.vi-profile strong{font-size:19px}
+.vi-avatar{height:44px;width:44px;border-radius:12px}
+.vi-id-row{padding:10px 12px;margin-bottom:12px;background:#14231f}
+.vi-id-row code{font-size:11px}
+.vi-x-inline{display:flex;align-items:center;gap:9px;border-top:1px solid #2a373c;border-bottom:1px solid #2a373c;margin-bottom:13px;padding:10px 2px;color:#a2b6b6;font-size:12px}
+.vi-x-inline svg{color:#a6c4aa;flex-shrink:0}
+.vi-x-inline strong{margin-left:auto;font-size:12px;color:#a2b2b5;font-weight:500;text-align:right}
+.vi-x-inline button{border:1px solid #466252;background:none;color:#c8efcd;padding:6px 9px;border-radius:8px;font:inherit}
+.vi-wallet-choices{margin-top:13px;border:1px solid #375146;border-radius:11px;padding:10px;background:#17231e}
+.vi-wallet-choices-top{display:flex;justify-content:space-between;align-items:center;margin:0 0 5px;color:#a6b8b2;font-weight:650;font-size:12px}
+.vi-wallet-choices-top button,.vi-text-link{background:transparent;border:none;color:#a9d993;padding:5px 3px;font-size:12px;cursor:pointer}
+.vi-wallet-choices>button{width:100%;display:flex;align-items:center;justify-content:space-between;color:#e8f0ed;border:1px solid #334c41;background:#1b2d25;border-radius:9px;padding:11px;margin-top:7px;text-align:left}
+.vi-wallet-choices>button:hover{border-color:#a9e27e}
+.vi-card>.vi-text-link{display:block;text-align:center;width:100%;margin-top:7px}
+.vi-friends{margin-top:14px}
+.vi-friends .vi-card-heading{margin-bottom:12px}
+.vi-friends-meta,.vi-friends-locked{color:#97aaab;font-size:12px;margin:1px 0 13px}
+.vi-friends-locked{background:#142027;border-radius:9px;padding:14px 16px}
+.vi-empty{padding:20px}
+.vi-small-empty{padding:14px}
+.vi-unblock{margin-top:14px}
+.vi-caption{font-size:11px}
+.vi-footer{margin-top:20px}
+@media(max-width:760px){
+  .vi-container{padding:24px 16px 40px}
+  .vi-intro h1{font-size:clamp(29px,6vw,38px)}
+  .vi-card{padding:18px}
+  .vi-grid{margin-top:20px}
+}
+
+/* Last-resort crash state: never leave the user on a black page. */
+.vi-fallback{min-height:100vh;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;max-width:460px;margin:auto;padding:32px 24px;color:#eaf4ef}
+.vi-fallback-mark{width:44px;height:44px;border:1px solid #a9df83;color:#b9f27c;border-radius:12px;display:grid;place-items:center;font-size:24px;font-weight:700}
+.vi-fallback h1{font-size:clamp(26px,5vw,36px);letter-spacing:-.9px;margin:20px 0 8px}
+.vi-fallback p{font-size:14px;line-height:1.6;color:#a8b8b9}
+.vi-fallback button{background:#b9f27c;color:#112117;border:0;border-radius:9px;padding:12px 21px;font-weight:700;margin:18px 0 10px}
+.vi-fallback small{display:block;color:#849a9a;line-height:1.5}
+.vi-fallback a{display:inline-block;color:#b9f27c;margin-top:12px;text-decoration:underline;text-underline-offset:3px}

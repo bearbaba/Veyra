@@ -1,0 +1,28 @@
+name: Hosted Identity Beta HTTP Acceptance
+
+on:
+  pull_request:
+    branches:
+      - 'phase*'
+    paths:
+      - 'scripts/check-live-identity-beta.ts'
+      - '.github/workflows/identity-beta-live-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-http:
+    name: Stable HTTPS / CORS / Auth Boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout PR source
+        uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Confirm live Beta and BFF only (no signing)
+        run: bun scripts/check-live-identity-beta.ts
