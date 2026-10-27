@@ -45,7 +45,7 @@ import {sql} from 'drizzle-orm';
 import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } from './services/friendInboxService.js';
 import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
-import { beginXOAuthLink, completeXOAuthLink, XOAuthError } from './services/xOAuthService.js';
+import { beginXOAuthLink, completeXOAuthLink, XOAuthError,checkedXReturnOrigin,buildXLinkedReturnUrl,isConfiguredXOAuth } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
 import { PaymentReviewError } from './services/paymentReviewProof.js';
 import { upsertContact, removeContact, listContacts, ContactError } from './services/contactService.js';
@@ -703,6 +703,16 @@ app.post('/api/identity/verify-payment', IDENTITY_RATE, async (req: Request, res
   }
 });
 
+// Lightweight capability; no X redirects or identity signatures are requested.
+// Returns false until provider credentials and an exact reviewed callback exist.
+app.post('/api/auth/x/capability', IDENTITY_RATE, (req:Request,res:Response):void=>{
+  try {
+    const origin=req.header('origin');
+    checkedXReturnOrigin(origin,[runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
+    res.json({ok:true,available:isConfiguredXOAuth(process.env.X_CLIENT_ID,process.env.X_REDIRECT_URI)});
+  } catch(err){identityError(res,err);}
+});
+
 // ── POST /api/auth/x/start ───────────────────────────────────────────────────
 app.post('/api/auth/x/start', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -713,11 +723,13 @@ app.post('/api/auth/x/start', IDENTITY_RATE, async (req: Request, res: Response)
     }
     const clientId = process.env.X_CLIENT_ID ?? '';
     const redirectUri = process.env.X_REDIRECT_URI ?? '';
+    const appOrigin=checkedXReturnOrigin(req.header('origin'),
+      [runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
     const returnPath = typeof (req.body as Record<string, unknown>).returnPath === 'string'
       ? String((req.body as Record<string, unknown>).returnPath)
       : '/settings';
     const { db } = await import('./db/client.js');
-    const started = await beginXOAuthLink(db, veyraUserId, { clientId, redirectUri, returnPath });
+    const started = await beginXOAuthLink(db, veyraUserId, { clientId, redirectUri, appOrigin, returnPath });
     res.status(201).json({ ok: true, ...started });
   } catch (err) {
     identityError(res, err);
@@ -742,14 +754,12 @@ app.get('/api/auth/x/callback', IDENTITY_RATE, async (req: Request, res: Respons
       clientId,
       clientSecret: process.env.X_CLIENT_SECRET,
     });
-    const appOrigin = process.env.VEYRA_APP_ORIGIN;
-    if (appOrigin) {
-      const target = new URL(completed.returnPath, appOrigin);
-      target.searchParams.set('x_linked', '1');
-      res.redirect(303, target.toString());
-      return;
-    }
-    res.json({ ok: true, profile: completed.profile });
+    // State was created from an exact, server-trusted Origin, then consumed
+    // once. Recheck the current allowlist before redirecting. Never redirect
+    // V2 users silently to the separate primary Testnet account session.
+    const target=buildXLinkedReturnUrl(completed.appOrigin,
+      [runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
+    res.redirect(303,target);
   } catch (err) {
     identityError(res, err);
   }

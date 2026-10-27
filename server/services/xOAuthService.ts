@@ -10,6 +10,30 @@ const X_TOKEN_URL = 'https://api.x.com/2/oauth2/token';
 const X_ME_URL = 'https://api.x.com/2/users/me';
 const STATE_TTL_MS = 10 * 60 * 1000;
 const RETURN_PATH_RE = /^\/[A-Za-z0-9/_?=&.-]*$/;
+const X_CALLBACK_URL = 'https://veyra-testnet-acceptance-bff.onrender.com/api/auth/x/callback';
+const PROVIDER_TIMEOUT_MS=12000;
+
+export function isConfiguredXOAuth(clientId:unknown,redirectUri:unknown):boolean{
+  // Provider credentials stay server-side. The callback cannot be moved to
+  // an arbitrary host by environment variable or by the browser.
+  return typeof clientId==='string'&&clientId.trim().length>0&&clientId.length<=256&&
+    redirectUri===X_CALLBACK_URL;
+}
+
+export function checkedXReturnOrigin(origin:unknown,allowedOrigins:readonly string[]):string{
+  if(typeof origin!=='string'||!/^https:\/\/[a-z0-9.-]+(?::[0-9]{2,5})?$/i.test(origin)||
+    !allowedOrigins.includes(origin))throw new XOAuthError('X_ORIGIN_NOT_ALLOWED','Unapproved X return Origin.',403);
+  return origin;
+}
+
+export function buildXLinkedReturnUrl(appOrigin:string,allowedOrigins:readonly string[]):string{
+  const origin=checkedXReturnOrigin(appOrigin,allowedOrigins);
+  // The SPA is stateful and has no route-level OAuth callback page. Return to
+  // the actual originating host at /; query flag ONLY selects Settings UI.
+  const target=new URL('/',origin);
+  target.searchParams.set('x_linked','1');
+  return target.toString();
+}
 
 export class XOAuthError extends Error {
   constructor(public readonly code: string, message: string, public readonly httpStatus = 400) {
@@ -57,9 +81,9 @@ function cleanReturnPath(value: string | undefined): string {
 export async function beginXOAuthLink(
   db: DbClient,
   veyraUserId: string,
-  input: { clientId: string; redirectUri: string; returnPath?: string },
+  input: { clientId: string; redirectUri: string; appOrigin: string; returnPath?: string },
 ): Promise<{ authorizeUrl: string; expiresAt: string }> {
-  if (!input.clientId || !input.redirectUri) throw new XOAuthError('X_OAUTH_NOT_CONFIGURED', 'X OAuth is not configured', 503);
+  if (!isConfiguredXOAuth(input.clientId,input.redirectUri)) throw new XOAuthError('X_OAUTH_NOT_CONFIGURED', 'X callback must be verified before use.', 503);
   const state = randomBytes(32).toString('base64url');
   const { verifier, challenge } = createPkcePair();
   const issuedAt = new Date();
@@ -73,6 +97,7 @@ export async function beginXOAuthLink(
     codeVerifier: verifier,
     redirectUri: input.redirectUri,
     returnPath: cleanReturnPath(input.returnPath),
+    appOrigin: input.appOrigin,
     issuedAt,
     expiresAt,
   });
@@ -141,7 +166,7 @@ async function exchangeCode(input: {
   if (input.clientSecret) {
     headers.Authorization = `Basic ${Buffer.from(`${input.clientId}:${input.clientSecret}`).toString('base64')}`;
   }
-  const response = await fetch(X_TOKEN_URL, { method: 'POST', headers, body });
+  const response = await fetch(X_TOKEN_URL, { method: 'POST', headers, body,signal:AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
   if (!response.ok) throw new XOAuthError('X_TOKEN_EXCHANGE_FAILED', `X token exchange failed (${response.status})`, 502);
   const token = await response.json() as XTokenResponse;
   if (typeof token.access_token !== 'string' || !token.access_token) {
@@ -153,7 +178,7 @@ async function exchangeCode(input: {
 async function fetchXProfile(accessToken: string): Promise<XIdentityImport> {
   const url = new URL(X_ME_URL);
   url.searchParams.set('user.fields', 'id,name,username,profile_image_url,description');
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` },signal:AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
   if (!response.ok) throw new XOAuthError('X_PROFILE_FETCH_FAILED', `X profile fetch failed (${response.status})`, 502);
   return parseXMeResponse(await response.json());
 }
@@ -161,7 +186,7 @@ async function fetchXProfile(accessToken: string): Promise<XIdentityImport> {
 export async function completeXOAuthLink(
   db: DbClient,
   input: { state: string; code: string; clientId: string; clientSecret?: string },
-): Promise<{ veyraUserId: string; returnPath: string; profile: Awaited<ReturnType<typeof linkXIdentityFromOAuth>> }> {
+): Promise<{ veyraUserId: string; appOrigin: string; returnPath: string; profile: Awaited<ReturnType<typeof linkXIdentityFromOAuth>> }> {
   if (!input.state || !input.code) throw new XOAuthError('INVALID_OAUTH_CALLBACK', 'Missing OAuth state or code');
   const stateHash = hashOAuthState(input.state);
   const now = new Date();
@@ -174,6 +199,7 @@ export async function completeXOAuthLink(
       gt(oauthLinkStates.expiresAt, now),
     )).limit(1);
     if (!candidate) throw new XOAuthError('OAUTH_STATE_INVALID', 'OAuth state is invalid, expired, or already used', 409);
+    if(!candidate.appOrigin)throw new XOAuthError('OAUTH_ORIGIN_MISSING','Legacy OAuth state cannot be resumed. Start again.',409);
 
     const consumed = await tx.update(oauthLinkStates)
       .set({ consumedAt: now })
@@ -195,5 +221,5 @@ export async function completeXOAuthLink(
   });
   const xProfile = await fetchXProfile(accessToken);
   const profile = await linkXIdentityFromOAuth(db, row.veyraUserId, xProfile);
-  return { veyraUserId: row.veyraUserId, returnPath: row.returnPath, profile };
+  return { veyraUserId: row.veyraUserId, appOrigin: row.appOrigin!, returnPath: row.returnPath, profile };
 }

@@ -15,6 +15,9 @@ export const oauthLinkStates = pgTable(
     codeVerifier: text('code_verifier').notNull(),
     redirectUri: text('redirect_uri').notNull(),
     returnPath: text('return_path').notNull().default('/settings'),
+    // Captured only from a checked, exact browser Origin during OAuth start.
+    // Legacy in-flight states lack this field and fail closed on callback.
+    appOrigin: text('app_origin'),
     issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     consumedAt: timestamp('consumed_at', { withTimezone: true }),
