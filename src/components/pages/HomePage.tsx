@@ -1,6 +1,5 @@
 import { useAccount, useReadContract } from 'wagmi';
 import { useState } from 'react';
-import { formatUnits } from 'viem';
 import { ConnectKitButton } from 'connectkit';
 import {
   Activity,
@@ -18,6 +17,8 @@ import {
 import { requireChain, getUsdc, buildTxExplorerUrl } from '@/onchain-facts';
 import { useReceiptStore } from '@/hooks/useReceiptStore';
 import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
+import { formatArcUsdcBalance } from '@/features/balance/arcUsdcBalance';
+import { VEYRA_ENV } from '@/lib/env';
 import type { MyProfile } from '@/lib/api/identityApi';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS, REGISTRY_STATUS_COPY, type RegistryStatus } from '@/config/productRegistry';
 import { BrandLogo } from '../brand/BrandLogo';
@@ -44,17 +45,30 @@ export function HomePage({ onNavigate }: HomePageProps) {
   const usdc = getUsdc(ARC_TESTNET_CHAIN_ID);
   const { receipts, error: receiptError } = useReceiptStore();
 
-  const { data: balanceRaw, isLoading: balanceLoading, refetch } = useReadContract({
+  // This Balance surface reads only pinned Arc Testnet USDC. The connected
+  // wallet's signing network never determines the RPC or contract address.
+  const balanceReadsEnabled = VEYRA_ENV !== 'mainnet' && isConnected && Boolean(address) && Boolean(usdc);
+  const { data: balanceRaw, isLoading: balanceLoading, isFetching: balanceFetching,
+    isError: balanceError, dataUpdatedAt: balanceUpdatedAt, refetch } = useReadContract({
     address: usdc?.address as `0x${string}` | undefined,
     abi: ERC20_BALANCE_OF_ABI,
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
     chainId: ARC_TESTNET_CHAIN_ID,
-    query: { enabled: isConnected && !!address && !!usdc },
+    query: {
+      enabled: balanceReadsEnabled,
+      staleTime: 15_000,
+      refetchInterval: 30_000,
+      refetchIntervalInBackground: false,
+      refetchOnWindowFocus: true,
+      retry: 1,
+    },
   });
 
-  const formattedBalance = balanceRaw != null && usdc
-    ? Number(formatUnits(balanceRaw, usdc.decimals)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  // A failed RPC read, disconnected wallet or inactive environment must never
+  // masquerade as a zero balance. Preserve the full six USDC decimals.
+  const formattedBalance = balanceReadsEnabled && !balanceError && balanceRaw != null
+    ? formatArcUsdcBalance(balanceRaw)
     : null;
   const recentReceipts = receipts.slice(0, 3);
   const profile = identity.profile;
@@ -120,9 +134,13 @@ export function HomePage({ onNavigate }: HomePageProps) {
                 <div className="mt-0.5 text-xs" style={{ color: 'var(--subtle)' }}>{arcChain.name}</div>
               </div>
             </div>
-            {isConnected && (
-              <button onClick={() => void refetch()} className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs" style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>
-                <RefreshCw className="size-3.5" /> Refresh
+            {balanceReadsEnabled && (
+              <button type="button" onClick={() => void refetch()} disabled={balanceFetching}
+                aria-label="Refresh Arc Testnet USDC balance"
+                className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs disabled:opacity-50"
+                style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                <RefreshCw className={`size-3.5 ${balanceFetching ? 'animate-spin' : ''}`} aria-hidden="true" />
+                {balanceFetching ? 'Syncing' : 'Refresh'}
               </button>
             )}
           </div>
@@ -134,18 +152,34 @@ export function HomePage({ onNavigate }: HomePageProps) {
             </div>
           ) : (
             <div className="mt-6 flex items-end justify-between gap-4">
-              <div>
-                {balanceLoading ? (
-                  <div className="h-12 w-44 animate-pulse rounded-xl" style={{ background: 'var(--surface)' }} />
+              <div className="min-w-0">
+                {VEYRA_ENV === 'mainnet' ? (
+                  <p role="status" className="text-sm" style={{ color: 'var(--muted)' }}>Arc Testnet balance is unavailable in Mainnet mode.</p>
+                ) : balanceError || (!balanceLoading && !balanceFetching && formattedBalance === null) ? (
+                  <div role="alert" className="max-w-xs text-sm leading-6" style={{ color: 'var(--warning)' }}>
+                    Balance unavailable. Check your connection and retry. No balance has been assumed.
+                  </div>
+                ) : (balanceLoading || formattedBalance === null) ? (
+                  <div role="status" aria-label="Loading on-chain balance" className="h-12 w-44 animate-pulse rounded-xl" style={{ background: 'var(--surface)' }} />
                 ) : (
-                  <div className="flex items-baseline gap-2">
-                    <span className="display text-4xl font-black tabular-nums md:text-5xl" style={{ color: 'var(--ink)', letterSpacing: '-0.04em' }}>{formattedBalance ?? '—'}</span>
+                  <div className="flex flex-wrap items-baseline gap-2" aria-live="polite" aria-atomic="true">
+                    <span className="display break-all text-4xl font-black tabular-nums md:text-5xl"
+                      style={{ color: 'var(--ink)', letterSpacing: '-0.04em' }}>{formattedBalance}</span>
                     <span className="text-base font-bold" style={{ color: 'var(--muted)' }}>USDC</span>
                   </div>
                 )}
                 <p className="mono mt-2 text-xs" style={{ color: 'var(--subtle)' }}>{shortAddress(address)}</p>
+                {formattedBalance !== null && balanceUpdatedAt > 0 && (
+                  <p className="mt-1 text-[11px]" style={{ color: 'var(--subtle)' }}>
+                    Last chain read {new Date(balanceUpdatedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                )}
               </div>
-              <StatusPill status="ACTIVE" />
+              <span className="shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider"
+                style={{ borderColor: 'var(--border)', background: 'var(--surface)',
+                  color: balanceError ? 'var(--warning)' : formattedBalance !== null ? 'var(--success)' : 'var(--muted)' }}>
+                {VEYRA_ENV === 'mainnet' ? 'Unavailable' : balanceError ? 'Read failed' : formattedBalance !== null ? 'On-chain' : 'Loading'}
+              </span>
             </div>
           )}
         </div>
