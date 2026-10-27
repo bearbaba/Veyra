@@ -69,8 +69,8 @@ describe('Veyra one-page wallet and origin acceptance',()=>{
     expect(social).toContain('<VeyraIdentityAccess/>');
     expect(settings).toContain('getXLinkCapability()');
     expect(settings).toContain("disabled={xCapability!=='available'");
-    expect(read('lib/api/identityApi.ts')).toContain("'POST'");
-    expect(read('lib/api/identityApi.ts')).toContain('AbortSignal.timeout(12000)');
+    expect(file('lib/api/identityApi.ts')).toContain("'POST'");
+    expect(file('lib/api/identityApi.ts')).toContain('AbortSignal.timeout(12000)');
     expect(settings).not.toContain("setXError('Sign in through Social");
     expect(entry).not.toContain('window.location');
     expect(entry).not.toContain('eth_sendTransaction');
