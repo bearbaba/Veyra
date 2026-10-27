@@ -15,7 +15,9 @@ describe('one Veyra friends-to-payment review',()=>{
     const pay=read('components/pages/PayPage.tsx');
     expect(pay).toContain('setPendingAction(null);');
     expect(pay).toContain('setPreparedRecipient(null);');
-    expect(pay).toContain('await preparePaymentRecipient(recipient, ARC_TESTNET_CHAIN_ID, sessionToken!)');
+    expect(pay).toContain('preparePaymentRecipient(recipient, ARC_TESTNET_CHAIN_ID, sessionToken!)');
+    expect(pay).toContain('Promise.race([');
+    expect(pay).toContain('Recipient verification timed out');
     expect(pay).toContain('TransactionReviewSheet');
   });
 });

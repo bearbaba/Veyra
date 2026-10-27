@@ -22,8 +22,8 @@ describe('Phase 19 — verified Arc USDC balance display',()=>{
     expect(home).toContain("VEYRA_ENV !== 'mainnet'");
     expect(home).toContain('!balanceError && balanceRaw != null');
     expect(home).toContain('formatArcUsdcBalance(balanceRaw)');
-    expect(home).toContain('Balance unavailable. Check your connection and retry.');
-    expect(home).toContain("formattedBalance !== null ? 'On-chain' : 'Loading'");
+    expect(home).toContain('Balance unavailable. Your funds have not been assumed to be zero. Try Refresh.');
+    expect(home).toContain('balanceLoading || formattedBalance===null');
     expect(home).not.toContain('Number(formatUnits(balanceRaw');
     expect(home).not.toContain('writeContract');
     expect(home).not.toContain('signMessage');
@@ -33,7 +33,7 @@ describe('Phase 19 — verified Arc USDC balance display',()=>{
     expect(home).toContain('refetchInterval: 30_000');
     expect(home).toContain('refetchOnWindowFocus: true');
     expect(home).toContain('disabled={balanceFetching}');
-    expect(home).toContain('Last chain read');
-    expect(home).toContain("'Read failed'");
+    expect(home).toContain('Last read');
+    expect(home).toContain('role="alert"');
   });
 });

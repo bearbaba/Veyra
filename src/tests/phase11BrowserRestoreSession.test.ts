@@ -42,7 +42,7 @@ describe('Secure browser restored identity after F5',()=>{
     expect(social).toContain('const signOut=useCallback');
     expect(social).toContain("'/api/auth/session/logout'");
     expect(api).not.toContain('localStorage');
-    expect(home).toContain('Sign-in required');
+    expect(home).toContain('Sign in to your Veyra ID');
   });
   it('suppresses cookie restore during explicit logout and uses one awaited request',()=>{
     const social=read('features/social/UnifiedSocial.tsx');
