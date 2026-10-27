@@ -106,6 +106,14 @@ async function verify() {
   assert.equal(hostile.status, 403, 'Hostile Origin must be rejected before route execution');
   assert.equal(hostile.headers.get('cache-control'), 'no-store', '403 Origin rejection must not be cached');
 
+  // Signed Chat capability is an independently gated, non-financial service.
+  assert.equal((await http('/api/social/chat/capability')).status,401);
+  const chatReady=await http('/api/social/chat/capability',alice);
+  assert.equal(chatReady.status,200,JSON.stringify(chatReady.data));
+  assert.equal(chatReady.data.available,true,'CI BFF must use a disposable encryption key');
+  assert.equal(chatReady.data.endToEndEncrypted,false,'Do not misrepresent encryption-at-rest as E2EE');
+  assert.equal((await http('/api/social/chat/capability',alice,undefined,{origin:'https://evil.example'})).status,403);
+  assert.equal((await http('/api/social/chat?peerUserId='+USER_B,alice)).status,403,'Not friends yet');
   const initial = await http('/api/social/friends', alice);
   assert.equal(initial.status, 200, JSON.stringify(initial.data));
   assert.deepEqual(initial.data.items, []);
@@ -158,15 +166,72 @@ async function verify() {
   const connected = await http('/api/social/friends', alice);
   assert.equal((connected.data.items as Array<{state:string}>)[0]?.state, 'CONNECTED');
 
+  // Phase 16: actual HTTP -> PostgreSQL -> HTTP authenticated Chat.
+  const requestId='11111111-2222-4333-8444-555555555555';
+  const plaintext='The real CI-only encrypted message from Alice to Bob.';
+  const outgoingChat=await http('/api/social/chat/send',alice,{
+    peerUserId:USER_B,body:plaintext,clientRequestId:requestId,
+  });
+  assert.equal(outgoingChat.status,200,JSON.stringify(outgoingChat.data));
+  assert.equal(outgoingChat.data.created,true);
+  assert.equal(typeof outgoingChat.data.messageId,'string');
+  const duplicateChat=await http('/api/social/chat/send',alice,{
+    peerUserId:USER_B,body:plaintext,clientRequestId:requestId,
+  });
+  assert.equal(duplicateChat.status,200);
+  assert.equal(duplicateChat.data.created,false);
+  assert.equal(duplicateChat.data.messageId,outgoingChat.data.messageId);
+  const conflictingChat=await http('/api/social/chat/send',alice,{
+    peerUserId:USER_B,body:'Different text with the same request ID',clientRequestId:requestId,
+  });
+  assert.equal(conflictingChat.status,409,'Same idempotency key MUST NOT confirm different contents');
+  assert.equal((await http('/api/social/chat?peerUserId='+USER_B,undefined)).status,401);
+  assert.equal((await http('/api/social/chat?peerUserId='+USER_B,stranger)).status,403);
+  assert.equal((await http('/api/social/chat/send',stranger,{
+    peerUserId:USER_B,body:'No friendship',clientRequestId:'11111111-2222-4333-8444-555555555556',
+  })).status,403);
+  const bobChat=await http('/api/social/chat?peerUserId='+USER_A,bob);
+  const aliceChat=await http('/api/social/chat?peerUserId='+USER_B,alice);
+  assert.equal(bobChat.status,200,JSON.stringify(bobChat.data));
+  assert.deepEqual(bobChat.data.items,aliceChat.data.items);
+  assert.equal((bobChat.data.items as Array<{body:string}>)[0]?.body,plaintext);
+  const bobAfterChat=await http('/api/notifications',bob);
+  assert.equal(bobAfterChat.data.unreadCount,1);
+  const notice=(bobAfterChat.data.items as Array<{kind:string;actorUserId:string;eventRef:string}>)
+    .filter(item=>item.kind==='MESSAGE');
+  assert.equal(notice.length,1,'Retry MUST NOT produce two MESSAGE notifications');
+  assert.equal(notice[0]?.actorUserId,USER_A);
+  assert.equal(notice[0]?.eventRef,outgoingChat.data.messageId);
+  // Read raw persisted record: ciphertext only. Neither body nor the notification
+  // table may contain unencrypted message content.
+  const dbPool=new Pool({connectionString:databaseUrl(assertEphemeralCiOnly()),max:1});
+  try{
+    const rows=await dbPool.query<{ciphertext:string;iv:string;auth_tag:string}>(
+      'SELECT ciphertext,iv,auth_tag FROM veyra_direct_messages WHERE sender_user_id=$1',[USER_A],
+    );
+    assert.equal(rows.rowCount,1);
+    assert.ok(!JSON.stringify(rows.rows).includes(plaintext),'Plaintext must never be stored');
+    assert.equal(rows.rows[0]?.iv.length,16);
+    assert.equal(rows.rows[0]?.auth_tag.length,24);
+  }finally{await dbPool.end();}
+
   const block = await http('/api/social/block', bob, { veyraUserId: USER_A });
   assert.equal(block.status, 200, JSON.stringify(block.data));
   assert.deepEqual((await http('/api/social/friends', alice)).data.items, []);
   assert.deepEqual((await http('/api/social/friends', bob)).data.items, []);
+  assert.equal((await http('/api/social/chat?peerUserId='+USER_A,bob)).status,403,
+    'Block must immediately revoke reading existing Chat history');
+  assert.equal((await http('/api/social/chat/send',alice,{
+    peerUserId:USER_B,body:'Must not deliver after block',
+    clientRequestId:'11111111-2222-4333-8444-555555555557',
+  })).status,403,'Block in either direction must reject sends');
 
   const unblock = await http('/api/social/unblock', bob, { veyraUserId: USER_A });
   assert.equal(unblock.status, 200, JSON.stringify(unblock.data));
   assert.deepEqual((await http('/api/social/friends', alice)).data.items, [],
     'Unblock must not restore an old friendship');
+  assert.equal((await http('/api/social/chat?peerUserId='+USER_B,alice)).status,403,
+    'Unblocking must not silently restore the Chat trust boundary');
 
   const renewed = await http('/api/social/friend/request', bob, { veyraUserId: USER_A });
   assert.equal(renewed.status, 200, JSON.stringify(renewed.data));
@@ -177,7 +242,7 @@ async function verify() {
   // identity header. Session-protected results expose only pair state and ID.
   const result = JSON.stringify(freshRequest.data);
   assert.ok(!result.includes('walletAddress') && !result.includes('balance'));
-  console.log('Hosted BFF authenticated HTTP + PostgreSQL Friends + owner-private notification lifecycle: PASS');
+  console.log('Hosted BFF signed HTTP + PostgreSQL: Friends, encrypted Chat, idempotency, MESSAGE notices, block isolation PASS');
 }
 
 const operation = process.argv[2];
