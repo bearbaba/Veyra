@@ -36,6 +36,8 @@ import { generateExecutionReceiptId } from '../core/receipt/receiptId';
 import type { VeyraReceipt } from '../core/receipt/receiptTypes';
 import { IS_UI_ONLY_PREVIEW, VEYRA_ENV } from '../lib/env';
 import { assertExecutionReady } from '../core/execution/executionReadiness';
+import { simulateCctpSourceBurn, simulateExactCctpApproval } from '../core/execution/cctpSourceSimulation';
+import { evaluateBridgeAction } from '../core/pipeline/bridgePipeline';
 import { saveReceipt } from '../core/receipt/receiptStore';
 import {
   bridgeCheckpointBelongsToWallet,
@@ -518,6 +520,11 @@ export function useBridgeExecution() {
 
       let approveTxHash: Hash | undefined;
       if (allowance < action.amount) {
+        // An approval is an independent token-spend authorization: require an
+        // actual eth_call of exact amount before opening a wallet transaction.
+        if (await walletClient.getChainId() !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID)
+          throw new Error('Wallet changed from Arc Testnet before CCTP approval.');
+        await simulateExactCctpApproval(sourcePublicClient, action);
         setState({ phase: 'APPROVING' });
         approveTxHash = await approveTokenMessenger(
           walletClient,
@@ -570,6 +577,25 @@ export function useBridgeExecution() {
         createdAt: checkpointCreatedAt,
       };
 
+      // After allowance confirmation, do the REAL exact depositForBurn eth_call
+      // immediately before the irreversible wallet burn. Preflight provider
+      // health is not transaction simulation and can never substitute for it.
+      const burnSimulation = await simulateCctpSourceBurn(sourcePublicClient, action);
+      if (burnSimulation.status !== 'READY') {
+        throw new Error(burnSimulation.status === 'BLOCKED'
+          ? burnSimulation.reason
+          : 'USDC allowance changed before CCTP burn; no burn was submitted.');
+      }
+      const freshEvaluation = evaluateBridgeAction(action, burnSimulation.proof);
+      if (!freshEvaluation.canProceed) {
+        throw new Error(freshEvaluation.blockedReason ?? 'Bridge policy rejected the fresh CCTP simulation.');
+      }
+      if (await walletClient.getChainId() !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID)
+        throw new Error('Wallet changed from Arc Testnet after CCTP simulation; no burn was submitted.');
+      assertExecutionReady({
+        action, providerId: 'cctp-v2-bridge', providerCapability: 'BRIDGE',
+        assetAddress: action.tokenAddress, runtimeEnvironment: VEYRA_ENV,
+      });
       setState({ phase: 'BURNING', approveTxHash });
 
       // Lock the deterministic action against a second fresh execution before

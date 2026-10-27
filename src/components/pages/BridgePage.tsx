@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useAccount } from 'wagmi';
+import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
 import { Globe, AlertTriangle, Info, ArrowRight, Loader2, CheckCircle, Lock } from 'lucide-react';
 import { isAddress, parseUnits, type Address } from 'viem';
 import {
@@ -25,6 +25,12 @@ import {
 import { selectBridgeRoutes } from '../../core/router/routeEngine';
 import { cctpV2BridgeProvider } from '../../providers/cctp/cctpBridgeProvider';
 import type { PreflightResult } from '../../providers/bridge/bridgeProviderTypes';
+import type { BridgeAction } from '../../core/actions/actionSchema';
+import { simulateCctpSourceBurn, simulateExactCctpApproval } from '../../core/execution/cctpSourceSimulation';
+import { approveTokenMessenger } from '../../providers/cctp/cctpV2Adapter';
+import { assertExecutionReady } from '../../core/execution/executionReadiness';
+import { IS_UI_ONLY_PREVIEW, VEYRA_ENV } from '../../lib/env';
+import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 import {
   createBridgeActivityReceiptRemote,
 } from '../../lib/api/activityReceiptApi';
@@ -44,6 +50,8 @@ const CCTP_LIFECYCLE_READY = CCTP_ENTRY?.lifecycleStage === 'ENABLED' && CCTP_EN
 type BridgeState =
   | { phase: 'INPUT' }
   | { phase: 'EVALUATING' }
+  | { phase: 'APPROVAL_REQUIRED'; action: BridgeAction }
+  | { phase: 'APPROVING_USDC' }
   | { phase: 'BLOCKED'; reason: string }
   | {
       phase: 'REVIEW';
@@ -64,7 +72,10 @@ const DESTINATION_CHAINS = [
 ];
 
 export function BridgePage() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, chainId } = useAccount();
+  const { data: walletClient } = useWalletClient();
+  const sourcePublicClient = usePublicClient({ chainId: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID });
+  const social = useUnifiedSocial();
   const bridgeExecution = useBridgeExecution();
 
   const [amount, setAmount] = useState('');
@@ -118,6 +129,16 @@ export function BridgePage() {
 
   async function handleEvaluate() {
     if (!address || !amount || !recipientAddress) return;
+    if (IS_UI_ONLY_PREVIEW || VEYRA_ENV === 'mainnet' ||
+        social.identityOrigin !== 'ready' || !social.session) {
+      setBridgeState({ phase: 'BLOCKED',
+        reason: 'Bridge needs an authorized Veyra ID session and backend origin. This Preview cannot approve or burn USDC. Open an approved Testnet release.' });
+      return;
+    }
+    if (!sourcePublicClient) {
+      setBridgeState({ phase: 'BLOCKED', reason: 'Arc Testnet RPC unavailable. Bridge simulation cannot run.' });
+      return;
+    }
 
     // Match the Agent handoff requirements and reject invalid manual drafts
     // before spending RPC quota on route selection.
@@ -179,7 +200,16 @@ export function BridgePage() {
         from: address,
         tokenDecimals: 6,
       });
-      const evaluation = evaluateBridgeAction(action);
+      const simulation = await simulateCctpSourceBurn(sourcePublicClient, action);
+      if (simulation.status === 'APPROVAL_REQUIRED') {
+        setBridgeState({ phase: 'APPROVAL_REQUIRED', action });
+        return;
+      }
+      if (simulation.status === 'BLOCKED') {
+        setBridgeState({ phase: 'BLOCKED', reason: simulation.reason });
+        return;
+      }
+      const evaluation = evaluateBridgeAction(action, simulation.proof);
 
       if (!evaluation.canProceed) {
         setBridgeState({
@@ -207,6 +237,11 @@ export function BridgePage() {
     review: Extract<BridgeState, { phase: 'REVIEW' }>,
   ) {
     if (!address) return;
+    if (IS_UI_ONLY_PREVIEW || VEYRA_ENV === 'mainnet' ||
+        social.identityOrigin !== 'ready' || !social.session || !sourcePublicClient) {
+      setBridgeState({ phase: 'BLOCKED', reason: 'Bridge backend authorization and source RPC must be ready before execution.' });
+      return;
+    }
 
     setBridgeState({ phase: 'EVALUATING' });
 
@@ -254,7 +289,12 @@ export function BridgePage() {
         from: address,
         tokenDecimals: review.evaluation.action.tokenDecimals,
       });
-      const executionEvaluation = evaluateBridgeAction(executionAction);
+      const simulation = await simulateCctpSourceBurn(sourcePublicClient, executionAction);
+      if (simulation.status !== 'READY') {
+        throw new Error(simulation.status === 'BLOCKED' ? simulation.reason
+          : 'CCTP allowance changed since review. Approve again, then review a fresh route.');
+      }
+      const executionEvaluation = evaluateBridgeAction(executionAction, simulation.proof);
       if (!executionEvaluation.canProceed) {
         throw new Error(
           executionEvaluation.blockedReason ??
@@ -298,6 +338,49 @@ export function BridgePage() {
             ? error.message
             : 'Could not create the durable Veyra activity receipt.',
       });
+    }
+  }
+
+  async function handleApproveExactUsdc(
+    review: Extract<BridgeState, { phase: 'APPROVAL_REQUIRED' }>,
+  ) {
+    const action = review.action;
+    // Approval is a separate real on-chain permission. Never issue it from
+    // blocked Preview, a stale wallet/session or the wrong chain.
+    if (IS_UI_ONLY_PREVIEW || VEYRA_ENV === 'mainnet' ||
+        social.identityOrigin !== 'ready' || !social.session ||
+        !address || !walletClient || !sourcePublicClient ||
+        address.toLowerCase() !== action.from.toLowerCase() ||
+        walletClient.account?.address.toLowerCase() !== action.from.toLowerCase()) {
+      setBridgeState({ phase: 'BLOCKED', reason: 'Cannot approve without an authorized Veyra ID, exact wallet and Arc Testnet RPC.' });
+      return;
+    }
+    if (chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID) {
+      setBridgeState({ phase: 'BLOCKED', reason: 'Switch your wallet to Arc Testnet before approving USDC. Nothing was submitted.' });
+      return;
+    }
+    setBridgeState({ phase: 'APPROVING_USDC' });
+    try {
+      if (await walletClient.getChainId() !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID)
+        throw new Error('Wallet chain changed before approval. No approval was submitted.');
+      assertExecutionReady({
+        action,providerId:'cctp-v2-bridge',providerCapability:'BRIDGE',
+        assetAddress:action.tokenAddress,runtimeEnvironment:VEYRA_ENV,
+      });
+      const fresh=await simulateCctpSourceBurn(sourcePublicClient,action);
+      if (fresh.status === 'BLOCKED') throw new Error(fresh.reason);
+      if (fresh.status === 'READY') {
+        await handleEvaluate();
+        return;
+      }
+      await simulateExactCctpApproval(sourcePublicClient,action);
+      // The adapter submits exactly action.amount allowance; wallet explicitly
+      // signs this separate approval and the confirmation receipt is checked.
+      await approveTokenMessenger(walletClient,sourcePublicClient,action);
+      await handleEvaluate(); // New route, new eth_call, new policy review.
+    } catch (error) {
+      setBridgeState({ phase:'FAILED',
+        error:error instanceof Error?error.message:'USDC approval was not confirmed. Check your wallet activity before retrying.' });
     }
   }
 
@@ -444,6 +527,32 @@ export function BridgePage() {
             ) : 'Review bridge'}
           </button>
         </>
+      ) : bridgeState.phase === 'APPROVAL_REQUIRED' ? (
+        <div className="space-y-3 rounded-2xl border p-4" style={{ borderColor:'var(--border-strong)', background:'var(--surface)' }}>
+          <div className="flex items-start gap-2">
+            <Info className="mt-0.5 size-4 shrink-0" style={{ color:'var(--accent)' }}/>
+            <div>
+              <p className="text-sm font-bold" style={{ color:'var(--ink)' }}>USDC allowance required</p>
+              <p className="mt-1 text-xs leading-5" style={{ color:'var(--muted)' }}>
+                Before Veyra can simulate the exact CCTP burn, authorize only {amount} USDC for Circle TokenMessengerV2 on Arc Testnet.
+                This approval is a separate wallet transaction. No bridge burn will occur now.
+              </p>
+            </div>
+          </div>
+          <button type="button" onClick={() => void handleApproveExactUsdc(bridgeState)}
+            className="w-full rounded-xl py-3 text-sm font-bold"
+            style={{ background:'var(--accent)', color:'#0d1b2f' }}>
+            Approve exactly {amount} USDC
+          </button>
+          <button type="button" onClick={() => setBridgeState({phase:'INPUT'})}
+            className="w-full rounded-xl border py-2 text-xs"
+            style={{ borderColor:'var(--border)', color:'var(--muted)' }}>Back / edit details</button>
+        </div>
+      ) : bridgeState.phase === 'APPROVING_USDC' ? (
+        <div role="status" className="flex items-center gap-2 rounded-xl border p-4 text-sm"
+          style={{ borderColor:'var(--border)', color:'var(--muted)' }}>
+          <Loader2 className="size-4 animate-spin"/> Waiting for your exact-amount USDC approval in the wallet…
+        </div>
       ) : bridgeState.phase === 'REVIEW' ? (
         <BridgeReviewCard
           evaluation={bridgeState.evaluation}
