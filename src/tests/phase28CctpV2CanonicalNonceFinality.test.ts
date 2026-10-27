@@ -37,7 +37,7 @@ describe('Phase 28: CCTP V2 signed message differs only in assigned nonce/finali
     expect(check(CCTP_V2_SOURCE_TEMPLATE,CCTP_V2_SOURCE_TEMPLATE)).toBe(false);
     expect(check(mutate(CCTP_V2_SOURCE_TEMPLATE,12,'aa'),CCTP_V2_ATTESTED_MESSAGE)).toBe(false);
     expect(check(mutate(CCTP_V2_SOURCE_TEMPLATE,144,'aa'),CCTP_V2_ATTESTED_MESSAGE)).toBe(false);
-    expect(check(mutate(CCTP_V2_SOURCE_TEMPLATE,140,'00'),CCTP_V2_ATTESTED_MESSAGE)).toBe(false);
+    expect(check(mutate(CCTP_V2_SOURCE_TEMPLATE,140,'ff'),CCTP_V2_ATTESTED_MESSAGE)).toBe(false);
     expect(check('0xdeadbeef','0xdeadbeef')).toBe(false);
     expect(check('0xabc',CCTP_V2_ATTESTED_MESSAGE)).toBe(false);
   });
