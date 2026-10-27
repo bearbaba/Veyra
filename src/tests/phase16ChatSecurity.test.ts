@@ -50,6 +50,13 @@ describe('Phase 16: real friend Chat with encrypted storage, never fake E2EE',()
     expect(svc).toContain('await requireFriend(db,owner,peer);');
     expect(svc).toContain("onConflictDoNothing({target:[directMessages.senderUserId,directMessages.clientRequestId]})");
     expect(svc).toContain("kind:'MESSAGE'");
+    expect(svc).toContain("decryptMessage(previous,key)!==text");
+    expect(svc).toContain("'MESSAGE_REQUEST_CONFLICT'");
+    const ci=file('scripts/ci-hosted-social-http.ts');
+    expect(ci).toContain('outgoingChat.data.created,true');
+    expect(ci).toContain('bobAfterChat.data.unreadCount,1');
+    expect(ci).toContain('ciphertext,iv,auth_tag FROM veyra_direct_messages');
+    expect(ci).toContain('Block must immediately revoke reading existing Chat history');
     expect(sql).toContain('UNIQUE(sender_user_id, client_request_id)');
     expect(sql).not.toContain('body_plaintext');
     expect(src).toContain('not end-to-end');

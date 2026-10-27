@@ -88,10 +88,15 @@ export async function sendDirectMessage(db:DbClient,owner:string,peer:unknown,in
       });
       return {messageId,created:true};
     }
-    const [previous]=await tx.select({messageId:directMessages.messageId,recipientUserId:directMessages.recipientUserId})
-      .from(directMessages).where(and(eq(directMessages.senderUserId,owner),eq(directMessages.clientRequestId,requestId))).limit(1);
-    if(!previous||previous.recipientUserId!==peer)
-      throw new DirectMessageError('MESSAGE_REQUEST_CONFLICT','Message request ID belongs to a different conversation.',409);
+    const [previous]=await tx.select({
+      messageId:directMessages.messageId,senderUserId:directMessages.senderUserId,
+      recipientUserId:directMessages.recipientUserId,ciphertext:directMessages.ciphertext,
+      iv:directMessages.iv,authTag:directMessages.authTag,
+    }).from(directMessages).where(and(eq(directMessages.senderUserId,owner),eq(directMessages.clientRequestId,requestId))).limit(1);
+    // An idempotency key is bound to the precise message contents and peer.
+    // Returning the earlier ID for changed text would falsely confirm delivery.
+    if(!previous||previous.recipientUserId!==peer||decryptMessage(previous,key)!==text)
+      throw new DirectMessageError('MESSAGE_REQUEST_CONFLICT','This request ID was already used for different message content.',409);
     return {messageId:previous.messageId,created:false};
   });
   return {ok:true,...result};

@@ -256,6 +256,8 @@ jobs:
         env:
           # Test-only fixture secret, never used outside GitHub's disposable CI database.
           VEYRA_SESSION_SECRET: '01234567890123456789012345678901'
+          # CI fixture only. Never use this key or any CI seed with the Render database.
+          VEYRA_CHAT_ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
         run: |
           # Bootstrap a fresh, isolated database and apply the real migration runner.
           bun scripts/ci-hosted-social-http.ts bootstrap
@@ -271,6 +273,7 @@ jobs:
             -e VEYRA_DATABASE_PRIVATE_NETWORK=1 \
             -e VEYRA_APP_ORIGIN=https://veyra.example \
             -e VEYRA_SESSION_SECRET \
+            -e VEYRA_CHAT_ENCRYPTION_KEY \
             -e DATABASE_URL=postgres://postgres:postgres@pg.testnet.internal:5432/veyra_hosted_http_ci \
             -e PORT=3001 \
             veyra-bff:ci
