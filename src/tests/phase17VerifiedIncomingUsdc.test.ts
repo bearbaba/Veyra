@@ -26,33 +26,33 @@ function fixture(options:{wrongChain?:boolean;receipt?:Record<string,unknown>;lo
   const db={
     select:()=>({
       from:()=>({
-        innerJoin:()=>({where:()=>({limit:async()=>[wallet]})}),
-        where:()=>({limit:async()=>cursor===undefined?[]:[{lastVerifiedBlock:cursor}]}),
+        innerJoin:()=>({where:()=>({limit:()=>Promise.resolve([wallet])})}),
+        where:()=>({limit:()=>Promise.resolve(cursor===undefined?[]:[{lastVerifiedBlock:cursor}])}),
       }),
     }),
-    transaction:async(fn:(tx:unknown)=>Promise<number>)=>{
+    transaction:(fn:(tx:unknown)=>Promise<number>)=>{
       const tx={
         insert:()=>({
           values:(value:Record<string,unknown>)=>({
             onConflictDoNothing:()=>({
-              returning:async()=>{
+              returning:()=>{
                 if('incomingId' in value){
-                  if(events.some(item=>item.txHash===value.txHash&&item.logIndex===value.logIndex))return [];
-                  events.push(value);added++;return [{incomingId:value.incomingId}];
+                  if(events.some(item=>item.txHash===value.txHash&&item.logIndex===value.logIndex))return Promise.resolve([]);
+                  events.push(value);added++;return Promise.resolve([{incomingId:value.incomingId}]);
                 }
                 if('notificationId' in value)alertCount++;
-                return [];
+                return Promise.resolve([]);
               },
             }),
-            onConflictDoUpdate:async()=>{cursor=Number(value.lastVerifiedBlock);},
+            onConflictDoUpdate:()=>{cursor=Number(value.lastVerifiedBlock);return Promise.resolve();},
           }),
         }),
       };
       return fn(tx);
     },
   } as unknown as DbClient;
-  const fetchImpl=vi.fn(async(_url:string,init?:RequestInit)=>{
-    const body=JSON.parse(String(init?.body)) as {id:number;method:string;params:unknown[]};
+  const fetchImpl=vi.fn((_url:string,init?:RequestInit)=>{
+    const body=JSON.parse(typeof init?.body==='string'?init.body:'{}') as {id:number;method:string;params:unknown[]};
     const responses:Record<string,unknown>={
       eth_chainId:'0x'+(options.wrongChain?1:ARC_CHAIN_ID).toString(16),
       eth_blockNumber:'0x100',
@@ -61,7 +61,7 @@ function fixture(options:{wrongChain?:boolean;receipt?:Record<string,unknown>;lo
       eth_getBlockByNumber:options.canonical??{hash:blockHash,number:'0xe7'},
     };
     const reply={jsonrpc:'2.0',id:options.badId?body.id+1:body.id,result:responses[body.method]};
-    return {ok:true,json:async()=>reply} as Response;
+    return Promise.resolve({ok:true,json:()=>Promise.resolve(reply)} as Response);
   }) as unknown as typeof fetch;
   return {db,fetchImpl,fetchCalls:fetchImpl,events,get cursor(){return cursor;},
     get added(){return added;},get alertCount(){return alertCount;}};
@@ -109,7 +109,10 @@ describe('Phase 17: verified Arc Testnet inbound USDC, no browser payment claims
     expect(ctx.cursor).toBe(232);
     expect(ctx.alertCount).toBe(1);
     const calls=(ctx.fetchCalls as unknown as ReturnType<typeof vi.fn>).mock.calls
-      .map((entry:unknown[])=>JSON.parse(String((entry[1] as RequestInit).body)) as {method:string;params:unknown[]});
+      .map((entry:unknown[])=>{
+        const body=(entry[1] as RequestInit).body;
+        return JSON.parse(typeof body==='string'?body:'{}') as {method:string;params:unknown[]};
+      });
     const filters=calls.find(item=>item.method==='eth_getLogs');
     expect(filters?.params[0]).toMatchObject({address:ARC_USDC,topics:[TRANSFER_TOPIC,null,recipientTopic(addr)]});
     // A second scan of the same finalized range is a no-op.
@@ -119,7 +122,7 @@ describe('Phase 17: verified Arc Testnet inbound USDC, no browser payment claims
   it('does not request chain data if owner has no Arc active wallet; rejects unsafe RPC URLs',async()=>{
     const ctx=fixture();
     const noWallet={
-      select:()=>({from:()=>({innerJoin:()=>({where:()=>({limit:async()=>[]})})})}),
+      select:()=>({from:()=>({innerJoin:()=>({where:()=>({limit:()=>Promise.resolve([])})})})}),
     } as unknown as DbClient;
     expect((await reconcileIncomingUsdc(noWallet,owner,env,ctx.fetchImpl)).checked).toBe(0);
     expect(ctx.fetchCalls).not.toHaveBeenCalled();
