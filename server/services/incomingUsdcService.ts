@@ -173,7 +173,7 @@ export async function reconcileIncomingUsdc(db:DbClient,owner:string,
       await tx.insert(incomingUsdcCursors).values({
         walletId:wallet.walletId,chainId:ARC_CHAIN_ID,lastVerifiedBlock:end,
       }).onConflictDoUpdate({target:incomingUsdcCursors.walletId,
-        set:{lastVerifiedBlock:sql\`greatest(\${incomingUsdcCursors.lastVerifiedBlock},\${end})\`,
+        set:{lastVerifiedBlock:sql`greatest(${incomingUsdcCursors.lastVerifiedBlock},${end})`,
           updatedAt:new Date()}});
       return newCount;
     });
