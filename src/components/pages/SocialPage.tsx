@@ -1,8 +1,9 @@
-import {useState} from 'react';
+import {useEffect,useState} from 'react';
 import {Bell,Users,MessageCircle,RefreshCw,MoreHorizontal} from 'lucide-react';
 import {friendLabel,useUnifiedSocial} from '../../features/social/UnifiedSocial';
 import {actionableFriendRequest,notificationActorName,notificationDescription,notificationTitle} from '../../features/social/notificationPresentation';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
+import {FriendChat} from '../../features/social/FriendChat';
 
 export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
   const social=useUnifiedSocial();
@@ -13,6 +14,28 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
   const [friendFilter,setFriendFilter]=useState<'all'|'connected'|'pending'>('all');
   const [friendSearch,setFriendSearch]=useState('');
   const [noticeFilter,setNoticeFilter]=useState<'all'|'unread'>('all');
+  const [chatPeerId,setChatPeerId]=useState<string|null>(null);
+  const [chatEnabled,setChatEnabled]=useState(false);
+  const token=social.session?.token;
+  // Old backends and missing encryption configuration must not enable Chat.
+  useEffect(()=>{
+    setChatEnabled(false);setChatPeerId(null);
+    if(!token||social.identityOrigin!=='ready')return;
+    const controller=new AbortController();
+    const timer=window.setTimeout(()=>controller.abort(),10000);
+    void fetch('/api/social/chat/capability',{
+      headers:{Accept:'application/json',Authorization:'Bearer '+token},
+      credentials:'same-origin',cache:'no-store',signal:controller.signal,
+    }).then(async response=>{
+      if(!response.ok||!response.headers.get('content-type')?.includes('application/json'))return false;
+      const value:unknown=await response.json();
+      return Boolean(value&&typeof value==='object'&&
+        'ok' in value&&value.ok===true&&'available' in value&&value.available===true);
+    }).then(ok=>{if(!controller.signal.aborted)setChatEnabled(ok);})
+      .catch(()=>setChatEnabled(false))
+      .finally(()=>window.clearTimeout(timer));
+    return()=>{window.clearTimeout(timer);controller.abort();};
+  },[token,social.identityOrigin]);
   const filteredNotices=social.notices.filter(item=>noticeFilter==='all'||!item.readAt);
   const acceptNotice=async(id:string,notificationId:string)=>{
     if(await social.respond(id,'ACCEPT'))await social.markRead(notificationId);
@@ -25,7 +48,7 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
   return <div className="mx-auto max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
     <header><p className="text-xs font-bold uppercase tracking-widest" style={{color:'var(--accent)'}}>Veyra Social</p>
       <h1 className="display mt-2 text-3xl font-black">Friends & notifications</h1>
-      <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Invite by Veyra ID, accept requests and pay connected friends. X import and private messaging are not enabled yet.</p></header>
+      <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Invite by Veyra ID, accept requests, pay and message your verified friends. X linking is enabled only after provider approval.</p></header>
     {social.error&&<p role="alert" className="rounded-xl border p-3 text-sm" style={{borderColor:'var(--danger)',color:'var(--danger)'}}>{social.error}</p>}
     {social.message&&<p role="status" className="rounded-xl border p-3 text-sm" style={{borderColor:'var(--success)',color:'var(--success)'}}>{social.message}</p>}
     {!social.session?<VeyraIdentityAccess/>:<>
@@ -86,8 +109,11 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
                   {item.state==='CONNECTED'&&item.veyraHandle&&<>
                     <button type="button" disabled={social.busy} onClick={()=>onPayFriend(friendLabel(item))}
                       className="rounded-lg border px-3 py-1.5 text-xs font-semibold" style={{borderColor:'var(--accent)',color:'var(--accent)'}}>Pay</button>
-                    <button type="button" disabled title="Private messaging requires a verified, encrypted backend. It is not enabled yet."
-                      className="rounded-lg border px-3 py-1.5 text-xs opacity-50" style={{borderColor:'var(--border)'}}>Chat</button>
+                    <button type="button" disabled={!chatEnabled}
+                      title={chatEnabled?'Open friend messages':'Messaging will be available after the encrypted backend is configured.'}
+                      onClick={()=>{setChatPeerId(item.veyraUserId);setProfileId(null);}}
+                      className="rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
+                      style={{borderColor:'var(--border)',color:'var(--ink)'}}>Chat</button>
                   </>}
                 </div>
               </div>
@@ -145,10 +171,17 @@ export function SocialPage({onPayFriend}:{onPayFriend:(handle:string)=>void}){
             style={{borderColor:'var(--border)'}}>{social.loadingMoreNotices?'Loading history…':'Load older notifications'}</button>}
         </section>
       </div>
-      <section className="rounded-2xl border p-5" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
-        <h2 className="flex items-center gap-2 font-bold"><MessageCircle size={18}/> Private conversations</h2>
-        <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Messaging is not enabled: authenticated encryption, key recovery and abuse protections must pass testing first. No messages are fabricated or transmitted here.</p>
-      </section>
+      {chatEnabled && chatPeerId && social.friends.some(item=>item.veyraUserId===chatPeerId&&item.state==='CONNECTED') && (
+        <FriendChat key={social.session.profile.veyraUserId+':'+chatPeerId}
+          token={social.session.token}
+          ownerId={social.session.profile.veyraUserId}
+          friend={social.friends.find(item=>item.veyraUserId===chatPeerId)!}
+          onClose={()=>setChatPeerId(null)}/>
+      )}
+      {!chatEnabled && <section className="rounded-2xl border p-5" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+        <h2 className="flex items-center gap-2 font-bold"><MessageCircle size={18}/> Friends chat</h2>
+        <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Secure messaging is not configured on this backend yet. Existing Friends and Pay features are unaffected.</p>
+      </section>}
     </>}
   </div>;
 }
