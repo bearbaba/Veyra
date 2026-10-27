@@ -44,6 +44,7 @@ import { validateAgentBridgeDraft } from '../../core/agent/bridgeDraftGate';
 import type { IntentCandidate } from '../../core/intent/intentSchema';
 import { useBridgeExecution, type BridgeExecutionState } from '../../hooks/useBridgeExecution';
 import { ensureWalletNetworkForSigning } from '../../core/wallet/ensureWalletNetworkForSigning';
+import { bindAgentBridgeReceipt } from '../../core/agent/agentBridgeReceiptLink';
 import {
   nextBridgeResumeInstruction,
   type BridgeRecoveryCheckpoint,
@@ -79,7 +80,7 @@ const DESTINATION_CHAINS = [
 ];
 
 export function BridgePage() {
-  const { address, isConnected, chainId } = useAccount();
+  const { address, isConnected, chainId, connector } = useAccount();
   const { data: walletClient } = useWalletClient();
   const { switchChainAsync } = useSwitchChain();
   const sourcePublicClient = usePublicClient({ chainId: MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID });
@@ -100,6 +101,10 @@ export function BridgePage() {
   const [recoveryCandidates, setRecoveryCandidates] = useState<BridgeRecoveryCheckpoint[]>([]);
   const hasUnfinishedBurn = recoveryCandidates.some((checkpoint) => checkpoint.stage !== 'VERIFIED');
   const owner = address?.toLowerCase() ?? '';
+  const agentWalletKey = address ? [address.toLowerCase(), connector?.uid ?? ''].join(':') : null;
+  const agentHandoffScope = social.session && agentWalletKey &&
+    social.session.walletKey === agentWalletKey
+    ? [agentWalletKey, social.session.profile.veyraUserId].join(':') : null;
   const sessionKey = social.session?.token ?? '';
   const [history, setHistory] = useState<{
     owner:string;token:string;records:ActivityReceiptRemoteRecord[];loading:boolean;error:string|null;
@@ -402,6 +407,13 @@ export function BridgePage() {
         preflightResults: freshPreflight,
       });
 
+      // Presentation-only receipt link. The BFF's authenticated receipt, not
+      // this local marker, determines whether destination mint succeeded.
+      bindAgentBridgeReceipt(agentHandoffScope, activityReceipt.receiptId, {
+        amountRaw:executionAction.amount.toString(),
+        destinationChainId:executionAction.destinationChainId,
+        recipientAddress:executionAction.to,
+      });
       await bridgeExecution.executeProviderRoute(
         cctpV2BridgeProvider,
         refreshedRoute,
@@ -523,6 +535,17 @@ export function BridgePage() {
       <div className="mb-2">
         <h1 className="display text-2xl font-bold" style={{ color: 'var(--ink)', letterSpacing: '-0.02em' }}>Bridge</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>USDC Arc Testnet → Ethereum Sepolia / Base Sepolia via CCTP V2</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded-full border px-3 py-1.5 font-semibold"
+            style={{borderColor:'var(--border-strong)',color:'var(--success)',background:'var(--surface)'}}>
+            Arc → Sepolia / Base · Available
+          </span>
+          <span className="rounded-full border px-3 py-1.5"
+            aria-label="Reverse bridge from Sepolia or Base to Arc coming soon, unavailable for signing"
+            style={{borderColor:'var(--border)',color:'var(--muted)'}}>
+            Sepolia / Base → Arc · Coming soon
+          </span>
+        </div>
       </div>
       {recentBridge && (
         <section aria-label="Recent verified Bridge activity" className="rounded-2xl border p-4 space-y-2"

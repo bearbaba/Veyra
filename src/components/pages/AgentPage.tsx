@@ -20,6 +20,8 @@ import {
 import type { IntentResult } from '@/core/intent/intentSchema';
 import { buildCapabilityIntentGraph, type CapabilityIntentGraph } from '@/core/agent/intentGraph';
 import { ActionCard } from '../transfer/ActionCard';
+import { loadActivityReceiptsRemote, type ActivityReceiptRemoteRecord } from '../../lib/api/activityReceiptApi';
+import { agentBridgeReceiptState, readAgentBridgeReceiptLinks, type AgentBridgeReceiptLink } from '../../core/agent/agentBridgeReceiptLink';
 import { AgentQuickStart } from '../agent/AgentQuickStart';
 import type { VeyraPage } from '../layout/AppShell';
 
@@ -61,11 +63,12 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
     : null;
   const connectedFriends = signedSession ? social.friends.filter((f) => f.state === 'CONNECTED') : [];
   return <ScopedAgentPage key={historyScope ?? walletKey + ':unsigned'} onNavigate={onNavigate}
-    historyScope={historyScope} friends={connectedFriends} signedIn={Boolean(signedSession)} />;
+    historyScope={historyScope} friends={connectedFriends} signedIn={Boolean(signedSession)}
+    currentWallet={address?.toLowerCase() ?? null} />;
 }
 
-function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn }: AgentPageProps & {
-  historyScope: string | null; friends: SocialFriend[]; signedIn: boolean;
+function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentWallet }: AgentPageProps & {
+  historyScope: string | null; friends: SocialFriend[]; signedIn: boolean; currentWallet: string | null;
 }) {
   const historyKey = historyScope ? 'veyra:agent-history:' + historyScope : null;
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -85,6 +88,10 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn }: AgentP
   const [loading, setLoading] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [capabilities, setCapabilities] = useState<AgentCapabilities>(DEFAULT_CAPABILITIES);
+  const [bridgeLinks, setBridgeLinks] = useState<AgentBridgeReceiptLink[]>(() =>
+    readAgentBridgeReceiptLinks(historyScope));
+  const [verifiedBridgeReceipts, setVerifiedBridgeReceipts] = useState<ActivityReceiptRemoteRecord[]>([]);
+  const [receiptLookupFailed, setReceiptLookupFailed] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -121,6 +128,35 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn }: AgentP
   useEffect(() => {
     if (input) inputRef.current?.focus();
   }, [input]);
+
+  useEffect(() => {
+    if (!historyScope || !signedIn || !currentWallet) return;
+    let active = true;
+    const refresh = () => {
+      if (!active) return;
+      setBridgeLinks(readAgentBridgeReceiptLinks(historyScope));
+      // Session-scoped signed BFF response, not local history or LLM guesses,
+      // controls success. Refresh when returning from Bridge/Activity.
+      void loadActivityReceiptsRemote(100).then((receipts) => {
+        if (!active) return;
+        setVerifiedBridgeReceipts(receipts.filter((receipt) =>
+          receipt.senderAddress.toLowerCase() === currentWallet &&
+          receipt.providerId === 'cctp-v2-bridge'));
+        setReceiptLookupFailed(false);
+      }).catch(() => {
+        if (active) { setReceiptLookupFailed(true); setVerifiedBridgeReceipts([]); }
+      });
+    };
+    refresh();
+    window.addEventListener('focus', refresh);
+    const onVisibility = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [historyScope, signedIn, currentWallet]);
 
   const history = useMemo<AgentHistoryMessage[]>(() => messages.slice(-10).map((message) => ({ role: message.role, text: message.text })), [messages]);
 
@@ -169,7 +205,11 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn }: AgentP
 
   function clearConversation() {
     setMessages([]);
-    try { if (historyKey) sessionStorage.removeItem(historyKey); } catch { /* storage denied */ }
+    setBridgeLinks([]);
+    try {
+      if (historyKey) sessionStorage.removeItem(historyKey);
+      if (historyScope) sessionStorage.removeItem('veyra:agent:bridge-receipts:' + historyScope);
+    } catch { /* storage denied */ }
     inputRef.current?.focus();
   }
 
@@ -179,6 +219,13 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn }: AgentP
     setShowQuickActions(false);
     inputRef.current?.focus();
   }
+
+  const latestConfirmedBridge = [...bridgeLinks].reverse().map((link) =>
+    verifiedBridgeReceipts.find((receipt) => receipt.receiptId === link.receiptId))
+    .find((receipt) => receipt && agentBridgeReceiptState(receipt) === 'SUCCESS');
+  const lastBridgeReceipt = [...verifiedBridgeReceipts].sort((a,b)=>
+    (Date.parse(b.updatedAt)||0) - (Date.parse(a.updatedAt)||0))[0];
+  const latestBridgeStatus = lastBridgeReceipt ? agentBridgeReceiptState(lastBridgeReceipt) : null;
 
   return (
     <div className="mx-auto flex min-h-[calc(100dvh-44px)] max-w-5xl flex-col px-4 py-5 md:px-7 md:py-7">
@@ -200,6 +247,39 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn }: AgentP
       </div>
 
 
+      {latestConfirmedBridge && (
+        <div role="status" className="mx-auto mt-5 flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 rounded-2xl border p-4"
+          style={{borderColor:'var(--border-strong)',background:'var(--surface)',color:'var(--success)'}}>
+          <div>
+            <p className="font-bold text-sm">Bridge complete · destination verified</p>
+            <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
+              Your previous Agent request has a verified destination receipt. Veyra is ready for your next request.
+            </p>
+          </div>
+          <button type="button" onClick={()=>onNavigate('activity')}
+            className="rounded-xl border px-3 py-2 text-xs font-semibold"
+            style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>View receipt</button>
+        </div>
+      )}
+      {!latestConfirmedBridge && lastBridgeReceipt && (
+        <div role="status" className="mx-auto mt-4 flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 rounded-xl border p-3"
+          style={{borderColor:'var(--border)',background:'var(--surface)',color:'var(--ink)'}}>
+          <div>
+            <p className="text-sm font-semibold">
+              Latest Bridge activity · {latestBridgeStatus === 'SUCCESS' ? 'Destination verified'
+                : latestBridgeStatus === 'PENDING' ? 'Destination status pending'
+                : latestBridgeStatus === 'FAILED' ? 'Needs attention' : 'Checking'}
+            </p>
+            <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
+              This is your authenticated Activity history, not a claim that an older Agent draft was executed.
+              {latestBridgeStatus === 'SUCCESS' ? ' You can start a new request below.' : ' Check your existing transaction before sending again.'}
+            </p>
+          </div>
+          <button type="button" onClick={()=>onNavigate('activity')}
+            className="rounded-xl border px-3 py-2 text-xs font-semibold"
+            style={{borderColor:'var(--border-strong)'}}>View Activity</button>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto py-6">
         {messages.length === 0 ? (
           <AgentQuickStart friends={friends} signedIn={signedIn}
@@ -248,6 +328,17 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn }: AgentP
                       )}
                       {message.intent && message.intent.candidates.length > 0 && (
                         <div className="mt-3"><ActionCard intent={message.intent} onNavigate={onNavigate}
+                          bridgeHandoffScope={historyScope}
+                          messageId={message.id}
+                          linkedBridge={(() => {
+                            const link = bridgeLinks.find((item) => item.messageId === message.id);
+                            if (!link) return undefined;
+                            return {
+                              receiptId: link.receiptId,
+                              receipt: verifiedBridgeReceipts.find((item) => item.receiptId === link.receiptId),
+                              lookupFailed:receiptLookupFailed,
+                            };
+                          })()}
                           onClarifyDestination={(destination) => {
                             const draft = message.intent?.candidates[0];
                             if (!draft) return;
