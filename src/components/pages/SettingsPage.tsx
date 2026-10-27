@@ -208,12 +208,12 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
       <details className="group rounded-3xl border p-5"
         style={{background:'var(--surface-strong)',borderColor:'var(--border)'}}>
         <summary className="flex cursor-pointer items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-bold" style={{color:'var(--ink)'}}>Networks & assets</h2>
-            <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-bold" style={{color:'var(--ink)'}}>Networks & assets</span>
+            <span className="mt-1 block text-xs leading-5" style={{color:'var(--muted)'}}>
               Arc Testnet USDC is enabled. Other listings are not available for sending yet.
-            </p>
-          </div>
+            </span>
+          </span>
           <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180"
             style={{color:'var(--muted)'}} aria-hidden="true"/>
         </summary>
