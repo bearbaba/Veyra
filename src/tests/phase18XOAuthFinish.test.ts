@@ -34,7 +34,8 @@ describe('Phase 18 — signed, same-browser X link confirmation',()=>{
     expect(read('server/db/migrations/0018_phase18_x_oauth_confirmation.sql')).toContain('ADD COLUMN IF NOT EXISTS "pending_profile"');
   });
   it('forwards only exact approved routes, never the provider callback',()=>{
-    const routes=JSON.parse(read('vercel.json')).rewrites.map((x:{source:string})=>x.source);
+    const config=JSON.parse(read('vercel.json')) as {rewrites:{source:string}[]};
+    const routes=config.rewrites.map(x=>x.source);
     expect(routes).toContain('/api/auth/x/finish');
     expect(routes).not.toContain('/api/auth/x/callback');
     expect(read('scripts/stagingBffAllowlist.ts')).toContain('"/api/auth/x/finish"');
