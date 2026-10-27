@@ -17,7 +17,7 @@ import {
   type ReceiptSyncInput,
 } from '../db/repositories/receiptRepository.js';
 import { MANIFEST_CONSTANTS } from '../../src/providers/registry/providerManifest.js';
-import { chainIdToCctpDomain, extractUniqueCctpSourceMessage, parseUniqueCctpAttestationResponse } from '../../src/providers/cctp/cctpV2Adapter.js';
+import { chainIdToCctpDomain, extractUniqueCctpSourceMessage, matchesCctpV2AttestedSourceMessage, parseUniqueCctpAttestationResponse } from '../../src/providers/cctp/cctpV2Adapter.js';
 import {
   verifyCctpDestinationReceiptEvidence,
   verifyCctpSourceReceiptEvidence,
@@ -91,7 +91,7 @@ export function sourceReceiptContainsCctpMessage(
 ): boolean {
   const sourceMessage = extractUniqueCctpSourceMessage(receipt);
   return sourceMessage !== null &&
-    sourceMessage.toLowerCase() === message.toLowerCase();
+    matchesCctpV2AttestedSourceMessage(sourceMessage, message);
 }
 
 function destinationUsdc(chainId: number): string | null {
@@ -344,7 +344,7 @@ export async function verifyActivityReceiptTransitionEvidence(
     );
   }
 
-  // The attested message also has to be the exact bytes emitted by the
+  // The attested V2 message must be bound to the emitted source template (Circle fills nonce/finality), not the
   // recorded source burn. Matching only the Circle txHash query is insufficient
   // when a source transaction emits multiple MessageSent events.
   const sourceBlock = requireBlockNumber(

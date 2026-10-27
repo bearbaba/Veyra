@@ -819,7 +819,8 @@ export function useBridgeExecution() {
         const connected = walletClient.account?.address;
         if (
           !connected ||
-          connected.toLowerCase() !== recipientAddress.toLowerCase()
+          (connected.toLowerCase() !== walletAddress.toLowerCase() &&
+            connected.toLowerCase() !== recipientAddress.toLowerCase())
         ) {
           activityProgress = await advanceBridgeActivity(
             activityProgress,
@@ -828,7 +829,7 @@ export function useBridgeExecution() {
               resumable: true,
               resumePayload: bridgeResumePayload(planId),
               failureReason:
-                'Destination recipient wallet is not connected for self-relay.',
+                'Connect the reviewed source or destination wallet to relay this existing Circle message.',
             },
           );
           setState({
@@ -849,7 +850,7 @@ export function useBridgeExecution() {
         receiveTxHash = await broadcastReceiveMessage(
           walletClient,
           action.destinationChainId,
-          recipientAddress,
+          getAddress(connected),
           attestation.message,
           attestation.attestation,
         );
@@ -1429,13 +1430,14 @@ export function useBridgeExecution() {
           const connected = walletClient.account?.address;
           if (
             !connected ||
-            connected.toLowerCase() !== recipientAddress.toLowerCase()
+            (connected.toLowerCase() !== current.walletAddress.toLowerCase() &&
+              connected.toLowerCase() !== recipientAddress.toLowerCase())
           ) {
             setState({
               phase: 'FAILED',
               burnTxHash,
               error:
-                `Connect the destination recipient wallet ${recipientAddress} to resume receiveMessage safely.`,
+                'Connect your reviewed source wallet to relay the existing message. The destination recipient stays unchanged.',
             });
             return;
           }
@@ -1450,7 +1452,7 @@ export function useBridgeExecution() {
           receiveTxHash = await broadcastReceiveMessage(
             walletClient,
             current.destinationChainId,
-            recipientAddress,
+            getAddress(connected),
             current.attestationMessage!,
             current.attestationSignature!,
           );

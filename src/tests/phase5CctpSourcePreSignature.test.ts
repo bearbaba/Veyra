@@ -12,11 +12,13 @@ import {
   type SourceTransactionEvidence,
 } from '../../server/services/cctpBridgeSourceAttestationService.js';
 import type { BridgeRecoveryInput } from '../../server/db/repositories/bridgeRecoveryRepository.js';
+import { CCTP_V2_SOURCE_TEMPLATE, CCTP_V2_ATTESTED_MESSAGE } from './fixtures/cctpV2MessageFixture';
 
 const SENDER = '0x1111111111111111111111111111111111111111';
 const RECIPIENT = '0x2222222222222222222222222222222222222222';
 const SOURCE_HASH = `0x${'a'.repeat(64)}` as const;
-const MESSAGE = '0x11223344' as const;
+const MESSAGE = CCTP_V2_SOURCE_TEMPLATE;
+const ATTESTED = CCTP_V2_ATTESTED_MESSAGE;
 const ATTESTATION = '0xaabbccdd' as const;
 const MESSAGE_SENT_TOPIC =
   '0x8c5261668696ce22758910d05bab8f186d6eb247ceac2af2e82c7dc17669b036';
@@ -59,7 +61,7 @@ function checkpoint(
     amount: '1000000',
     tokenAddress: MANIFEST_CONSTANTS.ARC_TESTNET_USDC,
     balanceBefore: '0',
-    attestationMessage: MESSAGE,
+    attestationMessage: ATTESTED,
     attestationSignature: ATTESTATION,
     createdAt: 1000,
     updatedAt: 2000,
@@ -140,7 +142,7 @@ function sourceTransaction(
 }
 
 const circle = {
-  messages: [{ status: 'complete', message: MESSAGE, attestation: ATTESTATION }],
+  messages: [{ status: 'complete', message: ATTESTED, attestation: ATTESTATION }],
 };
 
 describe('Phase 5 source attestation evidence before destination self-relay signature', () => {
@@ -207,7 +209,7 @@ describe('Phase 5 source attestation evidence before destination self-relay sign
   it('rejects Circle/source message mismatches and multiple Circle messages', () => {
     for (const response of [
       { messages: [{ status: 'complete', message: '0x55667788', attestation: ATTESTATION }] },
-      { messages: [{ status: 'complete', message: MESSAGE, attestation: '0xbbcc' }] },
+      { messages: [{ status: 'complete', message: ATTESTED, attestation: '0xbbcc' }] },
       { messages: [circle.messages[0], circle.messages[0]] },
       { messages: [{ status: 'pending' }] },
     ]) {

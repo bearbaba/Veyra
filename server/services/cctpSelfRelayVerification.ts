@@ -21,12 +21,22 @@ export function assertSelfRelayTransactionMatchesCheckpoint(
   checkpoint: BridgeRecoveryInput,
   transaction: SelfRelayTransactionCall,
 ): void {
+  // Circle V2 destinationCaller is ZERO for the reviewed Veyra route,
+  // as independently checked against source calldata and MessageSent in
+  // assertCctpSourceCheckpointAttestation(). A relayer pays destination gas;
+  // it does NOT change the mint recipient embedded in the signed message.
+  // Permit the authenticated source-wallet owner to relay to a DIFFERENT
+  // recipient, as well as the recipient's own wallet. Unknown accounts cannot
+  // satisfy Veyra's self-relay ownership boundary.
+  const relayer = transaction.from.toLowerCase();
+  const authorizedRelayer = relayer === checkpoint.walletAddress.toLowerCase() ||
+    relayer === checkpoint.recipientAddress.toLowerCase();
   if (
     (checkpoint.stage !== 'ATTESTATION_READY' &&
       checkpoint.stage !== 'DESTINATION_BROADCAST') ||
     !checkpoint.attestationMessage ||
     !checkpoint.attestationSignature ||
-    transaction.from.toLowerCase() !== checkpoint.recipientAddress.toLowerCase() ||
+    !authorizedRelayer ||
     !transaction.to ||
     transaction.to.toLowerCase() !==
       MANIFEST_CONSTANTS.CCTP_V2_MESSAGE_TRANSMITTER.toLowerCase()
