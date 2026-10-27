@@ -24,6 +24,7 @@ const stub=(chainId:number,opts?:{balance?:bigint;allowance?:bigint;messengerCod
   return {client:c as unknown as PublicClient,spy:c};
 };
 const page=readFileSync(new URL('../components/pages/BridgePage.tsx',import.meta.url),'utf8');
+const agent=readFileSync(new URL('../components/agent/AgentQuickStart.tsx',import.meta.url),'utf8');
 const server=readFileSync(new URL('../../server/services/activityReceiptService.ts',import.meta.url),'utf8');
 
 describe('Phase 35 — reverse CCTP Testnet readiness is strictly read-only',()=>{
@@ -85,10 +86,12 @@ describe('Phase 35 — reverse CCTP Testnet readiness is strictly read-only',()=
   });
 
   it('preserves the approved Arc-outbound flow and does not expose a reverse signing button',()=>{
-    expect(page).toContain('Explore reverse Bridge · read-only checks');
-    expect(page).toContain('Check reverse route (no signing)');
-    expect(page).toContain('Execution locked: destination receipt');
-    expect(page).toContain('inspectReverseCctpSource(client');
+    expect(agent).toContain('Bridge source network');
+    expect(agent).toContain('Bridge destination network');
+    expect(agent).toContain('Check route (no signing)');
+    expect(agent).toContain('inspectReverseCctpSource(client');
+    expect(agent).toContain('Reverse Bridge remains unavailable for signing');
+    expect(page).not.toContain('Explore reverse Bridge · read-only checks');
     expect(page).toContain('Arc → Sepolia / Base · Available');
     expect(page).toContain('Sepolia / Base → Arc · Coming soon');
     expect(page).toContain('newBridgeLocked');

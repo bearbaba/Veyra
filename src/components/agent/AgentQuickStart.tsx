@@ -1,4 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { useAccount, usePublicClient } from 'wagmi';
+import { formatUnits, isAddress, parseUnits } from 'viem';
+import { MANIFEST_CONSTANTS } from '../../providers/registry/providerManifest';
+import { inspectReverseCctpSource, type ReverseCctpReadiness } from '../../core/bridge/reverseCctpReadiness';
 import { ArrowRight, ArrowLeftRight, Compass, Copy, Globe2, SendHorizontal, Users, Wallet, CheckCircle2, Info } from 'lucide-react';
 import type { SocialFriend } from '../../features/social/UnifiedSocial';
 import { friendLabel } from '../../features/social/UnifiedSocial';
@@ -26,6 +30,13 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
   const [action, setAction] = useState<QuickAction>('SEND');
   const [amount, setAmount] = useState('');
   const [network, setNetwork] = useState<QuickNetwork>('arc');
+  const [bridgeSource, setBridgeSource] = useState<QuickNetwork>('arc');
+  const [reverseLookup, setReverseLookup] = useState<{key:string;result:ReverseCctpReadiness}|null>(null);
+  const [reverseChecking, setReverseChecking] = useState(false);
+  const checkId = useRef(0);
+  const {address} = useAccount();
+  const ethSepoliaClient = usePublicClient({chainId:MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID});
+  const baseSepoliaClient = usePublicClient({chainId:MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID});
   const [recipientType, setRecipientType] = useState<QuickRecipient>('WALLET');
   const [wallet, setWallet] = useState('');
   const [selectedFriend, setSelectedFriend] = useState('');
@@ -40,19 +51,88 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
   const selectedNetwork = QUICK_NETWORKS.find((item) => item.id === network)!;
   const bridge = action === 'BRIDGE';
   const isCrossChain = bridge || selectedNetwork.availability === 'BRIDGE';
-  const actualNetwork = bridge && network === 'arc' ? 'ethereum-sepolia' : network;
+  const reverse = bridge && bridgeSource !== 'arc';
+  const lookupKey = [bridgeSource,network,amount,wallet,address??''].join(':');
+  const reverseResult = reverseLookup?.key === lookupKey ? reverseLookup.result : null;
+  const sourceChoices = QUICK_NETWORKS.filter((n)=>
+    n.id==='arc'||n.id==='ethereum-sepolia'||n.id==='base-sepolia');
+  const destinationChoices = bridge
+    ? reverse ? QUICK_NETWORKS.filter((n)=>n.id==='arc')
+      : QUICK_NETWORKS.filter((n)=>n.availability==='BRIDGE')
+    : QUICK_NETWORKS;
 
   function chooseAction(next: QuickAction) {
     setAction(next);
     setError(null);
-    if (next === 'BRIDGE') { setNetwork('ethereum-sepolia'); setRecipientType('WALLET'); }
+    if (next === 'BRIDGE') {
+      setBridgeSource('arc');setNetwork('ethereum-sepolia');setRecipientType('WALLET');
+    }
     if (next === 'SEND') setNetwork('arc');
   }
 
   function chooseNetwork(next: QuickNetwork) {
+    checkId.current++;
     setNetwork(next);
+    setReverseChecking(false);
+    setReverseLookup(null);
     setError(null);
     if (next !== 'arc') setRecipientType('WALLET');
+  }
+  function chooseBridgeSource(next: QuickNetwork) {
+    checkId.current++;
+    setBridgeSource(next);
+    setReverseChecking(false);
+    setNetwork(next==='arc'?'ethereum-sepolia':'arc');
+    setRecipientType('WALLET');
+    setReverseLookup(null);
+    setError(null);
+  }
+
+  async function checkReverseRoute() {
+    if (!reverse || reverseChecking) return;
+    if (!address || !isAddress(wallet)) {
+      setError(!address ? 'Connect a wallet to inspect its source USDC balance. No signing needed.'
+        : 'Paste the complete Arc recipient address before checking.');
+      return;
+    }
+    let amountRaw:bigint;
+    try {
+      if (!/^\d{1,18}(?:\.\d{1,6})?$/.test(amount.trim())) throw Error('invalid amount');
+      amountRaw=parseUnits(amount.trim(),6);
+      if(amountRaw<=0n)throw Error('invalid amount');
+    } catch {
+      setError('Enter a positive USDC amount with up to six decimal places.');
+      return;
+    }
+    const sourceChainId=bridgeSource==='ethereum-sepolia'
+      ? MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID
+      : bridgeSource==='base-sepolia' ? MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID : null;
+    const client=bridgeSource==='ethereum-sepolia'?ethSepoliaClient
+      :bridgeSource==='base-sepolia'?baseSepoliaClient:undefined;
+    if (!sourceChainId || !client) {
+      setError('The selected source Testnet is unavailable for read-only checks.');
+      return;
+    }
+    const key=lookupKey;
+    const requestId=++checkId.current;
+    let timeout:ReturnType<typeof setTimeout>|undefined;
+    setError(null);setReverseChecking(true);setReverseLookup(null);
+    try {
+      const result=await Promise.race<ReverseCctpReadiness>([
+        inspectReverseCctpSource(client,{sourceChainId,sender:address,recipient:wallet,amount:amountRaw}),
+        new Promise<ReverseCctpReadiness>((resolve)=>{
+          timeout=setTimeout(()=>resolve({status:'UNAVAILABLE',
+            reason:'Source RPC timed out. No transaction was signed or submitted.'}),20_000);
+        }),
+      ]);
+      if(checkId.current===requestId)setReverseLookup({key,result});
+    } catch {
+      if(checkId.current===requestId)setReverseLookup({key,
+        result:{status:'UNAVAILABLE',reason:'Could not read the source chain. Nothing was signed.'}});
+    } finally {
+      if(timeout)clearTimeout(timeout);
+      if(checkId.current===requestId)setReverseChecking(false);
+    }
   }
 
   async function pasteWallet() {
@@ -61,6 +141,7 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
       if (!navigator.clipboard?.readText) throw Error('Clipboard access unavailable');
       const value = (await navigator.clipboard.readText()).trim();
       if (!value) throw Error('Clipboard is empty');
+      checkId.current++;setReverseChecking(false);setReverseLookup(null);
       setWallet(value);
     } catch {
       setError('Clipboard unavailable. Click the wallet field and paste with Ctrl+V.');
@@ -68,11 +149,11 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
   }
 
   function prepare() {
-    const chosenNetwork = bridge ? actualNetwork : network;
+    const chosenNetwork = network;
     const recipient = recipientType === 'FRIEND' && !isCrossChain ? selectedFriend : wallet;
     const result = buildQuickPaymentRequest({
       mode: bridge ? 'BRIDGE' : 'SEND',
-      network: chosenNetwork, amount, recipient,
+      network: chosenNetwork, sourceNetwork:bridge?bridgeSource:'arc', amount, recipient,
       recipientType: isCrossChain ? 'WALLET' : recipientType,
       trustedFriendHandles: friendHandles,
     });
@@ -119,32 +200,48 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
               <div>
                 <p className="text-sm font-bold" style={{ color: 'var(--ink)' }}>{bridge ? 'Prepare a cross-chain payment' : 'Who would you like to pay?'}</p>
                 <p className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>
-                  {bridge ? 'From Arc Testnet via CCTP V2' : 'Your destination determines the route.'}
+                  {bridge ? 'Choose both networks here. Only Arc-source transfers are enabled.' : 'Your destination determines the route.'}
                 </p>
               </div>
               <span className="rounded-full border px-2.5 py-1 text-[10px] font-semibold"
                 style={{ borderColor: 'var(--border-strong)', color: 'var(--accent)' }}>USDC · Testnet</span>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className={bridge?'grid gap-3 sm:grid-cols-3':'grid gap-3 sm:grid-cols-2'}>
               <label className="block">
                 <span className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--muted)' }}>Amount</span>
                 <div className="flex items-center gap-2 rounded-xl border px-3" style={{ borderColor: 'var(--border-strong)' }}>
                   <input type="text" inputMode="decimal" autoComplete="off" value={amount}
-                    onChange={(event) => { setAmount(event.target.value); setError(null); }}
+                    onChange={(event) => {
+                      checkId.current++;setReverseChecking(false);setReverseLookup(null);
+                      setAmount(event.target.value);setError(null);
+                    }}
                     placeholder="0.00" aria-label="USDC amount" maxLength={27}
                     className="min-w-0 flex-1 bg-transparent py-3 text-base outline-none"
                     style={{ color: 'var(--ink)' }} />
                   <span className="text-xs font-bold" style={{ color: 'var(--muted)' }}>USDC</span>
                 </div>
               </label>
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--muted)' }}>Destination network</span>
-                <select aria-label="Destination network" value={bridge ? actualNetwork : network}
+              {bridge && (
+                <label className="block min-w-0">
+                  <span className="mb-1.5 block text-xs font-semibold" style={{color:'var(--muted)'}}>From network</span>
+                  <select aria-label="Bridge source network" value={bridgeSource}
+                    onChange={(event)=>chooseBridgeSource(event.target.value as QuickNetwork)}
+                    className="w-full min-w-0 rounded-xl border px-3 py-3 text-sm font-semibold outline-none"
+                    style={{background:'var(--surface-muted)',color:'var(--ink)',borderColor:'var(--border-strong)'}}>
+                    {sourceChoices.map((n)=><option value={n.id} key={n.id}>{n.label}</option>)}
+                  </select>
+                </label>
+              )}
+              <label className="block min-w-0">
+                <span className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--muted)' }}>
+                  {bridge?'To network':'Destination network'}
+                </span>
+                <select aria-label={bridge?'Bridge destination network':'Destination network'} value={network}
                   onChange={(event) => chooseNetwork(event.target.value as QuickNetwork)}
-                  className="w-full rounded-xl border px-3 py-3 text-sm font-semibold outline-none"
+                  className="w-full min-w-0 rounded-xl border px-3 py-3 text-sm font-semibold outline-none"
                   style={{ background: 'var(--surface-muted)', color: 'var(--ink)', borderColor: 'var(--border-strong)' }}>
-                  {QUICK_NETWORKS.filter((n) => !bridge || n.availability === 'BRIDGE').map((n) => (
+                  {destinationChoices.map((n) => (
                     <option key={n.id} value={n.id}>{n.label}{n.availability === 'PLANNED' ? ' · Coming later' : ''}</option>
                   ))}
                 </select>
@@ -153,11 +250,13 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
 
             <div className="rounded-xl border px-3 py-2.5 text-xs leading-5"
               style={{ borderColor: 'var(--border)', color: selectedNetwork.availability === 'PLANNED' ? 'var(--warning)' : 'var(--muted)' }}>
-              {selectedNetwork.availability === 'PLANNED'
-                ? 'This route is not enabled. You can explore Veyra, but payment review is unavailable.'
-                : isCrossChain
-                  ? 'Route: Arc Testnet → destination via CCTP V2. Wallet review and on-chain checks are required.'
-                  : 'Route: direct Arc Testnet USDC payment. Recipient will be independently verified.'}
+              {reverse
+                ? 'Sepolia / Base → Arc · Read-only preview. Check source funds here; reverse sending is not enabled yet.'
+                : selectedNetwork.availability === 'PLANNED'
+                  ? 'This route is not enabled for payments.'
+                  : isCrossChain
+                    ? 'Arc → Sepolia / Base · CCTP V2 available. Review and sign on the Bridge step.'
+                    : 'Direct Arc USDC payment. Recipient will be independently verified.'}
             </div>
 
             {!isCrossChain && (
@@ -207,7 +306,10 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
                 <div className="flex items-center gap-2 rounded-xl border px-3" style={{ borderColor: 'var(--border-strong)' }}>
                   <input id="agent-quick-wallet" type="text" value={wallet}
                     autoComplete="off" autoCapitalize="off" spellCheck={false}
-                    onChange={(event) => { setWallet(event.target.value); setError(null); }}
+                    onChange={(event) => {
+                      checkId.current++;setReverseChecking(false);setReverseLookup(null);
+                      setWallet(event.target.value);setError(null);
+                    }}
                     placeholder="Paste 0x wallet address" aria-label="Recipient wallet address"
                     className="min-w-0 flex-1 bg-transparent py-3 font-mono text-xs outline-none"
                     style={{ color: 'var(--ink)' }}/>
@@ -223,12 +325,50 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
               </div>
             )}
             {error && <p role="alert" className="text-xs leading-5" style={{ color: 'var(--warning)' }}>{error}</p>}
-            <button type="button" onClick={prepare} disabled={selectedNetwork.availability==='PLANNED'}
-              className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
-              style={{ background: 'linear-gradient(135deg,#c8ff65,#91e9b5)', color: '#0b1b25' }}>
-              Create draft <ArrowRight className="size-4"/>
-            </button>
-            <p className="text-center text-[11px]" style={{ color: 'var(--subtle)' }}>Draft only · No automatic signature, quote, approval or transfer</p>
+            {reverse ? (
+              <>
+                <button type="button" onClick={()=>void checkReverseRoute()}
+                  disabled={reverseChecking}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold disabled:opacity-50"
+                  style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>
+                  {reverseChecking?'Checking source chain…':'Check route (no signing)'}
+                </button>
+                {reverseResult && (
+                  <div role="status" className="rounded-xl border p-3 space-y-1 text-xs"
+                    style={{borderColor:'var(--border)',background:'var(--surface-muted)'}}>
+                    <p className="font-bold" style={{color:'var(--ink)'}}>
+                      {reverseResult.status==='SIMULATED'?'Source contract simulation passed'
+                        :reverseResult.status==='APPROVAL_REQUIRED'?'USDC allowance is insufficient'
+                        :reverseResult.status==='INSUFFICIENT_BALANCE'?'Insufficient source USDC balance'
+                        :'Route check unavailable'}
+                    </p>
+                    {reverseResult.status==='UNAVAILABLE'
+                      ? <p style={{color:'var(--muted)'}}>{reverseResult.reason}</p>
+                      : <p style={{color:'var(--muted)'}}>
+                        Source USDC: {formatUnits(reverseResult.balance,6)}
+                        {' · '}Allowance: {formatUnits(reverseResult.allowance,6)}
+                      </p>}
+                    <p style={{color:'var(--warning)'}}>
+                      Reverse Bridge remains unavailable for signing, even if source simulation passes.
+                    </p>
+                  </div>
+                )}
+                <p className="text-center text-[11px]" style={{color:'var(--subtle)'}}>
+                  Source-chain RPC check only · No quote, wallet approval or transfer
+                </p>
+              </>
+            ) : (
+              <>
+                <button type="button" onClick={prepare} disabled={selectedNetwork.availability==='PLANNED'}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                  style={{background:'linear-gradient(135deg,#c8ff65,#91e9b5)',color:'#0b1b25'}}>
+                  Create draft <ArrowRight className="size-4"/>
+                </button>
+                <p className="text-center text-[11px]" style={{color:'var(--subtle)'}}>
+                  Draft only · No automatic signature, quote, approval or transfer
+                </p>
+              </>
+            )}
           </div>
         ) : action === 'SWAP' ? (
           <div className="space-y-3">

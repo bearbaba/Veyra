@@ -26,11 +26,17 @@ export type QuickPaymentResult =
 export function buildQuickPaymentRequest(input: {
   mode: QuickMode;
   network: QuickNetwork;
+  /** Chosen sending network. Legacy Send / verified Bridge default to Arc. */
+  sourceNetwork?: QuickNetwork;
   amount: string;
   recipient: string;
   recipientType: QuickRecipient;
   trustedFriendHandles?: readonly string[];
 }): QuickPaymentResult {
+  const source = input.sourceNetwork ?? 'arc';
+  if (input.mode === 'BRIDGE' && source !== 'arc') {
+    return {ok:false,reason:'Reverse Bridge execution is not enabled. Inspect the source route here without signing or creating a payment draft.'};
+  }
   const chosen = QUICK_NETWORKS.find((network) => network.id === input.network);
   if (!chosen || chosen.availability === 'PLANNED')
     return { ok: false, reason: 'This network is not enabled for payments yet. Choose a supported Testnet route.' };

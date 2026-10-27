@@ -13,7 +13,7 @@ Scope: **read-only validation** for Ethereum Sepolia / Base Sepolia → Arc Test
 
 ## Implemented
 
-- Optional, collapsed **Explore reverse Bridge · read-only checks** under the supported Arc-outbound Bridge header. No duplicate payment CTA.
+- **Agent → Bridge** contains the source and destination network selectors directly. Sepolia/Base → Arc shows **Check route (no signing)** in place, without navigating into Bridge; Arc → Sepolia/Base retains the verified Create draft / review pathway. The separate reverse panel was removed from Bridge to avoid duplicate controls.
 - Independent Ethereum / Base source selector, USDC amount and Arc recipient; preserve input and invalidate read result on edits. Connected wallet is read for balances, **not automatically switched**.
 - Source RPC `eth_chainId` check; contract bytecode for source USDC, TokenMessengerV2, MessageTransmitterV2; real `balanceOf` + `allowance` reads; exact `depositForBurn` eth_call ONLY after sufficient balance and allowance. Hard 20s timeout; no auto retry.
 - Honest results: unavailable / insufficient balance / insufficient allowance / source burn simulation succeeded. **None of these mean that a Bridge quote, user transaction or destination settlement is available.**

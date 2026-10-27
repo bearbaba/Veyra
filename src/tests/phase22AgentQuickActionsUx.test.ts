@@ -54,6 +54,13 @@ describe('Phase 22 — human-first Agent quick actions',()=>{
     }
     expect(buildQuickPaymentRequest({mode:'SEND',network:'arc',amount:'2',recipient:'0xabc',recipientType:'WALLET'}).ok).toBe(false);
     expect(buildQuickPaymentRequest({mode:'BRIDGE',network:'arc',amount:'2',recipient,recipientType:'WALLET'}).ok).toBe(false);
+    for(const reverse of ['ethereum-sepolia','base-sepolia'] as const){
+      const result=buildQuickPaymentRequest({
+        mode:'BRIDGE',sourceNetwork:reverse,network:'arc',amount:'2',recipient,recipientType:'WALLET',
+      });
+      expect(result.ok).toBe(false);
+      if(!result.ok)expect(result.reason).toContain('Reverse Bridge execution is not enabled');
+    }
   });
   it('UI selects signed friends, offers deliberate clipboard paste, keeps Swap and Unified honest',()=>{
     const ui=read('src/components/agent/AgentQuickStart.tsx');
