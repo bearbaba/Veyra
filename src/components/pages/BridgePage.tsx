@@ -33,8 +33,12 @@ import { IS_UI_ONLY_PREVIEW, VEYRA_ENV } from '../../lib/env';
 import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 import { VeyraIdentityAccess } from '../identity/VeyraIdentityAccess';
 import {
-  createBridgeActivityReceiptRemote,
+  createBridgeActivityReceiptRemote, loadActivityReceiptsRemote,
+  type ActivityReceiptRemoteRecord,
 } from '../../lib/api/activityReceiptApi';
+import { bridgeReceiptDisplayStatus, bridgeReceiptHasUnresolvedSource } from '../../core/bridge/bridgeActivityStatus';
+import { formatRemoteActivityAmount } from '../../core/receipt/formatRemoteActivityAmount';
+import { buildTxExplorerUrl } from '../../onchain-facts';
 import { MANIFEST_CONSTANTS, findManifestEntry } from '../../providers/registry/providerManifest';
 import { validateAgentBridgeDraft } from '../../core/agent/bridgeDraftGate';
 import type { IntentCandidate } from '../../core/intent/intentSchema';
@@ -95,6 +99,35 @@ export function BridgePage() {
   const [bridgeState, setBridgeState] = useState<BridgeState>({ phase: 'INPUT' });
   const [recoveryCandidates, setRecoveryCandidates] = useState<BridgeRecoveryCheckpoint[]>([]);
   const hasUnfinishedBurn = recoveryCandidates.some((checkpoint) => checkpoint.stage !== 'VERIFIED');
+  const owner = address?.toLowerCase() ?? '';
+  const sessionKey = social.session?.token ?? '';
+  const [history, setHistory] = useState<{
+    owner:string;token:string;records:ActivityReceiptRemoteRecord[];loading:boolean;error:string|null;
+  }>({owner:'',token:'',records:[],loading:false,error:null});
+  const currentHistory = owner && sessionKey && history.owner === owner && history.token === sessionKey
+    ? history : null;
+  const historyLoading = Boolean(sessionKey && (!currentHistory || currentHistory.loading));
+  const historyError = !sessionKey || Boolean(currentHistory?.error);
+  const ownBridges = (currentHistory?.records ?? []).filter(
+    (r) => r.providerId === 'cctp-v2-bridge' && r.senderAddress.toLowerCase() === owner);
+  const recentBridge = [...ownBridges].sort((a,b)=>
+    (Date.parse(b.updatedAt)||0) - (Date.parse(a.updatedAt)||0))[0];
+  const unresolvedBridge = ownBridges.find(bridgeReceiptHasUnresolvedSource);
+  const newBridgeLocked = hasUnfinishedBurn || Boolean(unresolvedBridge) ||
+    historyLoading || historyError;
+
+  useEffect(()=>{
+    if(!owner || !sessionKey)return;
+    let active=true;
+    setHistory({owner,token:sessionKey,records:[],loading:true,error:null});
+    void loadActivityReceiptsRemote(100).then((records)=>{
+      if(active)setHistory({owner,token:sessionKey,records,loading:false,error:null});
+    }).catch(()=>{
+      if(active)setHistory({owner,token:sessionKey,records:[],loading:false,
+        error:'Previous Bridge activity could not be checked. New signing is paused until your history is available.'});
+    });
+    return ()=>{active=false;};
+  },[owner,sessionKey]);
 
   useEffect(() => {
     // Agent proposals are read once and untrusted. Never auto-quote, approve,
@@ -158,9 +191,16 @@ export function BridgePage() {
   }
 
   async function assertNoUnresolvedSourceBurn() {
-    if (hasUnfinishedBurn ||
-      (await bridgeExecution.loadRecoveryCandidates()).some((item) => item.stage !== 'VERIFIED')) {
-      throw new Error('An earlier Bridge is still pending. Verify the recorded transaction in Activity before starting another burn.');
+    if(!address || !social.session)
+      throw new Error('Sign in to your Veyra ID before reviewing another Bridge.');
+    // A fresh authenticated BFF fetch is required even if the UI list was
+    // previously empty. Network/history errors cannot authorize another burn.
+    const receipts = await loadActivityReceiptsRemote(100);
+    if(receipts.some((r)=>r.senderAddress.toLowerCase()===address.toLowerCase() &&
+          bridgeReceiptHasUnresolvedSource(r)) ||
+       hasUnfinishedBurn ||
+       (await bridgeExecution.loadRecoveryCandidates()).some((r)=>r.stage!=='VERIFIED')) {
+      throw new Error('An earlier Bridge may still be pending. Verify the existing transaction in Activity. No new burn is permitted.');
     }
   }
 
@@ -484,6 +524,46 @@ export function BridgePage() {
         <h1 className="display text-2xl font-bold" style={{ color: 'var(--ink)', letterSpacing: '-0.02em' }}>Bridge</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>USDC Arc Testnet → Ethereum Sepolia / Base Sepolia via CCTP V2</p>
       </div>
+      {recentBridge && (
+        <section aria-label="Recent verified Bridge activity" className="rounded-2xl border p-4 space-y-2"
+          style={{borderColor:'var(--border-strong)',background:'var(--surface)'}}>
+          <p className="text-xs font-semibold uppercase tracking-wide" style={{color:'var(--muted)'}}>
+            Recent Bridge · not this draft
+          </p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-bold" style={{
+              color:bridgeReceiptDisplayStatus(recentBridge.status).success?'var(--success)':'var(--warning)'
+            }}>{bridgeReceiptDisplayStatus(recentBridge.status).label}</p>
+            <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>
+              {formatRemoteActivityAmount(recentBridge)}
+            </p>
+          </div>
+          <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
+            {recentBridge.senderChainId} → {recentBridge.recipientChainId}.
+            {recentBridge.status==='COMPLETE'
+              ? ' Veyra reports verified destination settlement.'
+              : ' Source confirmation alone is not proof that USDC arrived.'}
+          </p>
+          {recentBridge.burnTxHash && <a target="_blank" rel="noopener noreferrer"
+            className="block break-all text-xs underline underline-offset-2" style={{color:'var(--accent)'}}
+            href={buildTxExplorerUrl(recentBridge.burnChainId ?? recentBridge.senderChainId,recentBridge.burnTxHash)}>
+            Source: {recentBridge.burnTxHash}</a>}
+          {(recentBridge.settlementReceiveTxHash || recentBridge.receiveTxHash) &&
+            <a target="_blank" rel="noopener noreferrer"
+              className="block break-all text-xs underline underline-offset-2" style={{color:'var(--accent)'}}
+              href={buildTxExplorerUrl(recentBridge.receiveChainId ?? recentBridge.recipientChainId,
+                (recentBridge.settlementReceiveTxHash ?? recentBridge.receiveTxHash)!)}>
+              Destination: {recentBridge.settlementReceiveTxHash ?? recentBridge.receiveTxHash}
+            </a>}
+        </section>
+      )}
+      {isConnected && (historyLoading || historyError) && (
+        <p role="status" className="rounded-xl border p-3 text-xs leading-5"
+          style={{borderColor:'var(--border)',color:'var(--warning)'}}>
+          {historyLoading ? 'Checking previously submitted Bridges before allowing a new transfer…'
+            : currentHistory?.error ?? 'Sign in to Veyra ID to view Bridge history and authorize a new Bridge.'}
+        </p>
+      )}
       {agentHandoff && (
         <p role="status" className="rounded-xl border px-3 py-3 text-xs leading-5"
           style={{ borderColor: 'var(--border-strong)', background: 'var(--surface)', color: 'var(--ink-2)' }}>
@@ -616,13 +696,15 @@ export function BridgePage() {
             onClick={() => void handleEvaluate()}
             disabled={!amount || !recipientAddress || !isAddress(recipientAddress) ||
               !/^\d{1,18}(?:\.\d{1,6})?$/.test(amount) || Number(amount) <= 0 ||
-              !bridgeIdentityReady || hasUnfinishedBurn || bridgeState.phase === 'EVALUATING'}
+              !bridgeIdentityReady || newBridgeLocked || bridgeState.phase === 'EVALUATING'}
             className="w-full rounded-2xl py-3.5 font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: 'var(--accent)', color: '#0d1b2f' }}
           >
             {bridgeState.phase === 'EVALUATING' ? (
               <><Loader2 className="inline size-4 mr-2 animate-spin" />Checking route…</>
-            ) : hasUnfinishedBurn ? 'Resume your existing burn above'
+            ) : unresolvedBridge || hasUnfinishedBurn ? 'Verify previous Bridge in Activity'
+              : historyLoading ? 'Checking Bridge history…'
+              : historyError ? 'History unavailable'
               : bridgeOriginUnavailable ? 'Bridge unavailable on this Preview'
               : !bridgeIdentityReady ? 'Sign in to review bridge'
               : bridgeState.phase === 'FAILED' || bridgeState.phase === 'BLOCKED' ? 'Check again'
@@ -648,7 +730,7 @@ export function BridgePage() {
             </div>
           </div>
           <button type="button" onClick={() => void handleApproveExactUsdc(bridgeState)}
-            disabled={hasUnfinishedBurn}
+            disabled={newBridgeLocked}
             className="w-full rounded-xl py-3 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background:'var(--accent)', color:'#0d1b2f' }}>
             {chainId === MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID
@@ -671,6 +753,7 @@ export function BridgePage() {
           destName={selectedDest.name}
           onConfirm={() => void handleConfirmBridge(bridgeState)}
           sourceNetworkChangeNeeded={chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID}
+          disabled={!bridgeIdentityReady || newBridgeLocked}
           onCancel={() => setBridgeState({ phase: 'INPUT' })}
         />
       ) : bridgeState.phase === 'BRIDGE_PENDING' || bridgeState.phase === 'BRIDGE_UNCONFIRMED' ? (
@@ -709,6 +792,7 @@ function BridgeReviewCard({
   onConfirm,
   onCancel,
   sourceNetworkChangeNeeded,
+  disabled,
 }: {
   evaluation: ReturnType<typeof evaluateBridgeAction>;
   providerPreflight: PreflightResult[];
@@ -717,6 +801,7 @@ function BridgeReviewCard({
   onConfirm: () => void;
   onCancel: () => void;
   sourceNetworkChangeNeeded: boolean;
+  disabled: boolean;
 }) {
   return (
     <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border-strong)' }}>
@@ -751,8 +836,10 @@ function BridgeReviewCard({
       </div>
       <div className="flex gap-2 px-4 py-3 border-t" style={{ borderColor: 'var(--border)' }}>
         <button onClick={onCancel} className="flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: 'var(--surface-strong)', color: 'var(--muted)', border: '1px solid var(--border)' }}>Cancel</button>
-        <button onClick={onConfirm} className="flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: 'var(--accent)', color: '#0d1b2f' }}>
-          {sourceNetworkChangeNeeded ? 'Switch to Arc & continue' : 'Initiate bridge'}
+        <button onClick={onConfirm} disabled={disabled}
+          className="flex-1 rounded-xl py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: 'var(--accent)', color: '#0d1b2f' }}>
+          {disabled ? 'Check Bridge history first'
+            : sourceNetworkChangeNeeded ? 'Switch to Arc & continue' : 'Initiate bridge'}
         </button>
       </div>
     </div>
