@@ -30,6 +30,7 @@
  */
 
 import express, { type Request, type Response, type NextFunction } from 'express';
+import { isAddress, parseUnits } from 'viem';
 import { evaluateBrowserOrigin } from './middleware/browserOriginPolicy.js';
 import { validateIntentResponse } from '../src/core/intent/intentSchema';
 import { createFallbackAgentResponse, validateAgentChatResponse, type AgentHistoryMessage } from '../src/core/agent/agentV2';
@@ -1375,10 +1376,16 @@ app.post('/api/stablefx/quote', STABLEFX_RATE, async (req: Request, res: Respons
       return;
     }
 
-    // Amount must be a positive number string
-    const parsedAmount = parseFloat(fromAmount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      res.status(400).json({ error: 'fromAmount must be a positive number' });
+    // Reject partial, exponential, negative or over-precision input. parseFloat
+    // silently accepts "1garbage" and monetary amounts must be exact.
+    if(typeof fromAmount!=='string' ||
+       !/^\d{1,18}(?:\.\d{1,6})?$/.test(fromAmount) ||
+       parseUnits(fromAmount,6)<=0n) {
+      res.status(400).json({ error: 'fromAmount must be an exact positive 6-decimal amount' });
+      return;
+    }
+    if(typeof recipientAddress!=='string'||!isAddress(recipientAddress)) {
+      res.status(400).json({ error: 'Invalid StableFX recipient address' });
       return;
     }
 
