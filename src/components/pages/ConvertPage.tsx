@@ -190,8 +190,16 @@ export function ConvertPage() {
         </div>
       )}
 
-      {/* CTA */}
-      {state.status === 'PENDING' || state.status === 'FAILED' || state.status === 'POLICY_BLOCKED' ? (
+      {/* Provider completion alone cannot make funds spendable; no second
+          quote or signature while a previously submitted trade is unresolved. */}
+      {state.status === 'SETTLEMENT_PENDING' ? (
+        <div role="status" className="rounded-2xl border px-4 py-3 text-sm leading-6"
+          style={{borderColor:'var(--border-strong)',background:'var(--surface)',color:'var(--muted)'}}>
+          StableFX reported completion, but the destination token receipt is not verified.
+          Check Activity and the blockchain before preparing another Swap.
+          No new trade is submitted automatically.
+        </div>
+      ) : state.status === 'PENDING' || state.status === 'FAILED' || state.status === 'POLICY_BLOCKED' ? (
         <button
           onClick={() => void handleGetQuote()}
           disabled={!amount || !isConnected}
