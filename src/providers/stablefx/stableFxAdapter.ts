@@ -23,6 +23,7 @@ import { parseUnits, formatUnits, getAddress, isAddress, zeroAddress, type Addre
 import { MANIFEST_CONSTANTS } from '../registry/providerManifest';
 import type { ConvertAction } from '../../core/actions/actionSchema';
 import { SECURITY_CONFIG } from '../../lib/securityConfig';
+import { activeSignedIdentityToken } from '../../lib/api/liveIdentitySession';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -75,6 +76,15 @@ export function currencyToAddress(currency: StableFxCurrency): Address {
 
 // ERC-20 decimals for both are 6
 const STABLEFX_DECIMALS = 6;
+
+/** Only an in-memory session for the currently connected verified wallet can
+ * authorize financial API calls; switching wallets clears this session. */
+export function stableFxSignedSessionHeaders():Record<string,string>{
+  const token=activeSignedIdentityToken();
+  if(!token || token.length>8192 || /[^\x21-\x7e]/.test(token))
+    throw Error('Connect and sign into your Veyra ID before requesting a Swap.');
+  return {Authorization:`Bearer ${token}`};
+}
 
 // ── Quote fetching (via BFF) ──────────────────────────────────────────────────
 
@@ -204,7 +214,7 @@ export function validateStableFxQuoteResponse(
 export async function fetchStableFxQuote(req: StableFxQuoteRequest): Promise<StableFxQuoteResponse> {
   const res = await fetch('/api/stablefx/quote', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...stableFxSignedSessionHeaders() },
     body: JSON.stringify(req),
   });
   if (!res.ok) {
@@ -281,7 +291,7 @@ export async function createStableFxTrade(req: StableFxTradeRequest): Promise<St
   const idempotencyKey = req.idempotencyKey;
   const res = await fetch('/api/stablefx/trade', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...stableFxSignedSessionHeaders() },
     body: JSON.stringify({
       idempotencyKey,
       quoteId: req.quoteId,
@@ -383,7 +393,7 @@ export async function fetchStableFxFundingPresign(
   if(!/^[1-9]\d{0,40}$/.test(trade.contractTradeId))
     throw Error('StableFX trade has no valid contract trade identifier.');
   const res=await fetch('/api/stablefx/funding/presign',{
-    method:'POST',headers:{'Content-Type':'application/json'},
+    method:'POST',headers:{'Content-Type':'application/json',...stableFxSignedSessionHeaders()},
     credentials:'same-origin',
     body:JSON.stringify({tradeId:trade.id,contractTradeId:trade.contractTradeId}),
   });
@@ -399,7 +409,7 @@ export async function submitStableFxFunding(
      !/^0x[0-9a-f]{130}$/i.test(signature))
     throw Error('StableFX funding signature or trade binding is invalid.');
   const res=await fetch('/api/stablefx/funding/submit',{
-    method:'POST',headers:{'Content-Type':'application/json'},
+    method:'POST',headers:{'Content-Type':'application/json',...stableFxSignedSessionHeaders()},
     credentials:'same-origin',
     body:JSON.stringify({
       tradeId:trade.id,contractTradeId:trade.contractTradeId,
@@ -415,7 +425,7 @@ export async function submitStableFxFunding(
 // ── Trade status polling ─────────────────────────────────────────────────────
 
 export async function pollStableFxTrade(tradeId: string): Promise<StableFxTradeStatus> {
-  const res = await fetch(`/api/stablefx/trade/${tradeId}`);
+  const res = await fetch(`/api/stablefx/trade/${tradeId}`,{headers:stableFxSignedSessionHeaders()});
   if (!res.ok) {
     throw new Error(`StableFX trade status poll failed: ${res.status}`);
   }

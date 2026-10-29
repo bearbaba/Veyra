@@ -3,7 +3,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import {
   StableFxOwnershipError,assertVerifiedStableFxWallet,saveBoundStableFxQuote,
   reserveStableFxTrade,requireOwnedStableFxTrade,claimStableFxFundingSubmission,
-} from '../services/stableFxTradeOwnership';
+} from '../../server/services/stableFxTradeOwnership';
 
 const dialect=new PgDialect();
 const instrument=(responses:Array<{rows:unknown[]}>)=>{
