@@ -37,6 +37,22 @@ describe('Circle Gateway estimate trust boundary',()=>{
   expect(()=>parseGatewayEstimate({body:[...signedShape,...signedShape]},request))
    .toThrow('GATEWAY_ESTIMATE_RESPONSE_INVALID');
  });
+ it('accepts the LIVE Circle Testnet 20-byte EVM address normalization',()=>{
+  const request=create();
+  const keys=[
+   'sourceContract','destinationContract','sourceToken','destinationToken',
+   'sourceDepositor','destinationRecipient','sourceSigner','destinationCaller',
+  ];
+  const actual:Record<string,unknown>={...request.spec};
+  for(const key of keys)actual[key]=String(actual[key]).slice(0,2)+String(actual[key]).slice(-40);
+  const quote=parseGatewayEstimate([{burnIntent:{spec:actual,maxFee:'3850',maxBlockHeight:'71044120'}}],request);
+  expect(quote).toEqual({domain:26,maxFee:3850n,maxBlockHeight:71044120n});
+  // A forged high-order prefix cannot be discarded as though it were padding.
+  actual.sourceContract='0x'+'ff'.repeat(12)+String(actual.sourceContract).slice(2);
+  expect(()=>parseGatewayEstimate([{
+   burnIntent:{spec:actual,maxFee:'3850',maxBlockHeight:'71044120'},
+  }],request)).toThrow('GATEWAY_ESTIMATE_SPEC_CHANGED');
+ });
  it('rejects changed amount, destination, depositor, salt, fee and missing expiry',()=>{
   const request=create();
   for(const [field,value] of [
