@@ -101,6 +101,14 @@ export function validateStableFxQuoteResponse(
     if(amount<0n)throw Error(`StableFX ${field} is negative.`);
     return amount;
   };
+  const unitsBase=(v:unknown,field:string):bigint=>{
+    if(!((typeof v==='string'&&/^\d+$/.test(v)) ||
+         (typeof v==='number'&&Number.isSafeInteger(v)&&v>=0)))
+      throw Error(`StableFX ${field} is not a safe unsigned base-unit amount.`);
+    try{return BigInt(v as string | number);}catch{
+      throw Error(`StableFX ${field} is malformed.`);
+    }
+  };
   const address=(v:unknown,field:string):string=>{
     if(typeof v!=='string'||!isAddress(v)||getAddress(v)===zeroAddress)throw Error(`StableFX ${field} is an invalid address.`);
     return getAddress(v).toLowerCase();
@@ -153,6 +161,24 @@ export function validateStableFxQuoteResponse(
   const witness=object(message.witness,'witness');
   if(address(witness.recipient,'witness recipient')!==recipient)
     throw Error('StableFX quote would deliver funds to a different wallet.');
+  // Circle's signed consideration binds the FX quote, pair, and both amounts.
+  // Do not sign a superficially valid Permit2 allowance for a different trade.
+  const consideration=object(witness.consideration,'trade consideration');
+  const base=address(consideration.base,'base asset');
+  const quoteToken=address(consideration.quote,'quote asset');
+  if(base!==currencyToAddress('EURC').toLowerCase() ||
+     quoteToken!==currencyToAddress('USDC').toLowerCase())
+    throw Error('StableFX signed consideration references another token pair.');
+  const signedBase=unitsBase(consideration.baseAmount,'base amount');
+  const signedQuote=unitsBase(consideration.quoteAmount,'quote amount');
+  const expectedBase=request.fromCurrency==='EURC'?fromAmount:toAmount;
+  const expectedQuote=request.fromCurrency==='USDC'?fromAmount:toAmount;
+  if(signedBase!==expectedBase || signedQuote!==expectedQuote)
+    throw Error('StableFX signed consideration amounts do not match the quote.');
+  const normalizedQuoteId=(value:string)=>value.toLowerCase().replace(/^0x0*/,'').replaceAll('-','');
+  const signedQuoteId=nonEmpty(consideration.quoteId,'witness quote ID');
+  if(normalizedQuoteId(signedQuoteId)!==normalizedQuoteId(id))
+    throw Error('StableFX signed witness belongs to another quote.');
   const deadline=Number(message.deadline);
   if(!Number.isSafeInteger(deadline)||deadline*1000<=Date.now()+SECURITY_CONFIG.QUOTE_EXPIRY_BUFFER_MS)
     throw Error('StableFX Permit2 signature has expired.');

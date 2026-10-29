@@ -14,7 +14,7 @@ const req:StableFxQuoteRequest={
 const quote=()=>{
   const deadline=Math.floor((Date.now()+10*60_000)/1000);
   return {
-    id:'quote-for-regression-testing-001',
+    id:'c4d1da72-111e-4d52-bdbf-2e74a2d803d5',
     from:{currency:'USDC',amount:'10.00'},
     to:{currency:'EURC',amount:'9.15'},
     rate:'0.9150',
@@ -28,7 +28,14 @@ const quote=()=>{
         permitted:{token:M.ARC_TESTNET_USDC as string,amount:'10000000'},
         spender:'0xa8f94168b4981840ba27d423f4ad6332bedee006',
         deadline,
-        witness:{recipient:recipient as string},
+        witness:{
+          recipient:recipient as string,
+          consideration:{
+            quoteId:'0x00000000000000000000000000000000c4d1da72111e4d52bdbf2e74a2d803d5',
+            base:M.ARC_TESTNET_EURC as string,quote:M.ARC_TESTNET_USDC as string,
+            baseAmount:'9150000',quoteAmount:'10000000',
+          },
+        },
       },
     },
   };
@@ -51,6 +58,27 @@ describe('StableFX signed quote is not trusted merely because API returned 200',
     expect(()=>check(wrongToken)).toThrow(/different token/);
     const wrongVerifier=quote();wrongVerifier.typedData.domain.verifyingContract=M.ARC_TESTNET_USDC;
     expect(()=>check(wrongVerifier)).toThrow(/Permit2 verifier/);
+  });
+  it('rejects changed signed consideration, quote ID and output token',()=>{
+    const altered=quote();altered.typedData.message.witness.consideration.baseAmount='8000000';
+    expect(()=>check(altered)).toThrow(/consideration amounts/);
+    const alternate=quote();alternate.typedData.message.witness.consideration.base='0x000000000000000000000000000000000000dEaD';
+    expect(()=>check(alternate)).toThrow(/another token pair/);
+    const replaced=quote();replaced.typedData.message.witness.consideration.quoteId='0x00000000000000000000000000000000abcdefabcdefabcdefabcdefabcdefab';
+    expect(()=>check(replaced)).toThrow(/another quote/);
+  });
+  it('validates reverse EURC to USDC using signed base/quote amounts',()=>{
+    const reverse=quote();
+    reverse.from={currency:'EURC',amount:'10.00'};
+    reverse.to={currency:'USDC',amount:'10.85'};
+    reverse.fee={currency:'EURC',amount:'0.01'};
+    reverse.typedData.message.permitted.token=M.ARC_TESTNET_EURC;
+    reverse.typedData.message.witness.consideration.baseAmount='10000000';
+    reverse.typedData.message.witness.consideration.quoteAmount='10850000';
+    const result=check(reverse,{fromCurrency:'EURC',toCurrency:'USDC'});
+    expect(result.to.currency).toBe('USDC');
+    reverse.typedData.message.witness.consideration.quoteAmount='10000000';
+    expect(()=>check(reverse,{fromCurrency:'EURC',toCurrency:'USDC'})).toThrow(/consideration amounts/);
   });
   it('rejects mismatched wallet, trade amount and unlimited permission',()=>{
     const wrongWallet=quote();wrongWallet.typedData.message.witness.recipient='0x000000000000000000000000000000000000dEaD';
