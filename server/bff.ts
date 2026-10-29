@@ -31,6 +31,8 @@
 
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { isAddress, parseUnits } from 'viem';
+import { randomBytes } from 'node:crypto';
+import { createGatewayEstimateRequest, parseGatewayEstimate, GatewayEstimateError } from './services/gatewayEstimate.js';
 import {
  saveBoundStableFxQuote,reserveStableFxTrade,recordStableFxTrade,markStableFxTradeUncertain,
  requireOwnedStableFxTrade,saveStableFxFundingPresign,claimStableFxFundingSubmission,
@@ -1675,6 +1677,62 @@ app.get('/api/stablefx/trade/:tradeId', STABLEFX_RATE, async (req: Request, res:
   } catch (err) {
     console.error('[BFF] /api/stablefx/trade/:id error:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Testnet-only read-only price/expiry estimate. A quote is NOT an authorization
+// to submit a burn, and never returns a signed attestation or false success.
+// The browser must re-review if the recipient, amount, wallet or fee changes.
+app.post('/api/gateway/estimate', STABLEFX_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    if(runtimeConfig.environment!=='testnet'){
+      res.status(403).json({ok:false,error:'GATEWAY_TESTNET_ONLY'});return;
+    }
+    const userId=getAuthenticatedVeyraUserId(req);
+    if(!userId){res.status(401).json({ok:false,error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+    const b=req.body as Record<string,unknown>;
+    if(!b||typeof b!=='object'||typeof b.walletAddress!=='string'||
+       typeof b.recipientAddress!=='string'||typeof b.amount!=='string'||
+       typeof b.sourceDomain!=='number'||typeof b.destinationDomain!=='number'){
+      res.status(400).json({ok:false,error:'INVALID_GATEWAY_ESTIMATE_REQUEST'});return;
+    }
+    if(!/^\\d{1,18}(?:\\.\\d{1,6})?$/.test(b.amount)||
+       parseUnits(b.amount,6)>1000_000000n) {
+      res.status(400).json({ok:false,error:'GATEWAY_TESTNET_LIMIT_EXCEEDED'});return;
+    }
+    const {db}=await import('./db/client.js');
+    const owner=await db.execute(sql`
+      SELECT 1 FROM wallet_bindings wb JOIN veyra_users u ON u.veyr_user_id=wb.veyr_user_id
+      WHERE wb.veyr_user_id=${userId} AND lower(wb.wallet_address)=lower(${b.walletAddress})
+        AND wb.chain_id=5042002 AND wb.status='ACTIVE' AND wb.revoked_at IS NULL
+        AND u.status='ACTIVE' AND u.deleted_at IS NULL LIMIT 1
+    `);
+    if(owner.rows.length!==1){
+      res.status(403).json({ok:false,error:'GATEWAY_WALLET_NOT_BOUND_TO_ID'});return;
+    }
+    const request=createGatewayEstimateRequest({
+      walletAddress:b.walletAddress,recipientAddress:b.recipientAddress,
+      amount:b.amount,sourceDomain:b.sourceDomain,destinationDomain:b.destinationDomain,
+      salt:'0x'+randomBytes(32).toString('hex'),
+    });
+    const provider=await fetch('https://gateway-api-testnet.circle.com/v1/estimate',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify([{spec:request.spec}]),signal:AbortSignal.timeout(12000),
+    });
+    if(!provider.ok){
+      res.status(503).json({ok:false,error:'GATEWAY_ESTIMATE_PROVIDER_UNAVAILABLE'});return;
+    }
+    const quote=parseGatewayEstimate(await provider.json(),request);
+    res.json({
+      ok:true,sourceDomain:quote.domain,maxFee:quote.maxFee.toString(),
+      maxBlockHeight:quote.maxBlockHeight.toString(),spec:request.spec,
+      amount:b.amount,readAt:Date.now(),
+    });
+  }catch(err){
+    if(err instanceof GatewayEstimateError){
+      res.status(422).json({ok:false,error:err.code});return;
+    }
+    res.status(503).json({ok:false,error:'GATEWAY_ESTIMATE_UNAVAILABLE'});
   }
 });
 
