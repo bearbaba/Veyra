@@ -1678,6 +1678,69 @@ app.get('/api/stablefx/trade/:tradeId', STABLEFX_RATE, async (req: Request, res:
   }
 });
 
+// ── Circle Gateway Testnet balance (actual deposited USDC only) ──────────────
+// Read-only, wallet-owned: not a sum of ERC-20 balanceOf across source chains.
+// Never substitute zero when a domain is absent or provider/RPC fails.
+app.post('/api/gateway/balances', STABLEFX_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (runtimeConfig.environment !== 'testnet') {
+      res.status(403).json({ok:false,error:'GATEWAY_TESTNET_ONLY'});return;
+    }
+    const userId=getAuthenticatedVeyraUserId(req);
+    if(!userId){res.status(401).json({ok:false,error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+    const {walletAddress}=req.body as {walletAddress?:unknown};
+    if(typeof walletAddress!=='string'||!isAddress(walletAddress)){
+      res.status(400).json({ok:false,error:'INVALID_WALLET'});return;
+    }
+    const {db}=await import('./db/client.js');
+    const owned=await db.execute(sql`
+      SELECT 1 FROM wallet_bindings wb JOIN veyra_users u
+       ON u.veyr_user_id=wb.veyr_user_id
+      WHERE wb.veyr_user_id=${userId}
+        AND lower(wb.wallet_address)=lower(${walletAddress})
+        AND wb.chain_id=5042002 AND wb.status='ACTIVE'
+        AND wb.revoked_at IS NULL AND u.status='ACTIVE' AND u.deleted_at IS NULL
+      LIMIT 1
+    `);
+    if(owned.rows.length!==1){
+      res.status(403).json({ok:false,error:'GATEWAY_WALLET_NOT_BOUND_TO_ID'});return;
+    }
+    const domains=[26,0,6];
+    const url='https://gateway-api-testnet.circle.com/v1/balances';
+    const response=await fetch(url,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:'USDC',sources:domains.map(domain=>({domain,depositor:walletAddress}))}),
+      signal:AbortSignal.timeout(12_000),
+    });
+    if(!response.ok){res.status(503).json({ok:false,error:'GATEWAY_BALANCE_API_UNAVAILABLE'});return;}
+    const payload=await response.json() as {token?:unknown;balances?:unknown};
+    if(payload.token!=='USDC'||!Array.isArray(payload.balances)){
+      res.status(502).json({ok:false,error:'GATEWAY_BALANCE_RESPONSE_MALFORMED'});return;
+    }
+    const validated:Array<{domain:number;depositor:string;balance:string}>=[];
+    for(const domain of domains){
+      const rows=payload.balances.filter((entry:unknown)=>
+        typeof entry==='object'&&entry!==null&&
+        (entry as {domain?:unknown}).domain===domain&&
+        typeof (entry as {depositor?:unknown}).depositor==='string'&&
+        (entry as {depositor:string}).depositor.toLowerCase()===walletAddress.toLowerCase());
+      if(rows.length!==1){
+        res.status(502).json({ok:false,error:'GATEWAY_DOMAIN_BALANCE_UNVERIFIED'});return;
+      }
+      const amount=(rows[0] as {balance?:unknown}).balance;
+      if(typeof amount!=='string'||!/^\d{1,18}(?:\\.\d{1,6})?$/.test(amount)){
+        res.status(502).json({ok:false,error:'GATEWAY_BALANCE_NOT_EXACT_USDC'});return;
+      }
+      validated.push({domain,depositor:walletAddress,balance:amount});
+    }
+    // Never cache wallet-specific amounts across wallet/session changes.
+    res.setHeader('Cache-Control','no-store');
+    res.json({ok:true,token:'USDC',balances:validated,readAt:Date.now()});
+  }catch {
+    res.status(503).json({ok:false,error:'GATEWAY_BALANCE_CHECK_FAILED'});
+  }
+});
+
 // ── GET /api/cctp/attestation ─────────────────────────────────────────────────
 // Polls Circle's CCTP V2 attestation API for a message.
 // Route: GET /api/cctp/attestation?sourceDomain=26&txHash=0x...
