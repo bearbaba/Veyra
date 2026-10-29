@@ -6,22 +6,16 @@ import {
   fetchGatewayTestnetBalances,
 } from '../../core/gateway/gatewayBalances';
 import { activeSignedIdentityToken } from '../../lib/api/liveIdentitySession';
+import { GATEWAY_DEPOSIT_ABI, isMatchingGatewayDepositTransaction } from '../../core/gateway/gatewayDepositRecovery';
 import { VEYRA_ENV, IS_UI_ONLY_PREVIEW } from '../../lib/env';
 
-/** Circle's documented Gateway Wallet deposit(token, value) method.
- * NEVER transfer USDC directly to this address: direct transfers are not deposits.
- */
-const GATEWAY_DEPOSIT_ABI=[{
- type:'function',name:'deposit',stateMutability:'nonpayable',
- inputs:[{name:'token',type:'address'},{name:'value',type:'uint256'}],outputs:[],
-}] as const;
 interface PendingGatewayDeposit {
  owner:string;chainId:number;amount:string;txHash:Hash;sentAt:number;beforeAvailable:string;
 }
 function pendingKey(owner:string){return 'veyra:gateway:deposit:'+owner.toLowerCase();}
 function loadPending(owner:string):PendingGatewayDeposit|null{
  try {
-  const raw=sessionStorage.getItem(pendingKey(owner));
+  const raw=localStorage.getItem(pendingKey(owner));
   if(!raw)return null;
   const p=JSON.parse(raw) as Partial<PendingGatewayDeposit>;
   if(p.owner?.toLowerCase()!==owner.toLowerCase() ||
@@ -52,7 +46,12 @@ export function GatewayAddFunds({onUpdate}: {onUpdate:()=>void}){
  const client=useMemo(()=>sourceId===GATEWAY_TESTNET_SOURCES[0].chainId?arc:
   sourceId===GATEWAY_TESTNET_SOURCES[1].chainId?eth:base,[sourceId,arc,eth,base]);
  const disabled=VEYRA_ENV==='mainnet'||IS_UI_ONLY_PREVIEW;
- useEffect(()=>{setReview(false);setError(null);setPending(address?loadPending(address):null);},[address]);
+ useEffect(()=>{
+  setReview(false);setError(null);
+  const recovered=address?loadPending(address):null;
+  setPending(recovered);
+  if(recovered)setSourceId(recovered.chainId);
+ },[address]);
  async function sendDeposit(){
   if(busy||inFlight.current)return;
   inFlight.current=true;setBusy(true);setError(null);
@@ -69,6 +68,12 @@ export function GatewayAddFunds({onUpdate}: {onUpdate:()=>void}){
     throw Error('Active signing wallet changed. Review again.');
    const chain=await walletClient.getChainId();
    if(chain!==sourceId)throw Error('Select the reviewed deposit network in the wallet first.');
+   // A transaction hash without a durable local checkpoint cannot be safely recovered.
+   // Refuse signing if the browser cannot persist owner-bound recovery data.
+   try{
+    const probe=pendingKey(owner)+':write-check';
+    localStorage.setItem(probe,'ok');localStorage.removeItem(probe);
+   }catch{throw Error('Browser storage is unavailable. Enable local storage before depositing.');}
    const before=await fetchGatewayTestnetBalances(owner);
    const beforeAvailable=before.sources.find(x=>x.domain===source.domain);
    if(!beforeAvailable) throw Error('Gateway source ledger unavailable. No deposit submitted.');
@@ -110,7 +115,7 @@ export function GatewayAddFunds({onUpdate}: {onUpdate:()=>void}){
    });
    const checkpoint:PendingGatewayDeposit={owner:owner.toLowerCase(),chainId:sourceId,
      amount,txHash,sentAt:Date.now(),beforeAvailable:beforeAvailable.available.toString()};
-   sessionStorage.setItem(pendingKey(owner),JSON.stringify(checkpoint));
+   localStorage.setItem(pendingKey(owner),JSON.stringify(checkpoint));
    setPending(checkpoint);
    const receipt=await client.waitForTransactionReceipt({hash:txHash});
    if(receipt.status!=='success')
@@ -126,7 +131,12 @@ export function GatewayAddFunds({onUpdate}: {onUpdate:()=>void}){
   setBusy(true);setError(null);
   try{
    if(sourceId!==pending.chainId)throw Error('Select the pending deposit source chain to verify.');
-   const receipt=await client.getTransactionReceipt({hash:pending.txHash});
+   const [tx,receipt]=await Promise.all([
+    client.getTransaction({hash:pending.txHash}),
+    client.getTransactionReceipt({hash:pending.txHash}),
+   ]);
+   if(!isMatchingGatewayDepositTransaction(tx,pending))
+    throw Error('Stored deposit does not match the verified source transaction. Do not resend.');
    if(receipt.status==='reverted'){
     setError('Gateway deposit reverted. Transaction remains in Activity for inspection.');
    }else {
@@ -135,7 +145,7 @@ export function GatewayAddFunds({onUpdate}: {onUpdate:()=>void}){
     const latest=account.sources.find(s=>s.domain===source.domain);
     if(!latest)throw Error('Gateway source ledger unavailable.');
     if(latest.available>=BigInt(pending.beforeAvailable)+parseUnits(pending.amount,6)){
-      sessionStorage.removeItem(pendingKey(pending.owner));
+      localStorage.removeItem(pendingKey(pending.owner));
       setPending(null);
       onUpdate();
       setError('Source confirmed and Gateway deposit credit verified. Available has been refreshed.');
@@ -144,7 +154,8 @@ export function GatewayAddFunds({onUpdate}: {onUpdate:()=>void}){
       setError('Source confirmed; Gateway has not credited this deposit yet. Check again after finality.');
     }
    }
-  }catch{setError('Source receipt unavailable. This is not evidence of failure; do not resend.');}
+  }catch(e){setError(e instanceof Error && e.message.includes('does not match')?e.message:
+    'Source receipt or Gateway credit unavailable. This is not evidence of failure; do not resend.');}
   finally{setBusy(false);}
  }
  return <div className="space-y-3 rounded-xl border p-3" style={{borderColor:'var(--border-strong)'}}
@@ -173,7 +184,7 @@ export function GatewayAddFunds({onUpdate}: {onUpdate:()=>void}){
       Pending deposit · {pending.amount} USDC · network {pending.chainId}
       <p className="mt-1 break-all font-mono">{pending.txHash}</p>
       <p className="mt-1">Await Gateway finality. Source confirmation alone is not Available.</p>
-      <button type="button" disabled={busy} onClick={()=>void resume()} className="mt-2 underline">Check source receipt</button>
+      <button type="button" disabled={busy} onClick={()=>void resume()} className="mt-2 underline">Verify deposit and Gateway credit</button>
    </div>}
    {error&&<p role="alert" className="text-xs" style={{color:'var(--warning)'}}>{error}</p>}
    {!pending&&<button type="button" disabled={busy||!isConnected||disabled||!isGatewayDepositAmount(amount)}
