@@ -8,6 +8,7 @@ import type { SocialFriend } from '../../features/social/UnifiedSocial';
 import { friendLabel } from '../../features/social/UnifiedSocial';
 import { buildQuickPaymentRequest, QUICK_NETWORKS, type QuickMode, type QuickNetwork, type QuickRecipient } from '../../core/agent/quickStartPayment';
 import type { VeyraPage } from '../layout/AppShell';
+import { AgentUnifiedBalances } from './AgentUnifiedBalances';
 
 type QuickAction = QuickMode | 'SWAP' | 'UNIFIED';
 
@@ -23,7 +24,7 @@ const ACTIONS: ReadonlyArray<{ id: QuickAction; title: string; summary: string; 
   { id: 'SEND', title: 'Send', summary: 'To a friend or wallet', tag: 'Arc USDC' },
   { id: 'SWAP', title: 'Swap', summary: 'Explore conversions', tag: 'Preview' },
   { id: 'BRIDGE', title: 'Bridge', summary: 'Move USDC across Testnets', tag: 'CCTP V2' },
-  { id: 'UNIFIED', title: 'Unified', summary: 'Balances & routes in one place', tag: 'Expanding' },
+  { id: 'UNIFIED', title: 'Unified', summary: 'USDC across three Testnets', tag: 'Read-only' },
 ];
 
 export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, compact = false }: AgentQuickStartProps) {
@@ -338,7 +339,7 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
                     style={{borderColor:'var(--border)',background:'var(--surface-muted)'}}>
                     <p className="font-bold" style={{color:'var(--ink)'}}>
                       {reverseResult.status==='SIMULATED'?'Source contract simulation passed'
-                        :reverseResult.status==='APPROVAL_REQUIRED'?'USDC allowance is insufficient'
+                        :reverseResult.status==='APPROVAL_REQUIRED'?'Reverse Bridge unavailable · Source allowance is 0 or insufficient'
                         :reverseResult.status==='INSUFFICIENT_BALANCE'?'Insufficient source USDC balance'
                         :'Route check unavailable'}
                     </p>
@@ -391,13 +392,14 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
           <div className="space-y-3">
             <p className="text-sm font-bold" style={{ color: 'var(--ink)' }}>Unified · one place for your money</p>
             <p className="text-xs leading-5" style={{ color: 'var(--muted)' }}>
-              View your Arc Testnet USDC balance and explore verified routes. Aggregated multi-chain balances and universal spend are in development.
+              Live wallet-bound USDC across Arc, Ethereum Sepolia and Base Sepolia. Read-only balances are not pooled funds or spendable on another network.
             </p>
+            <AgentUnifiedBalances key={address?.toLowerCase() ?? 'disconnected'} />
             <div className="grid gap-2 sm:grid-cols-2">
               <button type="button" onClick={() => onNavigate('home')}
                 className="flex items-center justify-center gap-2 rounded-xl border p-3 text-xs font-semibold"
                 style={{ borderColor: 'var(--border-strong)', color: 'var(--ink)' }}>
-                <CheckCircle2 className="size-4" style={{ color: 'var(--success)' }}/> View balance
+                <CheckCircle2 className="size-4" style={{ color: 'var(--success)' }}/> Arc details
               </button>
               <button type="button" onClick={() => chooseAction('BRIDGE')}
                 className="flex items-center justify-center gap-2 rounded-xl border p-3 text-xs font-semibold"
