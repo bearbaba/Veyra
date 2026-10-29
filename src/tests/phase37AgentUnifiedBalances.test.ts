@@ -62,10 +62,13 @@ describe('Phase 37 — Agent Unified USDC read-only balances',()=>{
     expect(ui).toContain('owner=address.toLowerCase()');
     expect(ui).toContain('if(id===latest.current)');
     expect(ui).toContain('Unavailable');
-    expect(ui).toContain('Total USDC across 3 Testnets');
-    expect(ui).toContain("'Display-only total · Funds remain on separate networks · Not spendable as one balance'");
-    expect(ui).toContain('Combined display hidden until all networks are readable');
-    expect(ui.indexOf('Total USDC across 3 Testnets')).toBeLessThan(ui.indexOf('UNIFIED_TESTNET_USDC.map(source=>'));
+    expect(ui).toContain('Unified Balance · Circle Gateway');
+    expect(ui).toContain('Wallet balances · separate funds');
+    expect(ui).toContain('Gateway deposits only, not USDC remaining');
+    expect(ui).toContain('fetchGatewayTestnetBalances(address)');
+    expect(ui).toContain('<GatewayAddFunds key={wallet}');
+    expect(ui.indexOf('Unified Balance · Circle Gateway')).toBeLessThan(ui.indexOf('Wallet balances · separate funds'));
+    expect(ui).not.toContain('Total USDC across 3 Testnets');
     expect(ui).not.toContain('writeContract');
     expect(ui).not.toContain('signMessage');
     expect(quick).not.toContain('<AgentUnifiedBalances');
