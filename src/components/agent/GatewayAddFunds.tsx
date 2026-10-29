@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { erc20Abi, formatUnits, getAddress, parseUnits, type Hash } from 'viem';
 import { useAccount, usePublicClient, useSwitchChain, useWalletClient } from 'wagmi';
-import { GATEWAY_TESTNET_SOURCES, GATEWAY_TESTNET_WALLET, isGatewayDepositAmount } from '../../core/gateway/gatewayBalances';
+import {
+  GATEWAY_TESTNET_SOURCES, GATEWAY_TESTNET_WALLET, isGatewayDepositAmount,
+  fetchGatewayTestnetBalances,
+} from '../../core/gateway/gatewayBalances';
+import { activeSignedIdentityToken } from '../../lib/api/liveIdentitySession';
 import { VEYRA_ENV, IS_UI_ONLY_PREVIEW } from '../../lib/env';
 
 /** Circle's documented Gateway Wallet deposit(token, value) method.
@@ -12,7 +16,7 @@ const GATEWAY_DEPOSIT_ABI=[{
  inputs:[{name:'token',type:'address'},{name:'value',type:'uint256'}],outputs:[],
 }] as const;
 interface PendingGatewayDeposit {
- owner:string;chainId:number;amount:string;txHash:Hash;sentAt:number;
+ owner:string;chainId:number;amount:string;txHash:Hash;sentAt:number;beforeAvailable:string;
 }
 function pendingKey(owner:string){return 'veyra:gateway:deposit:'+owner.toLowerCase();}
 function loadPending(owner:string):PendingGatewayDeposit|null{
@@ -23,7 +27,8 @@ function loadPending(owner:string):PendingGatewayDeposit|null{
   if(p.owner?.toLowerCase()!==owner.toLowerCase() ||
      !GATEWAY_TESTNET_SOURCES.some(s=>s.chainId===p.chainId)||
      typeof p.txHash!=='string'||!/^0x[0-9a-f]{64}$/i.test(p.txHash)||
-     typeof p.amount!=='string'||!isGatewayDepositAmount(p.amount))return null;
+     typeof p.amount!=='string'||!isGatewayDepositAmount(p.amount)||
+     typeof p.beforeAvailable!=='string'||!/^\d+$/.test(p.beforeAvailable))return null;
   return p as PendingGatewayDeposit;
  }catch{return null;}
 }
@@ -56,6 +61,7 @@ export function GatewayAddFunds({onUpdate}: {onUpdate:()=>void}){
    if(!isConnected||!address||!walletClient?.account||!client)
     throw Error('Connect your verified wallet and the selected Testnet RPC.');
    if(pending)throw Error('A previous Gateway deposit remains unresolved; refresh Activity before another.');
+   if(!activeSignedIdentityToken()) throw Error('Sign in with your current Veyra ID before depositing.');
    if(!review||!isGatewayDepositAmount(amount))throw Error('Review a positive USDC amount first.');
    if(await client.getChainId()!==sourceId)throw Error('Source RPC returned an unexpected chain ID.');
    const owner=getAddress(address);
@@ -63,6 +69,9 @@ export function GatewayAddFunds({onUpdate}: {onUpdate:()=>void}){
     throw Error('Active signing wallet changed. Review again.');
    const chain=await walletClient.getChainId();
    if(chain!==sourceId)throw Error('Select the reviewed deposit network in the wallet first.');
+   const before=await fetchGatewayTestnetBalances(owner);
+   const beforeAvailable=before.sources.find(x=>x.domain===source.domain);
+   if(!beforeAvailable) throw Error('Gateway source ledger unavailable. No deposit submitted.');
    const token=getAddress(source.token);
    const gateway=getAddress(GATEWAY_TESTNET_WALLET);
    const value=parseUnits(amount,6);
@@ -100,7 +109,7 @@ export function GatewayAddFunds({onUpdate}: {onUpdate:()=>void}){
      ...simulation.request,account:walletClient.account,chain:null,
    });
    const checkpoint:PendingGatewayDeposit={owner:owner.toLowerCase(),chainId:sourceId,
-     amount,txHash,sentAt:Date.now()};
+     amount,txHash,sentAt:Date.now(),beforeAvailable:beforeAvailable.available.toString()};
    sessionStorage.setItem(pendingKey(owner),JSON.stringify(checkpoint));
    setPending(checkpoint);
    const receipt=await client.waitForTransactionReceipt({hash:txHash});
@@ -121,8 +130,19 @@ export function GatewayAddFunds({onUpdate}: {onUpdate:()=>void}){
    if(receipt.status==='reverted'){
     setError('Gateway deposit reverted. Transaction remains in Activity for inspection.');
    }else {
-    onUpdate();
-    setError('Source transaction confirmed. Check Gateway Available after finality; do not deposit twice.');
+    const account=await fetchGatewayTestnetBalances(pending.owner);
+    const source=GATEWAY_TESTNET_SOURCES.find(s=>s.chainId===pending.chainId)!;
+    const latest=account.sources.find(s=>s.domain===source.domain);
+    if(!latest)throw Error('Gateway source ledger unavailable.');
+    if(latest.available>=BigInt(pending.beforeAvailable)+parseUnits(pending.amount,6)){
+      sessionStorage.removeItem(pendingKey(pending.owner));
+      setPending(null);
+      onUpdate();
+      setError('Source confirmed and Gateway deposit credit verified. Available has been refreshed.');
+    }else{
+      onUpdate();
+      setError('Source confirmed; Gateway has not credited this deposit yet. Check again after finality.');
+    }
    }
   }catch{setError('Source receipt unavailable. This is not evidence of failure; do not resend.');}
   finally{setBusy(false);}
