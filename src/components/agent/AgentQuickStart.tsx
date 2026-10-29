@@ -3,7 +3,7 @@ import { useAccount, usePublicClient } from 'wagmi';
 import { formatUnits, isAddress, parseUnits } from 'viem';
 import { MANIFEST_CONSTANTS } from '../../providers/registry/providerManifest';
 import { inspectReverseCctpSource, type ReverseCctpReadiness } from '../../core/bridge/reverseCctpReadiness';
-import { ArrowRight, ArrowLeftRight, Compass, Copy, Globe2, SendHorizontal, Users, Wallet, CheckCircle2, Info } from 'lucide-react';
+import { ArrowRight, ArrowLeftRight, Compass, Copy, Globe2, SendHorizontal, Users, Wallet } from 'lucide-react';
 import type { SocialFriend } from '../../features/social/UnifiedSocial';
 import { friendLabel } from '../../features/social/UnifiedSocial';
 import { buildQuickPaymentRequest, QUICK_NETWORKS, type QuickMode, type QuickNetwork, type QuickRecipient } from '../../core/agent/quickStartPayment';
@@ -395,18 +395,14 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
               Live wallet-bound USDC across Arc, Ethereum Sepolia and Base Sepolia. Read-only balances are not pooled funds or spendable on another network.
             </p>
             <AgentUnifiedBalances key={address?.toLowerCase() ?? 'disconnected'} />
-            <div className="grid gap-2 sm:grid-cols-2">
-              <button type="button" onClick={() => onNavigate('home')}
-                className="flex items-center justify-center gap-2 rounded-xl border p-3 text-xs font-semibold"
-                style={{ borderColor: 'var(--border-strong)', color: 'var(--ink)' }}>
-                <CheckCircle2 className="size-4" style={{ color: 'var(--success)' }}/> Arc details
-              </button>
-              <button type="button" onClick={() => chooseAction('BRIDGE')}
-                className="flex items-center justify-center gap-2 rounded-xl border p-3 text-xs font-semibold"
-                style={{ borderColor: 'var(--border-strong)', color: 'var(--ink)' }}>
-                <Info className="size-4" style={{ color: 'var(--accent)' }}/> Explore routes
-              </button>
-            </div>
+            <button type="button" onClick={() => onNavigate('unified')}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border p-3 text-xs font-semibold"
+              style={{ borderColor: 'var(--border-strong)', color: 'var(--ink)' }}>
+              Open Unified Balance <ArrowRight className="size-4" />
+            </button>
+            <p className="text-center text-[11px]" style={{ color: 'var(--subtle)' }}>
+              Balance view only. To transfer USDC, choose Send or Bridge separately.
+            </p>
           </div>
         )}
       </div>

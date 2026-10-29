@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Search, Bot, SendHorizontal, ArrowLeftRight, LayoutList, Settings, Home, X, Route, Sparkles } from 'lucide-react';
+import { Search, Bot, SendHorizontal, ArrowLeftRight, LayoutList, Settings, Home, X, Route, Sparkles, Layers3 } from 'lucide-react';
 import type { VeyraPage } from '../layout/AppShell';
 
 interface CommandBarProps {
@@ -19,6 +19,7 @@ interface CommandBarProps {
 const PRIMARY_ACTIONS = [
   { label: 'Ask Veyra', page: 'agent' as VeyraPage, icon: <Bot className="size-4" />, hint: 'Chat or plan in any language' },
   { label: 'Pay someone', page: 'pay' as VeyraPage, icon: <SendHorizontal className="size-4" />, hint: 'Veyra ID, X handle, or wallet' },
+  { label: 'Unified Balance', page: 'unified' as VeyraPage, icon: <Layers3 className="size-4" />, hint: 'USDC across three Testnets · read-only' },
   { label: 'Activity', page: 'activity' as VeyraPage, icon: <LayoutList className="size-4" />, hint: 'Receipts and history' },
   { label: 'Home', page: 'home' as VeyraPage, icon: <Home className="size-4" />, hint: 'Identity and balances' },
 ];
