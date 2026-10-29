@@ -48,7 +48,7 @@ export function GatewaySendReview(){
  const [error,setError]=useState<string|null>(null);
  const owner=address?.toLowerCase()??'';
  const verified=review?.owner===owner&&review.recipient.toLowerCase()===recipient.toLowerCase()&&
-  review.amount===amount&&review.destinationChainId===destinationChainId&&Date.now()-review.readAt<=30_000;
+  review.amount===amount&&review.destinationChainId===destinationChainId;
  async function onReview(){
   if(busy)return;
   setReview(null);setBusy(true);setError(null);
