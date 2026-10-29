@@ -27,6 +27,7 @@ describe('Phase 9Q — the one protected Veyra Core Testnet build', () => {
     expect(STAGING_ALLOWED_PATHS).toContain('/api/agent/status');
     expect(STAGING_ALLOWED_PATHS).toContain('/api/agent/chat');
     expect(STAGING_ALLOWED_PATHS).toContain('/api/gateway/balances');
+    expect(STAGING_ALLOWED_PATHS).toContain('/api/gateway/estimate');
     expect(STAGING_ALLOWED_PATHS).not.toContain('/api/gateway/transfer');
     expect(STAGING_ALLOWED_PATHS).not.toContain('/api/stablefx/trade');
     expect(STAGING_ALLOWED_PATHS).not.toContain('/api/stablefx/quote');
