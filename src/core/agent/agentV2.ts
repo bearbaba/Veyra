@@ -327,7 +327,10 @@ function buildIntent(message: string, locale: string): IntentResult | undefined 
   const amount = extractAmount(message);
   const recipient = extractRecipient(message);
   const sepoliaDestination = requestedSepoliaDestination(message);
-  const paymentHint = hasAny(message, TRANSFER_HINTS);
+  // JS word-boundary does not recognize all accented Vietnamese verbs such as
+  // "gửi". An exact address plus amount is already a financial request, and
+  // must not fall back to a same-chain Base transfer.
+  const paymentHint = hasAny(message, TRANSFER_HINTS) || Boolean(recipient && amount);
   const bridgeHint = hasAny(message, BRIDGE_HINTS);
   // "chain base" alone does not distinguish Base Mainnet from Base Sepolia.
   // Never create a misleading same-chain Transfer or assume a signing network.
