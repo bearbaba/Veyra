@@ -15,6 +15,9 @@ import {
   buildConvertActionFromQuote,
   createStableFxTrade,
   pollStableFxTrade,
+  fetchStableFxFundingPresign,
+  submitStableFxFunding,
+  type StableFxFundingPresign,
   type StableFxCurrency,
 } from '../providers/stablefx/stableFxAdapter';
 import type { VeyraReceipt } from '../core/receipt/receiptTypes';
@@ -92,11 +95,13 @@ export function useConvertExecution() {
     quote: StableFxQuoteResponse,
     walletAddress: Address,
     signTypedData: (typedData: StableFxQuoteResponse['typedData']) => Promise<string>,
+    verifyAndApproveFunding: (presign: StableFxFundingPresign, trade: StableFxTradeStatus) => Promise<void>,
   ) => {
     setState((prev) => ({ ...prev, status: 'SIGNING' }));
 
     let quoteReserved = false;
     let broadcastLocked = false;
+    let submittedTrade: StableFxTradeStatus | null = null;
     const idempotencyKey = crypto.randomUUID();
 
     try {
@@ -143,7 +148,41 @@ export function useConvertExecution() {
         signature,
       });
 
-      setState((prev) => ({ ...prev, status: 'VERIFYING', trade }));
+      submittedTrade = trade;
+      // Persist the owner-scoped trade BEFORE the second signature or funding
+      // request. A rejected funding signature must not erase a created trade.
+      const fundingPendingReceipt: VeyraReceipt = {
+        receiptId: generatePlanReceiptId(),
+        planId: action.actionId,
+        actionType: 'CONVERT',
+        status: 'PENDING',
+        chainId: action.chainId,
+        ownerAddress: walletAddress,
+        providerTradeId: trade.id,
+        providerQuoteId: quote.id,
+        providerIdempotencyKey: idempotencyKey,
+        createdAt: action.createdAt,
+        actualAmountDelta: null,
+        expectedAmountDelta: action.minAmountOut,
+        riskScore: null,
+        policyDecision: null,
+        displaySummary: 'StableFX trade created. Funding requires separate explicit wallet authorization.',
+      };
+      await saveReceipt(fundingPendingReceipt);
+      setState((prev) => ({
+        ...prev, status: 'VERIFYING', trade, receipt: fundingPendingReceipt,
+      }));
+      if (trade.status === 'pending_settlement') {
+        const presign = await fetchStableFxFundingPresign(trade);
+        // Validated on-chain token, spender code, gas, allowance and wallet
+        // before showing a SECOND EIP-712 wallet signature for funding.
+        await verifyAndApproveFunding(presign, trade);
+        setState((prev) => ({ ...prev, status: 'SIGNING' }));
+        const fundingSignature = await signTypedData(presign.typedData);
+        setState((prev) => ({ ...prev, status: 'BROADCASTING' }));
+        await submitStableFxFunding(trade, presign, fundingSignature);
+      }
+      setState((prev) => ({ ...prev, status: 'VERIFYING' }));
 
       // Poll for completion (up to 60s). Only network/status fetch errors
       // are treated as transient; lifecycle/receipt errors must never be swallowed.
@@ -309,6 +348,7 @@ export function useConvertExecution() {
           status: 'PENDING',
           chainId: action.chainId,
           ownerAddress: walletAddress,
+          providerTradeId: submittedTrade?.id,
           providerQuoteId: quote.id,
           providerIdempotencyKey: idempotencyKey,
           createdAt: action.createdAt,
@@ -316,13 +356,16 @@ export function useConvertExecution() {
           expectedAmountDelta: action.minAmountOut,
           riskScore: null,
           policyDecision: null,
-          displaySummary: 'Swap submission outcome unknown. Reconcile the provider trade and on-chain settlement; do not resend.',
+          displaySummary: submittedTrade
+            ? 'StableFX trade exists; funding or settlement is unresolved. Do not submit another trade.'
+            : 'Swap submission outcome unknown. Reconcile the provider trade before retry.',
         };
         try { await saveReceipt(pendingReceipt); }
         catch { /* Keep the execution locked even if local persistence is unavailable. */ }
         setState((prev) => ({
           ...prev,
           status: nextStatus,
+          ...(submittedTrade ? { trade: submittedTrade } : {}),
           receipt: pendingReceipt,
           error: 'Swap may have reached Circle. ' + errorDetail + ' Do not submit another trade.',
         }));

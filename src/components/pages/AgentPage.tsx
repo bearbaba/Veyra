@@ -26,6 +26,7 @@ import { AgentQuickStart } from '../agent/AgentQuickStart';
 import { AgentUnifiedBalances } from '../agent/AgentUnifiedBalances';
 import { BridgePage } from './BridgePage';
 import { PayPage } from './PayPage';
+import { ConvertPage } from './ConvertPage';
 import type { IntentCandidate } from '@/core/intent/intentSchema';
 import { restoreWalletScopedActiveTask, selectActiveTaskAfterReply } from '@/core/agent/activeTaskSelection';
 import type { VeyraPage } from '../layout/AppShell';
@@ -100,6 +101,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
   });
   const [inlineBridgeMessageId, setInlineBridgeMessageId] = useState<string | null>(null);
   const [activePayDraft, setActivePayDraft] = useState<{ messageId: string; candidate: IntentCandidate } | null>(null);
+  const [activeSwapDraft, setActiveSwapDraft] = useState<{ messageId: string; candidate: IntentCandidate } | null>(null);
   const [capabilities, setCapabilities] = useState<AgentCapabilities>(DEFAULT_CAPABILITIES);
   const [bridgeLinks, setBridgeLinks] = useState<AgentBridgeReceiptLink[]>(() =>
     readAgentBridgeReceiptLinks(historyScope));
@@ -236,6 +238,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
     setActiveTaskMessageId(null);
     setInlineBridgeMessageId(null);
     setActivePayDraft(null);
+    setActiveSwapDraft(null);
     setMessages([]);
     // Clearing chat never deletes pending or verified blockchain receipt links.
     // The owner-scoped Activity and existing CCTP replay guards remain intact.
@@ -448,16 +451,24 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
                 setActiveTaskMessageId(null);
                 setInlineBridgeMessageId(null);
                 setActivePayDraft(null);
+                setActiveSwapDraft(null);
               }} aria-label="Hide active task (transactions remain in Activity)" className="rounded-xl border px-3 py-2 text-xs"
                 style={{borderColor:'var(--border)',color:'var(--muted)'}}>Close</button>
             </div>
             <ActionCard intent={activeTaskMessage.intent} onNavigate={onNavigate}
               onReviewPayInline={(candidate) => {
                 setInlineBridgeMessageId(null);
+                setActiveSwapDraft(null);
                 setActivePayDraft({ messageId: activeTaskMessage.id, candidate });
+              }}
+              onReviewSwapInline={(candidate) => {
+                setInlineBridgeMessageId(null);
+                setActivePayDraft(null);
+                setActiveSwapDraft({ messageId: activeTaskMessage.id, candidate });
               }}
               onReviewBridgeInline={() => {
                 setActivePayDraft(null);
+                setActiveSwapDraft(null);
                 setInlineBridgeMessageId(activeTaskMessage.id);
               }}
               bridgeHandoffScope={historyScope}
@@ -485,6 +496,12 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
               <section aria-label="Pay review in active task" className="mt-4 border-t pt-4"
                 style={{ borderColor: 'var(--border)' }}>
                 <PayPage embedded initialIntent={activePayDraft.candidate} />
+              </section>
+            )}
+            {activeSwapDraft?.messageId === activeTaskMessage.id && (
+              <section aria-label="Swap review in active task" className="mt-4 border-t pt-4"
+                style={{ borderColor:'var(--border)' }}>
+                <ConvertPage embedded initialIntent={activeSwapDraft.candidate} />
               </section>
             )}
             {inlineBridgeMessageId === activeTaskMessage.id && (
