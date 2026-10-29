@@ -73,5 +73,10 @@ describe('Phase 37 — Agent Unified USDC read-only balances',()=>{
     expect(quick).toContain('Reverse Bridge unavailable · Source allowance is 0 or insufficient');
     expect(quick).toContain("useState<QuickAction>('UNIFIED')");
     expect(quick).toContain('Swap · Preview only');
+    const card=read('src/components/transfer/ActionCard.tsx');
+    expect(card).toContain('Use Base Sepolia (Testnet) · Prepare draft');
+    expect(card).toContain('Base Mainnet · not enabled');
+    expect(card).toContain("onClarifyDestination('Base Sepolia')");
+    expect(card).toContain('No network is chosen or signed automatically.');
   });
 });
