@@ -26,7 +26,9 @@ describe('Phase 37 — Unified stays inside Agent; Bridge review does not naviga
     const agent=read('src/components/pages/AgentPage.tsx');
     const card=read('src/components/transfer/ActionCard.tsx');
     const bridge=read('src/components/pages/BridgePage.tsx');
-    expect(agent).toContain('onReviewBridgeInline={() => setInlineBridgeMessageId(activeTaskMessage.id)}');
+    expect(agent).toContain('onReviewBridgeInline={() => {');
+    expect(agent).toContain('setActivePayDraft(null);');
+    expect(agent).toContain('setInlineBridgeMessageId(activeTaskMessage.id);');
     expect(agent).toContain('<BridgePage embedded />');
     expect(agent).not.toContain('<BridgePage />');
     expect(agent).toContain('aria-label="Active task"');
