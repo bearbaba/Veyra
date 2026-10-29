@@ -160,6 +160,7 @@ export function AgentUnifiedBalances(){
             </p>
           </div>;
         })}
+      </div>
       </div>}
       {latestRead>0 && !current?.loading && (
         <p className="text-[11px]" style={{color:'var(--muted)'}}>
