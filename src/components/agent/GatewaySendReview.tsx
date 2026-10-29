@@ -3,7 +3,7 @@
  * No bridge, swap, wallet send or signing fallback is permitted from this view.
  * A preview cannot be represented as a spendable quote or completed transfer.
  */
-import {useState} from 'react';
+import {useEffect,useState} from 'react';
 import {useAccount} from 'wagmi';
 import {formatUnits,isAddress} from 'viem';
 import {
@@ -46,6 +46,14 @@ export function GatewaySendReview(){
  const [busy,setBusy]=useState(false);
  const [review,setReview]=useState<Review|null>(null);
  const [error,setError]=useState<string|null>(null);
+ // A preview must expire even while the user leaves the page open. An old
+ // provider fee or block height must never look valid after an idle period.
+ useEffect(()=>{
+  if(!review)return;
+  const milliseconds=Math.max(0,review.readAt+30_000-Date.now());
+  const timer=setTimeout(()=>setReview(prev=>prev?.readAt===review.readAt?null:prev),milliseconds);
+  return ()=>clearTimeout(timer);
+ },[review]);
  const owner=address?.toLowerCase()??'';
  const verified=review?.owner===owner&&review.recipient.toLowerCase()===recipient.toLowerCase()&&
   review.amount===amount&&review.destinationChainId===destinationChainId;
