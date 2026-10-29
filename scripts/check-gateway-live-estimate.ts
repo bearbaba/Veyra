@@ -39,5 +39,14 @@ try{
   ?Object.keys(raw):[];
  console.error('Gateway Testnet estimate response did not match the verified BurnIntent schema.');
  console.error(`Response is array: ${Array.isArray(raw)}; top-level keys: ${topKeys.join(',')}`);
+ const first=Array.isArray(raw)?raw[0]:null;
+ const item=first&&typeof first==='object'&&!Array.isArray(first)
+  ?first as Record<string,unknown>:null;
+ const burn=item?.burnIntent&&typeof item.burnIntent==='object'&&!Array.isArray(item.burnIntent)
+  ?item.burnIntent as Record<string,unknown>:item;
+ const spec=burn?.spec&&typeof burn.spec==='object'&&!Array.isArray(burn.spec)
+  ?burn.spec as Record<string,unknown>:null;
+ console.error(`Item keys: ${Object.keys(item??{}).join(',')}; Burn keys: ${Object.keys(burn??{}).join(',')}; Spec keys: ${Object.keys(spec??{}).join(',')}`);
+ console.error(`Fee type: ${typeof burn?.maxFee}; block-height type: ${typeof burn?.maxBlockHeight}`);
  process.exit(1);
 }
