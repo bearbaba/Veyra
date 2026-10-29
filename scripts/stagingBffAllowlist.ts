@@ -23,6 +23,12 @@ export const STAGING_ALLOWED_PATHS=[
   "/api/identity/verify-payment",
   "/api/profile/me",
   "/api/social/friends",
+  // Signed-identity, owner-scoped contacts, friendship status and receive
+  // preferences. Never expose a public or wildcard social route.
+  "/api/social/contacts",
+  "/api/social/contacts/remove",
+  "/api/social/friend/status",
+  "/api/preferences/receive",
   "/api/social/chat/capability",
   "/api/social/chat",
   "/api/social/chat/send",
