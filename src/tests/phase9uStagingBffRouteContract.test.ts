@@ -38,7 +38,7 @@ const strictOwnerPaths = [
 describe('full Testnet BFF routing is exact, implemented and owner-protected', () => {
   it('all forwarded API paths exist as literal BFF handlers (not SPA/HTML fallbacks)', () => {
     // The two purpose-bound cookie restore/logout endpoints are explicitly reviewed.
-    expect(STAGING_ALLOWED_PATHS.length).toBe(46);
+    expect(STAGING_ALLOWED_PATHS.length).toBe(47);
     const unique = new Set<string>(STAGING_ALLOWED_PATHS);
     expect(unique.size).toBe(STAGING_ALLOWED_PATHS.length);
     for (const path of STAGING_ALLOWED_PATHS) {
@@ -81,7 +81,7 @@ describe('full Testnet BFF routing is exact, implemented and owner-protected', (
     expect(cctp).toContain('/v2/messages/');
   });
 
-  it('exposes guarded X start, but not callback forwarding, autonomous signing, or unverified FX/Swap/Gateway', () => {
+  it('exposes guarded X start, but not callback forwarding, autonomous signing, or unverified FX/Swap/Gateway execution', () => {
     expect(routeSource('/api/auth/x/capability')).toContain('checkedXReturnOrigin(origin');
     const xStart=routeSource('/api/auth/x/start');
     expect(xStart).toContain('getAuthenticatedVeyraUserId(req)');
@@ -99,6 +99,11 @@ describe('full Testnet BFF routing is exact, implemented and owner-protected', (
     for (const path of denied) expect(STAGING_ALLOWED_PATHS).not.toContain(path);
     expect(routeSource('/api/agent/status')).toContain("execution: 'LOCKED'");
     expect(routeSource('/api/agent/chat')).toContain("execution: 'LOCKED'");
+    const gatewayRead=routeSource('/api/gateway/balances');
+    expect(gatewayRead).toContain('getAuthenticatedVeyraUserId(req)');
+    expect(gatewayRead).toContain('GATEWAY_WALLET_NOT_BOUND_TO_ID');
+    expect(gatewayRead).toContain('GATEWAY_DOMAIN_BALANCE_UNVERIFIED');
+    expect(STAGING_ALLOWED_PATHS).not.toContain('/api/gateway/transfer');
     expect(root('src/providers/registry/mainnetProviderManifest.ts')).not.toMatch(/enabled:\s*true/);
   });
 });
