@@ -24,6 +24,19 @@ describe('Circle Gateway estimate trust boundary',()=>{
   const result=parseGatewayEstimate(response,request);
   expect(result).toEqual({domain:26,maxFee:20000n,maxBlockHeight:999999n});
  });
+ it('accepts only supported array and body/enveloped estimates with the full pinned spec',()=>{
+  const request=create();
+  const signedShape=[{burnIntent:{spec:request.spec,maxFee:'20000',maxBlockHeight:'999999'}}];
+  const expected={domain:26,maxFee:20000n,maxBlockHeight:999999n};
+  expect(parseGatewayEstimate(signedShape,request)).toEqual(expected);
+  expect(parseGatewayEstimate({intents:signedShape},request)).toEqual(expected);
+  expect(parseGatewayEstimate({body:signedShape},request)).toEqual(expected);
+  expect(parseGatewayEstimate({body:{intents:signedShape}},request)).toEqual(expected);
+  expect(()=>parseGatewayEstimate({body:{fees:[{amount:'0'}]}},request))
+   .toThrow('GATEWAY_ESTIMATE_RESPONSE_INVALID');
+  expect(()=>parseGatewayEstimate({body:[...signedShape,...signedShape]},request))
+   .toThrow('GATEWAY_ESTIMATE_RESPONSE_INVALID');
+ });
  it('rejects changed amount, destination, depositor, salt, fee and missing expiry',()=>{
   const request=create();
   for(const [field,value] of [
