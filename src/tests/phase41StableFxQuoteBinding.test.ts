@@ -21,11 +21,11 @@ const quote=()=>{
     fee:{currency:'USDC',amount:'0.01'},
     expiresAt:new Date(Date.now()+5*60_000).toISOString(),
     typedData:{
-      domain:{name:'Permit2',chainId:M.ARC_TESTNET_CHAIN_ID,verifyingContract:'0x000000000022D473030F116dDEE9F6B43aC78BA3'},
+      domain:{name:'Permit2',chainId:M.ARC_TESTNET_CHAIN_ID as number,verifyingContract:'0x000000000022D473030F116dDEE9F6B43aC78BA3'},
       types:{PermitWitnessTransferFrom:[]},
       primaryType:'PermitWitnessTransferFrom',
       message:{
-        permitted:{token:M.ARC_TESTNET_USDC,amount:'10000000'},
+        permitted:{token:M.ARC_TESTNET_USDC as string,amount:'10000000'},
         spender:'0xa8f94168b4981840ba27d423f4ad6332bedee006',
         deadline,
         witness:{recipient:recipient as string},
