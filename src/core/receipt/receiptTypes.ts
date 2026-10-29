@@ -77,6 +77,11 @@ export interface VeyraReceipt {
   /** Display only: reviewed Veyra ID label, not on-chain name proof or payment authority. */
   recipientVeyraHandleAtReview?: string;
 
+  /** Provider trade ID for Swap reconciliation, not an on-chain tx hash. */
+  providerTradeId?: string;
+  /** Exact quote ID for recovery, not an execution authorization. */
+  providerQuoteId?: string;
+
   /** Transaction hash on the primary chain. */
   executionTxHash?: string;
 

@@ -193,20 +193,23 @@ export function useConvertExecution() {
           actionType: 'CONVERT',
           status: 'PENDING',
           chainId: action.chainId,
+          ownerAddress: walletAddress,
+          providerTradeId: finalTrade.id,
+          providerQuoteId: quote.id,
           createdAt: action.createdAt,
           actualAmountDelta: null,
           expectedAmountDelta: action.minAmountOut,
           riskScore: null,
           policyDecision: null,
-          displaySummary: `Convert is still pending at provider status ${finalTrade.status}.`,
+          displaySummary: `StableFX trade ${trade.id} has not settled. Awaiting owned blockchain evidence.`,
         };
         await saveReceipt(pendingReceipt);
         setState((prev) => ({
           ...prev,
-          status: 'PENDING',
+          status: 'SETTLEMENT_PENDING',
           trade: finalTrade,
           receipt: pendingReceipt,
-          error: 'Conversion has not reached final provider completion yet.',
+          error: 'Swap already submitted; awaiting settlement. Do not submit another trade.',
         }));
         return;
       }
@@ -215,50 +218,65 @@ export function useConvertExecution() {
       const verification = verifyMinimumOutput(actualOutput, action.minAmountOut);
 
       if (!verification.verified) {
-        const failedReceipt: VeyraReceipt = {
+        // This discrepancy is provider-reported. Do not claim an on-chain
+        // received amount or a final loss until the wallet settlement is read.
+        const pendingReceipt: VeyraReceipt = {
           receiptId,
           planId: action.actionId,
           actionType: 'CONVERT',
-          status: 'FAILED',
+          status: 'PENDING',
           chainId: action.chainId,
+          ownerAddress: walletAddress,
+          providerTradeId: finalTrade.id,
+          providerQuoteId: quote.id,
           createdAt: action.createdAt,
-          completedAt: Date.now(),
-          actualAmountDelta: verification.actualAmount,
+          actualAmountDelta: null,
           expectedAmountDelta: action.minAmountOut,
           riskScore: null,
           policyDecision: null,
-          displaySummary: `Convert verification failed: ${verification.detail}`,
+          displaySummary: 'StableFX reported output below the reviewed minimum; on-chain settlement needs reconciliation.',
         };
         await markQuoteUsed(quote.id);
-        await saveReceipt(failedReceipt);
+        await saveReceipt(pendingReceipt);
         setState((prev) => ({
-          ...prev,
-          status: 'FAILED',
+          ...prev, status: 'SETTLEMENT_PENDING',
           trade: finalTrade,
-          receipt: failedReceipt,
-          error: verification.detail,
+          receipt: pendingReceipt,
+          error: verification.detail + ' No second swap is submitted.',
         }));
         return;
       }
 
+      // Circle's provider-level "complete" is not on-chain receipt evidence.
+      // Until we verify the destination token transfer (or an exact, owner-
+      // bound before/after balance delta), never manufacture a VERIFIED receipt.
+      // Retain quote replay lock and the provider trade ID for reconciliation.
       const receipt: VeyraReceipt = {
         receiptId,
         planId: action.actionId,
         actionType: 'CONVERT',
-        status: 'VERIFIED',
+        status: 'PENDING',
         chainId: action.chainId,
+        ownerAddress: walletAddress,
+          providerTradeId: finalTrade.id,
+          providerQuoteId: quote.id,
         createdAt: action.createdAt,
-        completedAt: Date.now(),
-        actualAmountDelta: verification.actualAmount,
+        actualAmountDelta: null,
         expectedAmountDelta: action.minAmountOut,
         riskScore: null,
-        policyDecision: 'PASS',
-        displaySummary: `Convert ${finalTrade.from.amount} ${finalTrade.from.currency} → ${finalTrade.to.amount} ${finalTrade.to.currency}`,
+        policyDecision: null,
+        displaySummary: 'StableFX reports completion. Awaiting independent on-chain settlement verification before marking Swap successful.',
       };
 
       await markQuoteUsed(quote.id);
       await saveReceipt(receipt);
-      setState((prev) => ({ ...prev, status: 'VERIFIED', trade: finalTrade, receipt }));
+      setState((prev) => ({
+        ...prev,
+        status: 'SETTLEMENT_PENDING',
+        trade: finalTrade,
+        receipt,
+        error: 'Provider reports completion; destination USDC/EURC receipt is not yet independently verified.',
+      }));
     } catch (err) {
       // Only release a quote if execution definitely stopped before the
       // provider-submission boundary. Once BROADCAST is recorded, uncertainty
