@@ -73,12 +73,28 @@ export function parseGatewayEstimate(raw:unknown,request:GatewayEstimateRequest)
   return fail('GATEWAY_ESTIMATE_SPEC_MISSING');
  const actual=spec as Record<string,unknown>;
  const expected=request.spec as Record<string,unknown>;
+ const addressFields=new Set([
+  'sourceContract','destinationContract','sourceToken','destinationToken',
+  'sourceDepositor','destinationRecipient','sourceSigner','destinationCaller',
+ ]);
+ const canonicalAddress=(value:unknown):string|null=>{
+  if(typeof value!=='string'||!/^0x(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/.test(value))
+   return null;
+  const hex=value.slice(2);
+  // The EIP-712 schema uses bytes32; the live Circle estimate response
+  // normalizes these 8 fields back to 20-byte EVM addresses. Only permit
+  // zero-left-padded bytes32. Never ignore arbitrary high-order bytes.
+  if(hex.length===64&&!/^0{24}$/i.test(hex.slice(0,24)))return null;
+  return getAddress(`0x${hex.slice(-40)}`).toLowerCase();
+ };
  for(const key of Object.keys(expected)){
   const expectedValue=expected[key];
   const value=actual[key];
+  const matching=addressFields.has(key)
+    ?canonicalAddress(value)!==null&&canonicalAddress(value)===canonicalAddress(expectedValue)
+    :String(value).toLowerCase()===String(expectedValue).toLowerCase();
   // Typed API adapters sometimes encode uint32 as strings. No approximation.
-  if(String(value).toLowerCase()!==String(expectedValue).toLowerCase())
-   return fail('GATEWAY_ESTIMATE_SPEC_CHANGED');
+  if(!matching)return fail('GATEWAY_ESTIMATE_SPEC_CHANGED');
  }
  const fee=burn.maxFee, height=burn.maxBlockHeight;
  if(typeof fee!=='string'||!/^(0|[1-9]\d*)$/.test(fee)||
