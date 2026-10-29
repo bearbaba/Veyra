@@ -89,7 +89,7 @@ jobs:
 
       - name: Verify dedicated Testnet candidate or isolated production safety
         run: |
-          if [ "$GITHUB_BASE_REF" = "phase9q-unified-core-testnet-release" ] || [ "$GITHUB_HEAD_REF" = "phase9q-unified-core-testnet-release" ] || [ "$GITHUB_REF_NAME" = "phase9q-unified-core-testnet-release" ]; then
+          if [ "$GITHUB_BASE_REF" = "phase9q-unified-core-testnet-release" ] || [ "$GITHUB_HEAD_REF" = "phase9q-unified-core-testnet-release" ] || [ "$GITHUB_REF_NAME" = "phase9q-unified-core-testnet-release" ] || {\n            [[ "$GITHUB_REF_NAME" == phase* ]] && grep -Fq 'VITE_VEYRA_UNIFIED_STAGING=1' vercel.json;\n          }; then
             bun run scripts/check-unified-testnet-staging.ts
           else
             bun run scripts/check-unified-production-release.ts
@@ -363,7 +363,7 @@ jobs:
       - name: Audit public bundle and isolated Testnet release guards
         run: |
           bun run check:vercel-preview-bundle
-          if [ "$GITHUB_BASE_REF" = "phase9q-unified-core-testnet-release" ] || [ "$GITHUB_HEAD_REF" = "phase9q-unified-core-testnet-release" ] || [ "$GITHUB_REF_NAME" = "phase9q-unified-core-testnet-release" ]; then
+          if [ "$GITHUB_BASE_REF" = "phase9q-unified-core-testnet-release" ] || [ "$GITHUB_HEAD_REF" = "phase9q-unified-core-testnet-release" ] || [ "$GITHUB_REF_NAME" = "phase9q-unified-core-testnet-release" ] || {\n            [[ "$GITHUB_REF_NAME" == phase* ]] && grep -Fq 'VITE_VEYRA_UNIFIED_STAGING=1' vercel.json;\n          }; then
             bun run scripts/check-unified-testnet-staging.ts
           else
             bun run scripts/check-unified-production-release.ts
