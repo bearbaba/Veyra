@@ -261,13 +261,18 @@ export function buildConvertActionFromQuote(
 
 export interface StableFxTradeRequest {
   quoteId: string;
+  /** Fixed per attempt. Must be persisted before the remote trade submission. */
+  idempotencyKey: string;
   walletAddress: Address;
   message: Record<string, unknown>;
   signature: string;
 }
 
 export async function createStableFxTrade(req: StableFxTradeRequest): Promise<StableFxTradeStatus> {
-  const idempotencyKey = crypto.randomUUID();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(req.idempotencyKey)) {
+    throw new Error('StableFX trade idempotency key is invalid.');
+  }
+  const idempotencyKey = req.idempotencyKey;
   const res = await fetch('/api/stablefx/trade', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -283,7 +288,11 @@ export async function createStableFxTrade(req: StableFxTradeRequest): Promise<St
     const err = await res.json() as { error?: string };
     throw new Error(`StableFX trade creation failed: ${err.error ?? res.status}`);
   }
-  const data = await res.json() as { ok: boolean; trade: StableFxTradeStatus };
+  const data = await res.json() as { ok?: boolean; trade?: StableFxTradeStatus };
+  if (data.ok !== true || !data.trade || typeof data.trade.id !== 'string' ||
+      !data.trade.id || !data.trade.contractTradeId) {
+    throw new Error('StableFX trade response is missing its settlement identifier.');
+  }
   return data.trade;
 }
 

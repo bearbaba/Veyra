@@ -1337,6 +1337,14 @@ app.post('/api/agent/explain', AGENT_RATE, async (req: Request, res: Response): 
   }
 });
 
+// StableFX uses one Circle API hostname and a TEST/LIVE key to select the
+// environment. Never let a LIVE key execute from the Testnet BFF.
+const STABLEFX_TEST_BASE_URL = 'https://api.circle.com';
+function stableFxTestKey(): string | null {
+  const key = process.env.CIRCLE_API_KEY ?? '';
+  return key.startsWith('TEST_API_KEY:') ? key : null;
+}
+
 // ── POST /api/stablefx/quote ─────────────────────────────────────────────────
 // Fetches a StableFX tradable quote from Circle API (server-side — API key stays here)
 // Returns the quote including typedData for browser-side Permit2 signing.
@@ -1345,7 +1353,7 @@ app.post('/api/agent/explain', AGENT_RATE, async (req: Request, res: Response): 
 
 app.post('/api/stablefx/quote', STABLEFX_RATE, async (req: Request, res: Response): Promise<void> => {
   try {
-    const circleApiKey = process.env.CIRCLE_API_KEY;
+    const circleApiKey = stableFxTestKey();
     if (!circleApiKey) {
       res.status(503).json({ error: 'Circle API key not configured on this server' });
       return;
@@ -1398,7 +1406,7 @@ app.post('/api/stablefx/quote', STABLEFX_RATE, async (req: Request, res: Respons
     };
 
     const circleRes = await fetch(
-      `${MANIFEST_CONSTANTS.STABLEFX_SANDBOX_BASE_URL}/v1/exchange/stablefx/quotes`,
+      `${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/quotes`,
       {
         method: 'POST',
         headers: {
@@ -1429,7 +1437,7 @@ app.post('/api/stablefx/quote', STABLEFX_RATE, async (req: Request, res: Respons
 
 app.post('/api/stablefx/trade', STABLEFX_RATE, async (req: Request, res: Response): Promise<void> => {
   try {
-    const circleApiKey = process.env.CIRCLE_API_KEY;
+    const circleApiKey = stableFxTestKey();
     if (!circleApiKey) {
       res.status(503).json({ error: 'Circle API key not configured on this server' });
       return;
@@ -1448,9 +1456,16 @@ app.post('/api/stablefx/trade', STABLEFX_RATE, async (req: Request, res: Respons
       return;
     }
 
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey) ||
+        !isAddress(address) ||
+        !/^[0-9a-f-]{36}$/i.test(quoteId) ||
+        !/^0x[0-9a-f]{128}(?:[0-9a-f]{2})?$/i.test(signature)) {
+      res.status(400).json({ error: 'Invalid trade identifiers, wallet or signature.' });
+      return;
+    }
     const tradeBody = { idempotencyKey, quoteId, address, message, signature };
     const circleRes = await fetch(
-      `${MANIFEST_CONSTANTS.STABLEFX_SANDBOX_BASE_URL}/v1/exchange/stablefx/trades`,
+      `${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/trades`,
       {
         method: 'POST',
         headers: {
@@ -1480,7 +1495,7 @@ app.post('/api/stablefx/trade', STABLEFX_RATE, async (req: Request, res: Respons
 
 app.get('/api/stablefx/trade/:tradeId', STABLEFX_RATE, async (req: Request, res: Response): Promise<void> => {
   try {
-    const circleApiKey = process.env.CIRCLE_API_KEY;
+    const circleApiKey = stableFxTestKey();
     if (!circleApiKey) {
       res.status(503).json({ error: 'Circle API key not configured' });
       return;
@@ -1494,7 +1509,7 @@ app.get('/api/stablefx/trade/:tradeId', STABLEFX_RATE, async (req: Request, res:
     }
 
     const circleRes = await fetch(
-      `${MANIFEST_CONSTANTS.STABLEFX_SANDBOX_BASE_URL}/v1/exchange/stablefx/trades/${tradeId}`,
+      `${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/trades/${tradeId}`,
       { headers: { Authorization: `Bearer ${circleApiKey}` } },
     );
 

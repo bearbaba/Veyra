@@ -27,6 +27,7 @@ import { AgentUnifiedBalances } from '../agent/AgentUnifiedBalances';
 import { BridgePage } from './BridgePage';
 import { PayPage } from './PayPage';
 import type { IntentCandidate } from '@/core/intent/intentSchema';
+import { restoreWalletScopedActiveTask, selectActiveTaskAfterReply } from '@/core/agent/activeTaskSelection';
 import type { VeyraPage } from '../layout/AppShell';
 
 interface AgentPageProps {
@@ -75,6 +76,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
   historyScope: string | null; friends: SocialFriend[]; signedIn: boolean; currentWallet: string | null;
 }) {
   const historyKey = historyScope ? 'veyra:agent-history:' + historyScope : null;
+  const taskKey = historyScope ? 'veyra:agent-active-task:' + historyScope : null;
   const [messages, setMessages] = useState<Message[]>(() => {
     if (!historyKey) return [];
     try {
@@ -91,7 +93,11 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
   });
   const [loading, setLoading] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
-  const [activeTaskMessageId, setActiveTaskMessageId] = useState<string | null>(null);
+  const [activeTaskMessageId, setActiveTaskMessageId] = useState<string | null>(() => {
+    if (!taskKey) return null;
+    try { return restoreWalletScopedActiveTask(sessionStorage.getItem(taskKey), messages); }
+    catch { return null; }
+  });
   const [inlineBridgeMessageId, setInlineBridgeMessageId] = useState<string | null>(null);
   const [activePayDraft, setActivePayDraft] = useState<{ messageId: string; candidate: IntentCandidate } | null>(null);
   const [capabilities, setCapabilities] = useState<AgentCapabilities>(DEFAULT_CAPABILITIES);
@@ -106,6 +112,14 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
     // Do not import legacy global chat shared by every wallet in this browser.
     try { sessionStorage.removeItem('veyra:agent-history'); } catch { /* storage denied */ }
   }, []);
+
+  useEffect(() => {
+    if (!taskKey) return;
+    try {
+      if (activeTaskMessageId) sessionStorage.setItem(taskKey, activeTaskMessageId);
+      else sessionStorage.removeItem(taskKey);
+    } catch { /* Task stays in memory if storage is disabled. */ }
+  }, [taskKey, activeTaskMessageId]);
 
   useEffect(() => {
     if (historyKey && messages.length > 0) {
@@ -173,11 +187,9 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
 
     const priorHistory = history;
     const userMessage: Message = { id: crypto.randomUUID(), role: 'user', text, ts: Date.now() };
-    // An unrelated conversation cannot keep showing a stale financial task.
-    // Unfinished on-chain receipts remain persisted in Activity and still block duplicate burns.
-    setActiveTaskMessageId(null);
-    setInlineBridgeMessageId(null);
-    setActivePayDraft(null);
+    // Chat is independent of execution. Never unmount a Pay/Bridge review or
+    // in-flight transaction just because the user asked a new question.
+    // A second action remains selectable from its own message when appropriate.
     setMessages((current) => [...current, userMessage]);
     setInput('');
     setLoading(true);
@@ -212,9 +224,11 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
       ts: Date.now(),
     };
     setMessages((current) => [...current, agentMessage]);
-    if (response.intent?.candidates.length && response.intent.status !== 'UNSUPPORTED') {
-      setActiveTaskMessageId(agentMessage.id);
-    }
+    setActiveTaskMessageId((current) => selectActiveTaskAfterReply(
+      current,
+      agentMessage.id,
+      Boolean(response.intent?.candidates.length && response.intent.status !== 'UNSUPPORTED'),
+    ));
     setLoading(false);
   }
 
@@ -223,10 +237,11 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
     setInlineBridgeMessageId(null);
     setActivePayDraft(null);
     setMessages([]);
-    setBridgeLinks([]);
+    // Clearing chat never deletes pending or verified blockchain receipt links.
+    // The owner-scoped Activity and existing CCTP replay guards remain intact.
     try {
       if (historyKey) sessionStorage.removeItem(historyKey);
-      if (historyScope) sessionStorage.removeItem('veyra:agent:bridge-receipts:' + historyScope);
+      if (taskKey) sessionStorage.removeItem(taskKey);
     } catch { /* storage denied */ }
     inputRef.current?.focus();
   }
@@ -433,7 +448,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
                 setActiveTaskMessageId(null);
                 setInlineBridgeMessageId(null);
                 setActivePayDraft(null);
-              }} aria-label="Close active task" className="rounded-xl border px-3 py-2 text-xs"
+              }} aria-label="Hide active task (transactions remain in Activity)" className="rounded-xl border px-3 py-2 text-xs"
                 style={{borderColor:'var(--border)',color:'var(--muted)'}}>Close</button>
             </div>
             <ActionCard intent={activeTaskMessage.intent} onNavigate={onNavigate}

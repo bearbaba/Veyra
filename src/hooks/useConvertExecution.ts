@@ -8,6 +8,7 @@ import { useState, useCallback } from 'react';
 import type { ConvertAction } from '../core/actions/actionSchema';
 import type { ConvertPipelineEvaluation, ConvertPipelineStatus } from '../core/pipeline/convertPipeline';
 import { evaluateConvertAction } from '../core/pipeline/convertPipeline';
+import { convertErrorState, canDiscardConvertDraft } from '../core/pipeline/convertRecoveryPolicy';
 import type { StableFxQuoteResponse, StableFxTradeStatus } from '../providers/stablefx/stableFxAdapter';
 import {
   fetchStableFxQuote,
@@ -96,6 +97,7 @@ export function useConvertExecution() {
 
     let quoteReserved = false;
     let broadcastLocked = false;
+    const idempotencyKey = crypto.randomUUID();
 
     try {
       assertExecutionReady({
@@ -135,6 +137,7 @@ export function useConvertExecution() {
       // ConvertAction has no `from` field — walletAddress is passed explicitly as a param
       const trade = await createStableFxTrade({
         quoteId: quote.id,
+        idempotencyKey,
         walletAddress,
         message: quote.typedData.message,
         signature,
@@ -196,6 +199,7 @@ export function useConvertExecution() {
           ownerAddress: walletAddress,
           providerTradeId: finalTrade.id,
           providerQuoteId: quote.id,
+          providerIdempotencyKey: idempotencyKey,
           createdAt: action.createdAt,
           actualAmountDelta: null,
           expectedAmountDelta: action.minAmountOut,
@@ -229,6 +233,7 @@ export function useConvertExecution() {
           ownerAddress: walletAddress,
           providerTradeId: finalTrade.id,
           providerQuoteId: quote.id,
+          providerIdempotencyKey: idempotencyKey,
           createdAt: action.createdAt,
           actualAmountDelta: null,
           expectedAmountDelta: action.minAmountOut,
@@ -260,6 +265,7 @@ export function useConvertExecution() {
         ownerAddress: walletAddress,
           providerTradeId: finalTrade.id,
           providerQuoteId: quote.id,
+          providerIdempotencyKey: idempotencyKey,
         createdAt: action.createdAt,
         actualAmountDelta: null,
         expectedAmountDelta: action.minAmountOut,
@@ -290,15 +296,49 @@ export function useConvertExecution() {
         }
       }
 
+      const nextStatus = convertErrorState(broadcastLocked);
+      const errorDetail = err instanceof Error ? err.message : 'Convert execution failed';
+      if (nextStatus === 'SETTLEMENT_PENDING') {
+        // A POST timeout is not proof the provider rejected the trade.
+        // Keep an owner-bound pending receipt and the quote in BROADCAST state.
+        // Never suggest a second trade while reconciliation is unresolved.
+        const pendingReceipt: VeyraReceipt = {
+          receiptId: generatePlanReceiptId(),
+          planId: action.actionId,
+          actionType: 'CONVERT',
+          status: 'PENDING',
+          chainId: action.chainId,
+          ownerAddress: walletAddress,
+          providerQuoteId: quote.id,
+          providerIdempotencyKey: idempotencyKey,
+          createdAt: action.createdAt,
+          actualAmountDelta: null,
+          expectedAmountDelta: action.minAmountOut,
+          riskScore: null,
+          policyDecision: null,
+          displaySummary: 'Swap submission outcome unknown. Reconcile the provider trade and on-chain settlement; do not resend.',
+        };
+        try { await saveReceipt(pendingReceipt); }
+        catch { /* Keep the execution locked even if local persistence is unavailable. */ }
+        setState((prev) => ({
+          ...prev,
+          status: nextStatus,
+          receipt: pendingReceipt,
+          error: 'Swap may have reached Circle. ' + errorDetail + ' Do not submit another trade.',
+        }));
+        return;
+      }
       setState((prev) => ({
         ...prev,
-        status: 'FAILED',
-        error: err instanceof Error ? err.message : 'Convert execution failed',
+        status: nextStatus,
+        error: errorDetail,
       }));
     }
   }, []);
 
-  const reset = useCallback(() => { setState({ status: 'PENDING' }); }, []);
+  const reset = useCallback(() => {
+    setState((prev) => canDiscardConvertDraft(prev.status) ? { status: 'PENDING' } : prev);
+  }, []);
 
   return { state, fetchQuote, executeConvert, reset };
 }
