@@ -39,7 +39,7 @@ try{
   ?Object.keys(raw):[];
  console.error('Gateway Testnet estimate response did not match the verified BurnIntent schema.');
  console.error(`Response is array: ${Array.isArray(raw)}; top-level keys: ${topKeys.join(',')}`);
- const first=Array.isArray(raw)?raw[0]:null;
+ const first:unknown=Array.isArray(raw)?raw[0]:null;
  const item=first&&typeof first==='object'&&!Array.isArray(first)
   ?first as Record<string,unknown>:null;
  const burn=item?.burnIntent&&typeof item.burnIntent==='object'&&!Array.isArray(item.burnIntent)
