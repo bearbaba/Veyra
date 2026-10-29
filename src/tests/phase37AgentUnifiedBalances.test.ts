@@ -68,10 +68,11 @@ describe('Phase 37 — Agent Unified USDC read-only balances',()=>{
     expect(ui.indexOf('Total USDC across 3 Testnets')).toBeLessThan(ui.indexOf('UNIFIED_TESTNET_USDC.map(source=>'));
     expect(ui).not.toContain('writeContract');
     expect(ui).not.toContain('signMessage');
-    expect(quick).toContain('<AgentUnifiedBalances key={address?.toLowerCase()');
+    expect(quick).not.toContain('<AgentUnifiedBalances');
+    expect(read('src/components/pages/AgentPage.tsx')).toContain('<AgentUnifiedBalances />');
     expect(quick).not.toContain("onNavigate('unified')");
     expect(quick).toContain('Reverse Bridge unavailable · Source allowance is 0 or insufficient');
-    expect(quick).toContain("useState<QuickAction>('UNIFIED')");
+    expect(quick).toContain("useState<QuickAction>('SEND')");
     expect(quick).toContain('Swap · Preview only');
     const card=read('src/components/transfer/ActionCard.tsx');
     expect(card).toContain('Use Base Sepolia (Testnet) · Prepare draft');
