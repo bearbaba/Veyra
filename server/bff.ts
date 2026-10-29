@@ -1621,7 +1621,7 @@ app.post('/api/stablefx/funding/submit', STABLEFX_RATE, async (req: Request, res
     await claimStableFxFundingSubmission(db,{userId,tradeId,message:body.permit2});
     const result = await fetch(`${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/fund`, {
       method: 'POST', headers: { ...providerHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'taker', signature, permit2: suppliedPermit }),
+      body: JSON.stringify({ type: 'taker', signature, permit2: body.permit2 }),
       signal: AbortSignal.timeout(16000),
     });
     if (!result.ok) { res.status(502).json({ error: 'STABLEFX_FUNDING_PROVIDER_UNCONFIRMED' }); return; }
