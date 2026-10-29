@@ -27,7 +27,13 @@ import { useReceiptStore } from '@/hooks/useReceiptStore';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
 
-export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipient?: string | null;onFriendRecipientUsed?: () => void} = {}) {
+export function PayPage({friendRecipient, onFriendRecipientUsed, embedded = false, initialIntent = null}: {
+  friendRecipient?: string | null;
+  onFriendRecipientUsed?: () => void;
+  /** Same canonical Pay workflow in Agent Active task; never a second signer. */
+  embedded?: boolean;
+  initialIntent?: IntentCandidate | null;
+} = {}) {
   const { address, isConnected, chainId } = useAccount();
   const social = useUnifiedSocial();
   const { receipts: ownedReceipts, error: receiptError } = useReceiptStore();
@@ -87,11 +93,12 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
   }, [friendRecipient, onFriendRecipientUsed]);
 
   useEffect(() => {
-    const raw = sessionStorage.getItem('veyra:agent-intent');
-    if (!raw) return;
-    sessionStorage.removeItem('veyra:agent-intent');
+    // Ignore storage when an Agent task explicitly owns this untrusted draft.
+    const raw = initialIntent ? null : sessionStorage.getItem('veyra:agent-intent');
+    if (!initialIntent && !raw) return;
+    if (raw) sessionStorage.removeItem('veyra:agent-intent');
     try {
-      const candidate = JSON.parse(raw) as IntentCandidate;
+      const candidate = initialIntent ?? JSON.parse(raw!) as IntentCandidate;
       // Defense in depth: never interpret a decimal prefix or silently
       // change the explicitly requested network during Agent handoff.
       const gate = validateAgentTransferDraft(candidate);
@@ -103,9 +110,10 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
       setRecipientMode(isAddress(candidate.recipientRaw!.raw) ? 'WALLET' : 'FRIEND');
       setAmount(gate.amount);
     } catch {
-      // Session storage is convenience-only and never trusted for execution.
+      // Untrusted draft/storage is convenience-only, never execution authority.
+      setActionError('Invalid Agent Pay draft. No wallet request was made.');
     }
-  }, []);
+  }, [initialIntent]);
 
   // Input changes invalidate an in-flight identity resolution and all previously
   // reviewed payment data. Never display a review for the wrong amount.
@@ -188,8 +196,8 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-7 md:px-7 md:py-9">
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+    <div className={embedded ? 'w-full min-w-0 space-y-4' : 'mx-auto max-w-2xl px-4 py-7 md:px-7 md:py-9'}>
+      {!embedded && <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--accent)' }}>
             <SendHorizontal className="size-4" /> Send USDC
@@ -206,7 +214,7 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
             <div className="text-xs font-semibold" style={{ color: 'var(--ink-2)' }}>Arc Testnet · USDC</div>
           </div>
         </div>
-      </div>
+      </div>}
 
       {isConnected && !sessionToken && recipientMode === 'FRIEND' && (
         <div className="mb-4" aria-label="Veyra ID authorization for Pay">
@@ -215,7 +223,7 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
       )}
 
       <div className="space-y-4">
-          <div className="flex items-start gap-3 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+          <div className={embedded ? 'flex items-start gap-2 rounded-xl p-3' : 'flex items-start gap-3 rounded-2xl p-4'} style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
             <ShieldCheck className="mt-0.5 size-4 shrink-0" style={{ color: 'var(--success)' }} />
             <div>
               <p className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>{chainId === ARC_TESTNET_CHAIN_ID ? 'Arc Testnet connected' : 'Payment route: Arc Testnet · wallet on another network'}</p>
@@ -225,7 +233,7 @@ export function PayPage({friendRecipient, onFriendRecipientUsed}: {friendRecipie
             </div>
           </div>
 
-          {recentPay && (
+          {!embedded && recentPay && (
             <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl p-4"
               style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
               <div className="min-w-0">

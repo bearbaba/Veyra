@@ -25,6 +25,8 @@ import { agentBridgeReceiptState, readAgentBridgeReceiptLinks, type AgentBridgeR
 import { AgentQuickStart } from '../agent/AgentQuickStart';
 import { AgentUnifiedBalances } from '../agent/AgentUnifiedBalances';
 import { BridgePage } from './BridgePage';
+import { PayPage } from './PayPage';
+import type { IntentCandidate } from '@/core/intent/intentSchema';
 import type { VeyraPage } from '../layout/AppShell';
 
 interface AgentPageProps {
@@ -91,6 +93,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [activeTaskMessageId, setActiveTaskMessageId] = useState<string | null>(null);
   const [inlineBridgeMessageId, setInlineBridgeMessageId] = useState<string | null>(null);
+  const [activePayDraft, setActivePayDraft] = useState<{ messageId: string; candidate: IntentCandidate } | null>(null);
   const [capabilities, setCapabilities] = useState<AgentCapabilities>(DEFAULT_CAPABILITIES);
   const [bridgeLinks, setBridgeLinks] = useState<AgentBridgeReceiptLink[]>(() =>
     readAgentBridgeReceiptLinks(historyScope));
@@ -174,6 +177,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
     // Unfinished on-chain receipts remain persisted in Activity and still block duplicate burns.
     setActiveTaskMessageId(null);
     setInlineBridgeMessageId(null);
+    setActivePayDraft(null);
     setMessages((current) => [...current, userMessage]);
     setInput('');
     setLoading(true);
@@ -217,6 +221,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
   function clearConversation() {
     setActiveTaskMessageId(null);
     setInlineBridgeMessageId(null);
+    setActivePayDraft(null);
     setMessages([]);
     setBridgeLinks([]);
     try {
@@ -354,6 +359,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
                           onClick={() => {
                             setActiveTaskMessageId(message.id);
                             setInlineBridgeMessageId(null);
+                            setActivePayDraft(null);
                           }}
                           className="mt-2 rounded-xl border px-3 py-2 text-xs font-semibold"
                           style={{ borderColor:'var(--border-strong)', color:'var(--accent)' }}>
@@ -426,11 +432,19 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
               <button type="button" onClick={() => {
                 setActiveTaskMessageId(null);
                 setInlineBridgeMessageId(null);
+                setActivePayDraft(null);
               }} aria-label="Close active task" className="rounded-xl border px-3 py-2 text-xs"
                 style={{borderColor:'var(--border)',color:'var(--muted)'}}>Close</button>
             </div>
             <ActionCard intent={activeTaskMessage.intent} onNavigate={onNavigate}
-              onReviewBridgeInline={() => setInlineBridgeMessageId(activeTaskMessage.id)}
+              onReviewPayInline={(candidate) => {
+                setInlineBridgeMessageId(null);
+                setActivePayDraft({ messageId: activeTaskMessage.id, candidate });
+              }}
+              onReviewBridgeInline={() => {
+                setActivePayDraft(null);
+                setInlineBridgeMessageId(activeTaskMessage.id);
+              }}
               bridgeHandoffScope={historyScope}
               messageId={activeTaskMessage.id}
               linkedBridge={(() => {
@@ -452,6 +466,12 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
                 setInput(`Send ${amount} ${token} from ${source} to ${recipient} on ${destination}`);
                 inputRef.current?.focus();
               }} />
+            {activePayDraft?.messageId === activeTaskMessage.id && (
+              <section aria-label="Pay review in active task" className="mt-4 border-t pt-4"
+                style={{ borderColor: 'var(--border)' }}>
+                <PayPage embedded initialIntent={activePayDraft.candidate} />
+              </section>
+            )}
             {inlineBridgeMessageId === activeTaskMessage.id && (
               <section aria-label="Bridge review in active task" className="mt-4 border-t pt-4"
                 style={{borderColor:'var(--border)'}}>
