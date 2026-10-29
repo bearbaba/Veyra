@@ -159,11 +159,11 @@ export function validateStableFxQuoteResponse(
   const normal={
     id, from:{currency:request.fromCurrency,amount:from.amount as string},
     to:{currency:request.toCurrency,amount:to.amount as string},
-    rate:quotedRate as string|number,
+    rate:quotedRate,
     fee:{currency:request.fromCurrency,amount:fee.amount as string},
     expiresAt:q.expiresAt as string,typedData:{
       domain,types:typed.types as Record<string,unknown>,
-      primaryType:typed.primaryType as string,message,
+      primaryType:typed.primaryType,message,
     }, fetchedAt,
   } satisfies StableFxQuoteResponse;
   return normal;
