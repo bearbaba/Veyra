@@ -6,3 +6,8 @@
 - On wallet change/disconnection, stale results are hidden by owner scope, with asynchronous results invalidated; foreground refresh and manual Refresh provide read timestamp.
 - Phase 36 reverse UI clarity: when allowance is missing, the heading now explicitly says Reverse Bridge unavailable. No request to approve is offered.
 - Release gates: phase37 tests + full CI, desktop/mobile check and an exact-commit READY Vercel Preview. Do not promote the current stable Testnet V2 alias until signed-wallet browser acceptance. No Render/Mainnet writes.
+
+## Phase 37 UX review follow-up
+
+- Promote an exact multi-chain USDC total to the first, largest element of the Agent Unified card, followed by three per-network balances and last RPC read. Only display total when all three read successfully; never invent missing balances or suggest pooled spendability. Agent defaults to Unified; Swap remains visibly Preview.
+- A plain 'chain base' payment is ambiguous between Base Mainnet and Base Sepolia. The deterministic parser must ask which network the user wants, pin that clarification ahead of any model output, and never claim a Base→Base transfer. Explicit Base Sepolia may create an Arc-source Bridge draft behind existing safety gates.

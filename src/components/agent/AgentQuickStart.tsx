@@ -22,13 +22,13 @@ interface AgentQuickStartProps {
 
 const ACTIONS: ReadonlyArray<{ id: QuickAction; title: string; summary: string; tag: string }> = [
   { id: 'SEND', title: 'Send', summary: 'To a friend or wallet', tag: 'Arc USDC' },
-  { id: 'SWAP', title: 'Swap', summary: 'Explore conversions', tag: 'Preview' },
+  { id: 'SWAP', title: 'Swap', summary: 'USDC / EURC · not live', tag: 'Preview' },
   { id: 'BRIDGE', title: 'Bridge', summary: 'Move USDC across Testnets', tag: 'CCTP V2' },
   { id: 'UNIFIED', title: 'Unified', summary: 'USDC across three Testnets', tag: 'Read-only' },
 ];
 
 export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, compact = false }: AgentQuickStartProps) {
-  const [action, setAction] = useState<QuickAction>('SEND');
+  const [action, setAction] = useState<QuickAction>('UNIFIED');
   const [amount, setAmount] = useState('');
   const [network, setNetwork] = useState<QuickNetwork>('arc');
   const [bridgeSource, setBridgeSource] = useState<QuickNetwork>('arc');
@@ -373,7 +373,7 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
           </div>
         ) : action === 'SWAP' ? (
           <div className="space-y-3">
-            <p className="text-sm font-bold" style={{ color: 'var(--ink)' }}>Swap & Convert</p>
+            <p className="text-sm font-bold" style={{ color: 'var(--ink)' }}>Swap · Preview only</p>
             <p className="text-xs leading-5" style={{ color: 'var(--muted)' }}>
               Explore USDC / EURC conversion. The StableFX provider is not yet enabled for real execution.
             </p>

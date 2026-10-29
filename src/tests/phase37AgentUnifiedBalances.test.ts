@@ -62,11 +62,16 @@ describe('Phase 37 — Agent Unified USDC read-only balances',()=>{
     expect(ui).toContain('owner=address.toLowerCase()');
     expect(ui).toContain('if(id===latest.current)');
     expect(ui).toContain('Unavailable');
+    expect(ui).toContain('Total USDC across 3 Testnets');
+    expect(ui).toContain("'Display-only total · Funds remain on separate networks · Not spendable as one balance'");
     expect(ui).toContain('Combined display hidden until all networks are readable');
+    expect(ui.indexOf('Total USDC across 3 Testnets')).toBeLessThan(ui.indexOf('UNIFIED_TESTNET_USDC.map(source=>'));
     expect(ui).not.toContain('writeContract');
     expect(ui).not.toContain('signMessage');
     expect(quick).toContain('<AgentUnifiedBalances key={address?.toLowerCase()');
     expect(quick).toContain('onNavigate(\'home\')');
     expect(quick).toContain('Reverse Bridge unavailable · Source allowance is 0 or insufficient');
+    expect(quick).toContain("useState<QuickAction>('UNIFIED')");
+    expect(quick).toContain('Swap · Preview only');
   });
 });
