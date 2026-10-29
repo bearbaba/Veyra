@@ -58,13 +58,33 @@ export function GatewaySendReview(){
    const current=await fetchGatewayTestnetBalances(owner);
    const destination=GATEWAY_TESTNET_SOURCES.find(s=>s.chainId===destinationChainId);
    if(!destination)throw Error('Destination Testnet unsupported.');
-   const quotes=await Promise.all(GATEWAY_TESTNET_SOURCES.map(s=>
+   const sessionAtStart=activeSignedIdentityToken();
+   if(!sessionAtStart)throw Error('Sign in again to review Gateway spending.');
+   // First estimate the exact destination amount against each possible source
+   // to choose available funds. Estimates cannot authorize a spend.
+   const sourceQuotes=await Promise.all(GATEWAY_TESTNET_SOURCES.map(s=>
     quoteOne(owner,recipient,amount,s.domain,destination.domain)));
-   if(activeSignedIdentityToken()===null)throw Error('Your signed identity session changed. Review again.');
-   const allocations=allocateGatewaySend({
-    owner,recipient,destinationChainId,amount,snapshot:current,quotes,
+   const provisional=allocateGatewaySend({
+    owner,recipient,destinationChainId,amount,snapshot:current,quotes:sourceQuotes,
    });
-   setReview({owner,recipient,destinationChainId,amount,readAt:Date.now(),allocations,quotes});
+   // A multi-source plan splits the destination amount. Re-estimate each
+   // actual partial amount; the first quote is NOT transferable to that amount.
+   // Changed fee/expiry must never silently mutate what the user reviews.
+   const exactQuotes=await Promise.all(provisional.map(p=>
+    quoteOne(owner,recipient,formatRaw(p.value),p.domain,destination.domain)));
+   const byDomain=new Map(exactQuotes.map(q=>[q.domain,q]));
+   const exactAllocations=provisional.map(p=>({
+     ...p,maxFee:byDomain.get(p.domain)?.maxFee??-1n,
+   }));
+   if(exactAllocations.some(p=>p.maxFee<0n||
+      p.value+p.maxFee>(current.sources.find(s=>s.domain===p.domain)?.available??0n)))
+     throw Error('Gateway fee changed after the split. Review the amount again.');
+   if(activeSignedIdentityToken()!==sessionAtStart)
+     throw Error('Your signed identity session changed. Review again.');
+   // Prevent previously submitted requests from appearing as current reviews
+   // after a wallet or amount change during asynchronous provider calls.
+   setReview({owner,recipient,destinationChainId,amount,readAt:Date.now(),
+     allocations:exactAllocations,quotes:exactQuotes});
   }catch(e){setError(e instanceof Error?e.message:'Gateway estimate unavailable.');}
   finally{setBusy(false);}
  }
