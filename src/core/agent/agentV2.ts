@@ -334,7 +334,7 @@ function buildIntent(message: string, locale: string): IntentResult | undefined 
   const bridgeHint = hasAny(message, BRIDGE_HINTS);
   // "chain base" alone does not distinguish Base Mainnet from Base Sepolia.
   // Never create a misleading same-chain Transfer or assume a signing network.
-  if (/\\bbase\\b(?![ -]+(?:sepolia|mainnet))/i.test(message) &&
+  if (/\bbase\b(?![ -]+(?:sepolia|mainnet))/i.test(message) &&
       !sepoliaDestination && (paymentHint || bridgeHint)) {
     const missing: string[] = ['destinationChainRaw'];
     if (!recipient) missing.push('recipientRaw');
