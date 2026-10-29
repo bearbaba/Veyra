@@ -17,6 +17,6 @@ describe('reviewed recipient identity and account UX',()=>{
     expect(s).not.toContain("fetch('/api/auth/session/logout'");
     expect(s).toContain('await disconnectAsync()');
     expect(s).toContain("disabled={xCapability!=='available'");
-    expect(s).toContain('getXLinkCapability()');
+    expect(s).toContain('probeXLinkReadiness()');
   });
 });

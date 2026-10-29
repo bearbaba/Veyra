@@ -67,7 +67,7 @@ describe('Veyra one-page wallet and origin acceptance',()=>{
     expect(entry).toContain('switchChainAsync({chainId:5042002})');
     expect(settings).toContain('<VeyraIdentityAccess/>');
     expect(social).toContain('<VeyraIdentityAccess/>');
-    expect(settings).toContain('getXLinkCapability()');
+    expect(settings).toContain('probeXLinkReadiness()');
     expect(settings).toContain("disabled={xCapability!=='available'");
     expect(file('lib/api/identityApi.ts')).toContain("'POST'");
     expect(file('lib/api/identityApi.ts')).toContain('AbortSignal.timeout(12000)');
