@@ -179,6 +179,10 @@
       "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/gateway/balances"
     },
     {
+      "source": "/api/gateway/estimate",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/gateway/estimate"
+    },
+    {
       "source": "/api/cctp/health",
       "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/cctp/health"
     },
