@@ -36,7 +36,7 @@ describe('Phase 9Q — the one protected Veyra Core Testnet build', () => {
     expect(settings).toContain("'X linking unavailable'");
     expect(settings).toContain("disabled={xCapability!=='available'");
     expect(settings).toContain('probeXLinkReadiness()');
-    expect(read('src/lib/api/identityApi.ts')).toContain("payload.available===true");
+    expect(read('src/lib/api/identityApi.ts')).toContain("payload.available!==true");
     expect(banner).toContain("type.toLowerCase().includes('application/json')");
     expect(banner).toContain('payload.ok === true');
   });
