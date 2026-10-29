@@ -23,6 +23,7 @@ import { ActionCard } from '../transfer/ActionCard';
 import { loadActivityReceiptsRemote, type ActivityReceiptRemoteRecord } from '../../lib/api/activityReceiptApi';
 import { agentBridgeReceiptState, readAgentBridgeReceiptLinks, type AgentBridgeReceiptLink } from '../../core/agent/agentBridgeReceiptLink';
 import { AgentQuickStart } from '../agent/AgentQuickStart';
+import { AgentUnifiedBalances } from '../agent/AgentUnifiedBalances';
 import { BridgePage } from './BridgePage';
 import type { VeyraPage } from '../layout/AppShell';
 
@@ -88,6 +89,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
   });
   const [loading, setLoading] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
+  const [activeTaskMessageId, setActiveTaskMessageId] = useState<string | null>(null);
   const [inlineBridgeMessageId, setInlineBridgeMessageId] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<AgentCapabilities>(DEFAULT_CAPABILITIES);
   const [bridgeLinks, setBridgeLinks] = useState<AgentBridgeReceiptLink[]>(() =>
@@ -168,6 +170,10 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
 
     const priorHistory = history;
     const userMessage: Message = { id: crypto.randomUUID(), role: 'user', text, ts: Date.now() };
+    // An unrelated conversation cannot keep showing a stale financial task.
+    // Unfinished on-chain receipts remain persisted in Activity and still block duplicate burns.
+    setActiveTaskMessageId(null);
+    setInlineBridgeMessageId(null);
     setMessages((current) => [...current, userMessage]);
     setInput('');
     setLoading(true);
@@ -202,10 +208,14 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
       ts: Date.now(),
     };
     setMessages((current) => [...current, agentMessage]);
+    if (response.intent?.candidates.length && response.intent.status !== 'UNSUPPORTED') {
+      setActiveTaskMessageId(agentMessage.id);
+    }
     setLoading(false);
   }
 
   function clearConversation() {
+    setActiveTaskMessageId(null);
     setInlineBridgeMessageId(null);
     setMessages([]);
     setBridgeLinks([]);
@@ -223,6 +233,8 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
     inputRef.current?.focus();
   }
 
+  const activeTaskMessage = messages.find((message) =>
+    message.id === activeTaskMessageId && message.role === 'agent' && message.intent?.candidates.length);
   const latestConfirmedBridge = [...bridgeLinks].reverse().map((link) =>
     verifiedBridgeReceipts.find((receipt) => receipt.receiptId === link.receiptId))
     .find((receipt) => receipt && agentBridgeReceiptState(receipt) === 'SUCCESS');
@@ -231,7 +243,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
   const latestBridgeStatus = lastBridgeReceipt ? agentBridgeReceiptState(lastBridgeReceipt) : null;
 
   return (
-    <div className="mx-auto flex min-h-[calc(100dvh-44px)] max-w-5xl flex-col px-4 py-5 md:px-7 md:py-7">
+    <div className="mx-auto flex min-h-[calc(100dvh-44px)] max-w-6xl flex-col px-4 py-5 md:px-7 md:py-7">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-5" style={{ borderColor: 'var(--border)' }}>
         <div>
           <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--accent)' }}>
@@ -284,6 +296,13 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
             style={{borderColor:'var(--border-strong)'}}>View Activity</button>
         </div>
       )}
+      <section aria-label="Your USDC balances" className="mt-5 rounded-2xl border p-3 sm:p-4"
+        style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+        <AgentUnifiedBalances />
+      </section>
+
+      <div className="grid min-w-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
+        <div className="order-2 flex min-w-0 flex-col lg:order-1">
       <div className="flex-1 overflow-y-auto py-6">
         {messages.length === 0 ? (
           <AgentQuickStart friends={friends} signedIn={signedIn}
@@ -330,44 +349,16 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
                           <IntentGraphPreview graph={message.capabilityGraph} />
                         </details>
                       )}
-                      {message.intent && message.intent.candidates.length > 0 && (
-                        <div className="mt-3"><ActionCard intent={message.intent} onNavigate={onNavigate}
-                          onReviewBridgeInline={() => setInlineBridgeMessageId(message.id)}
-                          bridgeHandoffScope={historyScope}
-                          messageId={message.id}
-                          linkedBridge={(() => {
-                            const link = bridgeLinks.find((item) => item.messageId === message.id);
-                            if (!link) return undefined;
-                            return {
-                              receiptId: link.receiptId,
-                              receipt: verifiedBridgeReceipts.find((item) => item.receiptId === link.receiptId),
-                              lookupFailed:receiptLookupFailed,
-                            };
-                          })()}
-                          onClarifyDestination={(destination) => {
-                            const draft = message.intent?.candidates[0];
-                            if (!draft) return;
-                            const amount = draft.amountRaw?.raw ?? '';
-                            const token = draft.tokenRaw?.raw ?? 'USDC';
-                            const recipient = draft.recipientRaw?.raw ?? '';
-                            const source = draft.sourceChainRaw?.raw ?? 'Arc Testnet';
-                            // Populate (not execute) an explicit reviewable route.
-                            setInput(`Send ${amount} ${token} from ${source} to ${recipient} on ${destination}`);
-                            inputRef.current?.focus();
-                          }} /></div>
-                      )}
-                      {inlineBridgeMessageId === message.id && (
-                        <section aria-label="Bridge review within Agent" className="mt-3 rounded-2xl border"
-                          style={{ borderColor:'var(--border-strong)', background:'var(--surface-strong)' }}>
-                          <div className="border-b px-4 py-3" style={{ borderColor:'var(--border)' }}>
-                            <p className="text-sm font-bold" style={{ color:'var(--ink)' }}>Bridge review · Agent</p>
-                            <p className="mt-1 text-xs leading-5" style={{ color:'var(--muted)' }}>
-                              This review remains in Agent. The existing wallet, policy and CCTP
-                              safeguards still apply. No burn occurs by opening this draft.
-                            </p>
-                          </div>
-                          <BridgePage />
-                        </section>
+                      {message.intent && message.intent.candidates.length > 0 && message.intent.status !== 'UNSUPPORTED' && (
+                        <button type="button"
+                          onClick={() => {
+                            setActiveTaskMessageId(message.id);
+                            setInlineBridgeMessageId(null);
+                          }}
+                          className="mt-2 rounded-xl border px-3 py-2 text-xs font-semibold"
+                          style={{ borderColor:'var(--border-strong)', color:'var(--accent)' }}>
+                          View active task
+                        </button>
                       )}
                     </div>
                   )}
@@ -422,6 +413,53 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
         <p className="mt-2 text-center text-[10px]" style={{ color: 'var(--subtle)' }}>
           Veyra never signs for you. Check the recipient, network and fee before confirming.
         </p>
+      </div>
+        </div>
+        {activeTaskMessage?.intent && (
+          <aside aria-label="Active task" className="order-1 min-w-0 self-start rounded-2xl border p-3 sm:p-4 lg:order-2 lg:sticky lg:top-4"
+            style={{ borderColor:'var(--border-strong)', background:'var(--surface)' }}>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--accent)'}}>Active task</p>
+                <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>One request · Review before any wallet action</p>
+              </div>
+              <button type="button" onClick={() => {
+                setActiveTaskMessageId(null);
+                setInlineBridgeMessageId(null);
+              }} aria-label="Close active task" className="rounded-xl border px-3 py-2 text-xs"
+                style={{borderColor:'var(--border)',color:'var(--muted)'}}>Close</button>
+            </div>
+            <ActionCard intent={activeTaskMessage.intent} onNavigate={onNavigate}
+              onReviewBridgeInline={() => setInlineBridgeMessageId(activeTaskMessage.id)}
+              bridgeHandoffScope={historyScope}
+              messageId={activeTaskMessage.id}
+              linkedBridge={(() => {
+                const link = bridgeLinks.find((item) => item.messageId === activeTaskMessage.id);
+                if (!link) return undefined;
+                return {
+                  receiptId: link.receiptId,
+                  receipt: verifiedBridgeReceipts.find((item) => item.receiptId === link.receiptId),
+                  lookupFailed: receiptLookupFailed,
+                };
+              })()}
+              onClarifyDestination={(destination) => {
+                const draft = activeTaskMessage.intent?.candidates[0];
+                if (!draft) return;
+                const amount = draft.amountRaw?.raw ?? '';
+                const token = draft.tokenRaw?.raw ?? 'USDC';
+                const recipient = draft.recipientRaw?.raw ?? '';
+                const source = draft.sourceChainRaw?.raw ?? 'Arc Testnet';
+                setInput(`Send ${amount} ${token} from ${source} to ${recipient} on ${destination}`);
+                inputRef.current?.focus();
+              }} />
+            {inlineBridgeMessageId === activeTaskMessage.id && (
+              <section aria-label="Bridge review in active task" className="mt-4 border-t pt-4"
+                style={{borderColor:'var(--border)'}}>
+                <BridgePage embedded />
+              </section>
+            )}
+          </aside>
+        )}
       </div>
     </div>
   );

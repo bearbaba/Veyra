@@ -8,9 +8,8 @@ import type { SocialFriend } from '../../features/social/UnifiedSocial';
 import { friendLabel } from '../../features/social/UnifiedSocial';
 import { buildQuickPaymentRequest, QUICK_NETWORKS, type QuickMode, type QuickNetwork, type QuickRecipient } from '../../core/agent/quickStartPayment';
 import type { VeyraPage } from '../layout/AppShell';
-import { AgentUnifiedBalances } from './AgentUnifiedBalances';
 
-type QuickAction = QuickMode | 'SWAP' | 'UNIFIED';
+type QuickAction = QuickMode | 'SWAP';
 
 interface AgentQuickStartProps {
   friends: readonly SocialFriend[];
@@ -24,11 +23,10 @@ const ACTIONS: ReadonlyArray<{ id: QuickAction; title: string; summary: string; 
   { id: 'SEND', title: 'Send', summary: 'To a friend or wallet', tag: 'Arc USDC' },
   { id: 'SWAP', title: 'Swap', summary: 'USDC / EURC · not live', tag: 'Preview' },
   { id: 'BRIDGE', title: 'Bridge', summary: 'Move USDC across Testnets', tag: 'CCTP V2' },
-  { id: 'UNIFIED', title: 'Unified', summary: 'USDC across three Testnets', tag: 'Read-only' },
 ];
 
 export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, compact = false }: AgentQuickStartProps) {
-  const [action, setAction] = useState<QuickAction>('UNIFIED');
+  const [action, setAction] = useState<QuickAction>('SEND');
   const [amount, setAmount] = useState('');
   const [network, setNetwork] = useState<QuickNetwork>('arc');
   const [bridgeSource, setBridgeSource] = useState<QuickNetwork>('arc');
@@ -177,7 +175,7 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
           <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>Choose an action, or simply tell Veyra what you need.</p>
         </div>
       )}
-      <div role="group" aria-label="Choose a Veyra action" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div role="group" aria-label="Choose a Veyra action" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {ACTIONS.map((item) => (
           <button key={item.id} type="button" onClick={() => chooseAction(item.id)}
             aria-pressed={action === item.id}
@@ -382,22 +380,9 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
               <span>USDC</span><ArrowLeftRight className="size-4" style={{ color: 'var(--accent)' }}/><span>EURC</span>
               <span className="ml-auto text-[10px] font-bold uppercase" style={{ color: 'var(--warning)' }}>Preview</span>
             </div>
-            <button type="button" onClick={() => onNavigate('convert')}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold"
-              style={{ borderColor: 'var(--border-strong)', color: 'var(--ink)' }}>
-              Explore Convert <ArrowRight className="size-4"/>
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <p className="text-sm font-bold" style={{ color: 'var(--ink)' }}>Unified · one place for your money</p>
-            <p className="text-xs leading-5" style={{ color: 'var(--muted)' }}>
-              Live wallet-bound USDC across Arc, Ethereum Sepolia and Base Sepolia. Read-only balances are not pooled funds or spendable on another network.
-            </p>
-            <AgentUnifiedBalances key={address?.toLowerCase() ?? 'disconnected'} />
-            <p className="text-center text-xs leading-5" style={{ color: 'var(--muted)' }}>
-              Unified is your read-only USDC overview inside Agent. To prepare a transfer,
-              deliberately choose Send or Bridge above; balances never become a transaction automatically.
+            <p role="status" className="rounded-xl border px-3 py-3 text-center text-xs leading-5"
+              style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
+              Swap is not enabled. No quote, approval or trade can be created yet.
             </p>
           </div>
         )}

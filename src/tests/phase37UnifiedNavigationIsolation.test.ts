@@ -13,9 +13,11 @@ describe('Phase 37 — Unified stays inside Agent; Bridge review does not naviga
   });
   it('keeps read-only portfolio in Agent without auto Bridge handoff',()=>{
     const quick=read('src/components/agent/AgentQuickStart.tsx');
-    expect(quick).toContain('<AgentUnifiedBalances key=');
+    expect(quick).not.toContain('<AgentUnifiedBalances');
+    const agent=read('src/components/pages/AgentPage.tsx');
+    expect(agent).toContain('<AgentUnifiedBalances />');
     expect(quick).not.toContain("onNavigate('unified')");
-    expect(quick).toContain('balances never become a transaction automatically.');
+    expect(quick).not.toContain("id: 'UNIFIED'");
     const portfolio=read('src/components/agent/AgentUnifiedBalances.tsx');
     expect(portfolio).toContain('Total USDC across 3 Testnets');
     expect(portfolio).not.toContain('writeContract(');
@@ -24,12 +26,15 @@ describe('Phase 37 — Unified stays inside Agent; Bridge review does not naviga
     const agent=read('src/components/pages/AgentPage.tsx');
     const card=read('src/components/transfer/ActionCard.tsx');
     const bridge=read('src/components/pages/BridgePage.tsx');
-    expect(agent).toContain('onReviewBridgeInline={() => setInlineBridgeMessageId(message.id)}');
-    expect(agent).toContain('<BridgePage />');
+    expect(agent).toContain('onReviewBridgeInline={() => setInlineBridgeMessageId(activeTaskMessage.id)}');
+    expect(agent).toContain('<BridgePage embedded />');
+    expect(agent).not.toContain('<BridgePage />');
+    expect(agent).toContain('aria-label="Active task"');
     expect(card).toContain('if (onReviewBridgeInline) onReviewBridgeInline();');
     expect(card).toContain('beginAgentBridgeHandoff(');
     expect(bridge).toContain("sessionStorage.getItem('veyra:agent-intent')");
     expect(bridge).toContain('validateAgentBridgeDraft(candidate)');
     expect(bridge).toContain('assertNoUnresolvedSourceBurn()');
+    expect(bridge).toContain('embedded = false');
   });
 });
