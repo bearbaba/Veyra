@@ -1696,7 +1696,7 @@ app.post('/api/gateway/estimate', STABLEFX_RATE, async (req: Request, res: Respo
        typeof b.sourceDomain!=='number'||typeof b.destinationDomain!=='number'){
       res.status(400).json({ok:false,error:'INVALID_GATEWAY_ESTIMATE_REQUEST'});return;
     }
-    if(!/^\\d{1,18}(?:\\.\\d{1,6})?$/.test(b.amount)||
+    if(!/^\d{1,18}(?:\.\d{1,6})?$/.test(b.amount)||
        parseUnits(b.amount,6)>1000_000000n) {
       res.status(400).json({ok:false,error:'GATEWAY_TESTNET_LIMIT_EXCEEDED'});return;
     }
