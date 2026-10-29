@@ -369,7 +369,7 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
               </>
             )}
           </div>
-        ) : action === 'SWAP' ? (
+        ) : (
           <div className="space-y-3">
             <p className="text-sm font-bold" style={{ color: 'var(--ink)' }}>Swap · Preview only</p>
             <p className="text-xs leading-5" style={{ color: 'var(--muted)' }}>
