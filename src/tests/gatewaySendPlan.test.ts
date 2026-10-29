@@ -33,6 +33,16 @@ describe('Gateway source of funds is exact deposited USDC',()=>{
   const request=prepare(mk([1_000_000n,0n,0n]),'1');
   expect(()=>allocateGatewaySend(request)).toThrow('GATEWAY_INSUFFICIENT_AVAILABLE_AFTER_FEES');
  });
+ it('requires a quote only for funded sources, not verified empty domains',()=>{
+  const snapshot=mk([2_000_000n,0n,0n]);
+  const input=prepare(snapshot,'1');
+  const rows=allocateGatewaySend({...input,quotes:[feeQuotes()[0]]});
+  expect(rows).toEqual([{domain:26,chainId:GATEWAY_TESTNET_SOURCES[0].chainId,
+    value:1000000n,maxFee:100000n}]);
+  expect(()=>allocateGatewaySend({...input,quotes:[]})).toThrow('GATEWAY_ESTIMATE_MISSING_OR_DUPLICATED');
+  expect(()=>allocateGatewaySend({...input,quotes:[feeQuotes()[0],feeQuotes()[0]]}))
+    .toThrow('GATEWAY_ESTIMATE_MISSING_OR_DUPLICATED');
+ });
  it('fails on old or another-owner balances and missing provider fee data',()=>{
   const p=prepare();
   expect(()=>allocateGatewaySend({...p,snapshot:{...p.snapshot,readAt:Date.now()-60_000}}))
