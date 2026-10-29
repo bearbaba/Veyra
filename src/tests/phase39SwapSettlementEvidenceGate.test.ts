@@ -6,7 +6,7 @@ const code=(path:string)=>readFileSync(new URL('../../'+path,import.meta.url),'u
 describe('Swap acceptance: provider result is not settlement proof',()=>{
   it('never marks StableFX complete solely on its own API status',()=>{
     const hook=code('src/hooks/useConvertExecution.ts');
-    const converted=hook.split("if (finalTrade.status !== 'complete')")[1];
+    const converted=hook.split('if (!isStableFxProviderTradeComplete(finalTrade)) {')[1];
     expect(converted).toContain("status: 'SETTLEMENT_PENDING'");
     expect(converted).toContain("status: 'PENDING'");
     expect(converted).toContain('ownerAddress: walletAddress');
