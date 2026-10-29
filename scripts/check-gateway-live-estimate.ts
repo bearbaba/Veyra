@@ -28,7 +28,7 @@ if(!response.ok){
  console.error(`Gateway Testnet estimate refused: HTTP ${response.status}. Financial signing remains locked.`);
  process.exit(1);
 }
-const raw=await response.json();
+const raw:unknown=await response.json();
 try{
  const quote=parseGatewayEstimate(raw,request);
  if(quote.maxBlockHeight<=0n||quote.maxFee<0n)
