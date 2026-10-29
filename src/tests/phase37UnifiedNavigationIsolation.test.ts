@@ -1,39 +1,35 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-const read=(path:string)=>readFileSync(new URL('../../'+path,import.meta.url),'utf8');
-
-describe('Phase 37 — Unified is separate from Bridge and financial drafts',()=>{
-  it('exposes Unified as an independent primary navigation surface',()=>{
+const read=(p:string)=>readFileSync(new URL('../../'+p,import.meta.url),'utf8');
+describe('Phase 37 — Unified stays inside Agent; Bridge review does not navigate',()=>{
+  it('does not create a competing Unified primary tab',()=>{
     const shell=read('src/components/layout/AppShell.tsx');
     const app=read('src/App.tsx');
-    const commands=read('src/components/command/CommandBar.tsx');
-    expect(shell).toContain("'bridge' | 'unified' | 'activity'");
-    expect(shell).toContain("{ id: 'unified', label: 'Unified'");
-    expect(shell).toContain('PRIMARY_NAV.map((item)');
-    expect(app).toContain("case 'unified':");
-    expect(app).toContain('return <UnifiedBalancePage />');
-    expect(commands).toContain("page: 'unified' as VeyraPage");
-    expect(app).toContain("case 'bridge':");
+    const cmd=read('src/components/command/CommandBar.tsx');
+    expect(shell).not.toContain("'unified' |");
+    expect(shell).not.toContain("{ id: 'unified',");
+    expect(app).not.toContain("case 'unified':");
+    expect(cmd).not.toContain("page: 'unified' as VeyraPage");
   });
-  it('renders the same read-only USDC reader and never a financial executor',()=>{
-    const unified=read('src/components/pages/UnifiedBalancePage.tsx');
-    expect(unified).toContain('<AgentUnifiedBalances />');
-    expect(unified).toContain('Unified Balance');
-    expect(unified).toContain('No transfer is initiated from this page.');
-    for(const forbidden of ['BridgePage', 'beginAgentBridgeHandoff',
-      'writeContract(', 'signTypedData', "onNavigate('bridge')",
-      'sessionStorage', 'window.location', "onNavigate('convert')"])
-      expect(unified).not.toContain(forbidden);
-  });
-  it('prevents Unified quick action from swapping to a Bridge draft in-place',()=>{
+  it('keeps read-only portfolio in Agent without auto Bridge handoff',()=>{
     const quick=read('src/components/agent/AgentQuickStart.tsx');
-    const section=quick.split(") : action === 'SWAP' ? (")[1]?.split(") : (")[1] ?? '';
-    expect(section).toContain('<AgentUnifiedBalances key=');
-    expect(section).toContain("onNavigate('unified')");
-    expect(section).toContain('Balance view only.');
-    expect(section).not.toContain("chooseAction('BRIDGE')");
-    expect(section).not.toContain("onNavigate('bridge')");
-    expect(section).not.toContain('Create draft');
-    expect(quick).toContain('onPrepare(result.text)');
+    expect(quick).toContain('<AgentUnifiedBalances key=');
+    expect(quick).not.toContain("onNavigate('unified')");
+    expect(quick).toContain('balances never become a transaction automatically.');
+    const portfolio=read('src/components/agent/AgentUnifiedBalances.tsx');
+    expect(portfolio).toContain('Total USDC across 3 Testnets');
+    expect(portfolio).not.toContain('writeContract(');
+  });
+  it('reviews vetted Bridge inside Agent using existing source controls',()=>{
+    const agent=read('src/components/pages/AgentPage.tsx');
+    const card=read('src/components/transfer/ActionCard.tsx');
+    const bridge=read('src/components/pages/BridgePage.tsx');
+    expect(agent).toContain('onReviewBridgeInline={() => setInlineBridgeMessageId(message.id)}');
+    expect(agent).toContain('<BridgePage />');
+    expect(card).toContain('if (onReviewBridgeInline) onReviewBridgeInline();');
+    expect(card).toContain('beginAgentBridgeHandoff(');
+    expect(bridge).toContain("sessionStorage.getItem('veyra:agent-intent')");
+    expect(bridge).toContain('validateAgentBridgeDraft(candidate)');
+    expect(bridge).toContain('assertNoUnresolvedSourceBurn()');
   });
 });

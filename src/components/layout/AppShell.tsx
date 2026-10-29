@@ -14,7 +14,6 @@ import {
   SendHorizontal,
   LayoutList,
   Users,
-  Layers3,
   Settings,
   Command,
 } from 'lucide-react';
@@ -23,7 +22,7 @@ import { WebPreviewBanner } from '../system/WebPreviewBanner';
 import { NotificationBell } from '../../features/social/NotificationBell';
 import { WalletAccountControls } from './WalletAccountControls';
 
-export type VeyraPage = 'home' | 'agent' | 'pay' | 'convert' | 'bridge' | 'unified' | 'activity' | 'social' | 'settings';
+export type VeyraPage = 'home' | 'agent' | 'pay' | 'convert' | 'bridge' | 'activity' | 'social' | 'settings';
 
 interface NavItem {
   id: VeyraPage;
@@ -35,7 +34,6 @@ const PRIMARY_NAV: NavItem[] = [
   { id: 'home', label: 'Home', icon: <Home className="size-5" /> },
   { id: 'pay', label: 'Pay', icon: <SendHorizontal className="size-5" /> },
   { id: 'agent', label: 'Agent', icon: <Bot className="size-5" /> },
-  { id: 'unified', label: 'Unified', icon: <Layers3 className="size-5" /> },
   { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
   { id: 'social', label: 'Friends', icon: <Users className="size-5" /> },
 ];

@@ -10,13 +10,14 @@ import type { VeyraPage } from '../layout/AppShell';
 interface ActionCardProps {
   intent: IntentResult;
   onNavigate: (page: VeyraPage) => void;
+  onReviewBridgeInline?: () => void;
   onClarifyDestination?: (network: 'Ethereum Sepolia' | 'Base Sepolia') => void;
   bridgeHandoffScope?: string | null;
   messageId?: string;
   linkedBridge?: { receiptId: string; receipt?: ActivityReceiptRemoteRecord; lookupFailed: boolean };
 }
 
-export function ActionCard({ intent, onNavigate, onClarifyDestination, bridgeHandoffScope, messageId, linkedBridge }: ActionCardProps) {
+export function ActionCard({ intent, onNavigate, onReviewBridgeInline, onClarifyDestination, bridgeHandoffScope, messageId, linkedBridge }: ActionCardProps) {
   const best = intent.candidates[0];
   if (!best) return null;
 
@@ -70,7 +71,11 @@ export function ActionCard({ intent, onNavigate, onClarifyDestination, bridgeHan
     }
     if (isTransfer) onNavigate('pay');
     else if (isConvert) onNavigate('convert');
-    else if (isBridge) onNavigate('bridge');
+    else if (isBridge) {
+      // Reuse the existing verified CCTP flow in Agent. No duplicate signer.
+      if (onReviewBridgeInline) onReviewBridgeInline();
+      else onNavigate('bridge');
+    }
   }
 
   const title = isTransfer ? 'Payment intent' : isConvert ? 'Conversion intent' : isBridge ? 'Cross-chain payment' : best.actionType;

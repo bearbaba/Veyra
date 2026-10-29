@@ -101,18 +101,35 @@ export async function getMyProfile(): Promise<MyProfile> {
 
 // Read-only capability probe. An older BFF (404), HTML fallback or missing
 // provider config must leave the X button disabled, not offer dead OAuth.
-export async function getXLinkCapability():Promise<boolean>{
+export type XLinkReadiness = { available: boolean; reason: string };
+/** Public status only: never expose X credentials, tokens or OAuth state. */
+export async function probeXLinkReadiness():Promise<XLinkReadiness>{
   try{
     const response=await fetch('/api/auth/x/capability',{
       method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
       credentials:'same-origin',cache:'no-store',body:'{}',
       signal:AbortSignal.timeout(12000),
     });
-    if(!response.ok||!response.headers.get('content-type')?.includes('application/json'))return false;
+    if(response.status===403)
+      return {available:false,reason:'This website is not an approved X-link return origin. Open the stable Veyra Testnet V2 domain.'};
+    if(response.status===404)
+      return {available:false,reason:'The identity backend does not expose X linking yet. The backend needs deployment.'};
+    if(!response.ok)
+      return {available:false,reason:'The X-link backend is unavailable (HTTP '+response.status+'). No account was changed.'};
+    if(!response.headers.get('content-type')?.includes('application/json'))
+      return {available:false,reason:'The X-link endpoint returned a webpage rather than verified JSON.'};
     const payload:unknown=await response.json();
-    return Boolean(payload&&typeof payload==='object'&&!Array.isArray(payload)&&
-      'ok' in payload&&payload.ok===true&&'available' in payload&&payload.available===true);
-  }catch{return false;}
+    if(!payload||typeof payload!=='object'||Array.isArray(payload)||!('ok' in payload)||payload.ok!==true)
+      return {available:false,reason:'X capability could not be verified against the identity backend.'};
+    if(!('available' in payload)||payload.available!==true)
+      return {available:false,reason:'X OAuth is not enabled on the identity backend. Check Render X_CLIENT_ID, pinned X_REDIRECT_URI and the X Developer Portal callback.'};
+    return {available:true,reason:''};
+  }catch{
+    return {available:false,reason:'Cannot reach the X capability endpoint. Check the Veyra Testnet backend and try again.'};
+  }
+}
+export async function getXLinkCapability():Promise<boolean>{
+  return (await probeXLinkReadiness()).available;
 }
 
 export async function finishXLink(state: string, signedToken: string): Promise<void> {
