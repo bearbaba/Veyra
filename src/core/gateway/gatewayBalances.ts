@@ -32,8 +32,9 @@ export function parseGatewayBalances(raw:unknown,owner:string):GatewayBalanceSna
  if(!Number.isFinite(data.readAt)||typeof data.readAt!=='number' ||
     data.readAt>Date.now()+5000||Date.now()-data.readAt>60_000)
    throw Error('Gateway response is stale.');
+ const rows=data.balances as unknown[];
  const sources=GATEWAY_TESTNET_SOURCES.map(source=>{
-   const matches=data.balances.filter((entry:unknown)=>{
+   const matches=rows.filter((entry:unknown)=>{
      if(!entry||typeof entry!=='object'||Array.isArray(entry))return false;
      const x=entry as Record<string,unknown>;
      return x.domain===source.domain && typeof x.depositor==='string' &&
