@@ -1,7 +1,7 @@
 /**
- * Phase 37: single-card Unified Testnet USDC reader, scoped to connected wallet.
- * It is intentionally informational and does not navigate into a swap/bridge
- * executor or create cross-chain payment authorizations.
+ * Gateway Available and ERC-20 Wallet balances are independent fund ledgers.
+ * A wallet sum is never named Unified or used to authorize spending.
+ * Gateway queries use only the currently signed Veyra ID / wallet.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAccount, usePublicClient } from 'wagmi';
@@ -101,6 +101,11 @@ export function AgentUnifiedBalances(){
           </div>
         </details>}
         <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" disabled={Boolean(gatewayCurrent?.loading)}
+            onClick={()=>void refresh()} className="rounded-xl border px-3 py-2 text-xs disabled:opacity-50"
+            style={{borderColor:'var(--border)',color:'var(--ink)'}}>
+            <RefreshCw className="mr-1 inline size-3.5"/>Refresh
+          </button>
           <button type="button" onClick={()=>setShowDeposit(v=>!v)}
             className="rounded-xl border px-3 py-2 text-xs font-semibold"
             style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>
