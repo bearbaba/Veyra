@@ -47,6 +47,6 @@ try{
  const spec=burn?.spec&&typeof burn.spec==='object'&&!Array.isArray(burn.spec)
   ?burn.spec as Record<string,unknown>:null;
  console.error(`Item keys: ${Object.keys(item??{}).join(',')}; Burn keys: ${Object.keys(burn??{}).join(',')}; Spec keys: ${Object.keys(spec??{}).join(',')}`);
- console.error(`Fee type: ${typeof burn?.maxFee}; block-height type: ${typeof burn?.maxBlockHeight}`);
+ console.error(`Fee type: ${typeof burn?.maxFee}; block-height type: ${typeof burn?.maxBlockHeight}; fee: ${String(burn?.maxFee).slice(0,48)}; expiry: ${String(burn?.maxBlockHeight).slice(0,48)}`);
  process.exit(1);
 }
