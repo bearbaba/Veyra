@@ -50,9 +50,19 @@ export function createGatewayEstimateRequest(input:GatewayEstimateInput):Gateway
  * matches the reviewed caller specification. Treat missing data as UNKNOWN.
  */
 export function parseGatewayEstimate(raw:unknown,request:GatewayEstimateRequest):GatewayFeeQuote{
- const parsed=Array.isArray(raw)?raw:
-  raw&&typeof raw==='object'&&Array.isArray((raw as {intents?:unknown}).intents)
-    ?(raw as {intents:unknown[]}).intents:null;
+ // Circle has documented direct arrays and batch objects containing intents.
+ // Some API clients transport the JSON response under a body envelope.
+ // Do not accept a plain fee summary as an authorized BurnIntent estimate.
+ const envelope=raw&&typeof raw==='object'&&!Array.isArray(raw)
+   ?raw as Record<string,unknown>:null;
+ const body=envelope?.body;
+ const nested=body&&typeof body==='object'&&!Array.isArray(body)
+   ?body as Record<string,unknown>:null;
+ const parsed=Array.isArray(raw)?raw
+   :Array.isArray(envelope?.intents)?envelope.intents
+   :Array.isArray(body)?body
+   :Array.isArray(nested?.intents)?nested.intents
+   :null;
  if(!parsed||parsed.length!==1||!parsed[0]||typeof parsed[0]!=='object')
   return fail('GATEWAY_ESTIMATE_RESPONSE_INVALID');
  const top=parsed[0] as Record<string,unknown>;
