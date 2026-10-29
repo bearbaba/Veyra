@@ -8,10 +8,10 @@ import {
 const dialect=new PgDialect();
 const instrument=(responses:Array<{rows:unknown[]}>)=>{
  const executed:Array<{sql:string;params:unknown[]}>=[];
- const execute=vi.fn(async(q:Parameters<typeof dialect.sqlToQuery>[0])=>{
+ const execute=vi.fn((q:Parameters<typeof dialect.sqlToQuery>[0])=>{
   const query=dialect.sqlToQuery(q);
   executed.push({sql:query.sql,params:query.params});
-  return responses.shift()??{rows:[]};
+  return Promise.resolve(responses.shift()??{rows:[]});
  });
  return {db:{execute} as unknown as Parameters<typeof assertVerifiedStableFxWallet>[0],executed};
 };
