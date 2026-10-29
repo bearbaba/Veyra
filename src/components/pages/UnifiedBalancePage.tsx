@@ -7,7 +7,7 @@ import { AgentUnifiedBalances } from '../agent/AgentUnifiedBalances';
 
 export function UnifiedBalancePage() {
   return (
-    <main aria-label="Unified Balance page" className="mx-auto w-full max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
+    <section aria-label="Unified Balance page" className="mx-auto w-full max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
       <header className="space-y-2">
         <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em]"
           style={{ color:'var(--accent)' }}>
@@ -32,6 +32,6 @@ export function UnifiedBalancePage() {
           wallet approval where enabled. No transfer is initiated from this page.
         </p>
       </section>
-    </main>
+    </section>
   );
 }
