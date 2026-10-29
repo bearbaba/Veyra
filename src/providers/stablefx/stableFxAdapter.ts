@@ -105,7 +105,7 @@ export function validateStableFxQuoteResponse(
     if(!((typeof v==='string'&&/^\d+$/.test(v)) ||
          (typeof v==='number'&&Number.isSafeInteger(v)&&v>=0)))
       throw Error(`StableFX ${field} is not a safe unsigned base-unit amount.`);
-    try{return BigInt(v as string | number);}catch{
+    try{return BigInt(v);}catch{
       throw Error(`StableFX ${field} is malformed.`);
     }
   };
