@@ -15,6 +15,7 @@ import {
   buildConvertActionFromQuote,
   createStableFxTrade,
   pollStableFxTrade,
+  isStableFxProviderTradeComplete,
   fetchStableFxFundingPresign,
   submitStableFxFunding,
   type StableFxFundingPresign,
@@ -196,7 +197,7 @@ export function useConvertExecution() {
           continue;
         }
 
-        if (finalTrade.status === 'complete' || finalTrade.status === 'failed') break;
+        if (isStableFxProviderTradeComplete(finalTrade) || finalTrade.status === 'failed') break;
       }
 
       if (finalTrade.status === 'failed') {
@@ -228,7 +229,7 @@ export function useConvertExecution() {
 
       const receiptId = generatePlanReceiptId();
 
-      if (finalTrade.status !== 'complete') {
+      if (!isStableFxProviderTradeComplete(finalTrade)) {
         const pendingReceipt: VeyraReceipt = {
           receiptId,
           planId: action.actionId,
