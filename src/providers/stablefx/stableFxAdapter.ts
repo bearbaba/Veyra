@@ -175,7 +175,7 @@ export function validateStableFxQuoteResponse(
   const expectedQuote=request.fromCurrency==='USDC'?fromAmount:toAmount;
   if(signedBase!==expectedBase || signedQuote!==expectedQuote)
     throw Error('StableFX signed consideration amounts do not match the quote.');
-  const normalizedQuoteId=(value:string)=>value.toLowerCase().replace(/^0x0*/,'').replaceAll('-','');
+  const normalizedQuoteId=(value:string)=>value.toLowerCase().replace(/^0x0*/,'').replace(/-/g,'');
   const signedQuoteId=nonEmpty(consideration.quoteId,'witness quote ID');
   if(normalizedQuoteId(signedQuoteId)!==normalizedQuoteId(id))
     throw Error('StableFX signed witness belongs to another quote.');
