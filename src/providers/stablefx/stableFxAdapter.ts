@@ -296,6 +296,116 @@ export async function createStableFxTrade(req: StableFxTradeRequest): Promise<St
   return data.trade;
 }
 
+// ── Explicit taker funding (second Permit2 signature) ────────────────────────
+
+export interface StableFxFundingPresign {
+  tradeId: string;
+  contractTradeId: string;
+  typedData: StableFxQuoteResponse['typedData'];
+  deliverables?: Array<{ currency: string; amount: string }>;
+  fetchedAt: number;
+}
+
+export function validateStableFxFundingPresign(
+  raw: unknown,
+  trade: StableFxTradeStatus,
+): StableFxFundingPresign {
+  const obj=(x:unknown):Record<string,unknown>=>{
+    if(!x || typeof x!=='object' || Array.isArray(x)) throw Error('StableFX funding response is malformed.');
+    return x as Record<string,unknown>;
+  };
+  const response=obj(raw);
+  if(response.ok!==true || response.tradeId!==trade.id || String(response.contractTradeId)!==String(trade.contractTradeId))
+    throw Error('StableFX funding presign is for a different trade.');
+  const typed=obj(response.typedData);
+  const domain=obj(typed.domain);
+  const message=obj(typed.message);
+  const permitted=obj(message.permitted);
+  const witness=obj(message.witness);
+  if(domain.name!=='Permit2' ||
+     Number(domain.chainId)!==MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID ||
+     typeof domain.verifyingContract!=='string' ||
+     domain.verifyingContract.toLowerCase()!=='0x000000000022d473030f116ddee9f6b43ac78ba3' ||
+     typed.primaryType!=='PermitWitnessTransferFrom' ||
+     !typed.types || typeof typed.types!=='object') {
+    throw Error('StableFX funding EIP-712 chain or Permit2 domain is invalid.');
+  }
+  if(String(witness.id)!==String(trade.contractTradeId))
+    throw Error('StableFX funding witness references a different trade.');
+  if(trade.from.currency!=='USDC' && trade.from.currency!=='EURC')
+    throw Error('StableFX funding input currency is not supported.');
+  const source=currencyToAddress(trade.from.currency);
+  if(typeof permitted.token!=='string' || !isAddress(permitted.token) ||
+     getAddress(permitted.token)!==getAddress(source))
+    throw Error('StableFX funding would spend a different token.');
+  const amount=parseUnits(trade.from.amount,6);
+  if(amount<=0n || typeof permitted.amount!=='string' && typeof permitted.amount!=='number')
+    throw Error('StableFX funding amount is invalid.');
+  let permittedAmount:bigint;
+  try {
+    if(typeof permitted.amount==='number' && !Number.isSafeInteger(permitted.amount))
+      throw Error('Unsafe funding amount.');
+    permittedAmount=BigInt(permitted.amount);
+  } catch { throw Error('StableFX funding permission amount is not exact.'); }
+  if(permittedAmount!==amount)throw Error('StableFX funding permission differs from the reviewed input.');
+  if(typeof message.spender!=='string'||!isAddress(message.spender)||
+    getAddress(message.spender)===zeroAddress)
+    throw Error('StableFX funding spender address is invalid.');
+  if(!Number.isSafeInteger(Number(message.deadline))||
+     Number(message.deadline)*1000 < Date.now()+SECURITY_CONFIG.QUOTE_EXPIRY_BUFFER_MS)
+    throw Error('StableFX funding signature expired or expires too soon.');
+  const fetchedAt=response.fetchedAt;
+  if(typeof fetchedAt!=='number'||!Number.isFinite(fetchedAt)||
+     fetchedAt>Date.now()+5000||Date.now()-fetchedAt>60_000)
+    throw Error('StableFX funding presign is stale.');
+  return {
+    tradeId:trade.id,
+    contractTradeId:trade.contractTradeId,
+    typedData:{
+      domain:domain,
+      types:typed.types as Record<string,unknown>,
+      primaryType:'PermitWitnessTransferFrom',
+      message,
+    },
+    fetchedAt,
+  };
+}
+
+export async function fetchStableFxFundingPresign(
+  trade:StableFxTradeStatus,
+):Promise<StableFxFundingPresign> {
+  if(!/^[1-9]\d{0,40}$/.test(trade.contractTradeId))
+    throw Error('StableFX trade has no valid contract trade identifier.');
+  const res=await fetch('/api/stablefx/funding/presign',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    credentials:'same-origin',
+    body:JSON.stringify({tradeId:trade.id,contractTradeId:trade.contractTradeId}),
+  });
+  if(!res.ok)throw Error('StableFX funding presign unavailable (HTTP '+res.status+').');
+  return validateStableFxFundingPresign(await res.json(),trade);
+}
+
+/** Submission is intentionally non-retrying; a timeout is an unknown funding result. */
+export async function submitStableFxFunding(
+  trade:StableFxTradeStatus, presign:StableFxFundingPresign, signature:string,
+):Promise<void>{
+  if(presign.tradeId!==trade.id || presign.contractTradeId!==trade.contractTradeId ||
+     !/^0x[0-9a-f]{130}$/i.test(signature))
+    throw Error('StableFX funding signature or trade binding is invalid.');
+  const res=await fetch('/api/stablefx/funding/submit',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    credentials:'same-origin',
+    body:JSON.stringify({
+      tradeId:trade.id,contractTradeId:trade.contractTradeId,
+      permit2:presign.typedData.message,signature,
+    }),
+  });
+  if(!res.ok)throw Error('StableFX funding submission is not confirmed; reconcile before retry (HTTP '+res.status+').');
+  const payload=await res.json() as {ok?:boolean;fundingSubmitted?:boolean;status?:string};
+  if(payload.ok!==true || payload.fundingSubmitted!==true || payload.status!=='SETTLEMENT_PENDING')
+    throw Error('StableFX funding response did not confirm a pending settlement.');
+}
+
 // ── Trade status polling ─────────────────────────────────────────────────────
 
 export async function pollStableFxTrade(tradeId: string): Promise<StableFxTradeStatus> {
