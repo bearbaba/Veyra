@@ -72,6 +72,11 @@ jobs:
       - name: Test
         run: bun run test -- --run
 
+      # Read-only provider contract; never sign, transfer or mint in CI.
+      - name: Verify LIVE Circle Gateway Testnet estimate protocol
+        if: startsWith(github.ref_name, 'phase38-')
+        run: bun scripts/check-gateway-live-estimate.ts
+
       - name: Build
         run: bun run build
 
