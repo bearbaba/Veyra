@@ -36,7 +36,7 @@ try{
  console.log('Circle Gateway TESTNET exact-spec fee and block-expiry estimate: PASS (read-only).');
 }catch{
  const topKeys=raw&&typeof raw==='object'&&!Array.isArray(raw)
-  ?Object.keys(raw as Record<string,unknown>):[];
+  ?Object.keys(raw):[];
  console.error('Gateway Testnet estimate response did not match the verified BurnIntent schema.');
  console.error(`Response is array: ${Array.isArray(raw)}; top-level keys: ${topKeys.join(',')}`);
  process.exit(1);
