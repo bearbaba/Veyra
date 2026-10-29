@@ -48,6 +48,9 @@ export function allocateGatewaySend(input:GatewaySendRequest):GatewayAllocation[
    const balances=snapshot.sources.filter(r=>r.domain===source.domain&&r.chainId===source.chainId);
    if(balances.length!==1||balances[0].available<0n)
      return deny('GATEWAY_SOURCE_UNVERIFIED');
+   // A verified zero-credit domain contributes no funds and needs no provider
+   // quote. Do not let a down or unsupported empty domain block valid sources.
+   if(balances[0].available===0n)return {source,fee:0n,free:0n};
    const matches=quotes.filter(q=>q.domain===source.domain);
    if(matches.length!==1)return deny('GATEWAY_ESTIMATE_MISSING_OR_DUPLICATED');
    const fee=matches[0].maxFee;
