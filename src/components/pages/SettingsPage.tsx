@@ -12,7 +12,7 @@ import { ConnectKitButton } from 'connectkit';
 import { Check, ChevronDown, Copy, Link2, Loader2, ShieldCheck, SlidersHorizontal, Wallet, LogOut } from 'lucide-react';
 import { DEFAULT_VEYRA_POLICY } from '@/core/policy/policyEngine';
 import { VEYRA_ENV } from '@/lib/env';
-import { beginXLink, finishXLink, getXLinkCapability } from '@/lib/api/identityApi';
+import { beginXLink, finishXLink, probeXLinkReadiness } from '@/lib/api/identityApi';
 import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS } from '@/config/productRegistry';
 import { RuntimeStatusCard } from '../system/RuntimeStatusCard';
@@ -41,6 +41,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   // Fail closed until the exact, owner-trusted Testnet BFF reports it has
   // X OAuth credentials and a pinned callback. No redirect on mere "BFF online".
   const [xCapability,setXCapability]=useState<'checking'|'available'|'unavailable'>('unavailable');
+  const [xReadinessDetail,setXReadinessDetail]=useState<string | null>(null);
   const profile = identity.profile;
   const signedToken=social.session?.token;
   useEffect(()=>{
@@ -64,13 +65,18 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   },[signedToken,profile?.veyraUserId,social.identityOrigin]);
   useEffect(()=>{
     if(!signedToken||social.identityOrigin!=='ready'||profile?.x){
-      setXCapability('unavailable');return;
+      setXCapability('unavailable');setXReadinessDetail(null);return;
     }
     let cancelled=false;
     setXCapability('checking');
-    void getXLinkCapability().then(allowed=>{
-      if(!cancelled)setXCapability(allowed?'available':'unavailable');
-    }).catch(()=>{if(!cancelled)setXCapability('unavailable');});
+    void probeXLinkReadiness().then(result=>{
+      if(cancelled)return;
+      setXCapability(result.available?'available':'unavailable');
+      setXReadinessDetail(result.available?null:result.reason);
+    }).catch(()=>{if(!cancelled){
+      setXCapability('unavailable');
+      setXReadinessDetail('X OAuth readiness could not be verified on this domain.');
+    }});
     return()=>{cancelled=true;};
   },[signedToken,social.identityOrigin,profile?.x]);
   const xAvatar = profile?.x?.avatarUrl;
@@ -193,7 +199,12 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
             </button>
           </div>
           {logoutWarning&&<p role="alert" className="mt-3 text-xs" style={{color:"var(--warning)"}}>{logoutWarning}</p>}
-          {xCapability==='unavailable'&&!profile?.x && <p role="status" className="mt-3 text-xs" style={{color:'var(--muted)'}}>Connect X will become available after the account-link service is verified. Your Veyra ID stays the same.</p>}
+          {xCapability==='unavailable'&&!profile?.x && <p role="status" className="mt-3 text-xs leading-5" style={{color:'var(--muted)'}}>
+              {xReadinessDetail ?? (social.identityOrigin!=='ready'
+                ? 'X linking needs the approved Veyra Testnet identity backend.'
+                : 'Sign in to your existing Veyra ID with your wallet to check X linking.')}
+              {' '}Your Veyra ID and wallet remain unchanged.
+            </p>}
           {xError && <p className="mt-3 text-xs" style={{ color: 'var(--warning)' }}>{xError}</p>}
         </div>
 

@@ -69,7 +69,7 @@ describe('Phase 37 — Agent Unified USDC read-only balances',()=>{
     expect(ui).not.toContain('writeContract');
     expect(ui).not.toContain('signMessage');
     expect(quick).toContain('<AgentUnifiedBalances key={address?.toLowerCase()');
-    expect(quick).toContain('onNavigate(\'unified\')');
+    expect(quick).not.toContain("onNavigate('unified')");
     expect(quick).toContain('Reverse Bridge unavailable · Source allowance is 0 or insufficient');
     expect(quick).toContain("useState<QuickAction>('UNIFIED')");
     expect(quick).toContain('Swap · Preview only');

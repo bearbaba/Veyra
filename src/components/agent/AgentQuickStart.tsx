@@ -395,13 +395,9 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
               Live wallet-bound USDC across Arc, Ethereum Sepolia and Base Sepolia. Read-only balances are not pooled funds or spendable on another network.
             </p>
             <AgentUnifiedBalances key={address?.toLowerCase() ?? 'disconnected'} />
-            <button type="button" onClick={() => onNavigate('unified')}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border p-3 text-xs font-semibold"
-              style={{ borderColor: 'var(--border-strong)', color: 'var(--ink)' }}>
-              Open Unified Balance <ArrowRight className="size-4" />
-            </button>
-            <p className="text-center text-[11px]" style={{ color: 'var(--subtle)' }}>
-              Balance view only. To transfer USDC, choose Send or Bridge separately.
+            <p className="text-center text-xs leading-5" style={{ color: 'var(--muted)' }}>
+              Unified is your read-only USDC overview inside Agent. To prepare a transfer,
+              deliberately choose Send or Bridge above; balances never become a transaction automatically.
             </p>
           </div>
         )}

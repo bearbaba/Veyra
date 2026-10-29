@@ -69,9 +69,9 @@ describe('Phase 22 — human-first Agent quick actions',()=>{
     expect(ui).toContain('navigator.clipboard.readText()');
     expect(ui).toContain("onNavigate('social')");
     expect(ui).toContain("onNavigate('convert')");
-    expect(ui).toContain("onNavigate('unified')");
+    expect(ui).not.toContain("onNavigate('unified')");
     expect(ui).not.toContain("onClick={() => chooseAction('BRIDGE')}");
-    expect(ui).toContain('Balance view only. To transfer USDC, choose Send or Bridge separately.');
+    expect(ui).toContain('Unified is your read-only USDC overview inside Agent.');
     expect(ui).toContain('provider is not yet enabled');
     expect(agent).toContain('AgentQuickStart friends={friends} signedIn={signedIn}');
     expect(agent).toContain('const connectedFriends = signedSession ?');

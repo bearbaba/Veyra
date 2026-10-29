@@ -23,6 +23,7 @@ import { ActionCard } from '../transfer/ActionCard';
 import { loadActivityReceiptsRemote, type ActivityReceiptRemoteRecord } from '../../lib/api/activityReceiptApi';
 import { agentBridgeReceiptState, readAgentBridgeReceiptLinks, type AgentBridgeReceiptLink } from '../../core/agent/agentBridgeReceiptLink';
 import { AgentQuickStart } from '../agent/AgentQuickStart';
+import { BridgePage } from './BridgePage';
 import type { VeyraPage } from '../layout/AppShell';
 
 interface AgentPageProps {
@@ -87,6 +88,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
   });
   const [loading, setLoading] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
+  const [inlineBridgeMessageId, setInlineBridgeMessageId] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<AgentCapabilities>(DEFAULT_CAPABILITIES);
   const [bridgeLinks, setBridgeLinks] = useState<AgentBridgeReceiptLink[]>(() =>
     readAgentBridgeReceiptLinks(historyScope));
@@ -204,6 +206,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
   }
 
   function clearConversation() {
+    setInlineBridgeMessageId(null);
     setMessages([]);
     setBridgeLinks([]);
     try {
@@ -329,6 +332,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
                       )}
                       {message.intent && message.intent.candidates.length > 0 && (
                         <div className="mt-3"><ActionCard intent={message.intent} onNavigate={onNavigate}
+                          onReviewBridgeInline={() => setInlineBridgeMessageId(message.id)}
                           bridgeHandoffScope={historyScope}
                           messageId={message.id}
                           linkedBridge={(() => {
@@ -351,6 +355,19 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
                             setInput(`Send ${amount} ${token} from ${source} to ${recipient} on ${destination}`);
                             inputRef.current?.focus();
                           }} /></div>
+                      )}
+                      {inlineBridgeMessageId === message.id && (
+                        <section aria-label="Bridge review within Agent" className="mt-3 rounded-2xl border"
+                          style={{ borderColor:'var(--border-strong)', background:'var(--surface-strong)' }}>
+                          <div className="border-b px-4 py-3" style={{ borderColor:'var(--border)' }}>
+                            <p className="text-sm font-bold" style={{ color:'var(--ink)' }}>Bridge review · Agent</p>
+                            <p className="mt-1 text-xs leading-5" style={{ color:'var(--muted)' }}>
+                              This review remains in Agent. The existing wallet, policy and CCTP
+                              safeguards still apply. No burn occurs by opening this draft.
+                            </p>
+                          </div>
+                          <BridgePage />
+                        </section>
                       )}
                     </div>
                   )}
