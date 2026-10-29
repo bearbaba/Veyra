@@ -48,5 +48,12 @@ try{
   ?burn.spec as Record<string,unknown>:null;
  console.error(`Item keys: ${Object.keys(item??{}).join(',')}; Burn keys: ${Object.keys(burn??{}).join(',')}; Spec keys: ${Object.keys(spec??{}).join(',')}`);
  console.error(`Fee type: ${typeof burn?.maxFee}; block-height type: ${typeof burn?.maxBlockHeight}; fee: ${String(burn?.maxFee).slice(0,48)}; expiry: ${String(burn?.maxBlockHeight).slice(0,48)}`);
+ if(spec){
+  for(const [key,expected] of Object.entries(request.spec)){
+   const actual=spec[key];
+   if(String(actual).toLowerCase()!==String(expected).toLowerCase())
+    console.error(`Mismatched ${key}: expected ${String(expected).slice(0,70)}, actual ${String(actual).slice(0,70)}`);
+  }
+ }
  process.exit(1);
 }
