@@ -13,6 +13,7 @@ import { AgentPage } from './components/pages/AgentPage';
 import { PayPage } from './components/pages/PayPage';
 import { ConvertPage } from './components/pages/ConvertPage';
 import { BridgePage } from './components/pages/BridgePage';
+import { UnifiedBalancePage } from './components/pages/UnifiedBalancePage';
 import { ActivityPage } from './components/pages/ActivityPage';
 import { UiOnlyPreviewPage } from './components/pages/UiOnlyPreviewPage';
 import { IS_UI_ONLY_PREVIEW } from './lib/env';
@@ -52,6 +53,8 @@ export default function App() {
         return IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="convert" /> : <ConvertPage />;
       case 'bridge':
         return IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="bridge" /> : <BridgePage />;
+      case 'unified':
+        return <UnifiedBalancePage />;
       case 'activity':
         return <ActivityPage readOnly={IS_UI_ONLY_PREVIEW} />;
       case 'settings':
