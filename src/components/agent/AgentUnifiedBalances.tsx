@@ -13,6 +13,7 @@ import {
 import { fetchGatewayTestnetBalances, GATEWAY_TESTNET_SOURCES,
   type GatewayBalanceSnapshot } from '../../core/gateway/gatewayBalances';
 import { GatewayAddFunds } from './GatewayAddFunds';
+import { GatewaySendReview } from './GatewaySendReview';
 import { MANIFEST_CONSTANTS as M } from '../../providers/registry/providerManifest';
 import { VEYRA_ENV } from '../../lib/env';
 
@@ -27,6 +28,7 @@ export function AgentUnifiedBalances(){
   const [gateway,setGateway]=useState<{owner:string;loading:boolean;data:GatewayBalanceSnapshot|null;error:string|null}|null>(null);
   const [showWallets,setShowWallets]=useState(false);
   const [showDeposit,setShowDeposit]=useState(false);
+  const [showSend,setShowSend]=useState(false);
   const latest=useRef(0);
   const wallet=address?.toLowerCase()??'';
   const enabled=Boolean(wallet)&&VEYRA_ENV!=='mainnet';
@@ -111,9 +113,11 @@ export function AgentUnifiedBalances(){
             style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>
             {showDeposit?'Hide Add funds':'Add funds'}
           </button>
-          <button type="button" disabled title="Unified Send requires signed Gateway transfer integration and a verified destination receipt."
-            className="rounded-xl border px-3 py-2 text-xs opacity-50"
-            style={{borderColor:'var(--border)',color:'var(--muted)'}}>Send from Unified</button>
+          <button type="button" onClick={()=>setShowSend(v=>!v)}
+            className="rounded-xl border px-3 py-2 text-xs"
+            style={{borderColor:'var(--border)',color:'var(--ink)'}}>
+            {showSend?'Hide Send review':'Review Unified Send'}
+          </button>
         </div>
         <p className="mt-3 text-[11px] leading-5" style={{color:'var(--muted)'}}>
           Pending deposits and reserved transfers are not yet included here.
@@ -121,6 +125,7 @@ export function AgentUnifiedBalances(){
         </p>
       </div>
       {showDeposit&&<GatewayAddFunds key={wallet} onUpdate={()=>void refresh()}/>}
+      {showSend&&<GatewaySendReview key={wallet}/>}
       <button type="button" onClick={()=>setShowWallets(v=>!v)}
         className="text-xs font-semibold underline" style={{color:'var(--muted)'}}>
         {showWallets?'Hide Wallet balances':'Wallet balances · separate funds'}
