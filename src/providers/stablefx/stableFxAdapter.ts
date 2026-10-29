@@ -46,9 +46,15 @@ export interface StableFxQuoteResponse {
 export interface StableFxTradeStatus {
   id: string;
   contractTradeId: string;
-  status: 'pending_settlement' | 'taker_funded' | 'complete' | 'failed';
+  status: 'pending_settlement' | 'taker_funded' | 'complete' | 'completed' | 'failed';
   from: { currency: string; amount: string };
   to: { currency: string; amount: string };
+}
+
+/** Circle API uses "completed" in the taker quickstart; older adapters
+ * used "complete". Neither is proof of user-owned on-chain receipt alone. */
+export function isStableFxProviderTradeComplete(trade:StableFxTradeStatus):boolean {
+  return trade.status==='completed' || trade.status==='complete';
 }
 
 export type StableFxCurrency = 'USDC' | 'EURC';
