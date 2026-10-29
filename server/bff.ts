@@ -31,6 +31,11 @@
 
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { isAddress, parseUnits } from 'viem';
+import {
+ saveBoundStableFxQuote,reserveStableFxTrade,recordStableFxTrade,markStableFxTradeUncertain,
+ requireOwnedStableFxTrade,saveStableFxFundingPresign,claimStableFxFundingSubmission,
+ markStableFxFundingSent,StableFxOwnershipError,
+} from './services/stableFxTradeOwnership.js';
 import { evaluateBrowserOrigin } from './middleware/browserOriginPolicy.js';
 import { validateIntentResponse } from '../src/core/intent/intentSchema';
 import { createFallbackAgentResponse, validateAgentChatResponse, type AgentHistoryMessage } from '../src/core/agent/agentV2';
@@ -1427,7 +1432,23 @@ app.post('/api/stablefx/quote', STABLEFX_RATE, async (req: Request, res: Respons
       return;
     }
 
-    const quote = await circleRes.json() as unknown;
+    const quote = await circleRes.json() as Record<string, unknown>;
+    const signed = quote.typedData as Record<string, unknown> | undefined;
+    if(!quote.id || typeof quote.id!=='string'|| !signed ||
+       !signed.message || typeof signed.message!=='object' ||
+       !quote.expiresAt || typeof quote.expiresAt!=='string') {
+      res.status(502).json({error:'STABLEFX_QUOTE_PAYLOAD_INVALID'});return;
+    }
+    const userId=getAuthenticatedVeyraUserId(req);
+    if(!userId){res.status(401).json({error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    await saveBoundStableFxQuote(db,{
+      quoteId:quote.id,userId,walletAddress:recipientAddress,
+      fromCurrency:fromCurrency as 'USDC'|'EURC',
+      toCurrency:toCurrency as 'USDC'|'EURC',
+      fromAmount,typedData:signed,expiresAt:quote.expiresAt,
+    });
+    res.setHeader('Cache-Control','no-store');
     res.json({ ok: true, quote, fetchedAt: Date.now() });
   } catch (err) {
     console.error('[BFF] /api/stablefx/quote error:', err);
@@ -1469,7 +1490,14 @@ app.post('/api/stablefx/trade', STABLEFX_RATE, async (req: Request, res: Respons
       res.status(400).json({ error: 'Invalid trade identifiers, wallet or signature.' });
       return;
     }
+    const userId=getAuthenticatedVeyraUserId(req);
+    if(!userId){res.status(401).json({error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    // Atomic DB reservation before the first remote POST. No second attempt
+    // can reuse this quote even if Circle times out after receiving it.
+    await reserveStableFxTrade(db,{quoteId,idempotencyKey,userId,walletAddress:address,message});
     const tradeBody = { idempotencyKey, quoteId, address, message, signature };
+    try {
     const circleRes = await fetch(
       `${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/trades`,
       {
@@ -1483,16 +1511,27 @@ app.post('/api/stablefx/trade', STABLEFX_RATE, async (req: Request, res: Respons
     );
 
     if (!circleRes.ok) {
-      console.error('[BFF] StableFX trade status:', circleRes.status);
-      res.status(502).json({ error: `Circle StableFX trade returned ${circleRes.status}` });
+      await markStableFxTradeUncertain(db,idempotencyKey,userId);
+      res.status(502).json({error:'STABLEFX_TRADE_SUBMISSION_UNCERTAIN_RECONCILE'});
       return;
     }
-
-    const trade = await circleRes.json() as unknown;
+    const trade = await circleRes.json() as Record<string,unknown>;
+    if(typeof trade.id!=='string'||typeof trade.contractTradeId!=='string') {
+      await markStableFxTradeUncertain(db,idempotencyKey,userId);
+      res.status(502).json({error:'STABLEFX_TRADE_IDENTIFIER_MISSING'});return;
+    }
+    await recordStableFxTrade(db,{idempotencyKey,userId,tradeId:trade.id,contractTradeId:trade.contractTradeId});
+    res.setHeader('Cache-Control','no-store');
     res.json({ ok: true, trade });
+    } catch {
+      await markStableFxTradeUncertain(db,idempotencyKey,userId).catch(()=>{});
+      res.status(503).json({error:'STABLEFX_TRADE_OUTCOME_UNKNOWN_NO_AUTO_RETRY'});
+    }
   } catch (err) {
-    console.error('[BFF] /api/stablefx/trade error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    if(err instanceof StableFxOwnershipError){
+      res.status(409).json({error:err.code});return;
+    }
+    res.status(503).json({error:'STABLEFX_TRADE_UNAVAILABLE'});
   }
 });
 
@@ -1517,6 +1556,10 @@ app.post('/api/stablefx/funding/presign', STABLEFX_RATE, async (req: Request, re
     if (!/^[0-9a-f-]{36}$/i.test(tradeId) || !/^[1-9]\d{0,40}$/.test(contractTradeId)) {
       res.status(400).json({ error: 'INVALID_STABLEFX_TRADE_ID' }); return;
     }
+    const userId=getAuthenticatedVeyraUserId(req);
+    if(!userId){res.status(401).json({error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    await requireOwnedStableFxTrade(db,{userId,tradeId,contractTradeId});
     const providerHeaders = { Authorization: `Bearer ${key}`, Accept: 'application/json' };
     const status = await fetch(`${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/trades/${encodeURIComponent(tradeId)}`, {
       headers: providerHeaders, signal: AbortSignal.timeout(12000),
@@ -1536,7 +1579,9 @@ app.post('/api/stablefx/funding/presign', STABLEFX_RATE, async (req: Request, re
     if (!presign.typedData || typeof presign.typedData !== 'object') {
       res.status(502).json({ error: 'STABLEFX_FUNDING_TYPED_DATA_MISSING' }); return;
     }
-    res.json({ ok: true, contractTradeId, tradeId, ...presign });
+    await saveStableFxFundingPresign(db,{userId,tradeId,payload:presign.typedData});
+    res.setHeader('Cache-Control','no-store');
+    res.json({ ...presign, ok:true, contractTradeId, tradeId, fetchedAt:Date.now() });
   } catch {
     res.status(503).json({ error: 'STABLEFX_FUNDING_PRESIGN_TIMEOUT_OR_ERROR' });
   }
@@ -1557,6 +1602,10 @@ app.post('/api/stablefx/funding/submit', STABLEFX_RATE, async (req: Request, res
         !/^0x[0-9a-f]{130}$/i.test(signature)) {
       res.status(400).json({ error: 'INVALID_STABLEFX_FUNDING_REQUEST' }); return;
     }
+    const userId=getAuthenticatedVeyraUserId(req);
+    if(!userId){res.status(401).json({error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    await requireOwnedStableFxTrade(db,{userId,tradeId,contractTradeId});
     const providerHeaders = { Authorization: `Bearer ${key}`, Accept: 'application/json' };
     const status = await fetch(`${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/trades/${encodeURIComponent(tradeId)}`, {
       headers: providerHeaders, signal: AbortSignal.timeout(12000),
@@ -1567,18 +1616,9 @@ app.post('/api/stablefx/funding/submit', STABLEFX_RATE, async (req: Request, res
       // In particular, taker_funded / complete must never fund a second time.
       res.status(409).json({ error: 'STABLEFX_FUNDING_ALREADY_SUBMITTED_OR_UNAVAILABLE' }); return;
     }
-    const presignResponse = await fetch(`${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/signatures/funding/presign`, {
-      method: 'POST', headers: { ...providerHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contractTradeIds: [contractTradeId], type: 'taker' }),
-      signal: AbortSignal.timeout(12000),
-    });
-    if (!presignResponse.ok) { res.status(502).json({ error: 'STABLEFX_FUNDING_PRESIGN_UNAVAILABLE' }); return; }
-    const signed = await presignResponse.json() as { typedData?: { message?: unknown } };
-    const suppliedPermit = body.permit2;
-    // Exact provider payload: no client-chosen spender, token, amount or nonce.
-    if (!signed.typedData?.message || JSON.stringify(suppliedPermit) !== JSON.stringify(signed.typedData.message)) {
-      res.status(409).json({ error: 'STABLEFX_FUNDING_SIGNATURE_PAYLOAD_CHANGED' }); return;
-    }
+    // One-use atomic submission claim also ensures the signed payload is
+    // identical to the exact EIP-712 message the owner reviewed earlier.
+    await claimStableFxFundingSubmission(db,{userId,tradeId,message:body.permit2});
     const result = await fetch(`${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/fund`, {
       method: 'POST', headers: { ...providerHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'taker', signature, permit2: suppliedPermit }),
@@ -1586,8 +1626,13 @@ app.post('/api/stablefx/funding/submit', STABLEFX_RATE, async (req: Request, res
     });
     if (!result.ok) { res.status(502).json({ error: 'STABLEFX_FUNDING_PROVIDER_UNCONFIRMED' }); return; }
     // Circle may return a blank 200. Funding acceptance is not trade completion.
+    await markStableFxFundingSent(db,userId,tradeId);
+    res.setHeader('Cache-Control','no-store');
     res.json({ ok: true, fundingSubmitted: true, tradeId, contractTradeId, status: 'SETTLEMENT_PENDING' });
-  } catch {
+  } catch (err) {
+    if(err instanceof StableFxOwnershipError){
+      res.status(409).json({error:err.code});return;
+    }
     // Uncertain funding must never be marked FAILED or automatically retried.
     res.status(503).json({ error: 'STABLEFX_FUNDING_OUTCOME_UNKNOWN_RECONCILE_BEFORE_RETRY' });
   }
@@ -1611,6 +1656,10 @@ app.get('/api/stablefx/trade/:tradeId', STABLEFX_RATE, async (req: Request, res:
       return;
     }
 
+    const userId=getAuthenticatedVeyraUserId(req);
+    if(!userId){res.status(401).json({error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    await requireOwnedStableFxTrade(db,{userId,tradeId});
     const circleRes = await fetch(
       `${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/trades/${tradeId}`,
       { headers: { Authorization: `Bearer ${circleApiKey}` } },
