@@ -81,6 +81,8 @@ export interface VeyraReceipt {
   providerTradeId?: string;
   /** Exact quote ID for recovery, not an execution authorization. */
   providerQuoteId?: string;
+  /** Trade submission idempotency key, kept for manual reconciliation after timeout. */
+  providerIdempotencyKey?: string;
 
   /** Transaction hash on the primary chain. */
   executionTxHash?: string;
