@@ -19,7 +19,9 @@ describe('Phase 37 — Unified stays inside Agent; Bridge review does not naviga
     expect(quick).not.toContain("onNavigate('unified')");
     expect(quick).not.toContain("id: 'UNIFIED'");
     const portfolio=read('src/components/agent/AgentUnifiedBalances.tsx');
-    expect(portfolio).toContain('Total USDC across 3 Testnets');
+    expect(portfolio).toContain('Unified Balance · Circle Gateway');
+    expect(portfolio).toContain('Wallet balances · separate funds');
+    expect(portfolio).not.toContain('Total USDC across 3 Testnets');
     expect(portfolio).not.toContain('writeContract(');
   });
   it('reviews vetted Bridge inside Agent using existing source controls',()=>{
