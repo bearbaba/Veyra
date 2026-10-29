@@ -43,6 +43,8 @@ export const STAGING_ALLOWED_PATHS=[
   // Wallet-bound read only. The hosted BFF verifies the signed Veyra session
   // and returns deposited USDC, never aggregated wallet ERC-20 balances.
   "/api/gateway/balances",
+  // Read-only, owner-bound Circle fee/expiry quote; no burn submission.
+  "/api/gateway/estimate",
   // Circle Iris testnet source-domain/hash are validated inside the BFF.
   "/api/cctp/health",
   "/api/cctp/attestation",
