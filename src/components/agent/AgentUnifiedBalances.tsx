@@ -58,6 +58,25 @@ export function AgentUnifiedBalances(){
 
   return (
     <div className="space-y-3" aria-label="Unified Testnet USDC balances">
+      <div role="status" aria-label="Total USDC across 3 Testnets"
+        className="rounded-2xl border px-4 py-5 sm:px-5 sm:py-6"
+        style={{borderColor:'var(--border-strong)',background:'var(--surface-strong)'}}>
+        <p className="text-[11px] font-bold uppercase tracking-[0.12em]" style={{color:'var(--muted)'}}>
+          Total USDC across 3 Testnets
+        </p>
+        <p className="mt-2 break-all text-3xl font-black tracking-tight tabular-nums sm:text-4xl"
+          style={{color:'var(--ink)'}}>
+          {!current||current.loading?'Reading…'
+            :displayTotal!==null?formatArcUsdcBalance(displayTotal)+' USDC':'—'}
+        </p>
+        <p className="mt-2 text-xs leading-5" style={{color:'var(--muted)'}}>
+          {!current||current.loading
+            ? 'Verifying USDC balances independently on Arc, Ethereum Sepolia and Base Sepolia.'
+            :displayTotal!==null
+              ? 'Display-only total · Funds remain on separate networks · Not spendable as one balance'
+              : `${success}/3 networks verified. Combined display hidden until all networks are readable. Unknown is not zero.`}
+        </p>
+      </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="min-w-0 text-xs" style={{color:'var(--muted)'}}>
           Wallet <span className="font-mono" style={{color:'var(--ink)'}}>{address.slice(0,6)}…{address.slice(-4)}</span>
@@ -89,17 +108,10 @@ export function AgentUnifiedBalances(){
           </div>;
         })}
       </div>
-      {!current?.loading && current && (
-        <div role="status" className="rounded-xl border p-3 text-xs leading-5"
-          style={{borderColor:'var(--border)',color:'var(--muted)'}}>
-          {displayTotal!==null
-            ? <>Across 3 Testnets (display only): <strong style={{color:'var(--ink)'}}>
-                {formatArcUsdcBalance(displayTotal)} USDC
-              </strong>. These balances are separate; Veyra cannot spend them as one balance.</>
-            : <>{success}/3 networks verified. Combined display hidden until all networks are readable.
-                Unavailable never means zero.</>}
-          {latestRead>0 && <span className="block">Last verified read: {new Date(latestRead).toLocaleTimeString()}</span>}
-        </div>
+      {latestRead>0 && !current?.loading && (
+        <p className="text-[11px]" style={{color:'var(--muted)'}}>
+          Last verified read: {new Date(latestRead).toLocaleTimeString()}
+        </p>
       )}
       <p className="text-[11px] leading-5" style={{color:'var(--subtle)'}}>
         Read-only Testnet view · No wallet signature, gas, route execution or transfer.

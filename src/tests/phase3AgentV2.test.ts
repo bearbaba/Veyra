@@ -29,6 +29,28 @@ describe('Phase 3D Agent V2', () => {
     expect(candidate?.recipientRaw?.raw).toBe('@alice');
   });
 
+  it('asks which Base rather than inventing a same-chain Base transfer', () => {
+    const requested='gửi 10 usdc cho 0xD6b8A3A5eB329410D9504784812b8569afA8C2aF chain base';
+    const offline=createFallbackAgentResponse(requested);
+    expect(offline.mode).toBe('CLARIFICATION');
+    expect(offline.intent?.status).toBe('NEEDS_CLARIFICATION');
+    expect(offline.intent?.candidates[0]?.actionType).toBe('BRIDGE');
+    expect(offline.intent?.candidates[0]?.sourceChainRaw?.raw).toBe('Arc Testnet');
+    expect(offline.intent?.candidates[0]?.destinationChainRaw?.raw).toBe('Base');
+    expect(offline.reply).toContain('Base Sepolia');
+    expect(offline.reply).toContain('Base Mainnet');
+    const model=validateAgentChatResponse({
+      reply:'Send it directly from Base to Base', mode:'ACTION', locale:'vi',
+      intent: { status:'RESOLVED', candidates:[{actionType:'TRANSFER'}] },
+    },requested);
+    expect(model.intent?.status).toBe('NEEDS_CLARIFICATION');
+    expect(model.mode).toBe('CLARIFICATION');
+    expect(model.reply).toBe(offline.reply);
+    const explicit=createFallbackAgentResponse(requested.replace('chain base','chain Base Sepolia'));
+    expect(explicit.intent?.candidates[0]?.actionType).toBe('BRIDGE');
+    expect(explicit.intent?.status).toBe('RESOLVED');
+  });
+
   it('captures both assets for conversion', () => {
     const response = createFallbackAgentResponse('Convert 25 USDC to EURC');
     const candidate = response.intent?.candidates[0];

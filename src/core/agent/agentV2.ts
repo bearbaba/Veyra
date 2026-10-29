@@ -328,7 +328,30 @@ function buildIntent(message: string, locale: string): IntentResult | undefined 
   const recipient = extractRecipient(message);
   const sepoliaDestination = requestedSepoliaDestination(message);
   const paymentHint = hasAny(message, TRANSFER_HINTS);
-  if (sepoliaDestination && (paymentHint || hasAny(message, BRIDGE_HINTS))) {
+  const bridgeHint = hasAny(message, BRIDGE_HINTS);
+  // "chain base" alone does not distinguish Base Mainnet from Base Sepolia.
+  // Never create a misleading same-chain Transfer or assume a signing network.
+  if (/\\bbase\\b(?![ -]+(?:sepolia|mainnet))/i.test(message) &&
+      !sepoliaDestination && (paymentHint || bridgeHint)) {
+    const missing: string[] = ['destinationChainRaw'];
+    if (!recipient) missing.push('recipientRaw');
+    if (!amount) missing.push('amountRaw');
+    if (!tokens[0]) missing.push('tokenRaw');
+    return validateIntentResponse({
+      displaySummary: localized(locale, 'action'),
+      status: 'NEEDS_CLARIFICATION',
+      candidates: [{
+        actionType:'BRIDGE', recipient, fromAmount:amount, fromCurrency:tokens[0],
+        sourceChain:requestedBridgeSource(message), destinationChain:'Base', confidence:0.65,
+      }],
+      missingParams:missing,
+      clarificationQuestion:locale.startsWith('vi')
+        ? 'Bạn muốn gửi đến Base Sepolia (Testnet) hay Base Mainnet? Veyra chỉ hỗ trợ Bridge từ Arc Testnet đến Base Sepolia; Base Mainnet chưa được bật.'
+        : 'Do you mean Base Sepolia (Testnet) or Base Mainnet? Only Arc Testnet to Base Sepolia Bridge is enabled.',
+      parsedAt:Date.now(),
+    });
+  }
+  if (sepoliaDestination && (paymentHint || bridgeHint)) {
     const sourceChain = requestedBridgeSource(message);
     const missing: string[] = [];
     if (!recipient) missing.push('recipientRaw');
@@ -574,7 +597,7 @@ export function validateAgentChatResponse(
   };
   // A hosted model must not downgrade an explicit Sepolia destination to an
   // Arc direct payment. Reconcile the user's literal destination deterministically.
-  const pinnedNetworkIntent = /\bsepolia\b/i.test(fallbackMessage) ? fallback.intent : undefined;
+  const pinnedNetworkIntent = /\b(?:base|sepolia)\b/i.test(fallbackMessage) ? fallback.intent : undefined;
   const intent = pinnedNetworkIntent ?? (raw.intent ? validateIntentResponse(raw.intent) : undefined);
   return {
     ok: true,
