@@ -70,7 +70,11 @@ export function GatewaySendReview(){
    if(!sessionAtStart)throw Error('Sign in again to review Gateway spending.');
    // First estimate the exact destination amount against each possible source
    // to choose available funds. Estimates cannot authorize a spend.
-   const sourceQuotes=await Promise.all(GATEWAY_TESTNET_SOURCES.map(s=>
+   const fundedSources=GATEWAY_TESTNET_SOURCES.filter(source=>
+     current.sources.some(row=>row.domain===source.domain&&row.available>0n));
+   if(fundedSources.length===0)
+     throw Error('No verified Gateway USDC is available. Add funds before reviewing Send.');
+   const sourceQuotes=await Promise.all(fundedSources.map(s=>
     quoteOne(owner,recipient,amount,s.domain,destination.domain)));
    const provisional=allocateGatewaySend({
     owner,recipient,destinationChainId,amount,snapshot:current,quotes:sourceQuotes,
