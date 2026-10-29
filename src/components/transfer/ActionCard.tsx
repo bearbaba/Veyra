@@ -11,13 +11,14 @@ interface ActionCardProps {
   intent: IntentResult;
   onNavigate: (page: VeyraPage) => void;
   onReviewBridgeInline?: () => void;
+  onReviewPayInline?: (candidate: IntentCandidate) => void;
   onClarifyDestination?: (network: 'Ethereum Sepolia' | 'Base Sepolia') => void;
   bridgeHandoffScope?: string | null;
   messageId?: string;
   linkedBridge?: { receiptId: string; receipt?: ActivityReceiptRemoteRecord; lookupFailed: boolean };
 }
 
-export function ActionCard({ intent, onNavigate, onReviewBridgeInline, onClarifyDestination, bridgeHandoffScope, messageId, linkedBridge }: ActionCardProps) {
+export function ActionCard({ intent, onNavigate, onReviewBridgeInline, onReviewPayInline, onClarifyDestination, bridgeHandoffScope, messageId, linkedBridge }: ActionCardProps) {
   const best = intent.candidates[0];
   if (!best) return null;
 
@@ -61,6 +62,11 @@ export function ActionCard({ intent, onNavigate, onReviewBridgeInline, onClarify
       : bridgeGate?.ok
         ? { ...best, amountRaw: { kind: 'UNTRUSTED_STRING', raw: bridgeGate.amount } }
         : best;
+    if (isTransfer && onReviewPayInline) {
+      // Same Pay preparation and signing flow, just rendered in the Agent task.
+      onReviewPayInline(prepared);
+      return;
+    }
     sessionStorage.setItem('veyra:agent-intent', JSON.stringify(prepared));
     if (isBridge && bridgeGate?.ok && messageId) {
       beginAgentBridgeHandoff(bridgeHandoffScope ?? null, messageId, {

@@ -38,3 +38,18 @@ describe('Phase 37 — Unified stays inside Agent; Bridge review does not naviga
     expect(bridge).toContain('embedded = false');
   });
 });
+
+describe('Phase 40 — Pay uses the same Agent task',()=>{
+  it('reuses canonical Pay review and never a second signing pipeline',()=>{
+    const a=read('src/components/pages/AgentPage.tsx');
+    const c=read('src/components/transfer/ActionCard.tsx');
+    const p=read('src/components/pages/PayPage.tsx');
+    expect(a).toContain('<PayPage embedded initialIntent={activePayDraft.candidate} />');
+    expect(a).toContain('aria-label="Pay review in active task"');
+    expect(c).toContain('if (isTransfer && onReviewPayInline)');
+    expect(p).toContain('validateAgentTransferDraft(candidate)');
+    expect(p).toContain('assertPreparedRecipientReview');
+    expect(p).toContain('<TransactionReviewSheet');
+    expect(a).not.toContain('writeContract(');
+  });
+});
