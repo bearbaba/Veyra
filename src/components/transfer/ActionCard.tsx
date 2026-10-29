@@ -57,7 +57,7 @@ export function ActionCard({ intent, onNavigate, onReviewBridgeInline, onReviewP
   function handleProceed() {
     if (!isActionable) return;
     // Keep canonical positive amount, never the model's display string.
-    const prepared = transferGate?.ok
+    const prepared: IntentCandidate = transferGate?.ok
       ? { ...best, amountRaw: { kind: 'UNTRUSTED_STRING', raw: transferGate.amount } }
       : bridgeGate?.ok
         ? { ...best, amountRaw: { kind: 'UNTRUSTED_STRING', raw: bridgeGate.amount } }
