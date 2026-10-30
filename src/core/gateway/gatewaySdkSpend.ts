@@ -41,6 +41,16 @@ export function parseGatewaySdkFees(raw:unknown):GatewaySdkFee[]{
   return {type:fee.type,amount:fee.amount,token:'USDC' as const};
  });
 }
+/** Never silently raise or replace fees after the owner has reviewed them. */
+export function assertGatewaySdkFeesUnchanged(reviewed:ReadonlyArray<GatewaySdkFee>,
+ latest:ReadonlyArray<GatewaySdkFee>):void{
+ const key=(fee:GatewaySdkFee)=>fee.type+':'+fee.token+':'+
+  parseUnits(fee.amount.startsWith('.')?'0'+fee.amount:fee.amount,6).toString();
+ if(reviewed.length===0||latest.length===0||
+   JSON.stringify(reviewed.map(key).sort())!==JSON.stringify(latest.map(key).sort()))
+  throw Error('Circle forwarding fees changed. Review the new fees before signing.');
+}
+
 export async function assertGatewayProviderWallet(
  provider:EIP1193Provider,owner:string,chainId:number,
 ):Promise<void>{
@@ -135,6 +145,7 @@ export async function submitGatewaySdkSpend(input:{
  walletAddress:string;
  expectedSession:string;
  expectedChainId:number;
+ reviewedFees:ReadonlyArray<GatewaySdkFee>;
 }):Promise<GatewaySpendCheckpoint> {
  const p=input.checkpoint;
  const key=gatewaySpendKey(p.owner,p.identity);
@@ -149,16 +160,25 @@ export async function submitGatewaySdkSpend(input:{
  await assertGatewayProviderWallet(input.provider,p.owner,p.sourceChainId);
  if(activeSignedIdentityToken()!==input.expectedSession)
   throw Error('Veyra identity session changed before Gateway submission.');
- // The local checkpoint prevents blind resubmission if the provider accepts a
- // signed intent but the browser closes before returning an acknowledgment.
+ // Requote the SAME SDK spend intent immediately before signing. A provider
+ // fee or route change requires a new visible user confirmation; never silently
+ // accept newer fees after the checkbox was checked.
+ const adapter=await createViemAdapterFromProvider({provider:input.provider});
+ await assertGatewayProviderWallet(input.provider,p.owner,p.sourceChainId);
+ if(activeSignedIdentityToken()!==input.expectedSession)
+  throw Error('Veyra session changed before fee preflight.');
+ const kit=new AppKit();
+ const params=sdkSpendParams(adapter,p);
+ const estimate=await kit.unifiedBalance.estimateSpend(params);
+ assertGatewaySdkFeesUnchanged(input.reviewedFees,parseGatewaySdkFees(estimate.fees));
+ await assertGatewayProviderWallet(input.provider,p.owner,p.sourceChainId);
+ if(activeSignedIdentityToken()!==input.expectedSession)
+  throw Error('Veyra session changed. Review again.');
+ // The local checkpoint is written immediately before the potentially
+ // signing SDK call so any ambiguous submission cannot be blindly replayed.
  input.store.setItem(key,JSON.stringify(p));
  try {
-  const adapter=await createViemAdapterFromProvider({provider:input.provider});
-  await assertGatewayProviderWallet(input.provider,p.owner,p.sourceChainId);
-  if(activeSignedIdentityToken()!==input.expectedSession)
-   throw Error('Veyra session changed. Inspect checkpoint before any retry.');
-  const kit=new AppKit();
-  const result=await kit.unifiedBalance.spend(sdkSpendParams(adapter,p));
+  const result=await kit.unifiedBalance.spend(params);
   const transferId=typeof result.transferId==='string'?result.transferId:undefined;
   const txHash=typeof result.txHash==='string'?result.txHash:undefined;
   // An SDK return does NOT independently prove destination mint/finality.
