@@ -198,7 +198,7 @@ export function GatewaySendReview(){
    {pending&&<div role="status" className="rounded-xl border p-3 text-xs space-y-1"
      style={{borderColor:'var(--warning)'}}>
      <p className="font-semibold">Unified Send pending verification — do not resend</p>
-     <p>State: {pending.state.replaceAll('_',' ')}</p>
+     <p>State: {pending.state.replace(/_/g,' ')}</p>
      <p>Source network: {GATEWAY_TESTNET_SOURCES.find(x=>x.chainId===pending.sourceChainId)?.name}</p>
      {pending.transferId&&<p>Circle transfer: {pending.transferId}</p>}
      {pending.txHash&&<p className="break-all">Transaction: {pending.txHash}</p>}
