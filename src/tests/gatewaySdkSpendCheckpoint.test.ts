@@ -1,5 +1,6 @@
 import {describe,expect,it} from 'vitest';
-import {gatewaySpendKey,prepareGatewaySpendCheckpoint,readGatewaySpendCheckpoint}
+import type {EIP1193Provider} from 'viem';
+import {gatewaySpendKey,prepareGatewaySpendCheckpoint,readGatewaySpendCheckpoint,assertGatewayProviderWallet,parseGatewaySdkFees}
  from '../core/gateway/gatewaySdkSpend';
 
 const owner='0x1111111111111111111111111111111111111111';
@@ -34,5 +35,37 @@ describe('Gateway user-scoped pending send checkpoint',()=>{
   expect(readGatewaySpendCheckpoint(store,owner,identity)).toBeNull();
   store.setItem(key,'not json');
   expect(readGatewaySpendCheckpoint(store,owner,identity)).toBeNull();
+ });
+});
+
+describe('Circle SDK spend preflight and exact fee consent',()=>{
+ const provider=(accounts:unknown,chain:unknown)=>({
+  request:async({method}:{method:string})=>method==='eth_accounts'?accounts:
+   method==='eth_chainId'?chain:null,
+ }) as EIP1193Provider;
+ it('accepts only the exact wallet on the reviewed source chain',async()=>{
+  await expect(assertGatewayProviderWallet(
+   provider([owner],'0x4cef12'),owner,5042002)).rejects.toThrow();
+  // 5042002 (Arc Testnet) is 0x4cef52.
+  await expect(assertGatewayProviderWallet(
+   provider([owner],'0x4cef52'),owner,5042002)).resolves.toBeUndefined();
+  await expect(assertGatewayProviderWallet(
+   provider([recipient],'0x4cef52'),owner,5042002)).rejects.toThrow();
+  await expect(assertGatewayProviderWallet(
+   provider([owner],'0xaa36a7'),owner,5042002)).rejects.toThrow();
+  await expect(assertGatewayProviderWallet(
+   provider([],'0x4cef52'),owner,5042002)).rejects.toThrow();
+ });
+ it('accepts only known, exact USDC provider fees and SDK forwarding fees',()=>{
+  expect(parseGatewaySdkFees([{type:'forwarder',token:'USDC',amount:'.1'},
+   {type:'provider',token:'USDC',amount:'0.000050'},
+   {type:'gasFee',token:'USDC',amount:'0.02'}])).toHaveLength(3);
+  for(const invalid of [
+   [],[{type:'forwarder',token:'USDC',amount:0.1}],
+   [{type:'forwarder',token:'USDC',amount:'1e5'}],
+   [{type:'forwarder',token:'USDC',amount:'1.0000001'}],
+   [{type:'forwarder',token:'EURC',amount:'0.01'}],
+   [{type:'nonsense',token:'USDC',amount:'0.01'}],
+  ])expect(()=>parseGatewaySdkFees(invalid)).toThrow();
  });
 });
