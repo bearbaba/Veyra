@@ -121,7 +121,7 @@ export async function fetchGatewayTestnetBalances(owner:string):Promise<GatewayB
  if(!token)throw Error('Sign in with your existing Veyra ID to read Gateway funds.');
  const kit=new AppKit();
  const response=await kit.unifiedBalance.getBalances({
-  sources:{account:getAddress(owner),chains:SDK_CHAIN_NAMES.map(x=>x.name)},
+  sources:{address:getAddress(owner),chains:SDK_CHAIN_NAMES.map(x=>x.name)},
   networkType:'testnet',token:'USDC',
  });
  if(activeSignedIdentityToken()!==token)
