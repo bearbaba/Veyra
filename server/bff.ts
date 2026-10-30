@@ -33,6 +33,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import { isAddress, parseUnits } from 'viem';
 import { randomBytes } from 'node:crypto';
 import { createGatewayEstimateRequest, parseGatewayEstimate, GatewayEstimateError } from './services/gatewayEstimate.js';
+import { isExactGatewayUsdcBalance } from './services/gatewayBalanceValidation.js';
 import {
  saveBoundStableFxQuote,reserveStableFxTrade,recordStableFxTrade,markStableFxTradeUncertain,
  requireOwnedStableFxTrade,saveStableFxFundingPresign,claimStableFxFundingSubmission,
@@ -1786,7 +1787,7 @@ app.post('/api/gateway/balances', STABLEFX_RATE, async (req: Request, res: Respo
         res.status(502).json({ok:false,error:'GATEWAY_DOMAIN_BALANCE_UNVERIFIED'});return;
       }
       const amount=(rows[0] as {balance?:unknown}).balance;
-      if(typeof amount!=='string'||!/^\d{1,18}(?:\\.\d{1,6})?$/.test(amount)){
+      if(!isExactGatewayUsdcBalance(amount)){
         res.status(502).json({ok:false,error:'GATEWAY_BALANCE_NOT_EXACT_USDC'});return;
       }
       validated.push({domain,depositor:walletAddress,balance:amount});
