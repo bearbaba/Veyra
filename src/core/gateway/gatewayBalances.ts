@@ -1,6 +1,6 @@
 /**
  * A Gateway balance is USDC DEPOSITED to Circle Gateway, NOT wallet ERC-20
- * balanceOf. Only the permissionless Testnet Gateway API can report this value.
+ * balanceOf. Circle Gateway/App Kit reports only deposited credit.
  * Keep all amounts in 6-decimal exact bigint units; never infer missing rows as 0.
  */
 import { getAddress, isAddress, parseUnits } from 'viem';
@@ -121,7 +121,7 @@ export async function fetchGatewayTestnetBalances(owner:string):Promise<GatewayB
  if(!token)throw Error('Sign in with your existing Veyra ID to read Gateway funds.');
  const kit=new AppKit();
  const response=await kit.unifiedBalance.getBalances({
-  sources:{address:getAddress(owner),chains:SDK_CHAIN_NAMES.map(x=>x.name)},
+  sources:{account:getAddress(owner),chains:SDK_CHAIN_NAMES.map(x=>x.name)},
   networkType:'testnet',token:'USDC',
  });
  if(activeSignedIdentityToken()!==token)
