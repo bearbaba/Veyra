@@ -51,6 +51,8 @@ export const STAGING_ALLOWED_PATHS=[
   "/api/gateway/balances",
   // Read-only, owner-bound Circle fee/expiry quote; no burn submission.
   "/api/gateway/estimate",
+  // Signed-identity, read-only provider status for a submitted transfer.
+  "/api/gateway/transfer-status",
   // Circle Iris testnet source-domain/hash are validated inside the BFF.
   "/api/cctp/health",
   "/api/cctp/attestation",
