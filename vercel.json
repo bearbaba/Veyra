@@ -199,6 +199,10 @@
       "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/gateway/estimate"
     },
     {
+      "source": "/api/gateway/transfer-status",
+      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/gateway/transfer-status"
+    },
+    {
       "source": "/api/cctp/health",
       "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/cctp/health"
     },
