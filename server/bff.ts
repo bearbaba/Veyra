@@ -1737,6 +1737,57 @@ app.post('/api/gateway/estimate', STABLEFX_RATE, async (req: Request, res: Respo
   }
 });
 
+// ── Signed-identity, read-only Circle Gateway Forwarding status ─────────────
+// This handler never signs, rebroadcasts or turns provider response into an
+// on-chain settlement proof. Only use a previously persisted transfer ID.
+app.get('/api/gateway/transfer-status', STABLEFX_RATE, async(req:Request,res:Response):Promise<void>=>{
+ try {
+  if(runtimeConfig.environment!=='testnet'){
+   res.status(403).json({ok:false,error:'GATEWAY_TESTNET_ONLY'});return;
+  }
+  const userId=getAuthenticatedVeyraUserId(req);
+  if(!userId){res.status(401).json({ok:false,error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+  const transferId=typeof req.query.transferId==='string'?req.query.transferId:'';
+  const walletAddress=typeof req.query.walletAddress==='string'?req.query.walletAddress:'';
+  if(!/^[a-zA-Z0-9-]{10,80}$/.test(transferId)||!isAddress(walletAddress)){
+   res.status(400).json({ok:false,error:'INVALID_GATEWAY_TRANSFER_STATUS_REQUEST'});return;
+  }
+  const {db}=await import('./db/client.js');
+  const owner=await db.execute(sql`
+   SELECT 1 FROM wallet_bindings wb JOIN veyra_users u ON u.veyr_user_id=wb.veyr_user_id
+   WHERE wb.veyr_user_id=${userId} AND lower(wb.wallet_address)=lower(${walletAddress})
+     AND wb.chain_id=5042002 AND wb.status='ACTIVE' AND wb.revoked_at IS NULL
+     AND u.status='ACTIVE' AND u.deleted_at IS NULL LIMIT 1
+  `);
+  if(owner.rows.length!==1){
+   res.status(403).json({ok:false,error:'GATEWAY_WALLET_NOT_BOUND_TO_ID'});return;
+  }
+  const response=await fetch('https://gateway-api-testnet.circle.com/v1/transfer/'+transferId,{
+   method:'GET',signal:AbortSignal.timeout(12000),
+  });
+  if(!response.ok){
+   res.status(503).json({ok:false,error:'GATEWAY_TRANSFER_STATUS_UNAVAILABLE'});return;
+  }
+  const raw:unknown=await response.json();
+  const obj=raw&&typeof raw==='object'&&!Array.isArray(raw)
+   ?raw as Record<string,unknown>:null;
+  if(!obj){
+   res.status(502).json({ok:false,error:'GATEWAY_TRANSFER_STATUS_MALFORMED'});return;
+  }
+  const providerStatus=typeof obj.status==='string'?obj.status:
+   typeof obj.state==='string'?obj.state:'unknown';
+  const tx=typeof obj.forwardTxHash==='string'?obj.forwardTxHash:
+   typeof obj.txHash==='string'?obj.txHash:undefined;
+  const destinationTxHash=tx&&/^0x[0-9a-fA-F]{64}$/.test(tx)?tx:undefined;
+  // A Circle 'confirmed' alone does not establish mint to the reviewed wallet.
+  res.setHeader('Cache-Control','no-store');
+  res.json({ok:true,transferId,providerStatus:providerStatus.slice(0,32),
+   destinationTxHash,readAt:Date.now(),settlementVerified:false});
+ }catch{
+  res.status(503).json({ok:false,error:'GATEWAY_TRANSFER_STATUS_UNAVAILABLE'});
+ }
+});
+
 // ── Circle Gateway Testnet balance (actual deposited USDC only) ──────────────
 // Read-only, wallet-owned: not a sum of ERC-20 balanceOf across source chains.
 // Never substitute zero when a domain is absent or provider/RPC fails.
