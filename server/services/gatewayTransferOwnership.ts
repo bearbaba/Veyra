@@ -17,11 +17,12 @@ const asObject=(value:unknown):Record<string,unknown>|null=>
 
 function asAddress(value:unknown):string|null {
  if(typeof value!=='string')return null;
- if(/^0x[0-9a-fA-F]{64}$/.test(value)){
-  if(!/^0{24}$/i.test(value.slice(2,26)))return null;
-  value='0x'+value.slice(-40);
+ let raw=value;
+ if(/^0x[0-9a-fA-F]{64}$/.test(raw)){
+  if(!/^0{24}$/i.test(raw.slice(2,26)))return null;
+  raw='0x'+raw.slice(-40);
  }
- return isAddress(value)?getAddress(value).toLowerCase():null;
+ return isAddress(raw)?getAddress(raw).toLowerCase():null;
 }
 
 /** Extracts a non-sensitive transfer summary only if Circle proves owner. */
