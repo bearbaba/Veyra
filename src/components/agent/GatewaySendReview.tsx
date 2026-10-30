@@ -168,6 +168,7 @@ export function GatewaySendReview(){
    const outcome=await submitGatewaySdkSpend({
     checkpoint,store:localStorage,provider,walletAddress:address,
     expectedSession:session,expectedChainId:sourceChainId,
+    reviewedFees:review.sdkFees,
    });
    setPending(outcome);
    setReview(null);
