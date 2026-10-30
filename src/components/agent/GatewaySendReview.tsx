@@ -5,11 +5,10 @@
  */
 import {useEffect,useState} from 'react';
 import {useAccount,useSwitchChain} from 'wagmi';
-import {formatUnits,isAddress,type EIP1193Provider} from 'viem';
+import {isAddress,parseUnits,type EIP1193Provider} from 'viem';
 import {
  GATEWAY_TESTNET_SOURCES,fetchGatewayTestnetBalances,
 } from '../../core/gateway/gatewayBalances';
-import {allocateGatewaySend,assertGatewayQuotedSpecMatches,type GatewayFeeQuote,type GatewayAllocation} from '../../core/gateway/gatewaySendPlan';
 import {activeSignedIdentityToken} from '../../lib/api/liveIdentitySession';
 import {useUnifiedSocial} from '../../features/social/UnifiedSocial';
 import {IS_UI_ONLY_PREVIEW,VEYRA_ENV} from '../../lib/env';
@@ -17,36 +16,9 @@ import {readGatewaySpendCheckpoint,prepareGatewaySpendCheckpoint,submitGatewaySd
 
 type Review={
  owner:string;recipient:string;destinationChainId:number;
- amount:string;readAt:number;allocations:GatewayAllocation[];quotes:GatewayFeeQuote[];sdkFees:GatewaySdkFee[];
+ amount:string;readAt:number;sourceChainId:number;sdkFees:GatewaySdkFee[];
 };
 const DECIMAL=/^\d{1,18}(?:\.\d{1,6})?$/;
-function formatRaw(value:bigint){return formatUnits(value,6);}
-async function quoteOne(owner:string,recipient:string,amount:string,sourceDomain:number,destinationDomain:number){
- const token=activeSignedIdentityToken();
- if(!token)throw Error('Sign in with your current Veyra ID to review Gateway spending.');
- const response=await fetch('/api/gateway/estimate',{
-  method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
-  body:JSON.stringify({walletAddress:owner,recipientAddress:recipient,
-   amount,sourceDomain,destinationDomain}),cache:'no-store',
- });
- if(!response.ok)throw Error(`Gateway source ${sourceDomain} fee estimate unavailable (HTTP ${response.status}). No transaction was signed.`);
- const json:unknown=await response.json();
- if(!json||typeof json!=='object'||Array.isArray(json))throw Error('Invalid Gateway estimate.');
- const b=json as Record<string,unknown>;
- if(b.ok!==true||b.sourceDomain!==sourceDomain||b.amount!==amount||
-    typeof b.maxFee!=='string'||!/^(0|[1-9]\d*)$/.test(b.maxFee)||
-    typeof b.maxBlockHeight!=='string'||!/^[1-9]\d*$/.test(b.maxBlockHeight)||
-    typeof b.readAt!=='number'||Date.now()-b.readAt>30_000||b.readAt>Date.now()+5000)
-  throw Error('Gateway quote could not be verified. No signature was requested.');
- // The server is a separate trust boundary. Verify every source/destination,
- // token, owner and recipient field again before retaining the quote.
- const maxFee=BigInt(b.maxFee),maxBlockHeight=BigInt(b.maxBlockHeight);
- const salt=assertGatewayQuotedSpecMatches({
-   owner,recipient,amount,sourceDomain,destinationDomain,
- },b.spec,maxFee,maxBlockHeight);
- return {domain:sourceDomain,maxFee,maxBlockHeight,salt};
-}
-
 export function GatewaySendReview(){
  const {address,connector}=useAccount();
  const {switchChainAsync}=useSwitchChain();
@@ -92,57 +64,44 @@ export function GatewaySendReview(){
    if(!destination)throw Error('Destination Testnet unsupported.');
    const sessionAtStart=activeSignedIdentityToken();
    if(!sessionAtStart)throw Error('Sign in again to review Gateway spending.');
-   // First estimate the exact destination amount against each possible source
-   // to choose available funds. Estimates cannot authorize a spend.
-   const fundedSources=GATEWAY_TESTNET_SOURCES.filter(source=>
-     current.sources.some(row=>row.domain===source.domain&&row.available>0n));
-   if(fundedSources.length===0)
-     throw Error('No verified Gateway USDC is available. Add funds before reviewing Send.');
-   const sourceQuotes=await Promise.all(fundedSources.map(s=>
-    quoteOne(owner,recipient,amount,s.domain,destination.domain)));
-   const provisional=allocateGatewaySend({
-    owner,recipient,destinationChainId,amount,snapshot:current,quotes:sourceQuotes,
-   });
-   // A multi-source plan splits the destination amount. Re-estimate each
-   // actual partial amount; the first quote is NOT transferable to that amount.
-   // Changed fee/expiry must never silently mutate what the user reviews.
-   const exactQuotes=await Promise.all(provisional.map(p=>
-    quoteOne(owner,recipient,formatRaw(p.value),p.domain,destination.domain)));
-   const byDomain=new Map(exactQuotes.map(q=>[q.domain,q]));
-   const exactAllocations=provisional.map(p=>({
-     ...p,maxFee:byDomain.get(p.domain)?.maxFee??-1n,
-   }));
-   if(exactAllocations.some(p=>p.maxFee<0n||
-      p.value+p.maxFee>(current.sources.find(s=>s.domain===p.domain)?.available??0n)))
-     throw Error('Gateway fee changed after the split. Review the amount again.');
-   if(activeSignedIdentityToken()!==sessionAtStart)
-     throw Error('Your signed identity session changed. Review again.');
-   // Only quote the exact supported single-source forwarding route; never
-   // ask a wallet to sign a multi-source allocation before SDK E2E support.
-   let sdkFees:GatewaySdkFee[]=[];
-   if(exactAllocations.length===1){
-    if(!identityReady||!connector||!address||!identity)
-     throw Error('Sign in with Veyra ID and connect your signing wallet to review forwarding fees.');
-    const sourceChainId=exactAllocations[0].chainId;
-    await switchChainAsync({chainId:sourceChainId});
-    const raw:unknown=await connector.getProvider();
-    if(!raw||typeof raw!=='object'||!('request' in raw)||
-       typeof raw.request!=='function')
-     throw Error('Your wallet provider cannot estimate Circle forwarding fees.');
-    const checkpoint=prepareGatewaySpendCheckpoint({
-     owner,identity,recipient,amount,sourceChainId,destinationChainId,
-    });
-    sdkFees=await estimateGatewaySdkFees({
-     checkpoint,provider:raw as EIP1193Provider,walletAddress:address,
-     expectedSession:sessionAtStart,
-    });
+   // Circle App Kit itself quotes the exact forwarding route. Do not require
+   // the stale Render BFF low-level estimate endpoint for a browser-wallet send.
+   // A single source must cover the amount; never fake a multi-source payout.
+   const available=current.sources.filter(s=>s.available>=parseUnits(amount,6))
+     .sort((a,b)=>a.available===b.available?a.domain-b.domain:
+       a.available>b.available?-1:1);
+   const source=available[0];
+   if(!source){
+    if(current.available>=parseUnits(amount,6))
+     throw Error('Funds are spread across source chains. Multi-source signing is not yet available.');
+    throw Error('Insufficient confirmed deposited USDC. Add funds first.');
    }
+   if(!identityReady||!connector||!address||!identity)
+    throw Error('Sign in with Veyra ID and connect your wallet to review forwarding fees.');
+   await switchChainAsync({chainId:source.chainId});
+   const raw:unknown=await connector.getProvider();
+   if(!raw||typeof raw!=='object'||!('request' in raw)||
+      typeof raw.request!=='function')
+    throw Error('Your wallet provider cannot estimate Circle forwarding fees.');
+   const checkpoint=prepareGatewaySpendCheckpoint({
+    owner,identity,recipient,amount,sourceChainId:source.chainId,
+    destinationChainId,
+   });
+   const sdkFees=await estimateGatewaySdkFees({
+    checkpoint,provider:raw as EIP1193Provider,walletAddress:address,
+    expectedSession:sessionAtStart,
+   });
    if(activeSignedIdentityToken()!==sessionAtStart)
     throw Error('Your signed identity changed during fee review.');
-   // The owner must inspect SDK forwarding fees separately from the Gateway
-   // protocol-only quote before authorizing any signing.
+   // Gateway protocol and source gas fees reduce deposited balance; the
+   // forwarding fee is instead deducted from the recipient's minted USDC.
+   const sourceFee=sdkFees.filter(f=>f.type==='provider'||f.type==='gasFee')
+    .reduce((sum,fee)=>sum+parseUnits(
+     fee.amount.startsWith('.')?'0'+fee.amount:fee.amount,6),0n);
+   if(source.available<parseUnits(amount,6)+sourceFee)
+    throw Error('Insufficient deposited USDC after source fees. Reduce the amount.');
    setReview({owner,recipient,destinationChainId,amount,readAt:Date.now(),
-     allocations:exactAllocations,quotes:exactQuotes,sdkFees});
+    sourceChainId:source.chainId,sdkFees});
   }catch(e){setError(e instanceof Error?e.message:'Gateway estimate unavailable.');}
   finally{setBusy(false);}
  }
@@ -180,14 +139,14 @@ export function GatewaySendReview(){
    if(!confirmFees)throw Error('Confirm the selected network, recipient, and forwarder fees.');
    if(Date.now()-review.readAt>=30_000)
     throw Error('The Gateway quote expired. Review again.');
-   if(review.allocations.length!==1||review.sdkFees.length===0)
-    throw Error('Exact single-source Circle forwarding fees must be reviewed before signing.');
-   const allocation=review.allocations[0];
+   if(review.sdkFees.length===0)
+    throw Error('Circle forwarding fees must be reviewed before signing.');
+   const sourceChainId=review.sourceChainId;
    if(!connector)throw Error('Connect the signing wallet.');
    const session=activeSignedIdentityToken();
    if(!session)throw Error('Signed Veyra ID session required.');
    // This is an explicit user-initiated network change, not an auto-sign.
-   await switchChainAsync({chainId:allocation.chainId});
+   await switchChainAsync({chainId:sourceChainId});
    if(Date.now()-review.readAt>=30_000)
     throw Error('Forwarding fees or the original quote expired during network switching. Review again.');
    const raw=await connector.getProvider();
@@ -196,19 +155,19 @@ export function GatewaySendReview(){
     throw Error('The connected wallet cannot sign Circle requests.');
    const provider=raw as EIP1193Provider;
    const actualChain=await provider.request({method:'eth_chainId'});
-   if(typeof actualChain!=='string'||Number.parseInt(actualChain,16)!==allocation.chainId)
+   if(typeof actualChain!=='string'||Number.parseInt(actualChain,16)!==sourceChainId)
     throw Error('Wallet source network does not match the reviewed quote.');
    if(activeSignedIdentityToken()!==session)
     throw Error('Veyra signed session changed during network switch.');
    const checkpoint=prepareGatewaySpendCheckpoint({
     owner:address,identity,recipient:review.recipient,amount:review.amount,
-    sourceChainId:allocation.chainId,destinationChainId:review.destinationChainId,
+    sourceChainId,destinationChainId:review.destinationChainId,
    });
    // The only money movement is via the user's on-screen wallet signature.
    // SDK results are not marked VERIFIED without chain receipt verification.
    const outcome=await submitGatewaySdkSpend({
     checkpoint,store:localStorage,provider,walletAddress:address,
-    expectedSession:session,expectedChainId:allocation.chainId,
+    expectedSession:session,expectedChainId:sourceChainId,
    });
    setPending(outcome);
    setReview(null);
@@ -264,11 +223,10 @@ export function GatewaySendReview(){
    {verified&&review&&<div className="rounded-xl border p-3 space-y-2 text-xs"
       style={{borderColor:'var(--border)'}}>
      <p className="font-semibold" style={{color:'var(--ink)'}}>Quote preview · {review.amount} USDC</p>
-     {review.allocations.map(allocation=><p key={allocation.domain} className="flex justify-between gap-2"
-       style={{color:'var(--muted)'}}>
-       <span>{GATEWAY_TESTNET_SOURCES.find(s=>s.domain===allocation.domain)?.name}</span>
-       <span>{formatRaw(allocation.value)} USDC + max {formatRaw(allocation.maxFee)} USDC fee</span>
-     </p>)}
+     <p className="flex justify-between gap-2" style={{color:'var(--muted)'}}>
+      <span>Deposited source: {GATEWAY_TESTNET_SOURCES.find(s=>s.chainId===review.sourceChainId)?.name}</span>
+      <span>{review.amount} USDC</span>
+     </p>
      {review.sdkFees.length>0&&<div className="rounded-lg border p-2 space-y-1"
        style={{borderColor:'var(--border)'}}>
        <p className="font-semibold">Estimated Circle SDK fees (USDC)</p>
@@ -286,13 +244,12 @@ export function GatewaySendReview(){
      </label>
      <button type="button"
       disabled={busy||!canSign||!confirmFees||Boolean(pending)||
-       review.allocations.length!==1||review.sdkFees.length===0}
+       review.sdkFees.length===0}
       onClick={()=>void onConfirmAndSign()}
       className="rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-50"
       style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>
-      {busy?'Waiting for wallet…':review.allocations.length!==1
-       ?'Multi-source signing not available'
-       :canSign?'Confirm and sign Unified Send':'Sign in on approved Testnet to send'}
+      {busy?'Waiting for wallet…':canSign
+       ?'Confirm and sign Unified Send':'Sign in on approved Testnet to send'}
      </button>
    </div>}
  </div>;
