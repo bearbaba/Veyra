@@ -38,12 +38,15 @@ export function readGatewaySpendCheckpoint(
   const x:unknown=JSON.parse(raw);
   if(!x||typeof x!=='object'||Array.isArray(x))return null;
   const p=x as GatewaySpendCheckpoint;
-  return p.version===1&&p.owner===getAddress(owner).toLowerCase()&&
-    p.identity===identity&&isAddress(p.recipient)&&
-    p.state!=='SUBMITTED_UNVERIFIED'&&p.state!=='SUBMISSION_UNKNOWN'?null:
-    p.version===1&&p.owner===getAddress(owner).toLowerCase()&&
-    p.identity===identity&&isAddress(p.recipient)&&
-    (p.state==='SUBMISSION_UNKNOWN'||p.state==='SUBMITTED_UNVERIFIED')?p:null;
+  if(p.version!==1||p.owner!==getAddress(owner).toLowerCase()||
+    p.identity!==identity||!isAddress(p.recipient)||
+    !USDC.test(p.amount)||parseUnits(p.amount,6)<=0n||
+    !Number.isFinite(p.createdAt)||p.createdAt<=0||
+    !GATEWAY_TESTNET_SOURCES.some(x=>x.chainId===p.sourceChainId)||
+    !GATEWAY_TESTNET_SOURCES.some(x=>x.chainId===p.destinationChainId)||
+    (p.state!=='SUBMISSION_UNKNOWN'&&p.state!=='SUBMITTED_UNVERIFIED'))
+   return null;
+  return p;
  }catch{return null;}
 }
 export function prepareGatewaySpendCheckpoint(input:{
