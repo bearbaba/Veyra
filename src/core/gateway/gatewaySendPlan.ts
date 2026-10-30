@@ -157,3 +157,47 @@ export function assertGatewayEstimateMatches(
  if(expected.maxFee!==estimate.maxFee||expected.maxBlockHeight!==estimate.maxBlockHeight)
   return deny('GATEWAY_ESTIMATE_CHANGED_REVIEW_REQUIRED');
 }
+
+
+/**
+ * A browser review must independently bind the BFF's quote to the exact
+ * wallet, recipient, chain pair, amount, USDC contracts, and unique salt.
+ * A source-domain/amount-only check is insufficient for signing readiness.
+ * The salt returned with the estimate MUST survive unchanged until signing.
+ */
+export function assertGatewayQuotedSpecMatches(input:{
+ owner:string;recipient:string;amount:string;sourceDomain:number;destinationDomain:number;
+},rawSpec:unknown,fee:bigint,maxBlockHeight:bigint):`0x${string}`{
+ if(!rawSpec||typeof rawSpec!=='object'||Array.isArray(rawSpec))
+  return deny('GATEWAY_QUOTED_SPEC_MISSING');
+ const spec=rawSpec as Record<string,unknown>;
+ if(typeof spec.salt!=='string'||!/^0x[0-9a-fA-F]{64}$/.test(spec.salt))
+  return deny('GATEWAY_QUOTED_SALT_INVALID');
+ if(!DECIMAL_USDC.test(input.amount))
+  return deny('GATEWAY_QUOTED_AMOUNT_INVALID');
+ const source=GATEWAY_TESTNET_SOURCES.find(s=>s.domain===input.sourceDomain);
+ if(!source||!GATEWAY_TESTNET_SOURCES.some(s=>s.domain===input.destinationDomain))
+  return deny('GATEWAY_QUOTED_ROUTE_INVALID');
+ const destination=GATEWAY_TESTNET_SOURCES.find(s=>s.domain===input.destinationDomain)!;
+ const expected=buildGatewayBurnIntent(
+  {domain:source.domain,chainId:source.chainId,
+   value:parseUnits(input.amount,6),maxFee:fee},
+  {owner:input.owner,recipient:input.recipient,destinationChainId:destination.chainId},
+  {domain:source.domain,maxFee:fee,maxBlockHeight},
+  spec.salt as `0x${string}`,
+ ).spec;
+ for(const key of Object.keys(expected) as Array<keyof GatewayTransferSpec>){
+  const required=expected[key],received=spec[key];
+  // The API boundary serializes uint256 as a string, not a JS float.
+  if(typeof required==='bigint'){
+   if(received!==required.toString())
+    return deny('GATEWAY_QUOTED_SPEC_MISMATCH');
+  }else if(typeof required==='number'){
+   if(received!==required)
+    return deny('GATEWAY_QUOTED_SPEC_MISMATCH');
+  }else if(typeof received!=='string'||received.toLowerCase()!==required.toLowerCase()){
+   return deny('GATEWAY_QUOTED_SPEC_MISMATCH');
+  }
+ }
+ return spec.salt as `0x${string}`;
+}
