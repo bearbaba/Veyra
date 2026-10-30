@@ -40,8 +40,8 @@ describe('Gateway user-scoped pending send checkpoint',()=>{
 
 describe('Circle SDK spend preflight and exact fee consent',()=>{
  const provider=(accounts:unknown,chain:unknown)=>({
-  request:async({method}:{method:string})=>method==='eth_accounts'?accounts:
-   method==='eth_chainId'?chain:null,
+  request:({method}:{method:string})=>Promise.resolve(
+   method==='eth_accounts'?accounts:method==='eth_chainId'?chain:null),
  }) as EIP1193Provider;
  it('accepts only the exact wallet on the reviewed source chain',async()=>{
   await expect(assertGatewayProviderWallet(
