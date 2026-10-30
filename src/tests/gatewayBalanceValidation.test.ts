@@ -11,6 +11,6 @@ describe('Circle Gateway decimal balance validation', () => {
     for (const value of [
       '1e6', '1,2', '1\\.25', '1.0000001', '.25', '1.', '-1', '+1', 'NaN',
       '', ' 1.25 ', 'Infinity', 1.25, null, undefined, {}, [],
-    ]) expect(isExactGatewayUsdcBalance(value), String(value)).toBe(false);
+    ]) expect(isExactGatewayUsdcBalance(value)).toBe(false);
   });
 });
