@@ -62,6 +62,8 @@ export function GatewaySendReview(){
  const [error,setError]=useState<string|null>(null);
  const [pending,setPending]=useState<GatewaySpendCheckpoint|null>(null);
  const [confirmFees,setConfirmFees]=useState(false);
+ const [forwardStatus,setForwardStatus]=useState<string|null>(null);
+ const [forwardTxHash,setForwardTxHash]=useState<string|null>(null);
  const canSign=VEYRA_ENV==='testnet'&&!IS_UI_ONLY_PREVIEW&&identityReady;
  useEffect(()=>{
   if(!address||!identity){setPending(null);return;}
@@ -120,6 +122,31 @@ export function GatewaySendReview(){
    setReview({owner,recipient,destinationChainId,amount,readAt:Date.now(),
      allocations:exactAllocations,quotes:exactQuotes});
   }catch(e){setError(e instanceof Error?e.message:'Gateway estimate unavailable.');}
+  finally{setBusy(false);}
+ }
+ async function checkForwardingStatus(){
+  if(!pending?.transferId||!address||!identity||busy)return;
+  setBusy(true);setError(null);
+  try{
+   const token=activeSignedIdentityToken();
+   if(!token||!identityReady)throw Error('Sign in to your existing Veyra ID first.');
+   const query=new URLSearchParams({transferId:pending.transferId,walletAddress:address});
+   const res=await fetch('/api/gateway/transfer-status?'+query.toString(),{
+    headers:{Authorization:'Bearer '+token,Accept:'application/json'},
+    credentials:'same-origin',cache:'no-store',
+   });
+   if(!res.ok)throw Error('Circle forwarding status unavailable. Do not resend.');
+   const data:unknown=await res.json();
+   if(!data||typeof data!=='object'||Array.isArray(data))
+    throw Error('Invalid Circle status reply.');
+   const result=data as Record<string,unknown>;
+   if(result.ok!==true||result.transferId!==pending.transferId||
+     result.settlementVerified!==false||typeof result.providerStatus!=='string')
+    throw Error('Unverified Circle status. Do not resend.');
+   setForwardStatus(result.providerStatus.slice(0,32));
+   setForwardTxHash(typeof result.destinationTxHash==='string'&&
+    /^0x[0-9a-fA-F]{64}$/.test(result.destinationTxHash)?result.destinationTxHash:null);
+  }catch(e){setError(e instanceof Error?e.message:'Status unavailable.');}
   finally{setBusy(false);}
  }
  async function onConfirmAndSign(){
@@ -202,6 +229,12 @@ export function GatewaySendReview(){
      <p>Source network: {GATEWAY_TESTNET_SOURCES.find(x=>x.chainId===pending.sourceChainId)?.name}</p>
      {pending.transferId&&<p>Circle transfer: {pending.transferId}</p>}
      {pending.txHash&&<p className="break-all">Transaction: {pending.txHash}</p>}
+     {forwardStatus&&<p>Circle status: {forwardStatus} (not yet independently verified)</p>}
+     {forwardTxHash&&<p className="break-all">Reported destination tx: {forwardTxHash}</p>}
+     {pending.transferId&&<button type="button" disabled={busy}
+       onClick={()=>void checkForwardingStatus()}
+       className="rounded-xl border px-3 py-2 disabled:opacity-50"
+       style={{borderColor:'var(--border)'}}>Refresh transfer status</button>}
      <p>Pending transfer is saved for recovery. Submission is not destination settlement.</p>
    </div>}
    {verified&&review&&<div className="rounded-xl border p-3 space-y-2 text-xs"
