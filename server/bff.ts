@@ -34,6 +34,7 @@ import { isAddress, parseUnits } from 'viem';
 import { randomBytes } from 'node:crypto';
 import { createGatewayEstimateRequest, parseGatewayEstimate, GatewayEstimateError } from './services/gatewayEstimate.js';
 import { isExactGatewayUsdcBalance } from './services/gatewayBalanceValidation.js';
+import { parseOwnedGatewayTransferStatus, GatewayTransferOwnerError } from './services/gatewayTransferOwnership.js';
 import {
  saveBoundStableFxQuote,reserveStableFxTrade,recordStableFxTrade,markStableFxTradeUncertain,
  requireOwnedStableFxTrade,saveStableFxFundingPresign,claimStableFxFundingSubmission,
@@ -1769,21 +1770,16 @@ app.get('/api/gateway/transfer-status', STABLEFX_RATE, async(req:Request,res:Res
    res.status(503).json({ok:false,error:'GATEWAY_TRANSFER_STATUS_UNAVAILABLE'});return;
   }
   const raw:unknown=await response.json();
-  const obj=raw&&typeof raw==='object'&&!Array.isArray(raw)
-   ?raw as Record<string,unknown>:null;
-  if(!obj){
-   res.status(502).json({ok:false,error:'GATEWAY_TRANSFER_STATUS_MALFORMED'});return;
-  }
-  const providerStatus=typeof obj.status==='string'?obj.status:
-   typeof obj.state==='string'?obj.state:'unknown';
-  const tx=typeof obj.forwardTxHash==='string'?obj.forwardTxHash:
-   typeof obj.txHash==='string'?obj.txHash:undefined;
-  const destinationTxHash=tx&&/^0x[0-9a-fA-F]{64}$/.test(tx)?tx:undefined;
-  // A Circle 'confirmed' alone does not establish mint to the reviewed wallet.
+  // The transfer ID is a capability-like locator. An authenticated Veyra
+  // session alone does NOT authorize reading an arbitrary transfer. Require
+  // Circle's own returned depositor proof to match the signed user's wallet.
+  const status=parseOwnedGatewayTransferStatus(raw,walletAddress,transferId);
   res.setHeader('Cache-Control','no-store');
-  res.json({ok:true,transferId,providerStatus:providerStatus.slice(0,32),
-   destinationTxHash,readAt:Date.now(),settlementVerified:false});
- }catch{
+  res.json({ok:true,transferId,...status,readAt:Date.now(),settlementVerified:false});
+ }catch(err){
+  if(err instanceof GatewayTransferOwnerError){
+   res.status(403).json({ok:false,error:err.code});return;
+  }
   res.status(503).json({ok:false,error:'GATEWAY_TRANSFER_STATUS_UNAVAILABLE'});
  }
 });
