@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import type {EIP1193Provider} from 'viem';
-import {gatewaySpendKey,prepareGatewaySpendCheckpoint,readGatewaySpendCheckpoint,assertGatewayProviderWallet,parseGatewaySdkFees}
+import {gatewaySpendKey,prepareGatewaySpendCheckpoint,readGatewaySpendCheckpoint,assertGatewayProviderWallet,parseGatewaySdkFees,assertGatewaySdkFeesUnchanged}
  from '../core/gateway/gatewaySdkSpend';
 
 const owner='0x1111111111111111111111111111111111111111';
@@ -67,5 +67,23 @@ describe('Circle SDK spend preflight and exact fee consent',()=>{
    [{type:'forwarder',token:'EURC',amount:'0.01'}],
    [{type:'nonsense',token:'USDC',amount:'0.01'}],
   ])expect(()=>parseGatewaySdkFees(invalid)).toThrow();
+ });
+});
+
+describe('Gate signing on the exact Circle fees reviewed by the owner',()=>{
+ const quoted=[{type:'provider',token:'USDC' as const,amount:'0.001000'},
+  {type:'forwarder',token:'USDC' as const,amount:'0.2'}];
+ it('allows same verified quote even when Circle formats 0.20 as 0.2',()=>{
+  expect(()=>assertGatewaySdkFeesUnchanged(quoted,[
+   {type:'forwarder',token:'USDC',amount:'0.200000'},
+   {type:'provider',token:'USDC',amount:'0.001'},
+  ])).not.toThrow();
+ });
+ it('requires a new explicit review on changed or missing fees',()=>{
+  expect(()=>assertGatewaySdkFeesUnchanged(quoted,[
+   {...quoted[0],amount:'0.001001'},quoted[1],
+  ])).toThrow('Circle forwarding fees changed');
+  expect(()=>assertGatewaySdkFeesUnchanged(quoted,[])).toThrow();
+  expect(()=>assertGatewaySdkFeesUnchanged([],quoted)).toThrow();
  });
 });
