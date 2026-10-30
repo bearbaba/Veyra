@@ -24,6 +24,64 @@ export interface GatewaySpendCheckpoint {
 }
 const KEY_PREFIX='veyra:gateway:spend:v1:';
 const USDC=/^\d{1,18}(?:\.\d{1,6})?$/;
+const FEE_DECIMAL=/^(?:\d{1,18}(?:\.\d{1,6})?|\.\d{1,6})$/;
+const FEE_TYPES=new Set(['provider','gasFee','kit','forwarder']);
+export interface GatewaySdkFee {type:string;amount:string;token:'USDC'}
+/** Parse untrusted SDK fee data. An estimate is NOT an execution authorization. */
+export function parseGatewaySdkFees(raw:unknown):GatewaySdkFee[]{
+ if(!Array.isArray(raw)||raw.length===0||raw.length>12)
+  throw Error('Circle forwarding fee estimate is unavailable; no signature requested.');
+ return raw.map((entry:unknown)=>{
+  if(!entry||typeof entry!=='object'||Array.isArray(entry))
+   throw Error('Circle returned a malformed fee.');
+  const fee=entry as Record<string,unknown>;
+  if(typeof fee.type!=='string'||!FEE_TYPES.has(fee.type)||
+    fee.token!=='USDC'||typeof fee.amount!=='string'||!FEE_DECIMAL.test(fee.amount))
+   throw Error('Circle returned an unverified fee amount or token.');
+  return {type:fee.type,amount:fee.amount,token:'USDC' as const};
+ });
+}
+export async function assertGatewayProviderWallet(
+ provider:EIP1193Provider,owner:string,chainId:number,
+):Promise<void>{
+ if(!isAddress(owner)||!CHAINS[chainId])
+  throw Error('Unsupported Gateway signer or Testnet source.');
+ const [accounts,chain]=await Promise.all([
+  provider.request({method:'eth_accounts'}),
+  provider.request({method:'eth_chainId'}),
+ ]);
+ if(!Array.isArray(accounts)||accounts.length===0||
+    typeof accounts[0]!=='string'||!isAddress(accounts[0])||
+    getAddress(accounts[0]).toLowerCase()!==getAddress(owner).toLowerCase()||
+    typeof chain!=='string'||!/^0x[0-9a-fA-F]+$/.test(chain)||
+    Number.parseInt(chain,16)!==chainId)
+  throw Error('Gateway signing wallet or source chain changed. Review again.');
+}
+function sdkSpendParams(adapter:Awaited<ReturnType<typeof createViemAdapterFromProvider>>,
+ p:GatewaySpendCheckpoint){
+ return {
+  from:{adapter,allocations:{chain:CHAINS[p.sourceChainId],amount:p.amount}},
+  to:{chain:CHAINS[p.destinationChainId],recipientAddress:p.recipient,useForwarder:true},
+  amount:p.amount,token:'USDC' as const,
+ };
+}
+export async function estimateGatewaySdkFees(input:{
+ checkpoint:GatewaySpendCheckpoint;provider:EIP1193Provider;
+ walletAddress:string;expectedSession:string;
+}):Promise<GatewaySdkFee[]>{
+ const p=input.checkpoint;
+ if(getAddress(input.walletAddress).toLowerCase()!==p.owner||
+   activeSignedIdentityToken()!==input.expectedSession)
+  throw Error('Veyra identity or wallet changed before fee review.');
+ await assertGatewayProviderWallet(input.provider,p.owner,p.sourceChainId);
+ const adapter=await createViemAdapterFromProvider({provider:input.provider});
+ await assertGatewayProviderWallet(input.provider,p.owner,p.sourceChainId);
+ if(activeSignedIdentityToken()!==input.expectedSession)
+  throw Error('Signed Veyra identity changed before fee review.');
+ const kit=new AppKit();
+ const estimate=await kit.unifiedBalance.estimateSpend(sdkSpendParams(adapter,p));
+ return parseGatewaySdkFees(estimate.fees);
+}
 export function gatewaySpendKey(owner:string,identity:string):string {
  if(!isAddress(owner)||!identity||identity.length>256)
   throw Error('A connected owner wallet and signed identity are required.');
@@ -86,17 +144,21 @@ export async function submitGatewaySdkSpend(input:{
    !CHAINS[p.destinationChainId]||
    activeSignedIdentityToken()!==input.expectedSession)
   throw Error('Wallet, source chain or signed identity changed. Review again.');
+ // The SDK must sign using exactly the owner wallet on the reviewed source.
+ // Recheck at this boundary: a wallet may change after UI network switching.
+ await assertGatewayProviderWallet(input.provider,p.owner,p.sourceChainId);
+ if(activeSignedIdentityToken()!==input.expectedSession)
+  throw Error('Veyra identity session changed before Gateway submission.');
  // The local checkpoint prevents blind resubmission if the provider accepts a
  // signed intent but the browser closes before returning an acknowledgment.
  input.store.setItem(key,JSON.stringify(p));
  try {
   const adapter=await createViemAdapterFromProvider({provider:input.provider});
+  await assertGatewayProviderWallet(input.provider,p.owner,p.sourceChainId);
+  if(activeSignedIdentityToken()!==input.expectedSession)
+   throw Error('Veyra session changed. Inspect checkpoint before any retry.');
   const kit=new AppKit();
-  const result=await kit.unifiedBalance.spend({
-   from:{adapter,allocations:{chain:CHAINS[p.sourceChainId],amount:p.amount}},
-   to:{chain:CHAINS[p.destinationChainId],recipientAddress:p.recipient,useForwarder:true},
-   amount:p.amount,
-  });
+  const result=await kit.unifiedBalance.spend(sdkSpendParams(adapter,p));
   const transferId=typeof result.transferId==='string'?result.transferId:undefined;
   const txHash=typeof result.txHash==='string'?result.txHash:undefined;
   // An SDK return does NOT independently prove destination mint/finality.
