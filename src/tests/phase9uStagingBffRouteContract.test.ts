@@ -38,7 +38,7 @@ const strictOwnerPaths = [
 describe('full Testnet BFF routing is exact, implemented and owner-protected', () => {
   it('all forwarded API paths exist as literal BFF handlers (not SPA/HTML fallbacks)', () => {
     // The two purpose-bound cookie restore/logout endpoints are explicitly reviewed.
-    expect(STAGING_ALLOWED_PATHS.length).toBe(52);
+    expect(STAGING_ALLOWED_PATHS.length).toBe(53);
     const unique = new Set<string>(STAGING_ALLOWED_PATHS);
     expect(unique.size).toBe(STAGING_ALLOWED_PATHS.length);
     for (const path of STAGING_ALLOWED_PATHS) {
@@ -117,6 +117,11 @@ describe('full Testnet BFF routing is exact, implemented and owner-protected', (
     expect(gatewayRead).toContain('GATEWAY_WALLET_NOT_BOUND_TO_ID');
     expect(gatewayRead).toContain('GATEWAY_DOMAIN_BALANCE_UNVERIFIED');
     expect(STAGING_ALLOWED_PATHS).not.toContain('/api/gateway/transfer');
+    const status=routeSource('/api/gateway/transfer-status');
+    expect(status).toContain('getAuthenticatedVeyraUserId(req)');
+    expect(status).toContain('GATEWAY_WALLET_NOT_BOUND_TO_ID');
+    expect(status).toContain('settlementVerified:false');
+    expect(STAGING_ALLOWED_PATHS).toContain('/api/gateway/transfer-status');
     const estimate=routeSource('/api/gateway/estimate');
     expect(estimate).toContain('getAuthenticatedVeyraUserId(req)');
     expect(estimate).toContain('createGatewayEstimateRequest');
