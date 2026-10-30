@@ -9,7 +9,7 @@ import {formatUnits,isAddress} from 'viem';
 import {
  GATEWAY_TESTNET_SOURCES,fetchGatewayTestnetBalances,
 } from '../../core/gateway/gatewayBalances';
-import {allocateGatewaySend,type GatewayFeeQuote,type GatewayAllocation} from '../../core/gateway/gatewaySendPlan';
+import {allocateGatewaySend,assertGatewayQuotedSpecMatches,type GatewayFeeQuote,type GatewayAllocation} from '../../core/gateway/gatewaySendPlan';
 import {activeSignedIdentityToken} from '../../lib/api/liveIdentitySession';
 
 type Review={
@@ -35,7 +35,13 @@ async function quoteOne(owner:string,recipient:string,amount:string,sourceDomain
     typeof b.maxBlockHeight!=='string'||!/^[1-9]\d*$/.test(b.maxBlockHeight)||
     typeof b.readAt!=='number'||Date.now()-b.readAt>30_000||b.readAt>Date.now()+5000)
   throw Error('Gateway quote could not be verified. No signature was requested.');
- return {domain:sourceDomain,maxFee:BigInt(b.maxFee),maxBlockHeight:BigInt(b.maxBlockHeight)};
+ // The server is a separate trust boundary. Verify every source/destination,
+ // token, owner and recipient field again before retaining the quote.
+ const maxFee=BigInt(b.maxFee),maxBlockHeight=BigInt(b.maxBlockHeight);
+ const salt=assertGatewayQuotedSpecMatches({
+   owner,recipient,amount,sourceDomain,destinationDomain,
+ },b.spec,maxFee,maxBlockHeight);
+ return {domain:sourceDomain,maxFee,maxBlockHeight,salt};
 }
 
 export function GatewaySendReview(){
