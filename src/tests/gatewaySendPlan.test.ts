@@ -1,7 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {formatUnits,keccak256,stringToHex} from 'viem';
 import {
- allocateGatewaySend,buildGatewayBurnIntent,assertGatewayEstimateMatches,GATEWAY_EIP712,
+ allocateGatewaySend,buildGatewayBurnIntent,assertGatewayEstimateMatches,assertGatewayQuotedSpecMatches,GATEWAY_EIP712,
 } from '../core/gateway/gatewaySendPlan';
 import {GATEWAY_TESTNET_SOURCES,GATEWAY_TESTNET_WALLET,GATEWAY_TESTNET_MINTER,
  type GatewayBalanceSnapshot} from '../core/gateway/gatewayBalances';
@@ -80,5 +80,40 @@ describe('Gateway source of funds is exact deposited USDC',()=>{
   })).toThrow('GATEWAY_ESTIMATE_CHANGED_REVIEW_REQUIRED');
   expect(()=>buildGatewayBurnIntent(allocation,p,q,'0x1234'))
    .toThrow('GATEWAY_SALT_INVALID');
+ });
+});
+
+describe('Browser review independently verifies full Circle quote binding',()=>{
+ const source=GATEWAY_TESTNET_SOURCES[0];
+ const destination=GATEWAY_TESTNET_SOURCES[2];
+ const input={owner,recipient,amount:'1.25',
+   sourceDomain:source.domain,destinationDomain:destination.domain};
+ const allocation={domain:source.domain,chainId:source.chainId,
+   value:1250000n,maxFee:100000n};
+ const quote={domain:source.domain,maxFee:100000n,maxBlockHeight:123456789n};
+ const intent=buildGatewayBurnIntent(allocation,
+  {owner,recipient,destinationChainId:destination.chainId},quote,salt);
+ const providerSpec:Record<string,unknown>={...intent.spec,value:intent.spec.value.toString()};
+ it('accepts only a full reviewed owner/recipient/USDC route and keeps the exact salt',()=>{
+  expect(assertGatewayQuotedSpecMatches(input,providerSpec,quote.maxFee,quote.maxBlockHeight))
+   .toBe(salt);
+ });
+ it('rejects changed depositor, signer, destination, token, value or salt',()=>{
+  for(const [key,value] of [
+   ['sourceDepositor',intent.spec.destinationRecipient],
+   ['sourceSigner',intent.spec.destinationRecipient],
+   ['destinationRecipient',intent.spec.sourceDepositor],
+   ['sourceToken',intent.spec.destinationToken],
+   ['sourceDomain',0],
+   ['destinationDomain',26],
+   ['value','1250001'],
+  ] as const){
+   expect(()=>assertGatewayQuotedSpecMatches(input,{...providerSpec,[key]:value},
+    quote.maxFee,quote.maxBlockHeight)).toThrow('GATEWAY_QUOTED_SPEC_MISMATCH');
+  }
+  expect(()=>assertGatewayQuotedSpecMatches(input,{...providerSpec,salt:'0x123'},
+   quote.maxFee,quote.maxBlockHeight)).toThrow('GATEWAY_QUOTED_SALT_INVALID');
+  expect(()=>assertGatewayQuotedSpecMatches(input,{...providerSpec,value:1250000},
+   quote.maxFee,quote.maxBlockHeight)).toThrow('GATEWAY_QUOTED_SPEC_MISMATCH');
  });
 });
