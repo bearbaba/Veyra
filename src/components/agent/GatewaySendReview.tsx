@@ -43,6 +43,10 @@ export function GatewaySendReview(){
  const [verifiedProof,setVerifiedProof]=useState<GatewayDestinationProof|null>(null);
  const canSign=VEYRA_ENV==='testnet'&&!IS_UI_ONLY_PREVIEW&&identityReady;
  useEffect(()=>{
+  // Never show a previous user's settlement, forwarding status or quote after
+  // the connected wallet / signed Veyra ID changes in the same browser.
+  setVerifiedProof(null);setForwardStatus(null);setForwardTxHash(null);
+  setReview(null);setConfirmFees(false);
   if(!address||!identity){setPending(null);return;}
   try{setPending(readGatewaySpendCheckpoint(localStorage,address,identity));}
   catch{setPending(null);}
