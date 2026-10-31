@@ -12,6 +12,8 @@
  */
 
 import { useState } from 'react';
+import {AppKitSwapPage} from './AppKitSwapPage';
+import {VEYRA_ENV,IS_UI_ONLY_PREVIEW} from '../../lib/env';
 import { useAccount, useSignTypedData, useWalletClient, usePublicClient } from 'wagmi';
 import { ArrowLeftRight, Loader2, CheckCircle, AlertTriangle, Info, RefreshCw, Lock } from 'lucide-react';
 import { formatUnits, getAddress } from 'viem';
@@ -135,6 +137,12 @@ export function ConvertPage({embedded = false, initialIntent = null}: {
       }
     });
   }
+
+  // The authenticated browser-wallet Testnet route is permissionless Circle
+  // App Kit Swap, not institution-only StableFX. Keep the original conservative
+  // StableFX path unchanged for other modes and existing regression contracts.
+  if(VEYRA_ENV==='testnet'&&!IS_UI_ONLY_PREVIEW)
+    return <AppKitSwapPage embedded={embedded} initialIntent={initialIntent}/>;
 
   if (!isConnected) {
     return (
