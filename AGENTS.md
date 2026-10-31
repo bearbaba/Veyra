@@ -94,11 +94,22 @@ signer readiness, or mainnet readiness.
 ## Arc Mainnet integration notes (Arc Studio authored — current session)
 
 - `src/config.ts`: Arc Mainnet (`arc`, chainId 5042) added to wagmi chain list alongside testnet. RPC: `https://rpc.mainnet.arc.io`.
-- `src/identity-beta/protocol.ts`: `ARC_MAINNET_CHAIN_ID=5042`, `ARC_SUPPORTED_CHAIN_IDS`, `LOGIN_PURPOSE` exported. `requireArcWallet` accepts both Arc chains. `verifiedTypedData` validates both chains but enforces `domain.chainId === message.chainId` to block cross-chain tampering. `verifyXAuthorizationUrl` accepts onrender.com and vercel.app callbacks.
+- `src/identity-beta/protocol.ts`: `ARC_MAINNET_CHAIN_ID=5042`, `ARC_SUPPORTED_CHAIN_IDS`, `LOGIN_PURPOSE` exported. `requireArcWallet` accepts both Arc chains. `verifiedTypedData` validates both chains but enforces `domain.chainId === message.chainId` to block cross-chain tampering. `verifyXAuthorizationUrl` validates structural HTTPS requirements (path must be `/api/auth/x/callback`, no credentials/fragment/port); host-level trust is owned by the server-side `resolveXCallbackUrl` + PKCE.
 - `server/services/walletLoginService.ts`: `ARC_MAINNET_LOGIN_CHAIN=5042`, `ARC_SUPPORTED_LOGIN_CHAINS` added. `resolveTrustedLoginOrigin` (testnet) unchanged and still throws `TESTNET_ONLY` for non-testnet env. New `resolveTrustedMainnetLoginOrigin` for mainnet BFF. `resolveTrustedLoginOriginForEnv` dispatches by `VEYRA_ENV`. `beginWalletLogin` / `completeWalletLogin` use `resolveTrustedLoginOriginForEnv` and accept both Arc chain IDs.
 - `server/services/identityRegistrationService.ts`: `ARC_MAINNET_CHAIN_ID=5042`, `ARC_SUPPORTED_IDENTITY_CHAINS` added. `assertHostedIdentityChain` added (replaces deprecated `assertHostedTestnetIdentityChain`): testnet backend allows only 5042002, mainnet backend allows only 5042.
-- `server/services/xOAuthService.ts`: `resolveXCallbackUrl()` reads `X_REDIRECT_URI` env var for mainnet BFF, falls back to canonical Render testnet URL. `beginXOAuthLink` no longer accepts redirectUri from caller — always resolved server-side.
+- `server/services/xOAuthService.ts`: `resolveXCallbackUrl()` returns `null` on mainnet if `X_REDIRECT_URI` unset (no fallback to testnet callback on mainnet). Validates `X_REDIRECT_URI` as exact HTTPS URL. `beginXOAuthLink` no longer accepts redirectUri from caller — always resolved server-side. `verifyXAuthorizationUrl` validates structural HTTPS requirements; PKCE code_challenge ties grant to DB record.
 - `server/bff.ts`: session restore SQL `chain_id IN (5042002, 5042)`, uses `resolveTrustedLoginOriginForEnv`, imports `resolveXCallbackUrl`.
+- `src/components/pages/SettlementPage.tsx`: dual-chain (5042002 + 5042). `activeUsdcAddress` selected by chain. Wrong-chain banner shows both Arc switch buttons. "Not yet deployed" state for mainnet until contract is deployed.
+- `src/components/pages/HomePage.tsx`: parallel mainnet balance read (`useReadContract` pinned to `ARC_MAINNET_CHAIN_ID`). Unified `balanceFetching`, `balanceLoading`, `balanceUpdatedAt` aliases. Network label and env label dynamic. `isMainnet = VEYRA_ENV === 'mainnet' || connectedChainId === ARC_MAINNET_CHAIN_ID`.
+
+**Session test gate (latest):** 1175/1175 passing. 0 TypeScript errors. 0 lint errors. 8 new tests added (phase40XOAuthMainnetCallbackGate.test.ts).
+
+**GitHub branch `arc-studio/mainnet`:** Commit `dff227a` ready in `Veyra-github/`. Push requires owner GitHub authentication:
+1. Open Arc Studio terminal
+2. `export PATH="$HOME/.local/bin:$PATH" && gh auth login`
+3. Choose: GitHub.com → HTTPS → Login with a web browser (follow browser prompts)
+4. `bash scripts/push-arc-studio-mainnet.sh`
+The script verifies remote SHA after push and prints the PR creation command.
 
 ## VeyraSettlement contract (Arc Studio authored)
 
