@@ -11,10 +11,15 @@ describe('Gateway status cannot be queried by another Veyra identity',()=>{
  it('exposes only limited status with exact Circle source depositor evidence',()=>{
   const status=parseOwnedGatewayTransferStatus({
    transferId:id,status:'confirmed',burnIntent:{spec:{sourceDepositor:padded}},
-   txHash:tx,recipientAddress:other,
+   forwardTxHash:tx,recipientAddress:other,
   },wallet,id);
   expect(status).toEqual({providerStatus:'confirmed',destinationTxHash:tx});
   expect(status).not.toHaveProperty('settlementVerified');
+  // A generic source txHash must never be labeled a destination mint.
+  const sourceOnly=parseOwnedGatewayTransferStatus({
+   transferId:id,status:'confirmed',sourceDepositor:wallet,txHash:tx,
+  },wallet,id);
+  expect(sourceOnly.destinationTxHash).toBeUndefined();
  });
  it('rejects arbitrary valid transferId without depositor proof or a foreign owner',()=>{
   expect(()=>parseOwnedGatewayTransferStatus({transferId:id,status:'confirmed'},wallet,id))
