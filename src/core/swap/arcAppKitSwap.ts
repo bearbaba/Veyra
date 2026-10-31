@@ -95,14 +95,21 @@ export function verifyArcSwapReceipt(raw:{
   raw.transactionHash.toLowerCase()!==expected.toLowerCase()||
   raw.status!=='success')throw Error('Swap transaction has not confirmed successfully.');
  const recipient=pad(getAddress(checkpoint.owner),{size:32}).toLowerCase();
- let received=0n;
+ let received=0n,debited=0n;
  for(const entry of raw.logs){
-  if(!isAddress(entry.address)||getAddress(entry.address)!==ARC_SWAP_TOKENS[checkpoint.to]||
-    entry.topics.length!==3||entry.topics[0]?.toLowerCase()!==TRANSFER.toLowerCase()||
-    entry.topics[2]?.toLowerCase()!==recipient)continue;
-  if(!/^0x[0-9a-fA-F]{64}$/.test(entry.data))throw Error('Malformed output token log.');
-  received+=BigInt(entry.data);
+  if(!isAddress(entry.address)||entry.topics.length!==3||
+    entry.topics[0]?.toLowerCase()!==TRANSFER.toLowerCase())continue;
+  if(!/^0x[0-9a-fA-F]{64}$/.test(entry.data))
+   throw Error('Malformed swap token Transfer amount.');
+  const value=BigInt(entry.data);
+  const address=getAddress(entry.address);
+  if(address===ARC_SWAP_TOKENS[checkpoint.to]&&
+     entry.topics[2]?.toLowerCase()===recipient)received+=value;
+  if(address===ARC_SWAP_TOKENS[checkpoint.from]&&
+     entry.topics[1]?.toLowerCase()===recipient)debited+=value;
  }
+ if(debited!==arcSwapAmount(checkpoint.amount))
+  throw Error('Swap source token debit does not match the reviewed exact input.');
  if(received<arcSwapAmount(checkpoint.minReceive))
   throw Error('Swap output token receipt is below the reviewed guaranteed minimum.');
  return {chainId:ARC_SWAP_CHAIN_ID,txHash:expected,received:formatUnits(received,6),
