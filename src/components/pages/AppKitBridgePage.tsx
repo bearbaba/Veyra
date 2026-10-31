@@ -7,7 +7,7 @@ import {useEffect,useRef,useState} from 'react';
 import {AppKit} from '@circle-fin/app-kit';
 import {createViemAdapterFromProvider} from '@circle-fin/adapter-viem-v2';
 import {useAccount,usePublicClient,useSwitchChain} from 'wagmi';
-import {getAddress,isAddress,type EIP1193Provider} from 'viem';
+import {getAddress,isAddress,parseUnits,type EIP1193Provider} from 'viem';
 import {useUnifiedSocial} from '../../features/social/UnifiedSocial';
 import {activeSignedIdentityToken} from '../../lib/api/liveIdentitySession';
 import {VEYRA_ENV,IS_UI_ONLY_PREVIEW} from '../../lib/env';
@@ -26,7 +26,8 @@ type BridgeQuote={
 const DECIMAL=/^\d{1,18}(?:\.\d{1,6})?$/;
 function validateAmount(amount:string,minReceive:string):void{
  if(!DECIMAL.test(amount)||!DECIMAL.test(minReceive)||
-  Number(amount)<=0||Number(minReceive)<=0||Number(minReceive)>Number(amount))
+  parseUnits(amount,6)<=0n||parseUnits(minReceive,6)<=0n||
+  parseUnits(minReceive,6)>parseUnits(amount,6))
   throw Error('Enter a valid six-decimal USDC amount and minimum received.');
 }
 function params(adapter:Awaited<ReturnType<typeof createViemAdapterFromProvider>>,
@@ -34,6 +35,14 @@ function params(adapter:Awaited<ReturnType<typeof createViemAdapterFromProvider>
  return {from:{adapter,chain:bridgeChain(sourceChainId)},
   to:{chain:bridgeChain(destinationChainId),recipientAddress:recipient,useForwarder:true},
   amount,token:'USDC' as const,config:{transferSpeed:'SLOW' as const}};
+}
+function quoteFees(estimate:unknown):string[]{
+ const data=estimate as Record<string,unknown>;
+ return Array.isArray(data.fees)?data.fees.map(v=>{
+  if(!v||typeof v!=='object'||Array.isArray(v))return 'Fee details unavailable';
+  const f=v as Record<string,unknown>;
+  return String(f.type??'Fee')+': '+String(f.amount??'unknown')+' '+String(f.token??'');
+ }):['Circle fees not itemized by this provider; network fees may apply'];
 }
 export function AppKitBridgePage({embedded=false}:{embedded?:boolean}={}){
  const {address,connector}=useAccount();
@@ -98,12 +107,7 @@ export function AppKitBridgePage({embedded=false}:{embedded?:boolean}={}){
    await assertGatewayProviderWallet(provider,address,source);
    if(activeSignedIdentityToken()!==session)throw Error('Veyra ID session changed.');
    const estimate=await kit.estimateBridge(params(adapter,source,destination,recipient,amount));
-   const data=estimate as unknown as Record<string,unknown>;
-   const fees=Array.isArray(data.fees)?data.fees.map(v=>{
-    if(!v||typeof v!=='object'||Array.isArray(v))return 'Fee details unavailable';
-    const f=v as Record<string,unknown>;
-    return String(f.type??'Fee')+': '+String(f.amount??'unknown')+' '+String(f.token??'');
-   }):['Circle fees not itemized by this provider; network fees may apply'];
+   const fees=quoteFees(estimate);
    if(activeSignedIdentityToken()!==session)throw Error('Veyra ID session changed during quote.');
    setQuote({owner,identity,sourceChainId:source,destinationChainId:destination,
     recipient:getAddress(recipient),amount,minReceive:minimum,readAt:Date.now(),fees});
@@ -130,7 +134,11 @@ export function AppKitBridgePage({embedded=false}:{embedded?:boolean}={}){
    if(activeSignedIdentityToken()!==session)throw Error('Veyra ID changed before signature.');
    // Repeat the read-only estimate immediately before signing; a provider
    // failure is not treated as a valid earlier quote.
-   await kit.estimateBridge(params(adapter,source,destination,recipient,amount));
+   const latestEstimate=await kit.estimateBridge(params(adapter,source,destination,recipient,amount));
+   if(JSON.stringify(quoteFees(latestEstimate))!==JSON.stringify(quote.fees))
+    throw Error('CCTP quote fees changed. Review the updated costs before signing.');
+   if(Date.now()-quote.readAt>=MAX_QUOTE_MS)
+    throw Error('CCTP quote expired during provider checks.');
    await assertGatewayProviderWallet(provider,address,source);
    if(activeSignedIdentityToken()!==session)throw Error('Veyra ID changed.');
    const attempt=makeBridgeAttempt({owner:address,identity,
