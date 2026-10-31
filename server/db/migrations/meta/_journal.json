@@ -134,6 +134,13 @@
       "when": 1793120000000,
       "tag": "0018_phase18_x_oauth_confirmation",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793260800000,
+      "tag": "0019_stablefx_owner_bound_attempts",
+      "breakpoints": true
     }
   ]
 }

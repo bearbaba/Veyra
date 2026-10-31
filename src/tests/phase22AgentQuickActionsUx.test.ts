@@ -68,8 +68,13 @@ describe('Phase 22 — human-first Agent quick actions',()=>{
     expect(ui).toContain('Connected Veyra friends');
     expect(ui).toContain('navigator.clipboard.readText()');
     expect(ui).toContain("onNavigate('social')");
-    expect(ui).toContain("onNavigate('convert')");
-    expect(ui).toContain("onNavigate('home')");
+    expect(ui).not.toContain("onNavigate('convert')");
+    expect(ui).toContain('Swap is not enabled. No quote, approval or trade can be created yet.');
+    expect(ui).not.toContain("onNavigate('unified')");
+    expect(ui).not.toContain("onClick={() => chooseAction('BRIDGE')}");
+    expect(ui).not.toContain("id: 'UNIFIED'");
+    expect(agent).toContain('<AgentUnifiedBalances />');
+    expect(agent).toContain('aria-label="Active task"');
     expect(ui).toContain('provider is not yet enabled');
     expect(agent).toContain('AgentQuickStart friends={friends} signedIn={signedIn}');
     expect(agent).toContain('const connectedFriends = signedSession ?');

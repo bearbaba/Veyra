@@ -3,13 +3,13 @@ import { useAccount, usePublicClient } from 'wagmi';
 import { formatUnits, isAddress, parseUnits } from 'viem';
 import { MANIFEST_CONSTANTS } from '../../providers/registry/providerManifest';
 import { inspectReverseCctpSource, type ReverseCctpReadiness } from '../../core/bridge/reverseCctpReadiness';
-import { ArrowRight, ArrowLeftRight, Compass, Copy, Globe2, SendHorizontal, Users, Wallet, CheckCircle2, Info } from 'lucide-react';
+import { ArrowRight, ArrowLeftRight, Compass, Copy, Globe2, SendHorizontal, Users, Wallet } from 'lucide-react';
 import type { SocialFriend } from '../../features/social/UnifiedSocial';
 import { friendLabel } from '../../features/social/UnifiedSocial';
 import { buildQuickPaymentRequest, QUICK_NETWORKS, type QuickMode, type QuickNetwork, type QuickRecipient } from '../../core/agent/quickStartPayment';
 import type { VeyraPage } from '../layout/AppShell';
 
-type QuickAction = QuickMode | 'SWAP' | 'UNIFIED';
+type QuickAction = QuickMode | 'SWAP';
 
 interface AgentQuickStartProps {
   friends: readonly SocialFriend[];
@@ -21,9 +21,8 @@ interface AgentQuickStartProps {
 
 const ACTIONS: ReadonlyArray<{ id: QuickAction; title: string; summary: string; tag: string }> = [
   { id: 'SEND', title: 'Send', summary: 'To a friend or wallet', tag: 'Arc USDC' },
-  { id: 'SWAP', title: 'Swap', summary: 'Explore conversions', tag: 'Preview' },
+  { id: 'SWAP', title: 'Swap', summary: 'USDC / EURC · not live', tag: 'Preview' },
   { id: 'BRIDGE', title: 'Bridge', summary: 'Move USDC across Testnets', tag: 'CCTP V2' },
-  { id: 'UNIFIED', title: 'Unified', summary: 'Balances & routes in one place', tag: 'Expanding' },
 ];
 
 export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, compact = false }: AgentQuickStartProps) {
@@ -176,7 +175,7 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
           <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>Choose an action, or simply tell Veyra what you need.</p>
         </div>
       )}
-      <div role="group" aria-label="Choose a Veyra action" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div role="group" aria-label="Choose a Veyra action" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {ACTIONS.map((item) => (
           <button key={item.id} type="button" onClick={() => chooseAction(item.id)}
             aria-pressed={action === item.id}
@@ -338,7 +337,7 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
                     style={{borderColor:'var(--border)',background:'var(--surface-muted)'}}>
                     <p className="font-bold" style={{color:'var(--ink)'}}>
                       {reverseResult.status==='SIMULATED'?'Source contract simulation passed'
-                        :reverseResult.status==='APPROVAL_REQUIRED'?'USDC allowance is insufficient'
+                        :reverseResult.status==='APPROVAL_REQUIRED'?'Reverse Bridge unavailable · Source allowance is 0 or insufficient'
                         :reverseResult.status==='INSUFFICIENT_BALANCE'?'Insufficient source USDC balance'
                         :'Route check unavailable'}
                     </p>
@@ -370,9 +369,9 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
               </>
             )}
           </div>
-        ) : action === 'SWAP' ? (
+        ) : (
           <div className="space-y-3">
-            <p className="text-sm font-bold" style={{ color: 'var(--ink)' }}>Swap & Convert</p>
+            <p className="text-sm font-bold" style={{ color: 'var(--ink)' }}>Swap · Preview only</p>
             <p className="text-xs leading-5" style={{ color: 'var(--muted)' }}>
               Explore USDC / EURC conversion. The StableFX provider is not yet enabled for real execution.
             </p>
@@ -381,30 +380,10 @@ export function AgentQuickStart({ friends, signedIn, onPrepare, onNavigate, comp
               <span>USDC</span><ArrowLeftRight className="size-4" style={{ color: 'var(--accent)' }}/><span>EURC</span>
               <span className="ml-auto text-[10px] font-bold uppercase" style={{ color: 'var(--warning)' }}>Preview</span>
             </div>
-            <button type="button" onClick={() => onNavigate('convert')}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold"
-              style={{ borderColor: 'var(--border-strong)', color: 'var(--ink)' }}>
-              Explore Convert <ArrowRight className="size-4"/>
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <p className="text-sm font-bold" style={{ color: 'var(--ink)' }}>Unified · one place for your money</p>
-            <p className="text-xs leading-5" style={{ color: 'var(--muted)' }}>
-              View your Arc Testnet USDC balance and explore verified routes. Aggregated multi-chain balances and universal spend are in development.
+            <p role="status" className="rounded-xl border px-3 py-3 text-center text-xs leading-5"
+              style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
+              Swap is not enabled. No quote, approval or trade can be created yet.
             </p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <button type="button" onClick={() => onNavigate('home')}
-                className="flex items-center justify-center gap-2 rounded-xl border p-3 text-xs font-semibold"
-                style={{ borderColor: 'var(--border-strong)', color: 'var(--ink)' }}>
-                <CheckCircle2 className="size-4" style={{ color: 'var(--success)' }}/> View balance
-              </button>
-              <button type="button" onClick={() => chooseAction('BRIDGE')}
-                className="flex items-center justify-center gap-2 rounded-xl border p-3 text-xs font-semibold"
-                style={{ borderColor: 'var(--border-strong)', color: 'var(--ink)' }}>
-                <Info className="size-4" style={{ color: 'var(--accent)' }}/> Explore routes
-              </button>
-            </div>
           </div>
         )}
       </div>

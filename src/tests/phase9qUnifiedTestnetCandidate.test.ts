@@ -26,6 +26,9 @@ describe('Phase 9Q — the one protected Veyra Core Testnet build', () => {
     expect(STAGING_ALLOWED_PATHS).toContain('/api/cctp/attestation');
     expect(STAGING_ALLOWED_PATHS).toContain('/api/agent/status');
     expect(STAGING_ALLOWED_PATHS).toContain('/api/agent/chat');
+    expect(STAGING_ALLOWED_PATHS).toContain('/api/gateway/balances');
+    expect(STAGING_ALLOWED_PATHS).toContain('/api/gateway/estimate');
+    expect(STAGING_ALLOWED_PATHS).not.toContain('/api/gateway/transfer');
     expect(STAGING_ALLOWED_PATHS).not.toContain('/api/stablefx/trade');
     expect(STAGING_ALLOWED_PATHS).not.toContain('/api/stablefx/quote');
   });
@@ -35,8 +38,8 @@ describe('Phase 9Q — the one protected Veyra Core Testnet build', () => {
     expect(settings).toContain("xCapability==='unavailable'");
     expect(settings).toContain("'X linking unavailable'");
     expect(settings).toContain("disabled={xCapability!=='available'");
-    expect(settings).toContain('getXLinkCapability()');
-    expect(read('src/lib/api/identityApi.ts')).toContain("payload.available===true");
+    expect(settings).toContain('probeXLinkReadiness()');
+    expect(read('src/lib/api/identityApi.ts')).toContain("payload.available!==true");
     expect(banner).toContain("type.toLowerCase().includes('application/json')");
     expect(banner).toContain('payload.ok === true');
   });

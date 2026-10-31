@@ -8,12 +8,17 @@ import { useState, useCallback } from 'react';
 import type { ConvertAction } from '../core/actions/actionSchema';
 import type { ConvertPipelineEvaluation, ConvertPipelineStatus } from '../core/pipeline/convertPipeline';
 import { evaluateConvertAction } from '../core/pipeline/convertPipeline';
+import { convertErrorState, canDiscardConvertDraft } from '../core/pipeline/convertRecoveryPolicy';
 import type { StableFxQuoteResponse, StableFxTradeStatus } from '../providers/stablefx/stableFxAdapter';
 import {
   fetchStableFxQuote,
   buildConvertActionFromQuote,
   createStableFxTrade,
   pollStableFxTrade,
+  isStableFxProviderTradeComplete,
+  fetchStableFxFundingPresign,
+  submitStableFxFunding,
+  type StableFxFundingPresign,
   type StableFxCurrency,
 } from '../providers/stablefx/stableFxAdapter';
 import type { VeyraReceipt } from '../core/receipt/receiptTypes';
@@ -91,11 +96,14 @@ export function useConvertExecution() {
     quote: StableFxQuoteResponse,
     walletAddress: Address,
     signTypedData: (typedData: StableFxQuoteResponse['typedData']) => Promise<string>,
+    verifyAndApproveFunding: (presign: StableFxFundingPresign, trade: StableFxTradeStatus) => Promise<void>,
   ) => {
     setState((prev) => ({ ...prev, status: 'SIGNING' }));
 
     let quoteReserved = false;
     let broadcastLocked = false;
+    let submittedTrade: StableFxTradeStatus | null = null;
+    const idempotencyKey = crypto.randomUUID();
 
     try {
       assertExecutionReady({
@@ -135,12 +143,47 @@ export function useConvertExecution() {
       // ConvertAction has no `from` field — walletAddress is passed explicitly as a param
       const trade = await createStableFxTrade({
         quoteId: quote.id,
+        idempotencyKey,
         walletAddress,
         message: quote.typedData.message,
         signature,
       });
 
-      setState((prev) => ({ ...prev, status: 'VERIFYING', trade }));
+      submittedTrade = trade;
+      // Persist the owner-scoped trade BEFORE the second signature or funding
+      // request. A rejected funding signature must not erase a created trade.
+      const fundingPendingReceipt: VeyraReceipt = {
+        receiptId: generatePlanReceiptId(),
+        planId: action.actionId,
+        actionType: 'CONVERT',
+        status: 'PENDING',
+        chainId: action.chainId,
+        ownerAddress: walletAddress,
+        providerTradeId: trade.id,
+        providerQuoteId: quote.id,
+        providerIdempotencyKey: idempotencyKey,
+        createdAt: action.createdAt,
+        actualAmountDelta: null,
+        expectedAmountDelta: action.minAmountOut,
+        riskScore: null,
+        policyDecision: null,
+        displaySummary: 'StableFX trade created. Funding requires separate explicit wallet authorization.',
+      };
+      await saveReceipt(fundingPendingReceipt);
+      setState((prev) => ({
+        ...prev, status: 'VERIFYING', trade, receipt: fundingPendingReceipt,
+      }));
+      if (trade.status === 'pending_settlement') {
+        const presign = await fetchStableFxFundingPresign(trade);
+        // Validated on-chain token, spender code, gas, allowance and wallet
+        // before showing a SECOND EIP-712 wallet signature for funding.
+        await verifyAndApproveFunding(presign, trade);
+        setState((prev) => ({ ...prev, status: 'SIGNING' }));
+        const fundingSignature = await signTypedData(presign.typedData);
+        setState((prev) => ({ ...prev, status: 'BROADCASTING' }));
+        await submitStableFxFunding(trade, presign, fundingSignature);
+      }
+      setState((prev) => ({ ...prev, status: 'VERIFYING' }));
 
       // Poll for completion (up to 60s). Only network/status fetch errors
       // are treated as transient; lifecycle/receipt errors must never be swallowed.
@@ -154,7 +197,7 @@ export function useConvertExecution() {
           continue;
         }
 
-        if (finalTrade.status === 'complete' || finalTrade.status === 'failed') break;
+        if (isStableFxProviderTradeComplete(finalTrade) || finalTrade.status === 'failed') break;
       }
 
       if (finalTrade.status === 'failed') {
@@ -186,27 +229,31 @@ export function useConvertExecution() {
 
       const receiptId = generatePlanReceiptId();
 
-      if (finalTrade.status !== 'complete') {
+      if (!isStableFxProviderTradeComplete(finalTrade)) {
         const pendingReceipt: VeyraReceipt = {
           receiptId,
           planId: action.actionId,
           actionType: 'CONVERT',
           status: 'PENDING',
           chainId: action.chainId,
+          ownerAddress: walletAddress,
+          providerTradeId: finalTrade.id,
+          providerQuoteId: quote.id,
+          providerIdempotencyKey: idempotencyKey,
           createdAt: action.createdAt,
           actualAmountDelta: null,
           expectedAmountDelta: action.minAmountOut,
           riskScore: null,
           policyDecision: null,
-          displaySummary: `Convert is still pending at provider status ${finalTrade.status}.`,
+          displaySummary: `StableFX trade ${trade.id} has not settled. Awaiting owned blockchain evidence.`,
         };
         await saveReceipt(pendingReceipt);
         setState((prev) => ({
           ...prev,
-          status: 'PENDING',
+          status: 'SETTLEMENT_PENDING',
           trade: finalTrade,
           receipt: pendingReceipt,
-          error: 'Conversion has not reached final provider completion yet.',
+          error: 'Swap already submitted; awaiting settlement. Do not submit another trade.',
         }));
         return;
       }
@@ -215,50 +262,67 @@ export function useConvertExecution() {
       const verification = verifyMinimumOutput(actualOutput, action.minAmountOut);
 
       if (!verification.verified) {
-        const failedReceipt: VeyraReceipt = {
+        // This discrepancy is provider-reported. Do not claim an on-chain
+        // received amount or a final loss until the wallet settlement is read.
+        const pendingReceipt: VeyraReceipt = {
           receiptId,
           planId: action.actionId,
           actionType: 'CONVERT',
-          status: 'FAILED',
+          status: 'PENDING',
           chainId: action.chainId,
+          ownerAddress: walletAddress,
+          providerTradeId: finalTrade.id,
+          providerQuoteId: quote.id,
+          providerIdempotencyKey: idempotencyKey,
           createdAt: action.createdAt,
-          completedAt: Date.now(),
-          actualAmountDelta: verification.actualAmount,
+          actualAmountDelta: null,
           expectedAmountDelta: action.minAmountOut,
           riskScore: null,
           policyDecision: null,
-          displaySummary: `Convert verification failed: ${verification.detail}`,
+          displaySummary: 'StableFX reported output below the reviewed minimum; on-chain settlement needs reconciliation.',
         };
         await markQuoteUsed(quote.id);
-        await saveReceipt(failedReceipt);
+        await saveReceipt(pendingReceipt);
         setState((prev) => ({
-          ...prev,
-          status: 'FAILED',
+          ...prev, status: 'SETTLEMENT_PENDING',
           trade: finalTrade,
-          receipt: failedReceipt,
-          error: verification.detail,
+          receipt: pendingReceipt,
+          error: verification.detail + ' No second swap is submitted.',
         }));
         return;
       }
 
+      // Circle's provider-level "complete" is not on-chain receipt evidence.
+      // Until we verify the destination token transfer (or an exact, owner-
+      // bound before/after balance delta), never manufacture a VERIFIED receipt.
+      // Retain quote replay lock and the provider trade ID for reconciliation.
       const receipt: VeyraReceipt = {
         receiptId,
         planId: action.actionId,
         actionType: 'CONVERT',
-        status: 'VERIFIED',
+        status: 'PENDING',
         chainId: action.chainId,
+        ownerAddress: walletAddress,
+          providerTradeId: finalTrade.id,
+          providerQuoteId: quote.id,
+          providerIdempotencyKey: idempotencyKey,
         createdAt: action.createdAt,
-        completedAt: Date.now(),
-        actualAmountDelta: verification.actualAmount,
+        actualAmountDelta: null,
         expectedAmountDelta: action.minAmountOut,
         riskScore: null,
-        policyDecision: 'PASS',
-        displaySummary: `Convert ${finalTrade.from.amount} ${finalTrade.from.currency} → ${finalTrade.to.amount} ${finalTrade.to.currency}`,
+        policyDecision: null,
+        displaySummary: 'StableFX reports completion. Awaiting independent on-chain settlement verification before marking Swap successful.',
       };
 
       await markQuoteUsed(quote.id);
       await saveReceipt(receipt);
-      setState((prev) => ({ ...prev, status: 'VERIFIED', trade: finalTrade, receipt }));
+      setState((prev) => ({
+        ...prev,
+        status: 'SETTLEMENT_PENDING',
+        trade: finalTrade,
+        receipt,
+        error: 'Provider reports completion; destination USDC/EURC receipt is not yet independently verified.',
+      }));
     } catch (err) {
       // Only release a quote if execution definitely stopped before the
       // provider-submission boundary. Once BROADCAST is recorded, uncertainty
@@ -272,15 +336,53 @@ export function useConvertExecution() {
         }
       }
 
+      const nextStatus = convertErrorState(broadcastLocked);
+      const errorDetail = err instanceof Error ? err.message : 'Convert execution failed';
+      if (nextStatus === 'SETTLEMENT_PENDING') {
+        // A POST timeout is not proof the provider rejected the trade.
+        // Keep an owner-bound pending receipt and the quote in BROADCAST state.
+        // Never suggest a second trade while reconciliation is unresolved.
+        const pendingReceipt: VeyraReceipt = {
+          receiptId: generatePlanReceiptId(),
+          planId: action.actionId,
+          actionType: 'CONVERT',
+          status: 'PENDING',
+          chainId: action.chainId,
+          ownerAddress: walletAddress,
+          providerTradeId: submittedTrade?.id,
+          providerQuoteId: quote.id,
+          providerIdempotencyKey: idempotencyKey,
+          createdAt: action.createdAt,
+          actualAmountDelta: null,
+          expectedAmountDelta: action.minAmountOut,
+          riskScore: null,
+          policyDecision: null,
+          displaySummary: submittedTrade
+            ? 'StableFX trade exists; funding or settlement is unresolved. Do not submit another trade.'
+            : 'Swap submission outcome unknown. Reconcile the provider trade before retry.',
+        };
+        try { await saveReceipt(pendingReceipt); }
+        catch { /* Keep the execution locked even if local persistence is unavailable. */ }
+        setState((prev) => ({
+          ...prev,
+          status: nextStatus,
+          ...(submittedTrade ? { trade: submittedTrade } : {}),
+          receipt: pendingReceipt,
+          error: 'Swap may have reached Circle. ' + errorDetail + ' Do not submit another trade.',
+        }));
+        return;
+      }
       setState((prev) => ({
         ...prev,
-        status: 'FAILED',
-        error: err instanceof Error ? err.message : 'Convert execution failed',
+        status: nextStatus,
+        error: errorDetail,
       }));
     }
   }, []);
 
-  const reset = useCallback(() => { setState({ status: 'PENDING' }); }, []);
+  const reset = useCallback(() => {
+    setState((prev) => canDiscardConvertDraft(prev.status) ? { status: 'PENDING' } : prev);
+  }, []);
 
   return { state, fetchQuote, executeConvert, reset };
 }

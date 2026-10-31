@@ -23,6 +23,12 @@ import { ActionCard } from '../transfer/ActionCard';
 import { loadActivityReceiptsRemote, type ActivityReceiptRemoteRecord } from '../../lib/api/activityReceiptApi';
 import { agentBridgeReceiptState, readAgentBridgeReceiptLinks, type AgentBridgeReceiptLink } from '../../core/agent/agentBridgeReceiptLink';
 import { AgentQuickStart } from '../agent/AgentQuickStart';
+import { AgentUnifiedBalances } from '../agent/AgentUnifiedBalances';
+import { BridgePage } from './BridgePage';
+import { PayPage } from './PayPage';
+import { ConvertPage } from './ConvertPage';
+import type { IntentCandidate } from '@/core/intent/intentSchema';
+import { restoreWalletScopedActiveTask, selectActiveTaskAfterReply } from '@/core/agent/activeTaskSelection';
 import type { VeyraPage } from '../layout/AppShell';
 
 interface AgentPageProps {
@@ -71,6 +77,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
   historyScope: string | null; friends: SocialFriend[]; signedIn: boolean; currentWallet: string | null;
 }) {
   const historyKey = historyScope ? 'veyra:agent-history:' + historyScope : null;
+  const taskKey = historyScope ? 'veyra:agent-active-task:' + historyScope : null;
   const [messages, setMessages] = useState<Message[]>(() => {
     if (!historyKey) return [];
     try {
@@ -87,6 +94,14 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
   });
   const [loading, setLoading] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
+  const [activeTaskMessageId, setActiveTaskMessageId] = useState<string | null>(() => {
+    if (!taskKey) return null;
+    try { return restoreWalletScopedActiveTask(sessionStorage.getItem(taskKey), messages); }
+    catch { return null; }
+  });
+  const [inlineBridgeMessageId, setInlineBridgeMessageId] = useState<string | null>(null);
+  const [activePayDraft, setActivePayDraft] = useState<{ messageId: string; candidate: IntentCandidate } | null>(null);
+  const [activeSwapDraft, setActiveSwapDraft] = useState<{ messageId: string; candidate: IntentCandidate } | null>(null);
   const [capabilities, setCapabilities] = useState<AgentCapabilities>(DEFAULT_CAPABILITIES);
   const [bridgeLinks, setBridgeLinks] = useState<AgentBridgeReceiptLink[]>(() =>
     readAgentBridgeReceiptLinks(historyScope));
@@ -99,6 +114,14 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
     // Do not import legacy global chat shared by every wallet in this browser.
     try { sessionStorage.removeItem('veyra:agent-history'); } catch { /* storage denied */ }
   }, []);
+
+  useEffect(() => {
+    if (!taskKey) return;
+    try {
+      if (activeTaskMessageId) sessionStorage.setItem(taskKey, activeTaskMessageId);
+      else sessionStorage.removeItem(taskKey);
+    } catch { /* Task stays in memory if storage is disabled. */ }
+  }, [taskKey, activeTaskMessageId]);
 
   useEffect(() => {
     if (historyKey && messages.length > 0) {
@@ -166,6 +189,9 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
 
     const priorHistory = history;
     const userMessage: Message = { id: crypto.randomUUID(), role: 'user', text, ts: Date.now() };
+    // Chat is independent of execution. Never unmount a Pay/Bridge review or
+    // in-flight transaction just because the user asked a new question.
+    // A second action remains selectable from its own message when appropriate.
     setMessages((current) => [...current, userMessage]);
     setInput('');
     setLoading(true);
@@ -200,15 +226,25 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
       ts: Date.now(),
     };
     setMessages((current) => [...current, agentMessage]);
+    setActiveTaskMessageId((current) => selectActiveTaskAfterReply(
+      current,
+      agentMessage.id,
+      Boolean(response.intent?.candidates.length && response.intent.status !== 'UNSUPPORTED'),
+    ));
     setLoading(false);
   }
 
   function clearConversation() {
+    setActiveTaskMessageId(null);
+    setInlineBridgeMessageId(null);
+    setActivePayDraft(null);
+    setActiveSwapDraft(null);
     setMessages([]);
-    setBridgeLinks([]);
+    // Clearing chat never deletes pending or verified blockchain receipt links.
+    // The owner-scoped Activity and existing CCTP replay guards remain intact.
     try {
       if (historyKey) sessionStorage.removeItem(historyKey);
-      if (historyScope) sessionStorage.removeItem('veyra:agent:bridge-receipts:' + historyScope);
+      if (taskKey) sessionStorage.removeItem(taskKey);
     } catch { /* storage denied */ }
     inputRef.current?.focus();
   }
@@ -220,6 +256,8 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
     inputRef.current?.focus();
   }
 
+  const activeTaskMessage = messages.find((message) =>
+    message.id === activeTaskMessageId && message.role === 'agent' && message.intent?.candidates.length);
   const latestConfirmedBridge = [...bridgeLinks].reverse().map((link) =>
     verifiedBridgeReceipts.find((receipt) => receipt.receiptId === link.receiptId))
     .find((receipt) => receipt && agentBridgeReceiptState(receipt) === 'SUCCESS');
@@ -228,7 +266,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
   const latestBridgeStatus = lastBridgeReceipt ? agentBridgeReceiptState(lastBridgeReceipt) : null;
 
   return (
-    <div className="mx-auto flex min-h-[calc(100dvh-44px)] max-w-5xl flex-col px-4 py-5 md:px-7 md:py-7">
+    <div className="mx-auto flex min-h-[calc(100dvh-44px)] max-w-6xl flex-col px-4 py-5 md:px-7 md:py-7">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-5" style={{ borderColor: 'var(--border)' }}>
         <div>
           <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--accent)' }}>
@@ -281,6 +319,13 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
             style={{borderColor:'var(--border-strong)'}}>View Activity</button>
         </div>
       )}
+      <section aria-label="Your USDC balances" className="mt-5 rounded-2xl border p-3 sm:p-4"
+        style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+        <AgentUnifiedBalances />
+      </section>
+
+      <div className="grid min-w-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
+        <div className="order-2 flex min-w-0 flex-col lg:order-1">
       <div className="flex-1 overflow-y-auto py-6">
         {messages.length === 0 ? (
           <AgentQuickStart friends={friends} signedIn={signedIn}
@@ -327,30 +372,17 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
                           <IntentGraphPreview graph={message.capabilityGraph} />
                         </details>
                       )}
-                      {message.intent && message.intent.candidates.length > 0 && (
-                        <div className="mt-3"><ActionCard intent={message.intent} onNavigate={onNavigate}
-                          bridgeHandoffScope={historyScope}
-                          messageId={message.id}
-                          linkedBridge={(() => {
-                            const link = bridgeLinks.find((item) => item.messageId === message.id);
-                            if (!link) return undefined;
-                            return {
-                              receiptId: link.receiptId,
-                              receipt: verifiedBridgeReceipts.find((item) => item.receiptId === link.receiptId),
-                              lookupFailed:receiptLookupFailed,
-                            };
-                          })()}
-                          onClarifyDestination={(destination) => {
-                            const draft = message.intent?.candidates[0];
-                            if (!draft) return;
-                            const amount = draft.amountRaw?.raw ?? '';
-                            const token = draft.tokenRaw?.raw ?? 'USDC';
-                            const recipient = draft.recipientRaw?.raw ?? '';
-                            const source = draft.sourceChainRaw?.raw ?? 'Arc Testnet';
-                            // Populate (not execute) an explicit reviewable route.
-                            setInput(`Send ${amount} ${token} from ${source} to ${recipient} on ${destination}`);
-                            inputRef.current?.focus();
-                          }} /></div>
+                      {message.intent && message.intent.candidates.length > 0 && message.intent.status !== 'UNSUPPORTED' && (
+                        <button type="button"
+                          onClick={() => {
+                            setActiveTaskMessageId(message.id);
+                            setInlineBridgeMessageId(null);
+                            setActivePayDraft(null);
+                          }}
+                          className="mt-2 rounded-xl border px-3 py-2 text-xs font-semibold"
+                          style={{ borderColor:'var(--border-strong)', color:'var(--accent)' }}>
+                          View active task
+                        </button>
                       )}
                     </div>
                   )}
@@ -405,6 +437,81 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
         <p className="mt-2 text-center text-[10px]" style={{ color: 'var(--subtle)' }}>
           Veyra never signs for you. Check the recipient, network and fee before confirming.
         </p>
+      </div>
+        </div>
+        {activeTaskMessage?.intent && (
+          <aside aria-label="Active task" className="order-1 min-w-0 self-start rounded-2xl border p-3 sm:p-4 lg:order-2 lg:sticky lg:top-4"
+            style={{ borderColor:'var(--border-strong)', background:'var(--surface)' }}>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--accent)'}}>Active task</p>
+                <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>One request · Review before any wallet action</p>
+              </div>
+              <button type="button" onClick={() => {
+                setActiveTaskMessageId(null);
+                setInlineBridgeMessageId(null);
+                setActivePayDraft(null);
+                setActiveSwapDraft(null);
+              }} aria-label="Hide active task (transactions remain in Activity)" className="rounded-xl border px-3 py-2 text-xs"
+                style={{borderColor:'var(--border)',color:'var(--muted)'}}>Close</button>
+            </div>
+            <ActionCard intent={activeTaskMessage.intent} onNavigate={onNavigate}
+              onReviewPayInline={(candidate) => {
+                setInlineBridgeMessageId(null);
+                setActiveSwapDraft(null);
+                setActivePayDraft({ messageId: activeTaskMessage.id, candidate });
+              }}
+              onReviewSwapInline={(candidate) => {
+                setInlineBridgeMessageId(null);
+                setActivePayDraft(null);
+                setActiveSwapDraft({ messageId: activeTaskMessage.id, candidate });
+              }}
+              onReviewBridgeInline={() => {
+                setActivePayDraft(null);
+                setActiveSwapDraft(null);
+                setInlineBridgeMessageId(activeTaskMessage.id);
+              }}
+              bridgeHandoffScope={historyScope}
+              messageId={activeTaskMessage.id}
+              linkedBridge={(() => {
+                const link = bridgeLinks.find((item) => item.messageId === activeTaskMessage.id);
+                if (!link) return undefined;
+                return {
+                  receiptId: link.receiptId,
+                  receipt: verifiedBridgeReceipts.find((item) => item.receiptId === link.receiptId),
+                  lookupFailed: receiptLookupFailed,
+                };
+              })()}
+              onClarifyDestination={(destination) => {
+                const draft = activeTaskMessage.intent?.candidates[0];
+                if (!draft) return;
+                const amount = draft.amountRaw?.raw ?? '';
+                const token = draft.tokenRaw?.raw ?? 'USDC';
+                const recipient = draft.recipientRaw?.raw ?? '';
+                const source = draft.sourceChainRaw?.raw ?? 'Arc Testnet';
+                setInput(`Send ${amount} ${token} from ${source} to ${recipient} on ${destination}`);
+                inputRef.current?.focus();
+              }} />
+            {activePayDraft?.messageId === activeTaskMessage.id && (
+              <section aria-label="Pay review in active task" className="mt-4 border-t pt-4"
+                style={{ borderColor: 'var(--border)' }}>
+                <PayPage embedded initialIntent={activePayDraft.candidate} />
+              </section>
+            )}
+            {activeSwapDraft?.messageId === activeTaskMessage.id && (
+              <section aria-label="Swap review in active task" className="mt-4 border-t pt-4"
+                style={{ borderColor:'var(--border)' }}>
+                <ConvertPage embedded initialIntent={activeSwapDraft.candidate} />
+              </section>
+            )}
+            {inlineBridgeMessageId === activeTaskMessage.id && (
+              <section aria-label="Bridge review in active task" className="mt-4 border-t pt-4"
+                style={{borderColor:'var(--border)'}}>
+                <BridgePage embedded />
+              </section>
+            )}
+          </aside>
+        )}
       </div>
     </div>
   );

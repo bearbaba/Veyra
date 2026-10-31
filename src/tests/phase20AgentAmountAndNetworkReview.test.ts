@@ -18,9 +18,15 @@ describe('Phase 20 — Agent money and chain must never be misrepresented',()=>{
     const response=createFallbackAgentResponse(input);
     expect(response.intent?.candidates[0]?.amountRaw?.raw).toBe('2');
     expect(response.intent?.candidates[0]?.recipientRaw?.raw).toBe(WALLET);
-    expect(response.intent?.candidates[0]?.sourceChainRaw?.raw).toBe('Base');
-    expect(response.intent?.status).toBe('UNSUPPORTED');
+    // "Base" does not specify Mainnet vs Base Sepolia. The safe response is
+    // a clarification, not a directly executable Base transfer.
+    expect(response.intent?.candidates[0]?.sourceChainRaw?.raw).toBe('Arc Testnet');
+    expect(response.intent?.candidates[0]?.destinationChainRaw?.raw).toBe('Base');
+    expect(response.intent?.candidates[0]?.actionType).toBe('BRIDGE');
+    expect(response.intent?.status).toBe('NEEDS_CLARIFICATION');
+    expect(response.mode).toBe('CLARIFICATION');
     expect(response.reply).toMatch(/Arc Testnet/);
+    expect(response.reply).toMatch(/Base Sepolia/);
     expect(validateAgentTransferDraft(response.intent!.candidates[0]).ok).toBe(false);
   });
   it('allows exactly 2 USDC on the supported Arc Testnet route',()=>{

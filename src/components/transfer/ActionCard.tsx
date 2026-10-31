@@ -10,13 +10,16 @@ import type { VeyraPage } from '../layout/AppShell';
 interface ActionCardProps {
   intent: IntentResult;
   onNavigate: (page: VeyraPage) => void;
+  onReviewBridgeInline?: () => void;
+  onReviewPayInline?: (candidate: IntentCandidate) => void;
+  onReviewSwapInline?: (candidate: IntentCandidate) => void;
   onClarifyDestination?: (network: 'Ethereum Sepolia' | 'Base Sepolia') => void;
   bridgeHandoffScope?: string | null;
   messageId?: string;
   linkedBridge?: { receiptId: string; receipt?: ActivityReceiptRemoteRecord; lookupFailed: boolean };
 }
 
-export function ActionCard({ intent, onNavigate, onClarifyDestination, bridgeHandoffScope, messageId, linkedBridge }: ActionCardProps) {
+export function ActionCard({ intent, onNavigate, onReviewBridgeInline, onReviewPayInline, onReviewSwapInline, onClarifyDestination, bridgeHandoffScope, messageId, linkedBridge }: ActionCardProps) {
   const best = intent.candidates[0];
   if (!best) return null;
 
@@ -32,6 +35,8 @@ export function ActionCard({ intent, onNavigate, onClarifyDestination, bridgeHan
     && (transferGate === null || transferGate.ok)
     && (bridgeGate === null || bridgeGate.ok);
   const ambiguousSepolia = isBridge && best.destinationChainRaw?.raw.trim().toLowerCase() === 'sepolia';
+  const ambiguousBase = isBridge && needsClarification &&
+    best.destinationChainRaw?.raw.trim().toLowerCase() === 'base';
   const bridgeOutcome = linkedBridge ? agentBridgeReceiptState(linkedBridge.receipt) : null;
   const cardStatus = linkedBridge
     ? bridgeOutcome === 'SUCCESS' ? 'Destination verified'
@@ -39,7 +44,9 @@ export function ActionCard({ intent, onNavigate, onClarifyDestination, bridgeHan
       : bridgeOutcome === 'PENDING' ? 'Bridge in progress'
       : bridgeOutcome === 'PREPARED' ? 'Prepared · not submitted' : 'Checking receipt'
     : isActionable ? 'Ready to review' : isUnsupported || (transferGate && !transferGate.ok) ? 'Not available' : 'Needs input';
-  const unavailableReason = bridgeGate && !bridgeGate.ok
+  const unavailableReason = ambiguousBase
+    ? 'Choose Base Sepolia (Testnet) to prepare an Arc-source Bridge draft. Base Mainnet is not enabled.'
+    : bridgeGate && !bridgeGate.ok
     ? bridgeGate.reason
     : transferGate && !transferGate.ok
       ? transferGate.reason
@@ -51,11 +58,20 @@ export function ActionCard({ intent, onNavigate, onClarifyDestination, bridgeHan
   function handleProceed() {
     if (!isActionable) return;
     // Keep canonical positive amount, never the model's display string.
-    const prepared = transferGate?.ok
+    const prepared: IntentCandidate = transferGate?.ok
       ? { ...best, amountRaw: { kind: 'UNTRUSTED_STRING', raw: transferGate.amount } }
       : bridgeGate?.ok
         ? { ...best, amountRaw: { kind: 'UNTRUSTED_STRING', raw: bridgeGate.amount } }
         : best;
+    if (isTransfer && onReviewPayInline) {
+      // Same Pay preparation and signing flow, just rendered in the Agent task.
+      onReviewPayInline(prepared);
+      return;
+    }
+    if (isConvert && onReviewSwapInline) {
+      onReviewSwapInline(prepared);
+      return;
+    }
     sessionStorage.setItem('veyra:agent-intent', JSON.stringify(prepared));
     if (isBridge && bridgeGate?.ok && messageId) {
       beginAgentBridgeHandoff(bridgeHandoffScope ?? null, messageId, {
@@ -66,7 +82,11 @@ export function ActionCard({ intent, onNavigate, onClarifyDestination, bridgeHan
     }
     if (isTransfer) onNavigate('pay');
     else if (isConvert) onNavigate('convert');
-    else if (isBridge) onNavigate('bridge');
+    else if (isBridge) {
+      // Reuse the existing verified CCTP flow in Agent. No duplicate signer.
+      if (onReviewBridgeInline) onReviewBridgeInline();
+      else onNavigate('bridge');
+    }
   }
 
   const title = isTransfer ? 'Payment intent' : isConvert ? 'Conversion intent' : isBridge ? 'Cross-chain payment' : best.actionType;
@@ -128,6 +148,18 @@ export function ActionCard({ intent, onNavigate, onClarifyDestination, bridgeHan
           <button type="button" onClick={() => onClarifyDestination('Base Sepolia')}
             className="rounded-xl border px-2 py-3 text-xs font-semibold"
             style={{ borderColor: 'var(--border-strong)', color: 'var(--ink)' }}>Base Sepolia</button>
+        </div>
+      )}
+      {ambiguousBase && onClarifyDestination && (
+        <div className="space-y-2 border-t p-3" style={{ borderColor: 'var(--border)' }}>
+          <button type="button" onClick={() => onClarifyDestination('Base Sepolia')}
+            className="w-full rounded-xl border px-3 py-3 text-xs font-semibold"
+            style={{ borderColor: 'var(--border-strong)', color: 'var(--ink)' }}>
+            Use Base Sepolia (Testnet) · Prepare draft
+          </button>
+          <p className="text-center text-[11px]" style={{ color: 'var(--muted)' }}>
+            Base Mainnet · not enabled. No network is chosen or signed automatically.
+          </p>
         </div>
       )}
       {linkedBridge && (

@@ -28,6 +28,7 @@ export type ConvertPipelineStatus =
   | 'SIGNING'
   | 'BROADCASTING'
   | 'VERIFYING'
+  | 'SETTLEMENT_PENDING'
   | 'VERIFIED'
   | 'FAILED';
 

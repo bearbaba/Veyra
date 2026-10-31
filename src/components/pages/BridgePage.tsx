@@ -30,6 +30,7 @@ import { simulateCctpSourceBurn, simulateExactCctpApproval } from '../../core/ex
 import { approveTokenMessenger } from '../../providers/cctp/cctpV2Adapter';
 import { assertExecutionReady } from '../../core/execution/executionReadiness';
 import { IS_UI_ONLY_PREVIEW, VEYRA_ENV } from '../../lib/env';
+import {AppKitBridgePage} from './AppKitBridgePage';
 import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 import { VeyraIdentityAccess } from '../identity/VeyraIdentityAccess';
 import {
@@ -79,7 +80,15 @@ const DESTINATION_CHAINS = [
   { id: MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID, name: 'Base Sepolia', usdc: MANIFEST_CONSTANTS.BASE_SEPOLIA_USDC },
 ];
 
-export function BridgePage() {
+export function BridgePage({ embedded = false }: { embedded?: boolean } = {}) {
+  // Authenticated Testnet uses Circle App Kit's two-way browser-wallet CCTP.
+  // The legacy source-Arc-only flow remains isolated for non-signing contexts.
+  if(VEYRA_ENV==='testnet'&&!IS_UI_ONLY_PREVIEW)
+    return <AppKitBridgePage embedded={embedded}/>;
+  return <LegacyBridgePage embedded={embedded}/>;
+}
+
+function LegacyBridgePage({ embedded = false }: { embedded?: boolean } = {}) {
   const { address, isConnected, chainId, connector } = useAccount();
   const { data: walletClient } = useWalletClient();
   const { switchChainAsync } = useSwitchChain();
@@ -531,8 +540,8 @@ export function BridgePage() {
   }
 
   return (
-    <div className="max-w-md mx-auto px-4 py-8 space-y-4">
-      <div className="mb-2">
+    <div className={embedded ? "w-full min-w-0 space-y-4" : "max-w-md mx-auto px-4 py-8 space-y-4"}>
+      {!embedded && <div className="mb-2">
         <h1 className="display text-2xl font-bold" style={{ color: 'var(--ink)', letterSpacing: '-0.02em' }}>Bridge</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>USDC Arc Testnet → Ethereum Sepolia / Base Sepolia via CCTP V2</p>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
@@ -546,8 +555,8 @@ export function BridgePage() {
             Sepolia / Base → Arc · Coming soon
           </span>
         </div>
-      </div>
-      {recentBridge && (
+      </div>}
+      {!embedded && recentBridge && (
         <section aria-label="Recent verified Bridge activity" className="rounded-2xl border p-4 space-y-2"
           style={{borderColor:'var(--border-strong)',background:'var(--surface)'}}>
           <p className="text-xs font-semibold uppercase tracking-wide" style={{color:'var(--muted)'}}>
@@ -794,15 +803,15 @@ export function BridgePage() {
         </div>
       ) : null}
 
-      {/* Provider info */}
-      <div className="flex items-start gap-2 rounded-xl p-3" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
+      {/* Provider details are available on the standalone Bridge page; keep task concise. */}
+      {!embedded && <div className="flex items-start gap-2 rounded-xl p-3" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
         <Globe className="size-3.5 mt-0.5 shrink-0" style={{ color: 'var(--accent)' }} />
         <p className="text-xs" style={{ color: 'var(--muted)' }}>
           CCTP V2 (verified 2026-10-07). Standard transfer (minFinalityThreshold=2000).
           After your wallet signs a source burn, Veyra waits for Arc confirmation and Circle attestation before the destination mint on {selectedDest.name}.
           Timing depends on live network and relayer conditions; no USDC has moved just by opening this page.
         </p>
-      </div>
+      </div>}
     </div>
   );
 }

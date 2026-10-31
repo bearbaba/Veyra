@@ -23,6 +23,12 @@ export const STAGING_ALLOWED_PATHS=[
   "/api/identity/verify-payment",
   "/api/profile/me",
   "/api/social/friends",
+  // Signed-identity, owner-scoped contacts, friendship status and receive
+  // preferences. Never expose a public or wildcard social route.
+  "/api/social/contacts",
+  "/api/social/contacts/remove",
+  "/api/social/friend/status",
+  "/api/preferences/receive",
   "/api/social/chat/capability",
   "/api/social/chat",
   "/api/social/chat/send",
@@ -40,6 +46,13 @@ export const STAGING_ALLOWED_PATHS=[
   // Agent cannot sign; only the reviewed chat/status endpoints are exposed.
   "/api/agent/status",
   "/api/agent/chat",
+  // Wallet-bound read only. The hosted BFF verifies the signed Veyra session
+  // and returns deposited USDC, never aggregated wallet ERC-20 balances.
+  "/api/gateway/balances",
+  // Read-only, owner-bound Circle fee/expiry quote; no burn submission.
+  "/api/gateway/estimate",
+  // Signed-identity, read-only provider status for a submitted transfer.
+  "/api/gateway/transfer-status",
   // Circle Iris testnet source-domain/hash are validated inside the BFF.
   "/api/cctp/health",
   "/api/cctp/attestation",

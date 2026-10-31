@@ -30,6 +30,16 @@
  */
 
 import express, { type Request, type Response, type NextFunction } from 'express';
+import { isAddress, parseUnits } from 'viem';
+import { randomBytes } from 'node:crypto';
+import { createGatewayEstimateRequest, parseGatewayEstimate, GatewayEstimateError } from './services/gatewayEstimate.js';
+import { isExactGatewayUsdcBalance } from './services/gatewayBalanceValidation.js';
+import { parseOwnedGatewayTransferStatus, GatewayTransferOwnerError } from './services/gatewayTransferOwnership.js';
+import {
+ saveBoundStableFxQuote,reserveStableFxTrade,recordStableFxTrade,markStableFxTradeUncertain,
+ requireOwnedStableFxTrade,saveStableFxFundingPresign,claimStableFxFundingSubmission,
+ markStableFxFundingSent,StableFxOwnershipError,
+} from './services/stableFxTradeOwnership.js';
 import { evaluateBrowserOrigin } from './middleware/browserOriginPolicy.js';
 import { validateIntentResponse } from '../src/core/intent/intentSchema';
 import { createFallbackAgentResponse, validateAgentChatResponse, type AgentHistoryMessage } from '../src/core/agent/agentV2';
@@ -1336,6 +1346,14 @@ app.post('/api/agent/explain', AGENT_RATE, async (req: Request, res: Response): 
   }
 });
 
+// StableFX uses one Circle API hostname and a TEST/LIVE key to select the
+// environment. Never let a LIVE key execute from the Testnet BFF.
+const STABLEFX_TEST_BASE_URL = 'https://api.circle.com';
+function stableFxTestKey(): string | null {
+  const key = process.env.CIRCLE_API_KEY ?? '';
+  return key.startsWith('TEST_API_KEY:') ? key : null;
+}
+
 // ── POST /api/stablefx/quote ─────────────────────────────────────────────────
 // Fetches a StableFX tradable quote from Circle API (server-side — API key stays here)
 // Returns the quote including typedData for browser-side Permit2 signing.
@@ -1344,7 +1362,10 @@ app.post('/api/agent/explain', AGENT_RATE, async (req: Request, res: Response): 
 
 app.post('/api/stablefx/quote', STABLEFX_RATE, async (req: Request, res: Response): Promise<void> => {
   try {
-    const circleApiKey = process.env.CIRCLE_API_KEY;
+    if (!getAuthenticatedVeyraUserId(req)) {
+      res.status(401).json({ error: 'SIGNED_VEYRA_SESSION_REQUIRED' }); return;
+    }
+    const circleApiKey = stableFxTestKey();
     if (!circleApiKey) {
       res.status(503).json({ error: 'Circle API key not configured on this server' });
       return;
@@ -1375,10 +1396,16 @@ app.post('/api/stablefx/quote', STABLEFX_RATE, async (req: Request, res: Respons
       return;
     }
 
-    // Amount must be a positive number string
-    const parsedAmount = parseFloat(fromAmount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      res.status(400).json({ error: 'fromAmount must be a positive number' });
+    // Reject partial, exponential, negative or over-precision input. parseFloat
+    // silently accepts "1garbage" and monetary amounts must be exact.
+    if(typeof fromAmount!=='string' ||
+       !/^\d{1,18}(?:\.\d{1,6})?$/.test(fromAmount) ||
+       parseUnits(fromAmount,6)<=0n) {
+      res.status(400).json({ error: 'fromAmount must be an exact positive 6-decimal amount' });
+      return;
+    }
+    if(typeof recipientAddress!=='string'||!isAddress(recipientAddress)) {
+      res.status(400).json({ error: 'Invalid StableFX recipient address' });
       return;
     }
 
@@ -1391,7 +1418,7 @@ app.post('/api/stablefx/quote', STABLEFX_RATE, async (req: Request, res: Respons
     };
 
     const circleRes = await fetch(
-      `${MANIFEST_CONSTANTS.STABLEFX_SANDBOX_BASE_URL}/v1/exchange/stablefx/quotes`,
+      `${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/quotes`,
       {
         method: 'POST',
         headers: {
@@ -1403,13 +1430,29 @@ app.post('/api/stablefx/quote', STABLEFX_RATE, async (req: Request, res: Respons
     );
 
     if (!circleRes.ok) {
-      const errText = await circleRes.text();
-      console.error('[BFF] StableFX quote error:', circleRes.status, errText);
+      // Never print provider bodies: they can contain sensitive account metadata.
+      console.error('[BFF] StableFX quote status:', circleRes.status);
       res.status(502).json({ error: `Circle StableFX returned ${circleRes.status}` });
       return;
     }
 
-    const quote = await circleRes.json() as unknown;
+    const quote = await circleRes.json() as Record<string, unknown>;
+    const signed = quote.typedData as Record<string, unknown> | undefined;
+    if(!quote.id || typeof quote.id!=='string'|| !signed ||
+       !signed.message || typeof signed.message!=='object' ||
+       !quote.expiresAt || typeof quote.expiresAt!=='string') {
+      res.status(502).json({error:'STABLEFX_QUOTE_PAYLOAD_INVALID'});return;
+    }
+    const userId=getAuthenticatedVeyraUserId(req);
+    if(!userId){res.status(401).json({error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    await saveBoundStableFxQuote(db,{
+      quoteId:quote.id,userId,walletAddress:recipientAddress,
+      fromCurrency:fromCurrency as 'USDC'|'EURC',
+      toCurrency:toCurrency as 'USDC'|'EURC',
+      fromAmount,typedData:signed,expiresAt:quote.expiresAt,
+    });
+    res.setHeader('Cache-Control','no-store');
     res.json({ ok: true, quote, fetchedAt: Date.now() });
   } catch (err) {
     console.error('[BFF] /api/stablefx/quote error:', err);
@@ -1422,7 +1465,10 @@ app.post('/api/stablefx/quote', STABLEFX_RATE, async (req: Request, res: Respons
 
 app.post('/api/stablefx/trade', STABLEFX_RATE, async (req: Request, res: Response): Promise<void> => {
   try {
-    const circleApiKey = process.env.CIRCLE_API_KEY;
+    if (!getAuthenticatedVeyraUserId(req)) {
+      res.status(401).json({ error: 'SIGNED_VEYRA_SESSION_REQUIRED' }); return;
+    }
+    const circleApiKey = stableFxTestKey();
     if (!circleApiKey) {
       res.status(503).json({ error: 'Circle API key not configured on this server' });
       return;
@@ -1441,9 +1487,23 @@ app.post('/api/stablefx/trade', STABLEFX_RATE, async (req: Request, res: Respons
       return;
     }
 
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey) ||
+        !isAddress(address) ||
+        !/^[0-9a-f-]{36}$/i.test(quoteId) ||
+        !/^0x[0-9a-f]{128}(?:[0-9a-f]{2})?$/i.test(signature)) {
+      res.status(400).json({ error: 'Invalid trade identifiers, wallet or signature.' });
+      return;
+    }
+    const userId=getAuthenticatedVeyraUserId(req);
+    if(!userId){res.status(401).json({error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    // Atomic DB reservation before the first remote POST. No second attempt
+    // can reuse this quote even if Circle times out after receiving it.
+    await reserveStableFxTrade(db,{quoteId,idempotencyKey,userId,walletAddress:address,message});
     const tradeBody = { idempotencyKey, quoteId, address, message, signature };
+    try {
     const circleRes = await fetch(
-      `${MANIFEST_CONSTANTS.STABLEFX_SANDBOX_BASE_URL}/v1/exchange/stablefx/trades`,
+      `${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/trades`,
       {
         method: 'POST',
         headers: {
@@ -1455,25 +1515,139 @@ app.post('/api/stablefx/trade', STABLEFX_RATE, async (req: Request, res: Respons
     );
 
     if (!circleRes.ok) {
-      const errText = await circleRes.text();
-      console.error('[BFF] StableFX trade error:', circleRes.status, errText);
-      res.status(502).json({ error: `Circle StableFX trade returned ${circleRes.status}` });
+      await markStableFxTradeUncertain(db,idempotencyKey,userId);
+      res.status(502).json({error:'STABLEFX_TRADE_SUBMISSION_UNCERTAIN_RECONCILE'});
       return;
     }
-
-    const trade = await circleRes.json() as unknown;
+    const trade = await circleRes.json() as Record<string,unknown>;
+    if(typeof trade.id!=='string'||typeof trade.contractTradeId!=='string') {
+      await markStableFxTradeUncertain(db,idempotencyKey,userId);
+      res.status(502).json({error:'STABLEFX_TRADE_IDENTIFIER_MISSING'});return;
+    }
+    await recordStableFxTrade(db,{idempotencyKey,userId,tradeId:trade.id,contractTradeId:trade.contractTradeId});
+    res.setHeader('Cache-Control','no-store');
     res.json({ ok: true, trade });
+    } catch {
+      await markStableFxTradeUncertain(db,idempotencyKey,userId).catch(()=>{});
+      res.status(503).json({error:'STABLEFX_TRADE_OUTCOME_UNKNOWN_NO_AUTO_RETRY'});
+    }
   } catch (err) {
-    console.error('[BFF] /api/stablefx/trade error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    if(err instanceof StableFxOwnershipError){
+      res.status(409).json({error:err.code});return;
+    }
+    res.status(503).json({error:'STABLEFX_TRADE_UNAVAILABLE'});
   }
 });
 
 // ── GET /api/stablefx/trade/:tradeId ─────────────────────────────────────────
 
+
+/**
+ * StableFX taker funding: this is a SECOND Permit2 signature, separate from
+ * quote acceptance. Circle handles the on-chain funding submission.
+ * Never auto-submit, never retry an uncertain request, never call a LIVE key.
+ */
+app.post('/api/stablefx/funding/presign', STABLEFX_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!getAuthenticatedVeyraUserId(req)) {
+      res.status(401).json({ error: 'SIGNED_VEYRA_SESSION_REQUIRED' }); return;
+    }
+    const key = stableFxTestKey();
+    if (!key) { res.status(503).json({ error: 'STABLEFX_TEST_KEY_UNAVAILABLE' }); return; }
+    const body = req.body as Record<string, unknown>;
+    const tradeId = typeof body.tradeId === 'string' ? body.tradeId : '';
+    const contractTradeId = typeof body.contractTradeId === 'string' ? body.contractTradeId : '';
+    if (!/^[0-9a-f-]{36}$/i.test(tradeId) || !/^[1-9]\d{0,40}$/.test(contractTradeId)) {
+      res.status(400).json({ error: 'INVALID_STABLEFX_TRADE_ID' }); return;
+    }
+    const userId=getAuthenticatedVeyraUserId(req);
+    if(!userId){res.status(401).json({error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    await requireOwnedStableFxTrade(db,{userId,tradeId,contractTradeId});
+    const providerHeaders = { Authorization: `Bearer ${key}`, Accept: 'application/json' };
+    const status = await fetch(`${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/trades/${encodeURIComponent(tradeId)}`, {
+      headers: providerHeaders, signal: AbortSignal.timeout(12000),
+    });
+    if (!status.ok) { res.status(502).json({ error: 'STABLEFX_TRADE_STATUS_UNAVAILABLE' }); return; }
+    const trade = await status.json() as Record<string, unknown>;
+    if (String(trade.contractTradeId) !== contractTradeId || trade.status !== 'pending_settlement') {
+      res.status(409).json({ error: 'STABLEFX_TRADE_NOT_AWAITING_FUNDING' }); return;
+    }
+    const response = await fetch(`${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/signatures/funding/presign`, {
+      method: 'POST', headers: { ...providerHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contractTradeIds: [contractTradeId], type: 'taker' }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!response.ok) { res.status(502).json({ error: 'STABLEFX_FUNDING_PRESIGN_UNAVAILABLE' }); return; }
+    const presign = await response.json() as Record<string, unknown>;
+    if (!presign.typedData || typeof presign.typedData !== 'object') {
+      res.status(502).json({ error: 'STABLEFX_FUNDING_TYPED_DATA_MISSING' }); return;
+    }
+    await saveStableFxFundingPresign(db,{userId,tradeId,payload:presign.typedData});
+    res.setHeader('Cache-Control','no-store');
+    res.json({ ...presign, ok:true, contractTradeId, tradeId, fetchedAt:Date.now() });
+  } catch {
+    res.status(503).json({ error: 'STABLEFX_FUNDING_PRESIGN_TIMEOUT_OR_ERROR' });
+  }
+});
+
+app.post('/api/stablefx/funding/submit', STABLEFX_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!getAuthenticatedVeyraUserId(req)) {
+      res.status(401).json({ error: 'SIGNED_VEYRA_SESSION_REQUIRED' }); return;
+    }
+    const key = stableFxTestKey();
+    if (!key) { res.status(503).json({ error: 'STABLEFX_TEST_KEY_UNAVAILABLE' }); return; }
+    const body = req.body as Record<string, unknown>;
+    const tradeId = typeof body.tradeId === 'string' ? body.tradeId : '';
+    const contractTradeId = typeof body.contractTradeId === 'string' ? body.contractTradeId : '';
+    const signature = typeof body.signature === 'string' ? body.signature : '';
+    if (!/^[0-9a-f-]{36}$/i.test(tradeId) || !/^[1-9]\d{0,40}$/.test(contractTradeId) ||
+        !/^0x[0-9a-f]{130}$/i.test(signature)) {
+      res.status(400).json({ error: 'INVALID_STABLEFX_FUNDING_REQUEST' }); return;
+    }
+    const userId=getAuthenticatedVeyraUserId(req);
+    if(!userId){res.status(401).json({error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    await requireOwnedStableFxTrade(db,{userId,tradeId,contractTradeId});
+    const providerHeaders = { Authorization: `Bearer ${key}`, Accept: 'application/json' };
+    const status = await fetch(`${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/trades/${encodeURIComponent(tradeId)}`, {
+      headers: providerHeaders, signal: AbortSignal.timeout(12000),
+    });
+    if (!status.ok) { res.status(502).json({ error: 'STABLEFX_TRADE_STATUS_UNAVAILABLE' }); return; }
+    const trade = await status.json() as Record<string, unknown>;
+    if (String(trade.contractTradeId) !== contractTradeId || trade.status !== 'pending_settlement') {
+      // In particular, taker_funded / complete must never fund a second time.
+      res.status(409).json({ error: 'STABLEFX_FUNDING_ALREADY_SUBMITTED_OR_UNAVAILABLE' }); return;
+    }
+    // One-use atomic submission claim also ensures the signed payload is
+    // identical to the exact EIP-712 message the owner reviewed earlier.
+    await claimStableFxFundingSubmission(db,{userId,tradeId,message:body.permit2});
+    const result = await fetch(`${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/fund`, {
+      method: 'POST', headers: { ...providerHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'taker', signature, permit2: body.permit2 }),
+      signal: AbortSignal.timeout(16000),
+    });
+    if (!result.ok) { res.status(502).json({ error: 'STABLEFX_FUNDING_PROVIDER_UNCONFIRMED' }); return; }
+    // Circle may return a blank 200. Funding acceptance is not trade completion.
+    await markStableFxFundingSent(db,userId,tradeId);
+    res.setHeader('Cache-Control','no-store');
+    res.json({ ok: true, fundingSubmitted: true, tradeId, contractTradeId, status: 'SETTLEMENT_PENDING' });
+  } catch (err) {
+    if(err instanceof StableFxOwnershipError){
+      res.status(409).json({error:err.code});return;
+    }
+    // Uncertain funding must never be marked FAILED or automatically retried.
+    res.status(503).json({ error: 'STABLEFX_FUNDING_OUTCOME_UNKNOWN_RECONCILE_BEFORE_RETRY' });
+  }
+});
+
 app.get('/api/stablefx/trade/:tradeId', STABLEFX_RATE, async (req: Request, res: Response): Promise<void> => {
   try {
-    const circleApiKey = process.env.CIRCLE_API_KEY;
+    if (!getAuthenticatedVeyraUserId(req)) {
+      res.status(401).json({ error: 'SIGNED_VEYRA_SESSION_REQUIRED' }); return;
+    }
+    const circleApiKey = stableFxTestKey();
     if (!circleApiKey) {
       res.status(503).json({ error: 'Circle API key not configured' });
       return;
@@ -1486,8 +1660,12 @@ app.get('/api/stablefx/trade/:tradeId', STABLEFX_RATE, async (req: Request, res:
       return;
     }
 
+    const userId=getAuthenticatedVeyraUserId(req);
+    if(!userId){res.status(401).json({error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+    const {db}=await import('./db/client.js');
+    await requireOwnedStableFxTrade(db,{userId,tradeId});
     const circleRes = await fetch(
-      `${MANIFEST_CONSTANTS.STABLEFX_SANDBOX_BASE_URL}/v1/exchange/stablefx/trades/${tradeId}`,
+      `${STABLEFX_TEST_BASE_URL}/v1/exchange/stablefx/trades/${tradeId}`,
       { headers: { Authorization: `Bearer ${circleApiKey}` } },
     );
 
@@ -1501,6 +1679,171 @@ app.get('/api/stablefx/trade/:tradeId', STABLEFX_RATE, async (req: Request, res:
   } catch (err) {
     console.error('[BFF] /api/stablefx/trade/:id error:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Testnet-only read-only price/expiry estimate. A quote is NOT an authorization
+// to submit a burn, and never returns a signed attestation or false success.
+// The browser must re-review if the recipient, amount, wallet or fee changes.
+app.post('/api/gateway/estimate', STABLEFX_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    if(runtimeConfig.environment!=='testnet'){
+      res.status(403).json({ok:false,error:'GATEWAY_TESTNET_ONLY'});return;
+    }
+    const userId=getAuthenticatedVeyraUserId(req);
+    if(!userId){res.status(401).json({ok:false,error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+    const b=req.body as Record<string,unknown>;
+    if(!b||typeof b!=='object'||typeof b.walletAddress!=='string'||
+       typeof b.recipientAddress!=='string'||typeof b.amount!=='string'||
+       typeof b.sourceDomain!=='number'||typeof b.destinationDomain!=='number'){
+      res.status(400).json({ok:false,error:'INVALID_GATEWAY_ESTIMATE_REQUEST'});return;
+    }
+    if(!/^\d{1,18}(?:\.\d{1,6})?$/.test(b.amount)||
+       parseUnits(b.amount,6)>1000_000000n) {
+      res.status(400).json({ok:false,error:'GATEWAY_TESTNET_LIMIT_EXCEEDED'});return;
+    }
+    const {db}=await import('./db/client.js');
+    const owner=await db.execute(sql`
+      SELECT 1 FROM wallet_bindings wb JOIN veyra_users u ON u.veyr_user_id=wb.veyr_user_id
+      WHERE wb.veyr_user_id=${userId} AND lower(wb.wallet_address)=lower(${b.walletAddress})
+        AND wb.chain_id=5042002 AND wb.status='ACTIVE' AND wb.revoked_at IS NULL
+        AND u.status='ACTIVE' AND u.deleted_at IS NULL LIMIT 1
+    `);
+    if(owner.rows.length!==1){
+      res.status(403).json({ok:false,error:'GATEWAY_WALLET_NOT_BOUND_TO_ID'});return;
+    }
+    const request=createGatewayEstimateRequest({
+      walletAddress:b.walletAddress,recipientAddress:b.recipientAddress,
+      amount:b.amount,sourceDomain:b.sourceDomain,destinationDomain:b.destinationDomain,
+      salt:'0x'+randomBytes(32).toString('hex'),
+    });
+    const provider=await fetch('https://gateway-api-testnet.circle.com/v1/estimate',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify([{spec:request.spec}]),signal:AbortSignal.timeout(12000),
+    });
+    if(!provider.ok){
+      res.status(503).json({ok:false,error:'GATEWAY_ESTIMATE_PROVIDER_UNAVAILABLE'});return;
+    }
+    const quote=parseGatewayEstimate(await provider.json(),request);
+    res.json({
+      ok:true,sourceDomain:quote.domain,maxFee:quote.maxFee.toString(),
+      maxBlockHeight:quote.maxBlockHeight.toString(),spec:request.spec,
+      amount:b.amount,readAt:Date.now(),
+    });
+  }catch(err){
+    if(err instanceof GatewayEstimateError){
+      res.status(422).json({ok:false,error:err.code});return;
+    }
+    res.status(503).json({ok:false,error:'GATEWAY_ESTIMATE_UNAVAILABLE'});
+  }
+});
+
+// ── Signed-identity, read-only Circle Gateway Forwarding status ─────────────
+// This handler never signs, rebroadcasts or turns provider response into an
+// on-chain settlement proof. Only use a previously persisted transfer ID.
+app.get('/api/gateway/transfer-status', STABLEFX_RATE, async(req:Request,res:Response):Promise<void>=>{
+ try {
+  if(runtimeConfig.environment!=='testnet'){
+   res.status(403).json({ok:false,error:'GATEWAY_TESTNET_ONLY'});return;
+  }
+  const userId=getAuthenticatedVeyraUserId(req);
+  if(!userId){res.status(401).json({ok:false,error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+  const transferId=typeof req.query.transferId==='string'?req.query.transferId:'';
+  const walletAddress=typeof req.query.walletAddress==='string'?req.query.walletAddress:'';
+  if(!/^[a-zA-Z0-9-]{10,80}$/.test(transferId)||!isAddress(walletAddress)){
+   res.status(400).json({ok:false,error:'INVALID_GATEWAY_TRANSFER_STATUS_REQUEST'});return;
+  }
+  const {db}=await import('./db/client.js');
+  const owner=await db.execute(sql`
+   SELECT 1 FROM wallet_bindings wb JOIN veyra_users u ON u.veyr_user_id=wb.veyr_user_id
+   WHERE wb.veyr_user_id=${userId} AND lower(wb.wallet_address)=lower(${walletAddress})
+     AND wb.chain_id=5042002 AND wb.status='ACTIVE' AND wb.revoked_at IS NULL
+     AND u.status='ACTIVE' AND u.deleted_at IS NULL LIMIT 1
+  `);
+  if(owner.rows.length!==1){
+   res.status(403).json({ok:false,error:'GATEWAY_WALLET_NOT_BOUND_TO_ID'});return;
+  }
+  const response=await fetch('https://gateway-api-testnet.circle.com/v1/transfer/'+transferId,{
+   method:'GET',signal:AbortSignal.timeout(12000),
+  });
+  if(!response.ok){
+   res.status(503).json({ok:false,error:'GATEWAY_TRANSFER_STATUS_UNAVAILABLE'});return;
+  }
+  const raw:unknown=await response.json();
+  // The transfer ID is a capability-like locator. An authenticated Veyra
+  // session alone does NOT authorize reading an arbitrary transfer. Require
+  // Circle's own returned depositor proof to match the signed user's wallet.
+  const status=parseOwnedGatewayTransferStatus(raw,walletAddress,transferId);
+  res.setHeader('Cache-Control','no-store');
+  res.json({ok:true,transferId,...status,readAt:Date.now(),settlementVerified:false});
+ }catch(err){
+  if(err instanceof GatewayTransferOwnerError){
+   res.status(403).json({ok:false,error:err.code});return;
+  }
+  res.status(503).json({ok:false,error:'GATEWAY_TRANSFER_STATUS_UNAVAILABLE'});
+ }
+});
+
+// ── Circle Gateway Testnet balance (actual deposited USDC only) ──────────────
+// Read-only, wallet-owned: not a sum of ERC-20 balanceOf across source chains.
+// Never substitute zero when a domain is absent or provider/RPC fails.
+app.post('/api/gateway/balances', STABLEFX_RATE, async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (runtimeConfig.environment !== 'testnet') {
+      res.status(403).json({ok:false,error:'GATEWAY_TESTNET_ONLY'});return;
+    }
+    const userId=getAuthenticatedVeyraUserId(req);
+    if(!userId){res.status(401).json({ok:false,error:'SIGNED_VEYRA_SESSION_REQUIRED'});return;}
+    const {walletAddress}=req.body as {walletAddress?:unknown};
+    if(typeof walletAddress!=='string'||!isAddress(walletAddress)){
+      res.status(400).json({ok:false,error:'INVALID_WALLET'});return;
+    }
+    const {db}=await import('./db/client.js');
+    const owned=await db.execute(sql`
+      SELECT 1 FROM wallet_bindings wb JOIN veyra_users u
+       ON u.veyr_user_id=wb.veyr_user_id
+      WHERE wb.veyr_user_id=${userId}
+        AND lower(wb.wallet_address)=lower(${walletAddress})
+        AND wb.chain_id=5042002 AND wb.status='ACTIVE'
+        AND wb.revoked_at IS NULL AND u.status='ACTIVE' AND u.deleted_at IS NULL
+      LIMIT 1
+    `);
+    if(owned.rows.length!==1){
+      res.status(403).json({ok:false,error:'GATEWAY_WALLET_NOT_BOUND_TO_ID'});return;
+    }
+    const domains=[26,0,6];
+    const url='https://gateway-api-testnet.circle.com/v1/balances';
+    const response=await fetch(url,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:'USDC',sources:domains.map(domain=>({domain,depositor:walletAddress}))}),
+      signal:AbortSignal.timeout(12_000),
+    });
+    if(!response.ok){res.status(503).json({ok:false,error:'GATEWAY_BALANCE_API_UNAVAILABLE'});return;}
+    const payload=await response.json() as {token?:unknown;balances?:unknown};
+    if(payload.token!=='USDC'||!Array.isArray(payload.balances)){
+      res.status(502).json({ok:false,error:'GATEWAY_BALANCE_RESPONSE_MALFORMED'});return;
+    }
+    const validated:Array<{domain:number;depositor:string;balance:string}>=[];
+    for(const domain of domains){
+      const rows=payload.balances.filter((entry:unknown)=>
+        typeof entry==='object'&&entry!==null&&
+        (entry as {domain?:unknown}).domain===domain&&
+        typeof (entry as {depositor?:unknown}).depositor==='string'&&
+        (entry as {depositor:string}).depositor.toLowerCase()===walletAddress.toLowerCase());
+      if(rows.length!==1){
+        res.status(502).json({ok:false,error:'GATEWAY_DOMAIN_BALANCE_UNVERIFIED'});return;
+      }
+      const amount=(rows[0] as {balance?:unknown}).balance;
+      if(!isExactGatewayUsdcBalance(amount)){
+        res.status(502).json({ok:false,error:'GATEWAY_BALANCE_NOT_EXACT_USDC'});return;
+      }
+      validated.push({domain,depositor:walletAddress,balance:amount});
+    }
+    // Never cache wallet-specific amounts across wallet/session changes.
+    res.setHeader('Cache-Control','no-store');
+    res.json({ok:true,token:'USDC',balances:validated,readAt:Date.now()});
+  }catch {
+    res.status(503).json({ok:false,error:'GATEWAY_BALANCE_CHECK_FAILED'});
   }
 });
 

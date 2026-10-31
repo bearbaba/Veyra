@@ -327,8 +327,57 @@ function buildIntent(message: string, locale: string): IntentResult | undefined 
   const amount = extractAmount(message);
   const recipient = extractRecipient(message);
   const sepoliaDestination = requestedSepoliaDestination(message);
-  const paymentHint = hasAny(message, TRANSFER_HINTS);
-  if (sepoliaDestination && (paymentHint || hasAny(message, BRIDGE_HINTS))) {
+  // JS word-boundary does not recognize all accented Vietnamese verbs such as
+  // "gửi". An exact address plus amount is already a financial request, and
+  // must not fall back to a same-chain Base transfer.
+  const paymentHint = hasAny(message, TRANSFER_HINTS) || Boolean(recipient && amount);
+  const bridgeHint = hasAny(message, BRIDGE_HINTS);
+  // A named source of funds is an instruction about custody, never permission
+  // to replace Gateway Send with a wallet-origin CCTP Bridge or Arc Pay.
+  // Keep any unimplemented Gateway transfer closed until it can sign and mint.
+  const gatewaySource = /\b(?:unified(?:\s+balance)?|circle\s+gateway|gateway\s+(?:balance|funds))\b/i.test(message)
+    || /(?:số\s+dư\s+unified|từ\s+unified|tiền\s+trong\s+gateway)/i.test(message);
+  if (gatewaySource && (paymentHint || bridgeHint || hasAny(message, CONVERT_HINTS))) {
+    const requestedAction = hasAny(message, CONVERT_HINTS) && !bridgeHint ? 'CONVERT' : 'TRANSFER';
+    return validateIntentResponse({
+      displaySummary: locale.startsWith('vi')
+        ? 'Nguồn tiền: Circle Gateway Unified Balance. Không tự đổi sang ví hoặc Bridge.'
+        : 'Funding source: Circle Gateway Unified Balance. Never change to wallet or Bridge.',
+      status: 'UNSUPPORTED',
+      candidates:[{
+        actionType:requestedAction,
+        recipient, fromAmount:amount, fromCurrency:tokens[0],
+        sourceChain:'Circle Gateway Unified Balance',
+        destinationChain:sepoliaDestination ?? chains[0],
+        confidence:0.98,
+      }],
+      missingParams:[],
+      parsedAt:Date.now(),
+    });
+  }
+  // "chain base" alone does not distinguish Base Mainnet from Base Sepolia.
+  // Never create a misleading same-chain Transfer or assume a signing network.
+  if (/\bbase\b(?![ -]+(?:sepolia|mainnet))/i.test(message) &&
+      !sepoliaDestination && (paymentHint || bridgeHint)) {
+    const missing: string[] = ['destinationChainRaw'];
+    if (!recipient) missing.push('recipientRaw');
+    if (!amount) missing.push('amountRaw');
+    if (!tokens[0]) missing.push('tokenRaw');
+    return validateIntentResponse({
+      displaySummary: localized(locale, 'action'),
+      status: 'NEEDS_CLARIFICATION',
+      candidates: [{
+        actionType:'BRIDGE', recipient, fromAmount:amount, fromCurrency:tokens[0],
+        sourceChain:requestedBridgeSource(message), destinationChain:'Base', confidence:0.65,
+      }],
+      missingParams:missing,
+      clarificationQuestion:locale.startsWith('vi')
+        ? 'Bạn muốn gửi đến Base Sepolia (Testnet) hay Base Mainnet? Veyra chỉ hỗ trợ Bridge từ Arc Testnet đến Base Sepolia; Base Mainnet chưa được bật.'
+        : 'Do you mean Base Sepolia (Testnet) or Base Mainnet? Only Arc Testnet to Base Sepolia Bridge is enabled.',
+      parsedAt:Date.now(),
+    });
+  }
+  if (sepoliaDestination && (paymentHint || bridgeHint)) {
     const sourceChain = requestedBridgeSource(message);
     const missing: string[] = [];
     if (!recipient) missing.push('recipientRaw');
@@ -520,9 +569,13 @@ export function createFallbackAgentResponse(
       reply: needsClarification
         ? (intent.clarificationQuestion ?? localized(locale, 'fallback'))
         : unsupported
-          ? (locale.startsWith('vi')
-              ? 'Mình đã nhận ra mạng bạn yêu cầu, nhưng hiện Veyra chỉ cho phép gửi USDC trên Arc Testnet. Mình sẽ không tự đổi sang mạng khác.'
-              : 'I recognized your requested network, but Veyra currently executes USDC payments on Arc Testnet only. I will not silently change networks.')
+          ? (/unified|gateway/i.test(intent.displaySummary)
+              ? (locale.startsWith('vi')
+                ? 'Mình hiểu bạn muốn dùng USDC trong Circle Gateway. Luồng Gateway Send/Swap đang chờ nghiệm thu ký và nhận tiền thật; mình sẽ không tự đổi thành Bridge hoặc trừ ví của bạn.'
+                : 'You requested Circle Gateway funds. Gateway Send/Swap still requires signed transfer and destination settlement verification. I will not switch your funding source to Bridge or your wallet.')
+              : (locale.startsWith('vi')
+                ? 'Mình đã nhận ra mạng bạn yêu cầu, nhưng hiện Veyra chỉ cho phép gửi USDC trên Arc Testnet. Mình sẽ không tự đổi sang mạng khác.'
+                : 'I recognized your requested network, but Veyra currently executes USDC payments on Arc Testnet only. I will not silently change networks.'))
           : localized(locale, 'action'),
       locale,
       mode: needsClarification ? 'CLARIFICATION' : unsupported ? 'CHAT' : 'ACTION',
@@ -574,7 +627,8 @@ export function validateAgentChatResponse(
   };
   // A hosted model must not downgrade an explicit Sepolia destination to an
   // Arc direct payment. Reconcile the user's literal destination deterministically.
-  const pinnedNetworkIntent = /\bsepolia\b/i.test(fallbackMessage) ? fallback.intent : undefined;
+  const pinnedNetworkIntent = /\b(?:base|sepolia|unified|gateway)\b/i.test(fallbackMessage)
+    ? fallback.intent : undefined;
   const intent = pinnedNetworkIntent ?? (raw.intent ? validateIntentResponse(raw.intent) : undefined);
   return {
     ok: true,

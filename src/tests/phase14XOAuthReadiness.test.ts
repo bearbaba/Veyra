@@ -69,3 +69,17 @@ describe('Phase 14 — X linking is opt-in, state-bound, and never creates anoth
     expect(read('server/services/xOAuthService.ts')).toContain('signal:AbortSignal.timeout(PROVIDER_TIMEOUT_MS)');
   });
 });
+
+describe('X OAuth disabled-state diagnostic is explicit without bypassing trusted origin',()=>{
+  it('preserves a signed-session gate and gives a reason for unavailable X',()=>{
+    const settings=read('src/components/pages/SettingsPage.tsx');
+    const api=read('src/lib/api/identityApi.ts');
+    expect(settings).toContain("disabled={xCapability!=='available'");
+    expect(settings).toContain('xReadinessDetail');
+    expect(settings).toContain('probeXLinkReadiness()');
+    expect(api).toContain('X OAuth is not enabled on the identity backend.');
+    expect(api).toContain('This website is not an approved X-link return origin.');
+    expect(api).toContain('X_CLIENT_ID');
+    expect(api).not.toContain('localStorage.setItem');
+  });
+});
