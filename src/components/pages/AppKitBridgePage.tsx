@@ -46,7 +46,10 @@ function quoteFees(estimate:unknown):string[]{
  return Array.isArray(data.fees)?data.fees.map(v=>{
   if(!v||typeof v!=='object'||Array.isArray(v))return 'Fee details unavailable';
   const f=v as Record<string,unknown>;
-  return String(f.type??'Fee')+': '+String(f.amount??'unknown')+' '+String(f.token??'');
+  const kind=typeof f.type==='string'?f.type:'Fee';
+  const amount=typeof f.amount==='string'?f.amount:'unknown';
+  const token=typeof f.token==='string'?f.token:'';
+  return kind+': '+amount+' '+token;
  }):['Circle fees not itemized by this provider; network fees may apply'];
 }
 export function AppKitBridgePage({embedded=false}:{embedded?:boolean}={}){
