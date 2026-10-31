@@ -28,7 +28,7 @@ export function verifyGatewayDestinationMint(receipt:ReceiptEvidence,input:{
  const maximum=parseUnits(input.amount,6),minimum=parseUnits(input.minReceive,6);
  if(minimum<=0n||minimum>maximum||receipt.status!=='success'||
     receipt.transactionHash.toLowerCase()!==input.expectedHash.toLowerCase()||
-    !Array.isArray(receipt.logs))
+    receipt.logs===undefined)
   throw Error('Destination mint is not a confirmed matching transaction.');
  const recipientTopic=pad(getAddress(input.recipient),{size:32}).toLowerCase();
  let credited=0n;
