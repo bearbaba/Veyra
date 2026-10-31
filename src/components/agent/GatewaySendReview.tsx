@@ -4,24 +4,28 @@
  * until independently verified on destination.
  */
 import {useEffect,useState} from 'react';
-import {useAccount,useSwitchChain} from 'wagmi';
-import {isAddress,parseUnits,type EIP1193Provider} from 'viem';
+import {useAccount,useSwitchChain,usePublicClient} from 'wagmi';
+import {formatUnits,isAddress,parseUnits,type EIP1193Provider,type Hash} from 'viem';
 import {
  GATEWAY_TESTNET_SOURCES,fetchGatewayTestnetBalances,
 } from '../../core/gateway/gatewayBalances';
 import {activeSignedIdentityToken} from '../../lib/api/liveIdentitySession';
 import {useUnifiedSocial} from '../../features/social/UnifiedSocial';
 import {IS_UI_ONLY_PREVIEW,VEYRA_ENV} from '../../lib/env';
-import {readGatewaySpendCheckpoint,prepareGatewaySpendCheckpoint,submitGatewaySdkSpend,estimateGatewaySdkFees,type GatewaySpendCheckpoint,type GatewaySdkFee} from '../../core/gateway/gatewaySdkSpend';
+import {readGatewaySpendCheckpoint,prepareGatewaySpendCheckpoint,submitGatewaySdkSpend,estimateGatewaySdkFees,gatewaySpendKey,type GatewaySpendCheckpoint,type GatewaySdkFee} from '../../core/gateway/gatewaySdkSpend';
+import {verifyGatewayDestinationMint,type GatewayDestinationProof} from '../../core/gateway/gatewayDestinationMint';
 
 type Review={
  owner:string;recipient:string;destinationChainId:number;
- amount:string;readAt:number;sourceChainId:number;sdkFees:GatewaySdkFee[];
+ amount:string;readAt:number;sourceChainId:number;sdkFees:GatewaySdkFee[];minReceive:string;
 };
 const DECIMAL=/^\d{1,18}(?:\.\d{1,6})?$/;
 export function GatewaySendReview(){
  const {address,connector}=useAccount();
  const {switchChainAsync}=useSwitchChain();
+ const arcClient=usePublicClient({chainId:GATEWAY_TESTNET_SOURCES[0].chainId});
+ const ethClient=usePublicClient({chainId:GATEWAY_TESTNET_SOURCES[1].chainId});
+ const baseClient=usePublicClient({chainId:GATEWAY_TESTNET_SOURCES[2].chainId});
  const social=useUnifiedSocial();
  const identity=social.session?.profile.veyraUserId??'';
  const identityReady=Boolean(identity&&social.identityOrigin==='ready'&&
@@ -36,6 +40,7 @@ export function GatewaySendReview(){
  const [confirmFees,setConfirmFees]=useState(false);
  const [forwardStatus,setForwardStatus]=useState<string|null>(null);
  const [forwardTxHash,setForwardTxHash]=useState<string|null>(null);
+ const [verifiedProof,setVerifiedProof]=useState<GatewayDestinationProof|null>(null);
  const canSign=VEYRA_ENV==='testnet'&&!IS_UI_ONLY_PREVIEW&&identityReady;
  useEffect(()=>{
   if(!address||!identity){setPending(null);return;}
@@ -100,8 +105,12 @@ export function GatewaySendReview(){
      fee.amount.startsWith('.')?'0'+fee.amount:fee.amount,6),0n);
    if(source.available<parseUnits(amount,6)+sourceFee)
     throw Error('Insufficient deposited USDC after source fees. Reduce the amount.');
+   const allFees=sdkFees.reduce((sum,fee)=>sum+parseUnits(
+     fee.amount.startsWith('.')?'0'+fee.amount:fee.amount,6),0n);
+   const minimum=parseUnits(amount,6)-allFees;
+   if(minimum<=0n)throw Error('Gateway fees consume the entire payment. No signing allowed.');
    setReview({owner,recipient,destinationChainId,amount,readAt:Date.now(),
-    sourceChainId:source.chainId,sdkFees});
+    sourceChainId:source.chainId,sdkFees,minReceive:formatUnits(minimum,6)});
   }catch(e){setError(e instanceof Error?e.message:'Gateway estimate unavailable.');}
   finally{setBusy(false);}
  }
@@ -128,6 +137,42 @@ export function GatewaySendReview(){
    setForwardTxHash(typeof result.destinationTxHash==='string'&&
     /^0x[0-9a-fA-F]{64}$/.test(result.destinationTxHash)?result.destinationTxHash:null);
   }catch(e){setError(e instanceof Error?e.message:'Status unavailable.');}
+  finally{setBusy(false);}
+ }
+ async function verifyDestination(){
+  if(!pending?.transferId||!pending.minReceive||!forwardTxHash||!address||!identity||
+     !identityReady||busy)return;
+  setBusy(true);setError(null);
+  try{
+   const normalized=forwardStatus?.toLowerCase();
+   if(!normalized||!['complete','completed','confirmed','success'].includes(normalized))
+    throw Error('Circle has not reported completion. Keep the transfer pending.');
+   const dest=GATEWAY_TESTNET_SOURCES.find(s=>s.chainId===pending.destinationChainId);
+   const rpc=pending.destinationChainId===GATEWAY_TESTNET_SOURCES[0].chainId?arcClient:
+    pending.destinationChainId===GATEWAY_TESTNET_SOURCES[1].chainId?ethClient:baseClient;
+   if(!dest||!rpc||await rpc.getChainId()!==dest.chainId)
+    throw Error('Verified destination RPC is unavailable.');
+   const receipt=await rpc.getTransactionReceipt({hash:forwardTxHash as Hash});
+   const proof=verifyGatewayDestinationMint(receipt,{
+    expectedHash:forwardTxHash,token:dest.token,recipient:pending.recipient,
+    amount:pending.amount,minReceive:pending.minReceive,chainId:dest.chainId,
+   });
+   // Persist the auditable receipt BEFORE removing the replay lock. A crash
+   // cannot erase the evidence while allowing another send.
+   const key=gatewaySpendKey(pending.owner,pending.identity);
+   const stored=readGatewaySpendCheckpoint(localStorage,pending.owner,pending.identity);
+   if(!stored||stored.transferId!==pending.transferId||
+      stored.owner!==address.toLowerCase()||stored.identity!==identity)
+    throw Error('Pending owner or Circle transfer changed. Keep it locked.');
+   const archive=key+':verified:'+pending.transferId;
+   localStorage.setItem(archive,JSON.stringify({
+    ...proof,owner:pending.owner,identity:pending.identity,
+    transferId:pending.transferId,verifiedAt:Date.now(),
+   }));
+   localStorage.removeItem(key);
+   setVerifiedProof(proof);setPending(null);
+   setForwardStatus(null);setForwardTxHash(null);
+  }catch(e){setError(e instanceof Error?e.message:'Destination mint not verified. Do not resend.');}
   finally{setBusy(false);}
  }
  async function onConfirmAndSign(){
@@ -162,6 +207,7 @@ export function GatewaySendReview(){
    const checkpoint=prepareGatewaySpendCheckpoint({
     owner:address,identity,recipient:review.recipient,amount:review.amount,
     sourceChainId,destinationChainId:review.destinationChainId,
+    minReceive:review.minReceive,
    });
    // The only money movement is via the user's on-screen wallet signature.
    // SDK results are not marked VERIFIED without chain receipt verification.
@@ -215,12 +261,22 @@ export function GatewaySendReview(){
      {pending.txHash&&<p className="break-all">Transaction: {pending.txHash}</p>}
      {forwardStatus&&<p>Circle status: {forwardStatus} (not yet independently verified)</p>}
      {forwardTxHash&&<p className="break-all">Reported destination tx: {forwardTxHash}</p>}
+     {forwardTxHash&&pending.minReceive&&<button type="button" disabled={busy}
+       onClick={()=>void verifyDestination()} className="rounded-xl border px-3 py-2 disabled:opacity-50"
+       style={{borderColor:'var(--border-strong)'}}>Verify destination USDC mint</button>}
      {pending.transferId&&<button type="button" disabled={busy}
        onClick={()=>void checkForwardingStatus()}
        className="rounded-xl border px-3 py-2 disabled:opacity-50"
        style={{borderColor:'var(--border)'}}>Refresh transfer status</button>}
      <p>Pending transfer is saved for recovery. Submission is not destination settlement.</p>
    </div>}
+   {verifiedProof&&<div role="status" className="rounded-xl border p-3 text-xs space-y-1"
+      style={{borderColor:'var(--success)'}}>
+      <p className="font-semibold">Destination USDC mint verified on-chain</p>
+      <p>{verifiedProof.mintedUsdc} USDC · chain {verifiedProof.chainId}</p>
+      <p className="break-all font-mono">{verifiedProof.txHash}</p>
+      <p>Local proof archived under the signed Veyra identity.</p>
+    </div>}
    {verified&&review&&<div className="rounded-xl border p-3 space-y-2 text-xs"
       style={{borderColor:'var(--border)'}}>
      <p className="font-semibold" style={{color:'var(--ink)'}}>Quote preview · {review.amount} USDC</p>
@@ -238,6 +294,7 @@ export function GatewaySendReview(){
          <span>{fee.amount} USDC</span>
        </div>)}
      </div>}
+     <p className="font-semibold" style={{color:'var(--ink)'}}>Minimum USDC to recipient: {review.minReceive}</p>
      <p style={{color:'var(--muted)'}}>Fees can vary with network conditions. Forwarding fees reduce USDC received; submission is not verified settlement.</p>
      <label className="flex items-start gap-2" style={{color:'var(--muted)'}}>
       <input type="checkbox" checked={confirmFees} onChange={e=>setConfirmFees(e.target.checked)}/>

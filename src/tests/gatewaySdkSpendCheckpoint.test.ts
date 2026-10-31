@@ -1,4 +1,6 @@
 import {describe,expect,it} from 'vitest';
+import {keccak256,pad,stringToHex,zeroAddress} from 'viem';
+import {verifyGatewayDestinationMint} from '../core/gateway/gatewayDestinationMint';
 import type {EIP1193Provider} from 'viem';
 import {gatewaySpendKey,prepareGatewaySpendCheckpoint,readGatewaySpendCheckpoint,assertGatewayProviderWallet,parseGatewaySdkFees,assertGatewaySdkFeesUnchanged}
  from '../core/gateway/gatewaySdkSpend';
@@ -85,5 +87,34 @@ describe('Gate signing on the exact Circle fees reviewed by the owner',()=>{
   ])).toThrow('Circle forwarding fees changed');
   expect(()=>assertGatewaySdkFeesUnchanged(quoted,[])).toThrow();
   expect(()=>assertGatewaySdkFeesUnchanged([],quoted)).toThrow();
+ });
+});
+
+describe('Circle destination mint is independently verified from chain receipts',()=>{
+ const tx='0x'+'ab'.repeat(32);
+ const token='0x3333333333333333333333333333333333333333';
+ const transfer=keccak256(stringToHex('Transfer(address,address,uint256)'));
+ const mint=(to:string,from:string,value:bigint,emitter=token)=>({
+  address:emitter,topics:[transfer,pad(from as `0x${string}`,{size:32}),
+   pad(to as `0x${string}`,{size:32})],
+  data:'0x'+value.toString(16).padStart(64,'0'),
+ });
+ const input={expectedHash:tx,token,recipient,amount:'2',minReceive:'1.9',chainId:84532};
+ it('requires successful destination chain USDC mint to the exact reviewed recipient',()=>{
+  const proof=verifyGatewayDestinationMint({
+   status:'success',transactionHash:tx,logs:[mint(recipient,zeroAddress,1950000n)],
+  },input);
+  expect(proof).toEqual({chainId:84532,txHash:tx,mintedUsdc:'1.95'});
+ });
+ it('rejects a source receipt, unrelated transfer, wrong token or recipient, and fee shortfall',()=>{
+  const valid={status:'success',transactionHash:tx,
+   logs:[mint(recipient,zeroAddress,1950000n)]};
+  expect(()=>verifyGatewayDestinationMint({...valid,status:'reverted'},input)).toThrow();
+  expect(()=>verifyGatewayDestinationMint({...valid,transactionHash:'0x'+'cd'.repeat(32)},input)).toThrow();
+  expect(()=>verifyGatewayDestinationMint({...valid,logs:[mint(recipient,owner,1950000n)]},input)).toThrow();
+  expect(()=>verifyGatewayDestinationMint({...valid,logs:[mint(owner,zeroAddress,1950000n)]},input)).toThrow();
+  expect(()=>verifyGatewayDestinationMint({...valid,logs:[mint(recipient,zeroAddress,1950000n,owner)]},input)).toThrow();
+  expect(()=>verifyGatewayDestinationMint({...valid,logs:[mint(recipient,zeroAddress,1000000n)]},input)).toThrow();
+  expect(()=>verifyGatewayDestinationMint({...valid,logs:[mint(recipient,zeroAddress,2100000n)]},input)).toThrow();
  });
 });

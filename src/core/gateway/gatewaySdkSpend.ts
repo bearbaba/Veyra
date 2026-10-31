@@ -20,7 +20,7 @@ export type GatewaySpendState='SUBMISSION_UNKNOWN'|'SUBMITTED_UNVERIFIED';
 export interface GatewaySpendCheckpoint {
   version:1;owner:string;identity:string;recipient:string;amount:string;
   sourceChainId:number;destinationChainId:number;createdAt:number;
-  state:GatewaySpendState;transferId?:string;txHash?:string;
+  state:GatewaySpendState;transferId?:string;txHash?:string;minReceive?:string;
 }
 const KEY_PREFIX='veyra:gateway:spend:v1:';
 const USDC=/^\d{1,18}(?:\.\d{1,6})?$/;
@@ -109,6 +109,8 @@ export function readGatewaySpendCheckpoint(
   if(p.version!==1||p.owner!==getAddress(owner).toLowerCase()||
     p.identity!==identity||!isAddress(p.recipient)||
     !USDC.test(p.amount)||parseUnits(p.amount,6)<=0n||
+    (p.minReceive!==undefined&&(!USDC.test(p.minReceive)||
+     parseUnits(p.minReceive,6)<=0n||parseUnits(p.minReceive,6)>parseUnits(p.amount,6)))||
     !Number.isFinite(p.createdAt)||p.createdAt<=0||
     !GATEWAY_TESTNET_SOURCES.some(x=>x.chainId===p.sourceChainId)||
     !GATEWAY_TESTNET_SOURCES.some(x=>x.chainId===p.destinationChainId)||
@@ -119,10 +121,13 @@ export function readGatewaySpendCheckpoint(
 }
 export function prepareGatewaySpendCheckpoint(input:{
  owner:string;identity:string;recipient:string;amount:string;
- sourceChainId:number;destinationChainId:number;
+ sourceChainId:number;destinationChainId:number;minReceive?:string;
 },now=Date.now()):GatewaySpendCheckpoint {
  if(!isAddress(input.owner)||!isAddress(input.recipient)||
    !input.identity||!USDC.test(input.amount)||
+   (input.minReceive!==undefined&&(!USDC.test(input.minReceive)||
+     parseUnits(input.minReceive,6)<=0n||
+     parseUnits(input.minReceive,6)>parseUnits(input.amount,6)))||
    parseUnits(input.amount,6)<=0n||
    !GATEWAY_TESTNET_SOURCES.some(s=>s.chainId===input.sourceChainId)||
    !GATEWAY_TESTNET_SOURCES.some(s=>s.chainId===input.destinationChainId))
@@ -130,6 +135,7 @@ export function prepareGatewaySpendCheckpoint(input:{
  return {version:1,owner:getAddress(input.owner).toLowerCase(),identity:input.identity,
   recipient:getAddress(input.recipient),amount:input.amount,
   sourceChainId:input.sourceChainId,destinationChainId:input.destinationChainId,
+  ...(input.minReceive?{minReceive:input.minReceive}:{}),
   createdAt:now,state:'SUBMISSION_UNKNOWN'};
 }
 

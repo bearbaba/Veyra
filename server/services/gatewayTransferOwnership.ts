@@ -53,7 +53,7 @@ export function parseOwnedGatewayTransferStatus(raw:unknown,owner:string,
  if(!state||!/^[a-zA-Z0-9_-]{1,32}$/.test(state))
   throw new GatewayTransferOwnerError('GATEWAY_STATUS_MALFORMED');
  const tx=typeof transfer.forwardTxHash==='string'?transfer.forwardTxHash:
-  typeof transfer.txHash==='string'?transfer.txHash:undefined;
+  typeof transfer.destinationTxHash==='string'?transfer.destinationTxHash:undefined;
  const destinationTxHash=tx&&/^0x[0-9a-fA-F]{64}$/.test(tx)?tx:undefined;
  return {providerStatus:state,...(destinationTxHash?{destinationTxHash}:{})};
 }
