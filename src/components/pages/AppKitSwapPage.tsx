@@ -7,7 +7,7 @@ import {useEffect,useRef,useState} from 'react';
 import {AppKit} from '@circle-fin/app-kit';
 import {createViemAdapterFromProvider} from '@circle-fin/adapter-viem-v2';
 import {useAccount,usePublicClient,useSwitchChain} from 'wagmi';
-import {formatUnits,parseUnits,type EIP1193Provider,type Hash} from 'viem';
+import {parseUnits,type EIP1193Provider,type Hash} from 'viem';
 import {useUnifiedSocial} from '../../features/social/UnifiedSocial';
 import {activeSignedIdentityToken} from '../../lib/api/liveIdentitySession';
 import {IS_UI_ONLY_PREVIEW,VEYRA_ENV} from '../../lib/env';
@@ -107,7 +107,7 @@ export function AppKitSwapPage({embedded=false,initialIntent=null}:{
       !/^\d{1,18}(?:\.\d{1,6})?$/.test(expected)||
       arcSwapAmount(minimum)>arcSwapAmount(expected))
     throw Error('Circle returned an invalid minimum-output estimate.');
-   const fees=estimate.fees.map(f=>f.type+': '+f.amount+' '+f.token);
+   const fees=(estimate.fees??[]).map(f=>f.type+': '+f.amount+' '+f.token);
    await assertArcSwapWallet(provider,address);assertArcSwapSession(session);
    setQuote({owner:address.toLowerCase(),identity,from,to,amount,
     minReceive:minimum,estimated:expected,fees,readAt:Date.now()});
@@ -223,7 +223,8 @@ export function AppKitSwapPage({embedded=false,initialIntent=null}:{
     <p>Expected: {quote.estimated} {quote.to}</p>
     <p className="font-semibold">Minimum receive: {quote.minReceive} {quote.to}</p>
     <p>Slippage limit: 1% · quote expires after 30 seconds</p>
-    {quote.fees.map((v,i)=><p key={i}>{v}</p>)}
+    {quote.fees.length===0?<p>Provider fee breakdown unavailable; network fees may apply.</p>:
+     quote.fees.map((v,i)=><p key={i}>{v}</p>)}
     <p>Route may use a third-party aggregator (currently LiFi). You approve the transaction in your wallet.</p>
     <button type="button" disabled={busy} onClick={()=>void confirm()}
      className="w-full rounded-xl border p-3 font-semibold disabled:opacity-50"
