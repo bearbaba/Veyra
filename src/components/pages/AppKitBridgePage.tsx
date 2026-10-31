@@ -19,6 +19,7 @@ import {
  type BridgeAttempt,
 } from '../../core/bridge/arcAppKitBridge';
 import {assertGatewayProviderWallet} from '../../core/gateway/gatewaySdkSpend';
+import {GATEWAY_TESTNET_SOURCES} from '../../core/gateway/gatewayBalances';
 const kit=new AppKit();
 const MAX_QUOTE_MS=45_000;
 type BridgeQuote={
@@ -26,6 +27,9 @@ type BridgeQuote={
  recipient:string;amount:string;minReceive:string;readAt:number;fees:string[];
 };
 const DECIMAL=/^\d{1,18}(?:\.\d{1,6})?$/;
+const BALANCE_ABI=[{type:'function',name:'balanceOf',stateMutability:'view',
+ inputs:[{name:'owner',type:'address'}],outputs:[{name:'balance',type:'uint256'}]}] as const;
+
 function validateAmount(amount:string,minReceive:string):void{
  if(!DECIMAL.test(amount)||!DECIMAL.test(minReceive)||
   parseUnits(amount,6)<=0n||parseUnits(minReceive,6)<=0n||
@@ -131,6 +135,17 @@ export function AppKitBridgePage({embedded=false}:{embedded?:boolean}={}){
    if(source===destination||!isAddress(recipient))throw Error('Select different supported chains and a valid recipient.');
    const session=activeSignedIdentityToken();
    if(!session)throw Error('Signed Veyra ID required.');
+   const src=GATEWAY_TESTNET_SOURCES.find(v=>v.chainId===source);
+   const client=source===5042002?arc:source===11155111?eth:base;
+   if(!src||!client||await client.getChainId()!==source)
+    throw Error('Verified CCTP source chain RPC is unavailable.');
+   const code=await client.getCode({address:src.token});
+   if(!code||code==='0x')throw Error('Canonical source USDC contract unavailable.');
+   const available=await client.readContract({
+    address:src.token,abi:BALANCE_ABI,functionName:'balanceOf',args:[address],
+   });
+   if(available<parseUnits(amount,6))
+    throw Error('Insufficient source-chain wallet USDC to bridge.');
    const provider=await getProvider(source);
    const adapter=await createViemAdapterFromProvider({provider});
    await assertGatewayProviderWallet(provider,address,source);
