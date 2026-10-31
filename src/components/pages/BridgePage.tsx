@@ -30,6 +30,7 @@ import { simulateCctpSourceBurn, simulateExactCctpApproval } from '../../core/ex
 import { approveTokenMessenger } from '../../providers/cctp/cctpV2Adapter';
 import { assertExecutionReady } from '../../core/execution/executionReadiness';
 import { IS_UI_ONLY_PREVIEW, VEYRA_ENV } from '../../lib/env';
+import {AppKitBridgePage} from './AppKitBridgePage';
 import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
 import { VeyraIdentityAccess } from '../identity/VeyraIdentityAccess';
 import {
@@ -80,6 +81,14 @@ const DESTINATION_CHAINS = [
 ];
 
 export function BridgePage({ embedded = false }: { embedded?: boolean } = {}) {
+  // Authenticated Testnet uses Circle App Kit's two-way browser-wallet CCTP.
+  // The legacy source-Arc-only flow remains isolated for non-signing contexts.
+  if(VEYRA_ENV==='testnet'&&!IS_UI_ONLY_PREVIEW)
+    return <AppKitBridgePage embedded={embedded}/>;
+  return <LegacyBridgePage embedded={embedded}/>;
+}
+
+function LegacyBridgePage({ embedded = false }: { embedded?: boolean } = {}) {
   const { address, isConnected, chainId, connector } = useAccount();
   const { data: walletClient } = useWalletClient();
   const { switchChainAsync } = useSwitchChain();
