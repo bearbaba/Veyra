@@ -20,6 +20,10 @@ import {
 } from '../../core/bridge/arcAppKitBridge';
 import {assertGatewayProviderWallet} from '../../core/gateway/gatewaySdkSpend';
 import {GATEWAY_TESTNET_SOURCES} from '../../core/gateway/gatewayBalances';
+import {useBridgeExecution} from '../../hooks/useBridgeExecution';
+import {bridgeCheckpointBelongsToWallet} from '../../core/execution/bridgeCheckpointStore';
+import {loadActivityReceiptsRemote} from '../../lib/api/activityReceiptApi';
+import {bridgeReceiptHasUnresolvedSource} from '../../core/bridge/bridgeActivityStatus';
 const kit=new AppKit();
 const MAX_QUOTE_MS=45_000;
 type BridgeQuote={
@@ -61,6 +65,7 @@ function quoteFees(estimate:unknown):string[]{
 export function AppKitBridgePage({embedded=false}:{embedded?:boolean}={}){
  const {address,connector}=useAccount();
  const {switchChainAsync}=useSwitchChain();
+ const previousBridge=useBridgeExecution();
  const arc=usePublicClient({chainId:5042002});
  const eth=usePublicClient({chainId:11155111});
  const base=usePublicClient({chainId:84532});
@@ -131,6 +136,17 @@ export function AppKitBridgePage({embedded=false}:{embedded?:boolean}={}){
    if(!canSign||!address||!identity)throw Error('Sign into your Veyra ID on the authorized Testnet website.');
    if(pending||localStorage.getItem(bridgeKey(address,identity)))
     throw Error('A previous CCTP Bridge remains unresolved. Verify it instead of burning again.');
+   // A migration to App Kit does not erase the older CCTP provider's pending
+   // burns. Check BOTH local recovery and authenticated backend receipts
+   // before enabling a fresh bridge on any source chain.
+   const [legacy,history]=await Promise.all([
+    previousBridge.loadRecoveryCandidates(),
+    loadActivityReceiptsRemote(100),
+   ]);
+   if(legacy.some(v=>bridgeCheckpointBelongsToWallet(v,address)&&v.stage!=='VERIFIED')||
+    history.some(v=>v.providerId==='cctp-v2-bridge'&&
+     v.senderAddress.toLowerCase()===owner&&bridgeReceiptHasUnresolvedSource(v)))
+    throw Error('An earlier CCTP source burn needs reconciliation in Activity. No new bridge signing.');
    validateAmount(amount,minimum);
    if(source===destination||!isAddress(recipient))throw Error('Select different supported chains and a valid recipient.');
    const session=activeSignedIdentityToken();
