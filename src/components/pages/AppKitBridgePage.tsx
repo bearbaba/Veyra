@@ -11,6 +11,8 @@ import {getAddress,isAddress,parseUnits,type EIP1193Provider} from 'viem';
 import {useUnifiedSocial} from '../../features/social/UnifiedSocial';
 import {activeSignedIdentityToken} from '../../lib/api/liveIdentitySession';
 import {VEYRA_ENV,IS_UI_ONLY_PREVIEW} from '../../lib/env';
+import {validateAgentBridgeDraft} from '../../core/agent/bridgeDraftGate';
+import type {IntentCandidate} from '../../core/intent/intentSchema';
 import {
  BRIDGE_TESTNET_ROUTES,bridgeChain,bridgeKey,makeBridgeAttempt,
  readBridgeAttempt,getAppKitBridgeSteps,verifyCompletedAppKitBridge,
@@ -71,11 +73,30 @@ export function AppKitBridgePage({embedded=false}:{embedded?:boolean}={}){
  const [quote,setQuote]=useState<BridgeQuote|null>(null);
  const [pending,setPending]=useState<BridgeAttempt|null>(null);
  const [error,setError]=useState<string|null>(null);
+ const [agentHandoff,setAgentHandoff]=useState<string|null>(null);
  const [verifiedHash,setVerifiedHash]=useState<string|null>(null);
  const [lastResult,setLastResult]=useState<Awaited<ReturnType<typeof kit.bridge>>|null>(null);
  const busyRef=useRef(false);
  const owner=address?.toLowerCase()??'';
  const canSign=VEYRA_ENV==='testnet'&&!IS_UI_ONLY_PREVIEW&&identityReady;
+ useEffect(()=>{
+  // Read and consume Agent's untrusted draft once. No quote, fee approval or
+  // wallet signature can ever be triggered by navigating from Agent.
+  const raw=sessionStorage.getItem('veyra:agent-intent');
+  if(!raw)return;
+  sessionStorage.removeItem('veyra:agent-intent');
+  try{
+   const candidate=JSON.parse(raw) as IntentCandidate;
+   const result=validateAgentBridgeDraft(candidate);
+   if(!result.ok){setAgentHandoff(result.reason);return;}
+   setSource(5042002);setDestination(result.destinationChainId);
+   setRecipient(result.recipientAddress);setAmount(result.amount);
+   setMinimum('');setQuote(null);
+   setAgentHandoff('Agent Bridge draft imported. Review source, destination, recipient and minimum received before signing.');
+  }catch{
+   setAgentHandoff('Invalid Agent Bridge draft. Re-enter the route manually.');
+  }
+ },[]);
  useEffect(()=>{
   setQuote(null);setVerifiedHash(null);setLastResult(null);setError(null);
   setRecipient(address??'');
@@ -221,6 +242,8 @@ export function AppKitBridgePage({embedded=false}:{embedded?:boolean}={}){
   <p className="text-xs" style={{color:'var(--muted)'}}>
    CCTP V2 · Arc Testnet ↔ Ethereum Sepolia / Base Sepolia · Wallet USDC
   </p>
+  {agentHandoff&&<p role="status" className="text-xs"
+   style={{color:'var(--muted)'}}>{agentHandoff}</p>}
   <div className="rounded-2xl border p-4 space-y-3"
    style={{borderColor:'var(--border-strong)',background:'var(--surface)'}}>
    <label className="block text-xs">From
