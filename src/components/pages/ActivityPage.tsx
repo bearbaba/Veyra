@@ -15,6 +15,7 @@ import { buildTxExplorerUrl } from '@/onchain-facts';
 import { useReceiptStore } from '@/hooks/useReceiptStore';
 import { formatRemoteActivityAmount } from '@/core/receipt/formatRemoteActivityAmount';
 import { useBridgeExecution } from '@/hooks/useBridgeExecution';
+import {LocalFinancialActivity} from '../activity/LocalFinancialActivity';
 import {
   ExternalLink,
   Clock,
@@ -163,6 +164,10 @@ export function ActivityPage({ readOnly = false }: { readOnly?: boolean }) {
           style={{ border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--warning)' }}>
           {remoteError}
         </div>
+      )}
+      {!readOnly&&address&&social.session&&(
+        <LocalFinancialActivity owner={address}
+          identity={social.session.profile.veyraUserId}/>
       )}
       {remoteReceipts.length > 0 && (
         <div className="mb-6 space-y-3">
