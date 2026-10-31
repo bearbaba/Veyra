@@ -34,7 +34,11 @@ function params(adapter:Awaited<ReturnType<typeof createViemAdapterFromProvider>
  sourceChainId:number,destinationChainId:number,recipient:string,amount:string){
  return {from:{adapter,chain:bridgeChain(sourceChainId)},
   to:{chain:bridgeChain(destinationChainId),recipientAddress:recipient,useForwarder:true},
-  amount,token:'USDC' as const,config:{transferSpeed:'SLOW' as const}};
+  amount,token:'USDC' as const,config:{transferSpeed:'SLOW' as const}}
+  // Circle's runtime supports Forwarding Service recipients without a second
+  // destination signer. The installed overload's static type still expects
+  // an adapter on the destination; match the existing Veyra App Kit boundary.
+  as unknown as Parameters<AppKit['bridge']>[0];
 }
 function quoteFees(estimate:unknown):string[]{
  const data=estimate as Record<string,unknown>;
