@@ -55,18 +55,52 @@ export class IdentityRegistrationError extends Error {
  * utilities, and prevents accidentally claiming a Mainnet wallet identity
  * through a Testnet-only, unaudited product surface.
  */
+/** Arc Mainnet chain ID: same EVM family as Testnet, separate identity DB entries. */
+export const ARC_MAINNET_CHAIN_ID = 5042;
+/** Both Arc chains are permitted. Mainnet registration is allowed when VEYRA_ENV=mainnet. */
+export const ARC_SUPPORTED_IDENTITY_CHAINS = new Set([
+  MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID,
+  ARC_MAINNET_CHAIN_ID,
+]);
+
+export function assertHostedIdentityChain(
+  chainId: number,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (env.VEYRA_HOSTED_BACKEND !== '1') return;
+  const veyraEnv = env.VEYRA_ENV ?? 'local';
+  // Testnet backend: only Arc Testnet is allowed.
+  if (veyraEnv === 'testnet' && chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID) {
+    throw new IdentityRegistrationError(
+      'UNSUPPORTED_TESTNET_CHAIN',
+      'Hosted Veyra testnet ID registration supports Arc Testnet (5042002) only.',
+      400,
+    );
+  }
+  // Mainnet backend: only Arc Mainnet is allowed.
+  if (veyraEnv === 'mainnet' && chainId !== ARC_MAINNET_CHAIN_ID) {
+    throw new IdentityRegistrationError(
+      'UNSUPPORTED_MAINNET_CHAIN',
+      'Hosted Veyra mainnet ID registration supports Arc Mainnet (5042) only.',
+      400,
+    );
+  }
+  // For any other hosted env, require an Arc chain.
+  if (veyraEnv !== 'testnet' && veyraEnv !== 'mainnet' && !ARC_SUPPORTED_IDENTITY_CHAINS.has(chainId)) {
+    throw new IdentityRegistrationError(
+      'UNSUPPORTED_CHAIN',
+      'Identity registration supports Arc Testnet (5042002) and Arc Mainnet (5042).',
+      400,
+    );
+  }
+}
+
+/** @deprecated Use assertHostedIdentityChain */
 export function assertHostedTestnetIdentityChain(
   chainId: number,
   env: NodeJS.ProcessEnv = process.env,
 ): void {
-  if (env.VEYRA_HOSTED_BACKEND !== '1' || env.VEYRA_ENV !== 'testnet') return;
-  if (chainId !== MANIFEST_CONSTANTS.ARC_TESTNET_CHAIN_ID) {
-    throw new IdentityRegistrationError(
-      'UNSUPPORTED_TESTNET_CHAIN',
-      'Hosted Veyra ID acceptance currently supports Arc Testnet only.',
-      400,
-    );
-  }
+  return assertHostedIdentityChain(chainId, env);
 }
 
 function registrationSecret(): string {

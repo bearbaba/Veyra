@@ -5,7 +5,7 @@
  */
 import {useState} from 'react';
 import {ConnectKitButton} from 'connectkit';
-import {useAccount,useSwitchChain} from 'wagmi';
+import {useAccount,useSwitchChain,useChainId} from 'wagmi';
 import {ShieldCheck} from 'lucide-react';
 import {useUnifiedSocial} from '../../features/social/UnifiedSocial';
 import {readLastVerifiedVeyraId} from '../../lib/api/lastVerifiedVeyraId';
@@ -13,6 +13,7 @@ import {readLastVerifiedVeyraId} from '../../lib/api/lastVerifiedVeyraId';
 export function VeyraIdentityAccess(){
   const social=useUnifiedSocial();
   const {address}=useAccount();
+  const chainId=useChainId();
   // Last-used public ID display is not a session or proof of current ownership.
   const lastKnownId=readLastVerifiedVeyraId(address);
   const {switchChainAsync}=useSwitchChain();
@@ -72,16 +73,25 @@ export function VeyraIdentityAccess(){
 
   if(!social.ready){
     return <section className="space-y-3 rounded-2xl border p-4" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
-      <p className="text-sm font-semibold">Arc Testnet required for Veyra ID</p>
+      <p className="text-sm font-semibold">Arc network required for Veyra ID</p>
       {lastKnownId&&<p className="text-xs" style={{color:'var(--ink)'}}>Last used Veyra ID: <b>@{lastKnownId}.veyra</b> (display only)</p>}
-      <p className="text-xs" style={{color:'var(--muted)'}}>Connected: {address?.slice(0,6)}…{address?.slice(-4)}. Your wallet is already connected; switch network only once, on request.</p>
-      <button type="button" disabled={social.busy} onClick={()=>{
-        setSwitchError(null);
-        void switchChainAsync({chainId:5042002}).catch(()=>{
-          setSwitchError('Switch to Arc Testnet (5042002) in your wallet, then try again.');
-        });
-      }} className="rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-40"
-        style={{background:'var(--accent)',color:'var(--bg)'}}>Switch to Arc Testnet</button>
+      <p className="text-xs" style={{color:'var(--muted)'}}>Connected: {address?.slice(0,6)}…{address?.slice(-4)} (chain {chainId}). Switch to Arc Testnet or Arc Mainnet.</p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={social.busy} onClick={()=>{
+          setSwitchError(null);
+          void switchChainAsync({chainId:5042002}).catch(()=>{
+            setSwitchError('Switch to Arc Testnet (5042002) in your wallet, then try again.');
+          });
+        }} className="rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-40"
+          style={{background:'var(--accent)',color:'var(--bg)'}}>Arc Testnet</button>
+        <button type="button" disabled={social.busy} onClick={()=>{
+          setSwitchError(null);
+          void switchChainAsync({chainId:5042}).catch(()=>{
+            setSwitchError('Switch to Arc Mainnet (5042) in your wallet, then try again.');
+          });
+        }} className="rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-40"
+          style={{background:'var(--accent-muted)',color:'var(--accent)',border:'1px solid var(--accent)'}}>Arc Mainnet</button>
+      </div>
       {switchError&&<p role="alert" className="text-xs" style={{color:'var(--warning)'}}>{switchError}</p>}
     </section>;
   }

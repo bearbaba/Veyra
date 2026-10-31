@@ -163,6 +163,7 @@ const FACTS: OnchainFacts = {
         "address": "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
         "decimals": 6
       },
+      "cctpDomain": 3,
       "scpBlockchain": "ARB-SEPOLIA"
     },
     {
@@ -205,6 +206,7 @@ const FACTS: OnchainFacts = {
         "address": "0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582",
         "decimals": 6
       },
+      "cctpDomain": 7,
       "scpBlockchain": "MATIC-AMOY"
     },
     {
@@ -226,6 +228,7 @@ const FACTS: OnchainFacts = {
         "address": "0x5fd84259d66Cd46123540766Be93DFE6D43130D7",
         "decimals": 6
       },
+      "cctpDomain": 2,
       "scpBlockchain": "OP-SEPOLIA"
     },
     {
@@ -247,6 +250,7 @@ const FACTS: OnchainFacts = {
         "address": "0x31d0220469e10c4E71834a79b1f276d740d3768F",
         "decimals": 6
       },
+      "cctpDomain": 10,
       "scpBlockchain": "UNI-SEPOLIA"
     },
     {

@@ -17,12 +17,14 @@ import { useReceiptStore } from '@/hooks/useReceiptStore';
 import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
 import { formatArcUsdcBalance } from '@/features/balance/arcUsdcBalance';
 import { VEYRA_ENV } from '@/lib/env';
+import { useChainId } from 'wagmi';
 import type { MyProfile } from '@/lib/api/identityApi';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS, REGISTRY_STATUS_COPY, type RegistryStatus } from '@/config/productRegistry';
 import { BrandLogo } from '../brand/BrandLogo';
 import type { VeyraPage } from '../layout/AppShell';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
+const ARC_MAINNET_CHAIN_ID = 5042;
 const ERC20_BALANCE_OF_ABI = [{
   name: 'balanceOf',
   type: 'function',
@@ -37,15 +39,20 @@ interface HomePageProps {
 
 export function HomePage({ onNavigate }: HomePageProps) {
   const { address, isConnected } = useAccount();
+  const connectedChainId = useChainId();
   const identity = useVeyraIdentity();
+  // Balance reads on testnet are pinned to Arc Testnet; on mainnet env they switch.
+  // On Arc, USDC ERC-20 and native share the same address but different decimal views.
+  // We always read ERC-20 balanceOf (6 decimals) for display.
+  const isMainnet = VEYRA_ENV === 'mainnet' || connectedChainId === ARC_MAINNET_CHAIN_ID;
   const usdc = getUsdc(ARC_TESTNET_CHAIN_ID);
+  const usdcMainnet = getUsdc(ARC_MAINNET_CHAIN_ID);
   const { receipts, error: receiptError } = useReceiptStore();
 
-  // This Balance surface reads only pinned Arc Testnet USDC. The connected
-  // wallet's signing network never determines the RPC or contract address.
+  // Testnet balance — primary path (always reads Arc Testnet USDC).
   const balanceReadsEnabled = VEYRA_ENV !== 'mainnet' && isConnected && Boolean(address) && Boolean(usdc);
-  const { data: balanceRaw, isLoading: balanceLoading, isFetching: balanceFetching,
-    isError: balanceError, dataUpdatedAt: balanceUpdatedAt, refetch } = useReadContract({
+  const { data: balanceRaw, isLoading: _testnetLoading, isFetching: _testnetFetching,
+    isError: balanceError, dataUpdatedAt: _testnetUpdatedAt, refetch } = useReadContract({
     address: usdc?.address as `0x${string}` | undefined,
     abi: ERC20_BALANCE_OF_ABI,
     functionName: 'balanceOf',
@@ -61,11 +68,40 @@ export function HomePage({ onNavigate }: HomePageProps) {
     },
   });
 
+  // Mainnet balance — secondary path (reads Arc Mainnet USDC when on mainnet).
+  const mainnetBalanceEnabled = isMainnet && isConnected && Boolean(address) && Boolean(usdcMainnet);
+  const { data: mainnetBalanceRaw, isLoading: _mainnetLoading, isFetching: _mainnetFetching,
+    isError: _mainnetError, dataUpdatedAt: _mainnetUpdatedAt, refetch: refetchMainnet } = useReadContract({
+    address: usdcMainnet?.address as `0x${string}` | undefined,
+    abi: ERC20_BALANCE_OF_ABI,
+    functionName: 'balanceOf',
+    args: address ? [address] : undefined,
+    chainId: ARC_MAINNET_CHAIN_ID,
+    query: {
+      enabled: mainnetBalanceEnabled,
+      staleTime: 15_000,
+      refetchInterval: 30_000,
+      refetchIntervalInBackground: false,
+      refetchOnWindowFocus: true,
+      retry: 1,
+    },
+  });
+
   // A failed RPC read, disconnected wallet or inactive environment must never
   // masquerade as a zero balance. Preserve the full six USDC decimals.
-  const formattedBalance = balanceReadsEnabled && !balanceError && balanceRaw != null
-    ? formatArcUsdcBalance(balanceRaw)
+  // Expose these as the canonical UI names so JSX and test assertions both resolve.
+  const balanceFetching = isMainnet ? _mainnetFetching : _testnetFetching;
+  const balanceLoading = isMainnet ? _mainnetLoading : _testnetLoading;
+  const balanceUpdatedAt = isMainnet ? _mainnetUpdatedAt : _testnetUpdatedAt;
+  const activeBalanceRaw = isMainnet ? mainnetBalanceRaw : balanceRaw;
+  const activeBalanceError = isMainnet ? _mainnetError : balanceError;
+  const activeBalanceEnabled = isMainnet ? mainnetBalanceEnabled : balanceReadsEnabled;
+  const handleRefetch = isMainnet ? () => void refetchMainnet() : () => void refetch();
+  const formattedBalance = activeBalanceEnabled && !activeBalanceError && activeBalanceRaw != null
+    ? formatArcUsdcBalance(activeBalanceRaw)
     : null;
+  const balanceNetworkLabel = isMainnet ? 'Arc Mainnet · On-chain' : 'Arc Testnet · On-chain';
+  const envLabel = isMainnet ? 'Veyra · Mainnet' : 'Veyra · Testnet';
   const recentReceipts = receipts.slice(0, 3);
   const profile = identity.profile;
   const [copiedReceive, setCopiedReceive] = useState(false);
@@ -76,7 +112,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
     <div className="mx-auto max-w-6xl px-4 py-7 md:px-7 md:py-9 space-y-6">
       <section className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
         <div className="rounded-3xl p-5 md:p-7" style={{ background:'var(--surface-strong)', border:'1px solid var(--border-strong)' }}>
-          <p className="text-xs font-semibold uppercase tracking-wider" style={{color:'var(--accent)'}}>Veyra · Testnet</p>
+          <p className="text-xs font-semibold uppercase tracking-wider" style={{color:'var(--accent)'}}>{envLabel}</p>
           <h1 className="display mt-3 max-w-lg text-3xl font-black leading-tight md:text-4xl" style={{color:'var(--ink)',letterSpacing:'-0.035em'}}>
             Send USDC, simply.
           </h1>
@@ -112,13 +148,13 @@ export function HomePage({ onNavigate }: HomePageProps) {
               <BrandLogo logoKey="usdc" size={36}/>
               <div>
                 <h2 className="text-sm font-bold" style={{color:'var(--ink)'}}>USDC balance</h2>
-                <p className="mt-0.5 text-xs" style={{color:'var(--muted)'}}>Arc Testnet · On-chain</p>
+                <p className="mt-0.5 text-xs" style={{color:'var(--muted)'}}>{balanceNetworkLabel}</p>
               </div>
             </div>
-            {balanceReadsEnabled && (
-              <button type="button" onClick={() => void refetch()} disabled={balanceFetching}
+            {activeBalanceEnabled && (
+              <button type="button" onClick={handleRefetch} disabled={balanceFetching}
                 className="flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs disabled:opacity-50"
-                aria-label="Refresh Arc Testnet USDC balance"
+                aria-label={`Refresh ${balanceNetworkLabel} USDC balance`}
                 style={{color:'var(--muted)',borderColor:'var(--border)'}}>
                 <RefreshCw className={`size-3.5 ${balanceFetching?'animate-spin':''}`}/>
                 {balanceFetching?'Syncing':'Refresh'}
@@ -129,9 +165,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
             <p className="mt-6 text-sm leading-6" style={{color:'var(--muted)'}}>
               Connect your wallet to view your Arc Testnet USDC balance.
             </p>
-          ) : VEYRA_ENV==='mainnet' ? (
-            <p className="mt-6 text-sm" style={{color:'var(--muted)'}}>Testnet balance is unavailable in Mainnet mode.</p>
-          ) : balanceError || (!balanceLoading && !balanceFetching && formattedBalance===null) ? (
+          ) : activeBalanceError || (!balanceLoading && !balanceFetching && formattedBalance===null) ? (
             <p role="alert" className="mt-6 text-sm" style={{color:'var(--warning)'}}>
               Balance unavailable. Your funds have not been assumed to be zero. Try Refresh.
             </p>

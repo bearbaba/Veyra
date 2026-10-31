@@ -28,7 +28,7 @@ const base = (mode: 'register'|'login'): SignedChallenge => ({
       issuedAt: now, expiresAt: now + (mode === 'login' ? 5 : 10)*60_000,
       ...(mode === 'login' ? {
         veyraUserId: 'usr_123456789ABCDEFGJ', appOrigin: origin,
-        purpose: 'Sign in to Veyra Testnet. No payments or transfers.',
+        purpose: 'Sign in to Veyra. No payments or transfers.',
       } : { handle: 'testalice' }),
     },
   },

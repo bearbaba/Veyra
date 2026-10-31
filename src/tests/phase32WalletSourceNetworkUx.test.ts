@@ -54,7 +54,7 @@ describe('Phase 32 — request supported source network only at wallet signing b
   });
   it('registers both CCTP destinations with the wallet, without claiming universal network support',()=>{
     const config=read('src/config.ts');
-    expect(config).toContain('chains: [arcTestnet, sepolia, baseSepolia, mainnet]');
+    expect(config).toContain('chains: [arc, arcTestnet, sepolia, baseSepolia, mainnet]');
     expect(config).toContain("[baseSepolia.id]: http('https://sepolia.base.org'");
     const page=read('src/components/pages/BridgePage.tsx');
     expect(page).toContain('MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID');

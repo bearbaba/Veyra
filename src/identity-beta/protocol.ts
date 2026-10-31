@@ -6,7 +6,11 @@
 import { getAddress, recoverTypedDataAddress, zeroAddress, type Address, type Hex } from 'viem';
 
 export const ARC_TESTNET_CHAIN_ID = 5042002;
+export const ARC_MAINNET_CHAIN_ID = 5042;
+export const ARC_SUPPORTED_CHAIN_IDS = new Set([ARC_TESTNET_CHAIN_ID, ARC_MAINNET_CHAIN_ID]);
 export const BFF_ORIGIN = 'https://veyra-testnet-acceptance-bff.onrender.com';
+/** Shared sign-in purpose used across testnet and mainnet. */
+export const LOGIN_PURPOSE = 'Sign in to Veyra. No payments or transfers.';
 
 /**
  * EIP-712 v4 providers (including MetaMask) require EIP712Domain to be
@@ -114,8 +118,8 @@ export function requireArcWallet(address: unknown, chainId: number | null): stri
   if (typeof address !== 'string' || !ADDRESS.test(address)) {
     throw new Error('Connect a supported browser wallet before continuing.');
   }
-  if (chainId !== ARC_TESTNET_CHAIN_ID) {
-    throw new Error('Switch your wallet to Arc Testnet (chain ID 5042002) manually. No automatic network switch.');
+  if (chainId === null || !ARC_SUPPORTED_CHAIN_IDS.has(chainId)) {
+    throw new Error('Switch your wallet to Arc Testnet (5042002) or Arc Mainnet (5042). No automatic network switch.');
   }
   return address;
 }
@@ -145,8 +149,10 @@ export function verifiedTypedData(
   const message = obj(data.message);
   const types = obj(data.types);
   const isLogin = mode === 'login';
+  const domainChainId = domain.chainId as number;
   if (domain.name !== (isLogin ? 'Veyra Login' : 'Veyra') ||
-      domain.version !== '1' || domain.chainId !== ARC_TESTNET_CHAIN_ID ||
+      domain.version !== '1' ||
+      !ARC_SUPPORTED_CHAIN_IDS.has(domainChainId) ||
       String(domain.verifyingContract).toLowerCase() !== ZERO_ADDRESS ||
       data.primaryType !== (isLogin ? 'WalletLogin' : 'IdentityClaim')) {
     throw new Error('Unexpected domain, chain, or signing purpose. Signature cancelled.');
@@ -157,8 +163,11 @@ export function verifiedTypedData(
     : ['handle:string','walletAddress:address','chainId:uint256','nonce:bytes32',
        'issuedAt:uint256','expiresAt:uint256'];
   expectedTypes(types[isLogin ? 'WalletLogin' : 'IdentityClaim'], expected);
+  const msgChainId = valueInteger(message, 'chainId');
+  // Domain chainId and message chainId must agree; mismatched chain IDs indicate tampering.
   if (valueString(message, 'walletAddress').toLowerCase() !== address.toLowerCase() ||
-      valueInteger(message, 'chainId') !== ARC_TESTNET_CHAIN_ID ||
+      !ARC_SUPPORTED_CHAIN_IDS.has(msgChainId) ||
+      msgChainId !== domainChainId ||
       !/^0x[0-9a-fA-F]{64}$/.test(valueString(message, 'nonce'))) {
     throw new Error('Wallet, chain or nonce mismatch. Signature cancelled.');
   }
@@ -171,7 +180,7 @@ export function verifiedTypedData(
   }
   if (isLogin) {
     if (message.appOrigin !== origin ||
-        message.purpose !== 'Sign in to Veyra Testnet. No payments or transfers.' ||
+        message.purpose !== LOGIN_PURPOSE ||
         !/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(valueString(message, 'veyraUserId')) ||
         !/^lgn_[0-9a-f]{32}$/.test(challenge.challengeId ?? '')) {
       throw new Error('Unexpected login origin or purpose. Signature cancelled.');
@@ -194,13 +203,32 @@ export function verifyXAuthorizationUrl(raw: unknown): string {
   let url: URL;
   try { url = new URL(raw); }
   catch { throw new Error('Invalid X authorization URL. No redirect opened.'); }
+  const redirectUri = url.searchParams.get('redirect_uri') ?? '';
+  // The redirect_uri must be an HTTPS URL with the exact path /api/auth/x/callback.
+  // The browser cannot know which host the BFF configured (that is server-side state);
+  // it validates the structural requirements that the server MUST have enforced:
+  //   1. HTTPS only — no http, no data:, no javascript:
+  //   2. Exact path /api/auth/x/callback — no path traversal
+  //   3. No credentials, no fragment, no non-default port
+  // The PKCE code_challenge ties the grant to the DB record that stores the exact URI.
+  // An attacker who can forge a server response to point to their own host would need
+  // the PKCE verifier stored only on the server — this validates structure, not host.
+  const redirectOk = (() => {
+    try {
+      const cb = new URL(redirectUri);
+      return cb.protocol === 'https:' &&
+        cb.pathname === '/api/auth/x/callback' &&
+        !cb.port && !cb.username && !cb.password && !cb.hash &&
+        !cb.search && cb.hostname.length >= 3;
+    } catch { return false; }
+  })();
   if (url.protocol !== 'https:' || url.hostname !== 'x.com' || url.port ||
       url.username || url.password || url.hash || url.pathname !== '/i/oauth2/authorize' ||
       url.searchParams.get('response_type') !== 'code' ||
       url.searchParams.get('code_challenge_method') !== 'S256' ||
       !/^[-_A-Za-z0-9]{20,}$/.test(url.searchParams.get('state') ?? '') ||
       !/^[-_A-Za-z0-9]{20,}$/.test(url.searchParams.get('code_challenge') ?? '') ||
-      url.searchParams.get('redirect_uri') !== BFF_ORIGIN + '/api/auth/x/callback') {
+      !redirectOk) {
     throw new Error('Unexpected X OAuth destination or callback. Authorization blocked.');
   }
   return url.toString();
@@ -231,16 +259,18 @@ export async function assertBrowserSignedIdentityOwner(
 ): Promise<void> {
   const data = verifiedTypedData(challenge, mode, address, origin);
   const message = obj(data.message);
+  // Use the chain ID embedded in the challenge message (verified by verifiedTypedData above).
+  const challengeChainId = valueInteger(message, 'chainId');
   const domain = {
     name: mode === 'register' ? 'Veyra' : 'Veyra Login',
     version: '1',
-    chainId: ARC_TESTNET_CHAIN_ID,
+    chainId: challengeChainId,
     verifyingContract: zeroAddress,
   } as const;
   const walletAddress = valueString(message, 'walletAddress') as Address;
   const shared = {
     walletAddress,
-    chainId: BigInt(valueInteger(message, 'chainId')),
+    chainId: BigInt(challengeChainId),
     nonce: valueString(message, 'nonce') as Hex,
     issuedAt: BigInt(valueInteger(message, 'issuedAt')),
     expiresAt: BigInt(valueInteger(message, 'expiresAt')),

@@ -5,7 +5,7 @@
  */
 import {createContext,useCallback,useContext,useEffect,useRef,useState,type ReactNode} from 'react';
 import {useAccount} from 'wagmi';
-import {normalizeBetaHandle,signReviewedIdentity,type BrowserProvider,type IdentityProfile,type SignedChallenge,ARC_TESTNET_CHAIN_ID} from '../../identity-beta/protocol';
+import {normalizeBetaHandle,signReviewedIdentity,type BrowserProvider,type IdentityProfile,type SignedChallenge,ARC_TESTNET_CHAIN_ID,ARC_MAINNET_CHAIN_ID} from '../../identity-beta/protocol';
 import {bindCurrentIdentityWallet,clearSignedIdentitySession,setSignedIdentitySession} from '../../lib/api/liveIdentitySession';
 import {probeIdentityOrigin,type IdentityOriginStatus} from '../../lib/api/identityOriginProbe';
 import {rememberVerifiedVeyraId} from '../../lib/api/lastVerifiedVeyraId';
@@ -93,7 +93,8 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     void recheckIdentityOrigin();
     return()=>{originRevision.current++;};
   },[recheckIdentityOrigin]);
-  const ready=Boolean(isConnected&&address&&connector&&chainId===ARC_TESTNET_CHAIN_ID);
+  const ready=Boolean(isConnected&&address&&connector&&
+    (chainId===ARC_TESTNET_CHAIN_ID||chainId===ARC_MAINNET_CHAIN_ID));
   const resetLocal=useCallback(()=>{
     generation.current++;friendRefreshEpoch.current++;noticePageTicket.current=null;
     incomingBusy.current=false;incomingLastAt.current=0;incomingUnavailable.current=null;setIncomingStatus('idle');
@@ -143,11 +144,11 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     }finally{pending.current=false;setBusy(false);}
   }
   const wallet=async()=>{
-    if(!ready||!address||!connector)throw new Error('Connect your existing wallet on Arc Testnet (5042002).');
+    if(!ready||!address||!connector||!chainId)throw new Error('Connect your wallet on Arc Testnet (5042002) or Arc Mainnet (5042).');
     const raw:unknown=await connector.getProvider();
     if(!raw||typeof raw!=='object'||!('request' in raw)||typeof raw.request!=='function')
       throw new Error('This wallet cannot sign a reviewed Veyra identity request.');
-    return {account:address,provider:raw as BrowserProvider};
+    return {account:address,chainId,provider:raw as BrowserProvider};
   };
   // On reload the wallet reconnects before this restores the secure browser
   // cookie. No MetaMask popup or browser-persisted bearer is involved.
@@ -177,7 +178,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     if(restoring)throw new Error('Checking your existing Veyra ID session.');
     if(identityOrigin!=='ready')throw new Error('Veyra ID service is not ready for this website. No wallet signature requested.');
     const w=await wallet();
-    const c=(await api<{challenge:SignedChallenge}>('/api/auth/wallet-login/challenge','POST',undefined,{walletAddress:w.account,chainId:5042002})).challenge;
+    const c=(await api<{challenge:SignedChallenge}>('/api/auth/wallet-login/challenge','POST',undefined,{walletAddress:w.account,chainId:w.chainId})).challenge;
     if(!unchanged(key,rev))return;
     const signature=await signReviewedIdentity(w.provider,c,'login',w.account,window.location.origin);
     if(!unchanged(key,rev))return;
@@ -194,7 +195,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     if(restoring)throw new Error('Checking your existing Veyra ID session.');
     if(identityOrigin!=='ready')throw new Error('Veyra ID service is not ready for this website. No wallet signature requested.');
     const w=await wallet(),handle=normalizeBetaHandle(name);
-    const c=(await api<{challenge:SignedChallenge}>('/api/identity/register/challenge','POST',undefined,{handle,walletAddress:w.account,chainId:5042002})).challenge;
+    const c=(await api<{challenge:SignedChallenge}>('/api/identity/register/challenge','POST',undefined,{handle,walletAddress:w.account,chainId:w.chainId})).challenge;
     if(!unchanged(key,rev))return;
     if((c.typedData as {message?:{handle?:string}}).message?.handle!==handle)
       throw new Error('Registration handle changed. No wallet signature requested.');

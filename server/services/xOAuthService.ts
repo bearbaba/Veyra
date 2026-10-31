@@ -10,14 +10,46 @@ const X_TOKEN_URL = 'https://api.x.com/2/oauth2/token';
 const X_ME_URL = 'https://api.x.com/2/users/me';
 const STATE_TTL_MS = 10 * 60 * 1000;
 const RETURN_PATH_RE = /^\/[A-Za-z0-9/_?=&.-]*$/;
-const X_CALLBACK_URL = 'https://veyra-testnet-acceptance-bff.onrender.com/api/auth/x/callback';
+// The canonical testnet callback. Override via X_REDIRECT_URI for the mainnet backend.
+const X_TESTNET_CALLBACK_URL = 'https://veyra-testnet-acceptance-bff.onrender.com/api/auth/x/callback';
 const PROVIDER_TIMEOUT_MS=12000;
+
+/**
+ * Returns the server-authoritative callback URL.
+ *
+ * - On the mainnet backend (VEYRA_ENV=mainnet): X_REDIRECT_URI MUST be set and
+ *   must be an exact HTTPS URL ending in /api/auth/x/callback. If missing, X OAuth
+ *   is treated as unconfigured — never fall back to the testnet URL on mainnet.
+ * - On testnet (VEYRA_ENV=testnet): X_REDIRECT_URI overrides the canonical Render URL
+ *   if explicitly set and valid; otherwise the canonical Render testnet URL is used.
+ * - In any environment: the value must be a full absolute HTTPS URL that matches the
+ *   exact callback registered in the X Developer Portal. No wildcard host matching.
+ *
+ * The browser is never trusted to supply or influence a redirect_uri.
+ */
+export function resolveXCallbackUrl(env: NodeJS.ProcessEnv = process.env): string | null {
+  const veyraEnv = env.VEYRA_ENV ?? 'local';
+  const override = env.X_REDIRECT_URI;
+  // Validate the override strictly: must be an exact, full HTTPS URL ending /api/auth/x/callback.
+  const overrideValid = typeof override === 'string' &&
+    /^https:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+\/api\/auth\/x\/callback$/.test(override);
+  if (veyraEnv === 'mainnet') {
+    // On mainnet: refuse to fall back to the testnet callback. X OAuth is simply
+    // unavailable until the mainnet backend has its own registered callback.
+    return overrideValid ? override! : null;
+  }
+  // On testnet or local: explicit override takes priority; fall back to the pinned canonical URL.
+  return overrideValid ? override! : X_TESTNET_CALLBACK_URL;
+}
 
 export function isConfiguredXOAuth(clientId:unknown,redirectUri:unknown):boolean{
   // Provider credentials stay server-side. The callback cannot be moved to
   // an arbitrary host by environment variable or by the browser.
+  const expectedCallback = resolveXCallbackUrl();
+  // null means no valid callback is configured for the current environment.
+  if(expectedCallback===null)return false;
   return typeof clientId==='string'&&clientId.trim().length>0&&clientId.length<=256&&
-    redirectUri===X_CALLBACK_URL;
+    redirectUri===expectedCallback;
 }
 
 export function checkedXReturnOrigin(origin:unknown,allowedOrigins:readonly string[]):string{
@@ -81,9 +113,15 @@ function cleanReturnPath(value: string | undefined): string {
 export async function beginXOAuthLink(
   db: DbClient,
   veyraUserId: string,
-  input: { clientId: string; redirectUri: string; appOrigin: string; returnPath?: string },
+  input: { clientId: string; appOrigin: string; returnPath?: string },
 ): Promise<{ authorizeUrl: string; expiresAt: string }> {
-  if (!isConfiguredXOAuth(input.clientId,input.redirectUri)) throw new XOAuthError('X_OAUTH_NOT_CONFIGURED', 'X callback must be verified before use.', 503);
+  // The redirect URI is always resolved server-side; never caller-supplied.
+  const redirectUri = resolveXCallbackUrl();
+  if (redirectUri === null || !isConfiguredXOAuth(input.clientId, redirectUri)) {
+    throw new XOAuthError('X_OAUTH_NOT_CONFIGURED',
+      'X OAuth requires an explicit callback URL registered in the X Developer Portal. ' +
+      'Set X_REDIRECT_URI to the exact registered callback URL for this environment.', 503);
+  }
   const state = randomBytes(32).toString('base64url');
   const { verifier, challenge } = createPkcePair();
   const issuedAt = new Date();
@@ -95,7 +133,7 @@ export async function beginXOAuthLink(
     veyraUserId,
     provider: 'X',
     codeVerifier: verifier,
-    redirectUri: input.redirectUri,
+    redirectUri,
     returnPath: cleanReturnPath(input.returnPath),
     appOrigin: input.appOrigin,
     issuedAt,
@@ -105,7 +143,7 @@ export async function beginXOAuthLink(
   return {
     authorizeUrl: buildXAuthorizeUrl({
       clientId: input.clientId,
-      redirectUri: input.redirectUri,
+      redirectUri,
       state,
       codeChallenge: challenge,
     }),

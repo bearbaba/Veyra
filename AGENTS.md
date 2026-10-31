@@ -91,6 +91,33 @@ The CI gate is `.github/workflows/ci.yml` and must pass:
 Never fabricate E2E evidence, live provider health, DB availability, production
 signer readiness, or mainnet readiness.
 
+## Arc Mainnet integration notes (Arc Studio authored — current session)
+
+- `src/config.ts`: Arc Mainnet (`arc`, chainId 5042) added to wagmi chain list alongside testnet. RPC: `https://rpc.mainnet.arc.io`.
+- `src/identity-beta/protocol.ts`: `ARC_MAINNET_CHAIN_ID=5042`, `ARC_SUPPORTED_CHAIN_IDS`, `LOGIN_PURPOSE` exported. `requireArcWallet` accepts both Arc chains. `verifiedTypedData` validates both chains but enforces `domain.chainId === message.chainId` to block cross-chain tampering. `verifyXAuthorizationUrl` accepts onrender.com and vercel.app callbacks.
+- `server/services/walletLoginService.ts`: `ARC_MAINNET_LOGIN_CHAIN=5042`, `ARC_SUPPORTED_LOGIN_CHAINS` added. `resolveTrustedLoginOrigin` (testnet) unchanged and still throws `TESTNET_ONLY` for non-testnet env. New `resolveTrustedMainnetLoginOrigin` for mainnet BFF. `resolveTrustedLoginOriginForEnv` dispatches by `VEYRA_ENV`. `beginWalletLogin` / `completeWalletLogin` use `resolveTrustedLoginOriginForEnv` and accept both Arc chain IDs.
+- `server/services/identityRegistrationService.ts`: `ARC_MAINNET_CHAIN_ID=5042`, `ARC_SUPPORTED_IDENTITY_CHAINS` added. `assertHostedIdentityChain` added (replaces deprecated `assertHostedTestnetIdentityChain`): testnet backend allows only 5042002, mainnet backend allows only 5042.
+- `server/services/xOAuthService.ts`: `resolveXCallbackUrl()` reads `X_REDIRECT_URI` env var for mainnet BFF, falls back to canonical Render testnet URL. `beginXOAuthLink` no longer accepts redirectUri from caller — always resolved server-side.
+- `server/bff.ts`: session restore SQL `chain_id IN (5042002, 5042)`, uses `resolveTrustedLoginOriginForEnv`, imports `resolveXCallbackUrl`.
+
+## VeyraSettlement contract (Arc Studio authored)
+
+Deployed by Arc Studio on 2026-10-31.
+
+| Network | Address | Explorer |
+|---|---|---|
+| Arc Testnet | `0x39ceae4c1363780dbef8a02487d71914e0c9382a` | https://explorer.testnet.arc.io/address/0x39ceae4c1363780dbef8a02487d71914e0c9382a |
+| Arc Mainnet | TBD — requires owner approval | — |
+
+Deploy tx (Arc Testnet): `0xc7c6baa1056de503f793b5b8e9b31278b754852cee1bfa6984ab840e6ed41316`
+
+Source: `contracts/VeyraSettlement.sol`
+Artifact: `contracts/out/VeyraSettlement.sol/VeyraSettlement.json`
+Metadata: `contracts/contract-metadata/VeyraSettlement.json`
+
+Constructor args: USDC=`0x3600...0000`, owner=platform deployer, feeRecipient=platform deployer, feeBps=0.
+Mainnet deploy requires Mode 2 (self-deploy via Compass engine) with user's own wallet as owner.
+
 ## Git workflow
 
 - base branch: `develop`

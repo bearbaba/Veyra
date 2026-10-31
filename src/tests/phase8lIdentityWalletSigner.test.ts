@@ -45,7 +45,7 @@ function challenge(address: string, mode: 'register'|'login'): SignedChallenge {
         veyraUserId: 'usr_123456789ABCDEFGJ',
         ...shared,
         appOrigin: ORIGIN,
-        purpose: 'Sign in to Veyra Testnet. No payments or transfers.',
+        purpose: 'Sign in to Veyra. No payments or transfers.',
       },
     },
   };

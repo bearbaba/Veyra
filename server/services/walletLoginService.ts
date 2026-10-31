@@ -10,8 +10,11 @@ import type { DbClient } from '../db/client.js';
 import { issueSessionToken } from '../auth/session.js';
 
 export const ARC_TESTNET_LOGIN_CHAIN = 5042002;
+export const ARC_MAINNET_LOGIN_CHAIN = 5042;
+/** Both Arc chains share the same identity DB. chainId is recorded per binding. */
+export const ARC_SUPPORTED_LOGIN_CHAINS = new Set([ARC_TESTNET_LOGIN_CHAIN, ARC_MAINNET_LOGIN_CHAIN]);
 const LOGIN_TTL_MS = 5 * 60 * 1000;
-const PURPOSE = 'Sign in to Veyra Testnet. No payments or transfers.';
+const PURPOSE = 'Sign in to Veyra. No payments or transfers.';
 export const WALLET_LOGIN_TYPES = {
   WalletLogin: [
     { name: 'veyraUserId', type: 'string' },
@@ -76,6 +79,51 @@ export function resolveTrustedLoginOrigin(
   return selected;
 }
 
+/**
+ * Mainnet counterpart to resolveTrustedLoginOrigin.
+ * Requires VEYRA_ENV=mainnet and VEYRA_APP_ORIGIN to be the exact mainnet app origin.
+ * Testnet origins are explicitly rejected; no secondary origin is permitted on mainnet.
+ */
+export function resolveTrustedMainnetLoginOrigin(
+  requestedOrigin?: unknown,
+  observedOrigin?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (env.VEYRA_ENV !== 'mainnet') throw new WalletLoginError('MAINNET_ONLY', 403);
+  const primary = env.VEYRA_APP_ORIGIN;
+  if (!primary || !/^https:\/\/[a-z0-9.-]+(?::[0-9]{2,5})?$/i.test(primary) ||
+      new URL(primary).origin !== primary) {
+    throw new WalletLoginError('LOGIN_NOT_CONFIGURED', 503);
+  }
+  if (requestedOrigin !== undefined &&
+      (typeof requestedOrigin !== 'string' || requestedOrigin !== primary)) {
+    throw new WalletLoginError('LOGIN_ORIGIN_NOT_ALLOWED', 403);
+  }
+  const selected = requestedOrigin === undefined ? (observedOrigin ?? primary) : requestedOrigin;
+  if (typeof selected !== 'string' || selected !== primary) {
+    throw new WalletLoginError('LOGIN_ORIGIN_NOT_ALLOWED', 403);
+  }
+  if (observedOrigin && observedOrigin !== selected) {
+    throw new WalletLoginError('LOGIN_ORIGIN_MISMATCH', 403);
+  }
+  return selected;
+}
+
+/**
+ * Resolves the correct trusted login origin for the current environment.
+ * Dispatches to testnet or mainnet resolver based on VEYRA_ENV.
+ */
+export function resolveTrustedLoginOriginForEnv(
+  requestedOrigin?: unknown,
+  observedOrigin?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (env.VEYRA_ENV === 'mainnet') {
+    return resolveTrustedMainnetLoginOrigin(requestedOrigin, observedOrigin, env);
+  }
+  return resolveTrustedLoginOrigin(requestedOrigin, observedOrigin, env);
+}
+
 function validateAddress(input: string): Address {
   try { return getAddress(input); }
   catch { throw new WalletLoginError('INVALID_WALLET_ADDRESS', 400); }
@@ -111,9 +159,9 @@ export async function beginWalletLogin(
   db: DbClient, walletAddressInput: string, chainId: number,
   requestedOrigin?: unknown, observedOrigin?: string,
 ) {
-  const origin = resolveTrustedLoginOrigin(requestedOrigin, observedOrigin);
-  if (chainId !== ARC_TESTNET_LOGIN_CHAIN) {
-    throw new WalletLoginError('UNSUPPORTED_TESTNET_CHAIN', 400);
+  const origin = resolveTrustedLoginOriginForEnv(requestedOrigin, observedOrigin);
+  if (!ARC_SUPPORTED_LOGIN_CHAINS.has(chainId)) {
+    throw new WalletLoginError('UNSUPPORTED_CHAIN', 400);
   }
   const walletAddress = validateAddress(walletAddressInput);
   const known = await db.execute(sql`
@@ -176,7 +224,7 @@ export async function completeWalletLogin(
   requestedOrigin?: unknown,
   observedOrigin?: string,
 ): Promise<{ sessionToken: string; veyraUserId: string; walletAddress: string }> {
-  const origin = resolveTrustedLoginOrigin(requestedOrigin, observedOrigin);
+  const origin = resolveTrustedLoginOriginForEnv(requestedOrigin, observedOrigin);
   if (!/^lgn_[0-9a-f]{32}$/.test(challengeId) || !/^0x[0-9a-fA-F]{130}$/.test(signature)) {
     throw new WalletLoginError('INVALID_LOGIN_PROOF', 400);
   }
@@ -196,15 +244,16 @@ export async function completeWalletLogin(
   }
   const issuedAt = new Date(record.issuedAt).getTime();
   const expiresAt = new Date(record.expiresAt).getTime();
+  const recordChainId = Number(record.chainId);
   if (expiresAt <= Date.now() || issuedAt > Date.now() + 60_000 ||
       expiresAt - issuedAt !== LOGIN_TTL_MS ||
-      Number(record.chainId) !== ARC_TESTNET_LOGIN_CHAIN || record.appOrigin !== origin) {
+      !ARC_SUPPORTED_LOGIN_CHAINS.has(recordChainId) || record.appOrigin !== origin) {
     throw new WalletLoginError('LOGIN_CHALLENGE_EXPIRED_OR_MISMATCHED', 410);
   }
   const walletAddress = validateAddress(record.walletAddress);
   const typedData = loginTypedData({
     userId: record.userId, walletAddress,
-    chainId: ARC_TESTNET_LOGIN_CHAIN, nonce: record.nonce,
+    chainId: recordChainId, nonce: record.nonce,
     issuedAt, expiresAt, origin,
   });
   let recovered: Address;

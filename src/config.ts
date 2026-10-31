@@ -6,21 +6,25 @@
 import { http, createConfig } from 'wagmi'
 import { fallback } from 'viem'
 import { baseSepolia, mainnet, sepolia } from 'wagmi/chains'
-import { arcTestnet } from 'viem/chains'
+import { arcTestnet, arc } from 'viem/chains'
 import { injected } from 'wagmi/connectors'
 import { registerChain } from './tracing'
 
 // Pre-register chain RPC URLs so trace events show correct chain names immediately
 registerChain(arcTestnet.id, arcTestnet.rpcUrls.default.http[0])
+registerChain(arc.id, arc.rpcUrls.default.http[0])
 registerChain(sepolia.id, sepolia.rpcUrls.default.http[0])
 registerChain(baseSepolia.id, 'https://sepolia.base.org')
 
 export const config = createConfig({
+  // arc: Arc Mainnet (chainId 5042) — USDC as native gas + ERC-20
+  // arcTestnet: Arc Testnet (chainId 5042002)
   // mainnet: ENS resolution
   // sepolia: CCTP V2 destination chain (receiveMessage)
-  chains: [arcTestnet, sepolia, baseSepolia, mainnet],
+  chains: [arc, arcTestnet, sepolia, baseSepolia, mainnet],
   connectors: [injected()],
   transports: {
+    [arc.id]: http('https://rpc.mainnet.arc.io', { timeout: 12000, retryCount: 1 }),
     // Use independently verified Arc Testnet endpoints. A temporary outage/CORS
     // failure on the official RPC should not strand Review Transfer.
     // Contract reverts still fail closed; no simulation is ever skipped.

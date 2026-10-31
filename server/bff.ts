@@ -50,14 +50,14 @@ import { beginWalletLogin, completeWalletLogin, WalletLoginError } from './servi
 import { freezeSnapshot, resolveRecipient, verifySnapshot, IdentityResolutionError } from './services/identityResolver.js';
 import { getAuthenticatedVeyraUserId, issueSessionToken } from './auth/session.js';
 import {clearBrowserRestoreCookie,issueBrowserRestoreCookie,verifyBrowserRestoreCookie} from './auth/browserRestoreSession.js';
-import {resolveTrustedLoginOrigin} from './services/walletLoginService.js';
+import {resolveTrustedLoginOrigin,resolveTrustedLoginOriginForEnv} from './services/walletLoginService.js';
 import {sql} from 'drizzle-orm';
 import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } from './services/friendInboxService.js';
 import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
 import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
 import {DirectMessageError,encryptionKey,chatPage,listDirectMessages,sendDirectMessage} from './services/directMessageService.js';
 import {IncomingUsdcError,reconcileIncomingUsdc} from './services/incomingUsdcService.js';
-import { beginXOAuthLink, completeXOAuthCallback, finishXOAuthLink, XOAuthError,checkedXReturnOrigin,buildXLinkedReturnUrl,isConfiguredXOAuth } from './services/xOAuthService.js';
+import { beginXOAuthLink, completeXOAuthCallback, finishXOAuthLink, XOAuthError,checkedXReturnOrigin,buildXLinkedReturnUrl,isConfiguredXOAuth,resolveXCallbackUrl } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
 import { PaymentReviewError } from './services/paymentReviewProof.js';
 import { upsertContact, removeContact, listContacts, ContactError } from './services/contactService.js';
@@ -301,7 +301,7 @@ app.post('/api/auth/session/restore', IDENTITY_RATE, async(req:Request,res:Respo
   const origin=req.header('origin');
   if(!origin){res.status(403).json({ok:false,error:'LOGIN_ORIGIN_REQUIRED'});return;}
   try{
-    resolveTrustedLoginOrigin(origin,origin);
+    resolveTrustedLoginOriginForEnv(origin,origin);
     const body=req.body as Record<string,unknown>;
     const address=typeof body.walletAddress==='string'?body.walletAddress:'';
     const secret=process.env.VEYRA_SESSION_SECRET??'';
@@ -313,7 +313,7 @@ app.post('/api/auth/session/restore', IDENTITY_RATE, async(req:Request,res:Respo
       JOIN veyra_users u ON u.veyr_user_id=wb.veyr_user_id
       WHERE wb.veyr_user_id=${claims.sub}
         AND lower(wb.wallet_address)=${claims.wallet}
-        AND wb.chain_id=5042002 AND wb.status='ACTIVE'
+        AND wb.chain_id IN (5042002, 5042) AND wb.status='ACTIVE'
         AND wb.revoked_at IS NULL AND u.status='ACTIVE'
         AND u.deleted_at IS NULL LIMIT 1
     `);
@@ -333,7 +333,7 @@ app.post('/api/auth/session/restore', IDENTITY_RATE, async(req:Request,res:Respo
 app.post('/api/auth/session/logout', IDENTITY_RATE, (req:Request,res:Response):void=>{
   const origin=req.header('origin');
   if(!origin){res.status(403).json({ok:false,error:'LOGIN_ORIGIN_REQUIRED'});return;}
-  try{resolveTrustedLoginOrigin(origin,origin);}
+  try{resolveTrustedLoginOriginForEnv(origin,origin);}
   catch(err){identityError(res,err);return;}
   res.setHeader('Set-Cookie',clearBrowserRestoreCookie());
   res.json({ok:true});
@@ -762,7 +762,8 @@ app.post('/api/auth/x/capability', IDENTITY_RATE, (req:Request,res:Response):voi
   try {
     const origin=req.header('origin');
     checkedXReturnOrigin(origin,[runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
-    res.json({ok:true,available:isConfiguredXOAuth(process.env.X_CLIENT_ID,process.env.X_REDIRECT_URI)});
+    const callbackUrl = resolveXCallbackUrl();
+    res.json({ok:true,available:callbackUrl!==null&&isConfiguredXOAuth(process.env.X_CLIENT_ID, callbackUrl)});
   } catch(err){identityError(res,err);}
 });
 
@@ -775,14 +776,14 @@ app.post('/api/auth/x/start', IDENTITY_RATE, async (req: Request, res: Response)
       return;
     }
     const clientId = process.env.X_CLIENT_ID ?? '';
-    const redirectUri = process.env.X_REDIRECT_URI ?? '';
     const appOrigin=checkedXReturnOrigin(req.header('origin'),
       [runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
     const returnPath = typeof (req.body as Record<string, unknown>).returnPath === 'string'
       ? String((req.body as Record<string, unknown>).returnPath)
       : '/settings';
     const { db } = await import('./db/client.js');
-    const started = await beginXOAuthLink(db, veyraUserId, { clientId, redirectUri, appOrigin, returnPath });
+    // redirectUri is always resolved server-side inside beginXOAuthLink — not passed here.
+    const started = await beginXOAuthLink(db, veyraUserId, { clientId, appOrigin, returnPath });
     res.status(201).json({ ok: true, ...started });
   } catch (err) {
     identityError(res, err);

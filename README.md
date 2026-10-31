@@ -6,7 +6,7 @@ Veyra is an open-source, **self-custodial** USDC financial application with the 
 
 Arc is Veyra's home network. Circle USDC and its infrastructure are useful building blocks, **not** an endorsement or a guarantee of swaps, yields, or third-party protocols.
 
-> **Release status (23 October 2026):** under development, **not Mainnet money-movement ready**. The isolated Identity Beta has a confirmed manual two-wallet Friends result, while the signed-session Notification Inbox backend was merged into the guarded development branch but has not been integrated/deployed into the main app. The unified financial Vercel Production remains separate. X OAuth consent, private chat, unified Pay-by-ID E2E, Bridge/Swap release validation, Mainnet canary and an independent security review remain incomplete.
+> **Release status:** under development, **not Mainnet money-movement ready**. Arc Mainnet (chain 5042) is now wired into the wagmi config and EIP-712 identity flows accept both Arc Testnet (5042002) and Arc Mainnet (5042). The BFF login/registration services include a separate mainnet origin resolver (`VEYRA_ENV=mainnet`). X OAuth consent, private chat, unified Pay-by-ID E2E, Bridge/Swap release validation, VeyraSettlement Mainnet deploy, and an independent security review remain incomplete.
 
 **Single-product completion plan:** [Unified Veyra release contract](docs/veyra-single-product-release-contract.md). No standalone PayLink fork and no automatic Mainnet activation.
 
