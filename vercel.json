@@ -2,261 +2,46 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "installCommand": "bun install --frozen-lockfile",
-  "buildCommand": "VITE_VEYRA_ENV=testnet VITE_VEYRA_UNIFIED_STAGING=1 VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_TESTNET_PAY=1 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=0 VITE_VEYRA_IDENTITY_BETA=0 bun run build",
+  "buildCommand": "VITE_VEYRA_ENV=mainnet VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_TESTNET_PAY=0 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=1 VITE_VEYRA_IDENTITY_BETA=0 VITE_VEYRA_UNIFIED_STAGING=0 bun run build",
   "outputDirectory": "dist",
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "DENY"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "no-referrer"
-        },
-        {
-          "key": "Permissions-Policy",
-          "value": "camera=(), microphone=(), geolocation=()"
-        }
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" }
       ]
     },
     {
       "source": "/index.html",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store"
-        }
-      ]
+      "headers": [{ "key": "Cache-Control", "value": "no-store" }]
     },
     {
       "source": "/api/:path*",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store"
-        }
-      ]
+      "headers": [{ "key": "Cache-Control", "value": "no-store" }]
     }
   ],
   "rewrites": [
-    {
-      "source": "/api/health",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/health"
-    },
-    {
-      "source": "/api/health/readiness",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/health/readiness"
-    },
-    {
-      "source": "/api/auth/wallet-login/challenge",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/wallet-login/challenge"
-    },
-    {
-      "source": "/api/auth/wallet-login/complete",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/wallet-login/complete"
-    },
-    {
-      "source": "/api/auth/session/restore",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/session/restore"
-    },
-    {
-      "source": "/api/auth/session/logout",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/session/logout"
-    },
-    {
-      "source": "/api/auth/x/capability",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/x/capability"
-    },
-    {
-      "source": "/api/auth/x/start",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/x/start"
-    },
-    {
-      "source": "/api/auth/x/finish",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/x/finish"
-    },
-    {
-      "source": "/api/identity/register/challenge",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/identity/register/challenge"
-    },
-    {
-      "source": "/api/identity/register/complete",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/identity/register/complete"
-    },
-    {
-      "source": "/api/identity/resolve",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/identity/resolve"
-    },
-    {
-      "source": "/api/identity/prepare-payment",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/identity/prepare-payment"
-    },
-    {
-      "source": "/api/identity/verify-payment",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/identity/verify-payment"
-    },
-    {
-      "source": "/api/profile/me",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/profile/me"
-    },
-    {
-      "source": "/api/social/friends",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/friends"
-    },
-    {
-      "source": "/api/social/contacts",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/contacts"
-    },
-    {
-      "source": "/api/social/contacts/remove",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/contacts/remove"
-    },
-    {
-      "source": "/api/social/friend/status",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/friend/status"
-    },
-    {
-      "source": "/api/preferences/receive",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/preferences/receive"
-    },
-    {
-      "source": "/api/social/chat/capability",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/chat/capability"
-    },
-    {
-      "source": "/api/social/chat",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/chat"
-    },
-    {
-      "source": "/api/social/chat/send",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/chat/send"
-    },
-    {
-      "source": "/api/social/friend/request",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/friend/request"
-    },
-    {
-      "source": "/api/social/friend/respond",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/friend/respond"
-    },
-    {
-      "source": "/api/social/block",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/block"
-    },
-    {
-      "source": "/api/social/unblock",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/unblock"
-    },
-    {
-      "source": "/api/notifications",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/notifications"
-    },
-    {
-      "source": "/api/notifications/read",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/notifications/read"
-    },
-    {
-      "source": "/api/notifications/sync-incoming",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/notifications/sync-incoming"
-    },
-    {
-      "source": "/api/receipts",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/receipts"
-    },
-    {
-      "source": "/api/receipts/resumable",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/receipts/resumable"
-    },
-    {
-      "source": "/api/receipts/sync",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/receipts/sync"
-    },
-    {
-      "source": "/api/receipts/bridge",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/receipts/bridge"
-    },
-    {
-      "source": "/api/agent/status",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/agent/status"
-    },
-    {
-      "source": "/api/agent/chat",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/agent/chat"
-    },
-    {
-      "source": "/api/gateway/balances",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/gateway/balances"
-    },
-    {
-      "source": "/api/gateway/estimate",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/gateway/estimate"
-    },
-    {
-      "source": "/api/gateway/transfer-status",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/gateway/transfer-status"
-    },
-    {
-      "source": "/api/cctp/health",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/cctp/health"
-    },
-    {
-      "source": "/api/cctp/attestation",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/cctp/attestation"
-    },
-    {
-      "source": "/api/receipts/cctp/resolve-source-revert",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/receipts/cctp/resolve-source-revert"
-    },
-    {
-      "source": "/api/bridge/persist",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/persist"
-    },
-    {
-      "source": "/api/bridge/pending",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/pending"
-    },
-    {
-      "source": "/api/bridge/destination-attempts",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/destination-attempts"
-    },
-    {
-      "source": "/api/bridge/reconcile-second-receive",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/reconcile-second-receive"
-    },
-    {
-      "source": "/api/bridge/inspect-destination-nonce",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/inspect-destination-nonce"
-    },
-    {
-      "source": "/api/bridge/resolve-destination-revert",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/resolve-destination-revert"
-    },
-    {
-      "source": "/api/bridge/claim-self-receive",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/claim-self-receive"
-    },
-    {
-      "source": "/api/bridge/record-self-receive",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/record-self-receive"
-    },
-    {
-      "source": "/api/bridge/relay-receive",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/relay-receive"
-    },
-    {
-      "source": "/api/bridge/verify-second-destination",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/verify-second-destination"
-    },
-    {
-      "source": "/api/bridge/finalize-second-settlement",
-      "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/bridge/finalize-second-settlement"
-    }
+    { "source": "/api/health", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/health" },
+    { "source": "/api/health/readiness", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/health/readiness" },
+    { "source": "/api/auth/wallet-login/challenge", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/wallet-login/challenge" },
+    { "source": "/api/auth/wallet-login/complete", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/wallet-login/complete" },
+    { "source": "/api/auth/session/restore", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/session/restore" },
+    { "source": "/api/auth/session/logout", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/session/logout" },
+    { "source": "/api/auth/x/capability", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/x/capability" },
+    { "source": "/api/auth/x/start", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/x/start" },
+    { "source": "/api/auth/x/finish", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/auth/x/finish" },
+    { "source": "/api/identity/register/challenge", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/identity/register/challenge" },
+    { "source": "/api/identity/register/complete", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/identity/register/complete" },
+    { "source": "/api/identity/resolve", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/identity/resolve" },
+    { "source": "/api/identity/prepare-payment", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/identity/prepare-payment" },
+    { "source": "/api/identity/verify-payment", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/identity/verify-payment" },
+    { "source": "/api/profile/me", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/profile/me" },
+    { "source": "/api/social/friends", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/social/friends" },
+    { "source": "/api/gateway/balances", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/gateway/balances" },
+    { "source": "/api/gateway/estimate", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/gateway/estimate" },
+    { "source": "/api/gateway/transfer-status", "destination": "https://veyra-testnet-acceptance-bff.onrender.com/api/gateway/transfer-status" }
   ]
 }
