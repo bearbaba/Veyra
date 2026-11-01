@@ -543,7 +543,7 @@ export function SettlementPage() {
       failReasons: result.failReasons,
     });
     if(result.verified && VEYRA_ENV==='mainnet' && result.txHash){
-      recordLocalOperation({type:'Settlement',owner:snap.from,hash:result.txHash,amount:formatUnits(snap.amountParsed,6),asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,status:'RECORDED',destination:snap.recipient});
+      recordLocalOperation({type:'Settlement',owner:snap.walletAddress,hash:result.txHash,amount:formatUnits(snap.amountParsed,6),asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,status:'RECORDED',destination:snap.recipient});
     }
     setStep(result.verified ? 'verified' : 'confirmed');
     // eslint-disable-next-line react-hooks/exhaustive-deps
