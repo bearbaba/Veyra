@@ -14,6 +14,7 @@ import { PayPage } from './components/pages/PayPage';
 import { ConvertPage } from './components/pages/ConvertPage';
 import { BridgePage } from './components/pages/BridgePage';
 import { ActivityPage } from './components/pages/ActivityPage';
+import { MainnetActivityPage } from './components/pages/MainnetActivityPage';
 import { UiOnlyPreviewPage } from './components/pages/UiOnlyPreviewPage';
 import { IS_UI_ONLY_PREVIEW } from './lib/env';
 import { SettingsPage } from './components/pages/SettingsPage';
@@ -57,7 +58,7 @@ export default function App() {
       case 'bridge':
         return VEYRA_ENV === 'mainnet' ? <MainnetFeatureStatus feature="bridge" /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="bridge" /> : <BridgePage />;
       case 'activity':
-        return <ActivityPage readOnly={IS_UI_ONLY_PREVIEW} />;
+        return VEYRA_ENV === 'mainnet' ? <MainnetActivityPage onPay={() => setPage('pay')} /> : <ActivityPage readOnly={IS_UI_ONLY_PREVIEW} />;
       case 'settings':
         return <SettingsPage onOpenSocial={() => setPage('social')} />;
       case 'social':
