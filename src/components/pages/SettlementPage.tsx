@@ -64,6 +64,7 @@ import {
 import { ConnectKitButton } from 'connectkit';
 import { AlertTriangle, CheckCircle, Clock, ExternalLink, Lock, Send, Unlock, Loader2 } from 'lucide-react';
 import { VEYRA_ENV } from '@/lib/env';
+import { MainnetSettlementDeploy } from './MainnetSettlementDeploy';
 import {
   VEYRA_SETTLEMENT_ABI,
   ARC_TESTNET_CHAIN_ID,
@@ -770,13 +771,15 @@ export function SettlementPage() {
             <p className="text-sm text-white/70 font-medium">VeyraSettlement not yet deployed on {chainLabel}</p>
             <p className="text-xs text-white/40">
               {isMainnet
-                ? 'Mainnet deployment requires owner authorization. Use Arc Testnet to try Settlement.'
+                ? 'Owner-signed Arc Mainnet deployment is available below. No private keys or Studio credits required.'
                 : 'Switch to Arc Testnet.'}
             </p>
             {VEYRA_ENV !== 'mainnet' && <button onClick={() => switchChain({ chainId: ARC_TESTNET_CHAIN_ID })}
               className="mt-2 text-xs font-medium text-blue-400 underline">Use Arc Testnet</button>}
           </div>
         )}
+
+        {isConnected && onArc && isMainnet && !deployment && <MainnetSettlementDeploy />}
 
         {/* ── FORM ── */}
         {isConnected && onArc && !!deployment && step === 'form' && (
