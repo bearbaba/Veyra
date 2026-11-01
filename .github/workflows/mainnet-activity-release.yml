@@ -27,6 +27,15 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bunx oxlint --type-aware --quiet src scripts
-      - run: bun run test
+      - name: Test Arc Mainnet financial flows and automatic Activity
+        run: >
+          bunx vitest run
+          src/tests/mainnetAutomaticHistory.test.ts
+          src/tests/mainnetProductAndActivity.test.ts
+          src/tests/phase6ArcMainnetPay.test.ts
+          src/tests/settlementGasAndVerification.test.ts
+          src/tests/phase3MainnetCatalog.test.ts
+          src/tests/arcAppKitBridge.test.ts
+          src/tests/arcAppKitSwap.test.ts
       - run: VITE_VEYRA_ENV=mainnet VITE_VEYRA_MAINNET_MVP=1 VITE_VEYRA_MAINNET_PAY=1 bun run build
       - run: bun run check:prod-bundle
