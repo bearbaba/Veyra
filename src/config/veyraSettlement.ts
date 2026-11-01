@@ -1,7 +1,7 @@
 /**
  * VeyraSettlement contract configuration.
  *
- * Deployed by Arc Studio as part of the Veyra Arc Mainnet release.
+ * Mainnet contract deployed via owner-signed MetaMask transaction; registry guarded by live readback.
  * This is the ONLY file that stores deployment addresses — never hardcode
  * them elsewhere in the application.
  *
@@ -20,6 +20,8 @@ export const ARC_MAINNET_CHAIN_ID = 5042 as const;
 export const ARC_TESTNET_USDC = '0x3600000000000000000000000000000000000000' as const;
 /** Arc Mainnet USDC — to be populated after mainnet deploy */
 export const ARC_MAINNET_USDC = '0x3600000000000000000000000000000000000000' as const;
+/** The initial mainnet contract owner shown in the owner-signed deployment. */
+export const VEYRA_SETTLEMENT_MAINNET_OWNER = '0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb' as const;
 
 export interface VeyraSettlementDeployment {
   address: `0x${string}`;
@@ -42,7 +44,15 @@ export const VEYRA_SETTLEMENT_DEPLOYMENTS = {
     usdcAddress: ARC_TESTNET_USDC,
     feeBps: 0,
   } satisfies VeyraSettlementDeployment,
-  mainnet: null as VeyraSettlementDeployment | null, // populated after mainnet deploy
+  mainnet: {
+    address: '0xfbec434fc2190f1887578b7a59b527d1b4acbe98' as const,
+    deployTxHash: '0xb5092b9269eb9bae4953372ab7fb44683fc14771a418805a7cb2776f6d8b92e9' as const,
+    deployedAt: '2026-11-01', // Date of confirmed user-reported deployment; exact block timestamp is read from chain
+    explorerUrl: 'https://explorer.arc.io/address/0xfbec434fc2190f1887578b7a59b527d1b4acbe98',
+    chainId: ARC_MAINNET_CHAIN_ID,
+    usdcAddress: ARC_MAINNET_USDC,
+    feeBps: 0,
+  } satisfies VeyraSettlementDeployment,
 } as const;
 
 /** ABI from the checked-in Arc Studio contract metadata, reproducible on Vercel. */

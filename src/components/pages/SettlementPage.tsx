@@ -59,18 +59,20 @@ import {
 } from 'wagmi';
 import {
   parseUnits, isAddress, formatUnits, erc20Abi,
-  decodeEventLog, encodeFunctionData, type Log,
+  decodeEventLog, encodeFunctionData, encodeDeployData, parseAbi, keccak256, type Log,
 } from 'viem';
 import { ConnectKitButton } from 'connectkit';
 import { AlertTriangle, CheckCircle, Clock, ExternalLink, Lock, Send, Unlock, Loader2 } from 'lucide-react';
 import { VEYRA_ENV } from '@/lib/env';
 import { MainnetSettlementDeploy } from './MainnetSettlementDeploy';
+import { VEYRA_SETTLEMENT_CREATION_BYTECODE, VEYRA_SETTLEMENT_CREATION_KECCAK } from '@/generated/veyraSettlementCreation';
 import {
   VEYRA_SETTLEMENT_ABI,
   ARC_TESTNET_CHAIN_ID,
   ARC_MAINNET_CHAIN_ID,
   ARC_TESTNET_USDC,
   ARC_MAINNET_USDC,
+  VEYRA_SETTLEMENT_MAINNET_OWNER,
   buildSettlementTxExplorerUrl,
   getVeyraSettlementDeployment,
 } from '@/config/veyraSettlement';
@@ -230,6 +232,72 @@ export function SettlementPage() {
   const activeUsdcAddress = chainId ? arcUsdcForChain(chainId) : ARC_TESTNET_USDC;
   const chainLabel = chainId ? arcChainLabel(chainId) : 'Arc';
 
+  // Mainnet financial signing is gated by a fresh, independent onchain readback
+  // of the exact user-authorized deployment. A registry address alone is never proof.
+  const [mainnetDeploymentStatus, setMainnetDeploymentStatus] = useState<'checking'|'verified'|'failed'>('checking');
+  const [mainnetDeploymentMessage, setMainnetDeploymentMessage] = useState<string>('');
+  const [deploymentCheckGeneration, setDeploymentCheckGeneration] = useState(0);
+
+  async function validateMainnetDeployment() {
+    if (!deployment || !publicClient || chainId !== ARC_MAINNET_CHAIN_ID) {
+      throw new Error('Arc Mainnet provider or deployed address is unavailable.');
+    }
+    if (await publicClient.getChainId() !== ARC_MAINNET_CHAIN_ID) {
+      throw new Error('RPC network is not Arc Mainnet (5042).');
+    }
+    if (keccak256(VEYRA_SETTLEMENT_CREATION_BYTECODE) !== VEYRA_SETTLEMENT_CREATION_KECCAK) {
+      throw new Error('Creation bytecode does not match reproducible build.');
+    }
+    const expectedInput = encodeDeployData({
+      abi: parseAbi(['constructor(address usdc_,address initialOwner,address feeRecipient_,uint16 feeBps_)']),
+      bytecode: VEYRA_SETTLEMENT_CREATION_BYTECODE,
+      args: [ARC_MAINNET_USDC, VEYRA_SETTLEMENT_MAINNET_OWNER, VEYRA_SETTLEMENT_MAINNET_OWNER, 0],
+    });
+    const [tx, receipt, code, chainOwner, token, fee, paused] = await Promise.all([
+      publicClient.getTransaction({hash: deployment.deployTxHash}),
+      publicClient.getTransactionReceipt({hash: deployment.deployTxHash}),
+      publicClient.getBytecode({address: deployment.address}),
+      publicClient.readContract({address: deployment.address,abi: VEYRA_SETTLEMENT_ABI,functionName:'owner'}),
+      publicClient.readContract({address: deployment.address,abi: VEYRA_SETTLEMENT_ABI,functionName:'usdc'}),
+      publicClient.readContract({address: deployment.address,abi: VEYRA_SETTLEMENT_ABI,functionName:'feeBps'}),
+      publicClient.readContract({address: deployment.address,abi: VEYRA_SETTLEMENT_ABI,functionName:'paused'}),
+    ]);
+    if (tx.to !== null || tx.from.toLowerCase() !== VEYRA_SETTLEMENT_MAINNET_OWNER.toLowerCase() ||
+        tx.input.toLowerCase() !== expectedInput.toLowerCase() ||
+        receipt.status !== 'success' ||
+        receipt.contractAddress?.toLowerCase() !== deployment.address.toLowerCase() ||
+        !code || code === '0x' ||
+        String(chainOwner).toLowerCase() !== VEYRA_SETTLEMENT_MAINNET_OWNER.toLowerCase() ||
+        String(token).toLowerCase() !== ARC_MAINNET_USDC.toLowerCase() ||
+        BigInt(fee as bigint) !== 0n || paused !== false) {
+      throw new Error('Deployment transaction, runtime, owner, USDC, fee, or pause state failed verification.');
+    }
+  }
+
+  useEffect(() => {
+    if (VEYRA_ENV !== 'mainnet' || !onArc || !deployment || !publicClient) {
+      setMainnetDeploymentStatus('checking');
+      setMainnetDeploymentMessage('');
+      return;
+    }
+    let cancelled = false;
+    setMainnetDeploymentStatus('checking');
+    setMainnetDeploymentMessage('');
+    validateMainnetDeployment().then(() => {
+      if (!cancelled) setMainnetDeploymentStatus('verified');
+    }).catch(e => {
+      if (!cancelled) {
+        setMainnetDeploymentStatus('failed');
+        setMainnetDeploymentMessage(e instanceof Error ? e.message : 'Mainnet verification failed.');
+      }
+    });
+    return () => {cancelled = true;};
+    // Validate when chain, RPC or a deliberate refresh changes. Do not poll signing automatically.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chainId, publicClient, deployment?.address, deploymentCheckGeneration]);
+
+  const mainnetRegistryVerified = VEYRA_ENV !== 'mainnet' || mainnetDeploymentStatus === 'verified';
+
   // form-derived values (only used in form/review-entry phase)
   const amountParsed = (() => {
     try { return parseUnits(amount, USDC_DECIMALS); } catch { return 0n; }
@@ -244,7 +312,7 @@ export function SettlementPage() {
   const canReview =
     recipientValid && amountParsed > 0n &&
     (effectiveMode === 'pay' || escrowSecondsValid) &&
-    !!deployment && onArc && isConnected;
+    !!deployment && onArc && isConnected && mainnetRegistryVerified;
 
   // ── live contract reads ──────────────────────────────────────────────────────
 
@@ -489,6 +557,7 @@ export function SettlementPage() {
 
   // ── review entry: load fees, lock snapshot ─────────────────────────────────────
   function handleReview() {
+    if (!mainnetRegistryVerified) { setErrorMsg('Mainnet contract verification has not passed.'); setStep('error'); return; }
     if (!liveFeesReady) { setStep('loading-fees'); return; }
     lockSnapshot();
   }
@@ -551,6 +620,8 @@ export function SettlementPage() {
   // ── approve ──────────────────────────────────────────────────────────────────
   async function handleApprove() {
     if (!deployment || !address || !snapshot) return;
+    if (!mainnetRegistryVerified) {setErrorMsg('Mainnet contract verification has not passed.');setStep('error');return;}
+    if (isMainnet) {try{await validateMainnetDeployment();}catch(e){setErrorMsg(e instanceof Error?e.message:'Mainnet contract validation failed');setStep('error');return;}}
     setStep('approve');
     setErrorMsg(null);
     try {
@@ -570,6 +641,8 @@ export function SettlementPage() {
   // ── P0-3: pre-sign revalidation + broadcast ───────────────────────────────────
   async function handleSettle() {
     if (!deployment || !address || !snapshot || !publicClient) return;
+    if (!mainnetRegistryVerified) {setErrorMsg('Mainnet contract verification has not passed.');setStep('error');return;}
+    if (isMainnet) {try{await validateMainnetDeployment();}catch(e){setErrorMsg(e instanceof Error?e.message:'Mainnet contract validation failed');setStep('error');return;}}
     setStep('revalidating');
     setErrorMsg(null);
 
@@ -755,8 +828,21 @@ export function SettlementPage() {
           </div>
         )}
 
+        {isConnected && onArc && isMainnet && deployment && mainnetDeploymentStatus !== 'verified' && (
+          <div className="rounded-2xl bg-amber-500/10 border border-amber-500/20 p-4 space-y-2">
+            <p className="text-sm text-amber-300 font-medium">
+              {mainnetDeploymentStatus === 'checking'
+                ? 'Checking verified Mainnet deployment onchain…'
+                : 'Mainnet contract verification failed — all signing disabled'}
+            </p>
+            {mainnetDeploymentMessage && <p className="text-xs text-amber-200">{mainnetDeploymentMessage}</p>}
+            <button type="button" className="text-xs underline text-amber-300"
+              onClick={() => setDeploymentCheckGeneration(g => g+1)}>Retry Mainnet verification</button>
+          </div>
+        )}
+
         {/* Fee error banner */}
-        {isConnected && onArc && !!deployment && step === 'form' && (feeBpsError || feeRecipientError) && (
+        {isConnected && onArc && !!deployment && mainnetRegistryVerified && step === 'form' && (feeBpsError || feeRecipientError) && (
           <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
             <p className="text-xs text-red-300">
@@ -782,7 +868,7 @@ export function SettlementPage() {
         {isConnected && onArc && isMainnet && !deployment && <MainnetSettlementDeploy />}
 
         {/* ── FORM ── */}
-        {isConnected && onArc && !!deployment && step === 'form' && (
+        {isConnected && onArc && !!deployment && mainnetRegistryVerified && step === 'form' && (
           <>
             {/* Mode toggle — escrow hidden on mainnet */}
             {!isMainnet ? (
