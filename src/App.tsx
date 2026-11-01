@@ -52,7 +52,7 @@ export default function App() {
       case 'agent':
         return <AgentPage onNavigate={setPage} />;
       case 'pay':
-        return VEYRA_ENV === 'mainnet' ? <MainnetPayPage /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
+        return VEYRA_ENV === 'mainnet' ? <MainnetPayPage friendHandle={friendPayment} /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
       case 'convert':
         return VEYRA_ENV === 'mainnet' ? <MainnetFeatureStatus feature="swap" /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="convert" /> : <ConvertPage />;
       case 'bridge':
