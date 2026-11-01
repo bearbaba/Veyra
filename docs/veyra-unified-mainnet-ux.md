@@ -1,6 +1,6 @@
 # Veyra — Unified Mainnet UX and Transaction System
 
-**Implementation baseline:** Arc Mainnet app in branch \`arc-studio/settlement-mainnet-preview\`. The original Testnet routes remain in their existing environment. This document is a product acceptance contract, not a claim that every backend provider is Mainnet READY.
+**Implementation baseline:** Arc Mainnet app in branch `arc-studio/settlement-mainnet-preview`. The original Testnet routes remain in their existing environment. This document is a product acceptance contract, not a claim that every backend provider is Mainnet READY.
 
 ## Product principle
 
@@ -10,7 +10,7 @@ One wallet identity, one network context, one balance definition per source, and
 
 | Proposal | Decision | Implementation / next action |
 |---|---|---|
-| One Mainnet network context in all pages | **Adopt — P0** | Route catalogue \`src/mainnet/mainnetProduct.ts\` used by Home/Agent; no embedded Testnet/Sepolia form on Mainnet |
+| One Mainnet network context in all pages | **Adopt — P0** | Route catalogue `src/mainnet/mainnetProduct.ts` used by Home/Agent; no embedded Testnet/Sepolia form on Mainnet |
 | Wallet balance always visible | **Adopt — P0** | Existing global wallet balance continues on every tab; Home emphasizes the same Arc Mainnet token |
 | Home money/actions first | **Adopt — P0** | Compact Mainnet Home: wallet & separate Gateway, actions, attention, activity, account, collapsible Receive |
 | One review/sign/verify lifecycle | **Adopt — P0** | Shared presentation and per-provider receipt verification are the goal; no launch of an unverified financial path |
@@ -25,9 +25,9 @@ One wallet identity, one network context, one balance definition per source, and
 
 ## Financial state contract
 
-\`DRAFT → REVIEW → AWAITING_WALLET → SUBMITTED → VERIFYING → VERIFIED\`
+`DRAFT → REVIEW → AWAITING_WALLET → SUBMITTED → VERIFYING → VERIFIED`
 
-Alternative terminal/non-terminal outcomes: \`REJECTED\`, \`REVERTED\`, \`UNKNOWN\`, \`REQUIRES_ACTION\`.
+Alternative terminal/non-terminal outcomes: `REJECTED`, `REVERTED`, `UNKNOWN`, `REQUIRES_ACTION`.
 
 - **DRAFT:** no wallet request.
 - **REVIEW:** immutable owner, chain, token, destination, amount, fee and minimum out.
@@ -66,7 +66,7 @@ Route checks:
 
 ## Next engineering tranche
 
-- Use a shared \`TransactionTask\` domain model and shared receipt components across Pay/Settlement/Swap/Bridge. Do not rewrite provider signing logic in the same change as UI styling.
+- Use a shared `TransactionTask` domain model and shared receipt components across Pay/Settlement/Swap/Bridge. Do not rewrite provider signing logic in the same change as UI styling.
 - Automatically import provider transaction histories where authorized, with account-specific sync and migration. Current browser pointer index is not complete history.
 - Implement authenticated Mainnet Veyra ID/X and Circle Gateway only after backend contracts, secrets and callback origin readiness pass.
 - Run end-to-end wallet, navigation, reload, no-gas, quote-expiry and failure-recovery acceptance, desktop and mobile.
