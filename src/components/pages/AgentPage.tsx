@@ -215,6 +215,15 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
       response = createFallbackAgentResponse(text, { provider: 'browser-fallback', executionAvailable: false, history: priorHistory });
     }
 
+    // The Mainnet Agent is advisory only; the only executable payment route is
+    // the canonical Pay/Swap/Bridge/Settlement page with user wallet signing.
+    // The Testnet BFF must not advertise Mainnet Agent execution as AVAILABLE.
+    if (VEYRA_ENV === 'mainnet') {
+      response = {
+        ...response,
+        capabilities: {...response.capabilities, execution:'LOCKED'},
+      };
+    }
     setCapabilities(response.capabilities);
     const capabilityGraph = buildCapabilityIntentGraph(text);
     const agentMessage: Message = {
@@ -272,11 +281,13 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
       <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-5" style={{ borderColor: 'var(--border)' }}>
         <div>
           <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--accent)' }}>
-            <Sparkles className="size-4" /> Agent V2
+            <Sparkles className="size-4" /> {VEYRA_ENV === 'mainnet' ? 'Veyra Agent · Arc Mainnet' : 'Agent V2'}
           </div>
           <h1 className="display mt-2 text-3xl font-black" style={{ color: 'var(--ink)', letterSpacing: '-0.04em' }}>Your money, made simple.</h1>
           <p className="mt-1 max-w-2xl text-sm leading-6" style={{ color: 'var(--muted)' }}>
-            Send, swap, bridge, explore unified routes — or just ask Veyra. Review everything before signing.
+            {VEYRA_ENV==='mainnet'
+              ? 'Ask about balances or prepare a route. Review and sign in Pay, Swap, Bridge or Settlement; Agent never signs for you.'
+              : 'Send, swap, bridge, explore unified routes — or just ask Veyra. Review everything before signing.'}
           </p>
         </div>
         {messages.length > 0 && (
