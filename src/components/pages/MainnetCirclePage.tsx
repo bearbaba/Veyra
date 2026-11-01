@@ -242,6 +242,19 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
   }catch(e){setError(e instanceof Error?e.message:'Destination receipt unverified.');}
   finally{lock.current=false;setBusy(false);}
  }
+ // Read-only automatic reconciliation; no second swap, approval or burn can be submitted.
+ useEffect(()=>{
+  if(!address||!recovery||recovery.status!=='PENDING')return;
+  const hasEvidence=mode==='swap'?!!recovery.hash:!!recovery.burnHash&&!!recovery.mintHash;
+  if(!hasEvidence)return;
+  let active=true;
+  const tick=()=>{if(active&&!lock.current)void verify();};
+  tick();
+  const timer=window.setInterval(tick,12000);
+  return ()=>{active=false;window.clearInterval(timer);};
+  // The verification function always reads the original transaction hashes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[address,mode,recovery?.hash,recovery?.burnHash,recovery?.mintHash,recovery?.status]);
  function reset(){
   if(!address||!recovery||lock.current||
    !['VERIFIED','REVERTED'].includes(recovery.status))return;
@@ -314,11 +327,26 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
     </div>}
     {(recovery||unknownStorage)&&<div role="status" className="space-y-3 rounded-xl border p-4 text-sm"
      style={{borderColor:'var(--border)',color:'var(--ink)'}}>
-     <p className="font-bold">Existing Mainnet {title} · {recovery?.status??'Unreadable recovery'}</p>
-     <p className="text-xs" style={{color:'var(--warning)'}}>Do not submit another transaction while previous outcome is uncertain.</p>
+     <p className="flex items-center gap-2 font-bold">
+      {recovery?.status==='VERIFIED'?<ShieldCheck className="size-5" style={{color:'var(--success)'}}/>:
+       <RefreshCw className="size-4" style={{color:'var(--muted)'}}/>}
+      {recovery?.status==='VERIFIED'?'Destination verified':
+       recovery?.status==='REVERTED'?'Transaction reverted':
+       'Tracking Mainnet '+title}
+     </p>
+     <p className="text-xs" style={{color:recovery?.status==='VERIFIED'?'var(--success)':'var(--muted)'}}>
+      {recovery?.status==='VERIFIED'?'Destination asset receipt passed Veyra verification. Open the original transaction for details.':
+       recovery?.status==='REVERTED'?'Review the original transaction before starting a new request.':
+       'Previous outcome is pending or uncertain. Veyra will not submit a duplicate transaction. Status rechecks never request a signature.'}
+     </p>
      {recovery?.hash&&<p className="break-all text-xs">Swap: {recovery.hash}</p>}
      {recovery?.burnHash&&<p className="break-all text-xs">Burn: {recovery.burnHash}</p>}
      {recovery?.mintHash&&<p className="break-all text-xs">Destination: {recovery.mintHash}</p>}
+     {(recovery?.mintHash||recovery?.hash)&&<a target="_blank" rel="noreferrer"
+      className="block break-all text-xs underline" style={{color:'var(--accent)'}}
+      href={(recovery.destination===BASE?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+(recovery.mintHash||recovery.hash)}>
+      View transaction on explorer
+     </a>}
      {recovery&&recovery.status!=='VERIFIED'&&recovery.status!=='REVERTED'&&<>
       {mode==='bridge'&&!recovery.burnHash&&<input className={input} value={manualSource}
        placeholder="Original source burn hash" onChange={e=>setManualSource(e.target.value)}
