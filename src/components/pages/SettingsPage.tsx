@@ -251,7 +251,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-bold" style={{color:'var(--ink)'}}>Networks & assets</span>
             <span className="mt-1 block text-xs leading-5" style={{color:'var(--muted)'}}>
-              {VEYRA_ENV==='mainnet'?'Arc Mainnet USDC Wallet Pay is enabled. Swap, Bridge and Gateway execution are not yet activated.':'Arc Testnet USDC is enabled. Other listings are not available for sending yet.'}
+              {VEYRA_ENV==='mainnet'?'Arc Mainnet wallet payments and Circle App Kit Swap/Bridge workflows are available with live quotes. Gateway spend and Veyra ID Pay require separate backend readiness.':'Arc Testnet USDC is enabled. Other listings are not available for sending yet.'}
             </span>
           </span>
           <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180"

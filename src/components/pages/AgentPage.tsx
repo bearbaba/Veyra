@@ -489,7 +489,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
                 const amount = draft.amountRaw?.raw ?? '';
                 const token = draft.tokenRaw?.raw ?? 'USDC';
                 const recipient = draft.recipientRaw?.raw ?? '';
-                const source = draft.sourceChainRaw?.raw ?? 'Arc Testnet';
+                const source = draft.sourceChainRaw?.raw ?? (VEYRA_ENV==='mainnet'?'Arc Mainnet':'Arc Testnet');
                 setInput(`Send ${amount} ${token} from ${source} to ${recipient} on ${destination}`);
                 inputRef.current?.focus();
               }} />
@@ -502,13 +502,13 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
             {activeSwapDraft?.messageId === activeTaskMessage.id && (
               <section aria-label="Swap review in active task" className="mt-4 border-t pt-4"
                 style={{ borderColor:'var(--border)' }}>
-                {VEYRA_ENV === 'mainnet' ? <p className="text-sm" style={{color:'var(--muted)'}}>Mainnet Swap is not activated. No Testnet signing on this domain.</p> : <ConvertPage embedded initialIntent={activeSwapDraft.candidate} />}
+                {VEYRA_ENV === 'mainnet' ? <p className="text-sm" style={{color:'var(--muted)'}}>Mainnet Swap uses live Circle quotes. Open Swap to review and sign in your wallet.<button type="button" className="mt-2 block rounded-xl px-3 py-2 font-semibold" style={{background:'var(--accent)',color:'#0d1b2f'}} onClick={()=>onNavigate('convert')}>Open Mainnet Swap</button></p> : <ConvertPage embedded initialIntent={activeSwapDraft.candidate} />}
               </section>
             )}
             {inlineBridgeMessageId === activeTaskMessage.id && (
               <section aria-label="Bridge review in active task" className="mt-4 border-t pt-4"
                 style={{borderColor:'var(--border)'}}>
-                {VEYRA_ENV === 'mainnet' ? <p className="text-sm" style={{color:'var(--muted)'}}>Mainnet Bridge is not activated. No Testnet signing on this domain.</p> : <BridgePage embedded />}
+                {VEYRA_ENV === 'mainnet' ? <p className="text-sm" style={{color:'var(--muted)'}}>Mainnet Bridge uses CCTP Arc ↔ Base. Review a live route in Bridge.<button type="button" className="mt-2 block rounded-xl px-3 py-2 font-semibold" style={{background:'var(--accent)',color:'#0d1b2f'}} onClick={()=>onNavigate('bridge')}>Open Mainnet Bridge</button></p> : <BridgePage embedded />}
               </section>
             )}
           </aside>
