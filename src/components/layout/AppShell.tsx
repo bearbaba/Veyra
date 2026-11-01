@@ -16,6 +16,7 @@ import {
   Users,
   Settings,
   Command,
+  Shield,
   ArrowLeftRight,
   Route,
   MoreHorizontal,
