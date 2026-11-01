@@ -153,6 +153,10 @@ export function MainnetPayPage() {
           Direct USDC transfer, not VeyraSettlement or Veyra ID. Your wallet must approve each payment. Never retry an unknown transaction.</p>
       </div>
     </div>
+    {friendHandle&&<div role="status" className={box} style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--warning)'}}>
+      Paying {friendHandle} by Veyra ID is not activated on Mainnet. No recipient address has been substituted.
+      Use the direct wallet transfer only after verifying the exact recipient address.
+    </div>}
     {!isConnected?<div className={box} style={{background:'var(--surface)',borderColor:'var(--border)'}}>
       <p className="mb-3 text-sm" style={{color:'var(--muted)'}}>Connect your wallet to pay.</p><ConnectKitButton/>
     </div>:<>
