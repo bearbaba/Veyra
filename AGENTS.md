@@ -102,14 +102,17 @@ signer readiness, or mainnet readiness.
 - `src/components/pages/SettlementPage.tsx`: dual-chain (5042002 + 5042). `activeUsdcAddress` selected by chain. Wrong-chain banner shows both Arc switch buttons. "Not yet deployed" state for mainnet until contract is deployed.
 - `src/components/pages/HomePage.tsx`: parallel mainnet balance read (`useReadContract` pinned to `ARC_MAINNET_CHAIN_ID`). Unified `balanceFetching`, `balanceLoading`, `balanceUpdatedAt` aliases. Network label and env label dynamic. `isMainnet = VEYRA_ENV === 'mainnet' || connectedChainId === ARC_MAINNET_CHAIN_ID`.
 
-**Session test gate (latest):** 1175/1175 passing. 0 TypeScript errors. 0 lint errors. 8 new tests added (phase40XOAuthMainnetCallbackGate.test.ts).
+**Session test gate (latest):** 1175/1175 passing. 0 TypeScript errors. 0 lint errors.
 
-**GitHub branch `arc-studio/mainnet`:** Commit `dff227a` ready in `Veyra-github/`. Push requires owner GitHub authentication:
-1. Open Arc Studio terminal
-2. `export PATH="$HOME/.local/bin:$PATH" && gh auth login`
-3. Choose: GitHub.com → HTTPS → Login with a web browser (follow browser prompts)
-4. `bash scripts/push-arc-studio-mainnet.sh`
-The script verifies remote SHA after push and prints the PR creation command.
+**GitHub branch `arc-studio/mainnet`:** Latest push commit `6260fa9`. Branch up-to-date with remote. Includes:
+- `dff227a` Arc Mainnet identity, wagmi, Settlement, X OAuth hardening
+- `6175e6a` fix VeyraSettlement ABI import to use contract-metadata (not out/)
+- `c260fa5` surface Gateway balance on Home, simplify navigation
+- `b138e69` preserve tracked Settlement ABI import after UX batch
+- `6a89b3c` update AGENTS.md and README with X OAuth gate
+- `6260fa9` Settlement UI: live feeBps/feeRecipient, complete payment review lifecycle
+
+**Workspace sync (latest session):** AppShell.tsx, HomePage.tsx, WebPreviewBanner.tsx, veyraSettlement.ts synced from GitHub remote. ABI import now reads from `contracts/contract-metadata/VeyraSettlement.json` (tracked) not `contracts/out/` (untracked).
 
 ## VeyraSettlement contract (Arc Studio authored)
 
