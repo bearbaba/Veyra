@@ -14,7 +14,7 @@
 > **IMPORTANT — Accuracy statement**
 >
 > This document does not claim security audit completion without an independent audit.
-> The owner-signed contract deployment was confirmed by the Veyra app's onchain readback and recorded in the release registry. An independently verified contract-mediated 0.01 USDC canary remains pending. Do not confuse Direct Wallet Pay, Circle Swap and Settlement payments.
+> The owner-signed contract deployment was confirmed by the Veyra app's onchain readback and recorded in the release registry. The contract-mediated 0.01 USDC `pay()` canary now has successful Arc Explorer and Veyra receipt screenshots. Independent raw-log audit is not claimed. Do not confuse Direct Wallet Pay, Circle Swap and Settlement payments.
 
 ---
 
@@ -26,7 +26,7 @@ The application is built entirely with Arc Studio (Circle) and demonstrates end-
 capability across the Arc product surface:
 
 - **Arc-native USDC wallet identity** — wallet login, HMAC session tokens, Arc chain support
-- **USDC settlement contract** — VeyraSettlement deployed on both Arc Testnet and Arc Mainnet; Mainnet contract payment canary pending
+- **USDC settlement contract** — VeyraSettlement deployed on both Arc Testnet and Arc Mainnet; Mainnet `pay()` canary completed according to Arc Explorer Success and Veyra `Payment verified` screenshots
 - **CCTP V2 cross-chain bridging** — verified E2E Arc Testnet → Ethereum Sepolia
 - **Agent payment automation** — provider-based execution engine with safety rails
 - **Dual-network architecture** — testnet and mainnet paths cleanly separated
@@ -86,7 +86,10 @@ Owner-provided screenshot shows the deployed contract passed Veyra's transaction
 
 ### Canary payment — Arc Mainnet
 
-**NOT YET EXECUTED.** Next: an owner-signed 0.01 USDC payment through `VeyraSettlement.pay()`, with on-chain `PaymentSettled` and recipient USDC Transfer matching the reviewed transaction. This is distinct from the successful direct wallet Pay or Circle App Kit Swap evidence.
+**SUCCESS — November 1, 2026.** Owner-supplied Arc Explorer and Veyra screenshots confirm a `pay()` transaction on the Mainnet VeyraSettlement contract and two 0.01 USDC token transfers (sender → contract → recipient). Explorer block **29013802**, protocol fee **0 USDC**, network fee **0.002824096 USDC**. Veyra reported `Payment verified` after checking chain, receipt, contract, event, and USDC transfers. Independent raw-log audit is not claimed here.
+
+- [Mainnet canary pay() transaction](https://explorer.arc.io/tx/0xf7ac133ec0e4cac2a0342760e471c7debc7a3b97a9ad072e998ff4556b590731)
+- [Complete canary evidence and limitations](arc-mainnet-settlement-canary-success.md)
 
 ---
 
@@ -178,7 +181,7 @@ Identity → Intent → Route → Safety → Sign → Receipt
   separated at the BFF, identity, and registration layers.
 - **X OAuth:** `resolveXCallbackUrl()` returns null on mainnet when `X_REDIRECT_URI`
   is unset — no silent fallback to testnet callback.
-- **VeyraSettlement:** Deployed on Arc Testnet and owner-signed on Mainnet. Registry live validation protects all Mainnet signing. Mainnet contract canary payment is pending.
+- **VeyraSettlement:** Deployed on Arc Testnet and owner-signed on Mainnet. Registry live validation protects all Mainnet signing. Mainnet contract canary `pay()` succeeded according to explorer and app-reported receipts.
 - **CCTP V2:** Verified E2E Arc Testnet → Ethereum Sepolia with MessageTransmitterV2.
 
 ### Provider lifecycle
@@ -204,8 +207,8 @@ Identity → Intent → Route → Safety → Sign → Receipt
 | Step | Status | Blocker |
 |------|--------|---------|
 | VeyraSettlement Arc Mainnet deploy | APP VERIFIED | Registered owner-signed deployment; verify live at payment time |
-| Canary payment (0.01 USDC) | NOT YET | One owner-signed contract-mediated payment |
-| PaymentSettled event verification | NOT YET | Canary payment first |
+| Canary payment (0.01 USDC) | SUCCESS | [VeyraSettlement.pay() on Arc Mainnet](https://explorer.arc.io/tx/0xf7ac133ec0e4cac2a0342760e471c7debc7a3b97a9ad072e998ff4556b590731) |
+| PaymentSettled event verification | APP VERIFIED | Veyra reports event + USDC transfer checks passed; third-party raw-log decode not separately reproduced |
 | `src/config/veyraSettlement.ts` mainnet slot | COMPLETE | Registry updated, live contract readback gates active |
 | Vercel Production promotion | COMPLETE | Mainnet frontend with registry validation; feature acceptance pending |
 | Independent security audit | NOT YET | Owner decision |
@@ -222,7 +225,7 @@ A walkthrough video is planned to demonstrate:
 4. Settlement page — CCTP V2 bridge (Arc Testnet → Sepolia)
 5. Identity — wallet-linked Veyra ID
 
-Video will be recorded after mainnet canary payment is verified.
+A final product video can now demonstrate a real contract-mediated Mainnet payment, together with the direct wallet Pay and Circle Swap evidence.
 
 ---
 
