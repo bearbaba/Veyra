@@ -132,7 +132,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed}:{f
         setReceipt(result);
         if(result.state==='VERIFIED'||result.state==='REVERTED'){
           const next:MainnetJournal={...snapshot,stage:result.state};
-          if(result.state==='VERIFIED')recordLocalOperation({type:'Pay',hash:snapshot.hash!,owner:address,amount:snapshot.amount,asset:'USDC',chainId:5042,status:'RECORDED',destination:snapshot.to});
+          if(result.state==='VERIFIED')recordLocalOperation({type:'Pay',hash:snapshot.hash!,owner:snapshot.from,amount:snapshot.amount,asset:'USDC',chainId:5042,status:'RECORDED',destination:snapshot.to});
           if(writeMainnetJournal(next,storageForMainnet()))setJournal(next);
           else setError('Receipt confirmed but local history could not be saved. Preserve the transaction hash.');
         }
