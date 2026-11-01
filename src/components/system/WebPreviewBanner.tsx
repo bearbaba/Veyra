@@ -62,7 +62,7 @@ export function WebPreviewBanner() {
         <span className="ml-auto flex items-center gap-1.5" style={{ color: originBlocked ? 'var(--warning)' : signInReady ? 'var(--success)' : 'var(--subtle)' }}>
           {signInReady ? <Wifi className="size-3.5" /> : <WifiOff className="size-3.5" />}
           {IS_UI_ONLY_PREVIEW ? 'Demo only · No signing'
-            : originBlocked ? 'Sign-in unavailable on this site'
+            : originBlocked ? 'Sign-in unavailable on this Preview'
             : checking || social.identityOrigin === 'checking' ? 'Checking connection'
             : signInReady ? 'Veyra ID ready'
             : 'Identity connection unavailable'}
