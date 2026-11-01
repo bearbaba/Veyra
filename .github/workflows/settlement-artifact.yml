@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   compile:
@@ -48,6 +48,31 @@ jobs:
           cp "$artifact" settlement-release/VeyraSettlement.json
           printf '%s\n' "$actual" > settlement-release/bytecode.keccak
           sha256sum contracts/VeyraSettlement.sol > settlement-release/source.sha256
+      - name: Publish verified creation bytecode to UI source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib
+          artifact = json.loads(pathlib.Path('contracts/out/VeyraSettlement.sol/VeyraSettlement.json').read_text())
+          creation = artifact['bytecode']['object']
+          assert creation.startswith('0x') and len(creation) == 11994
+          output = pathlib.Path('src/generated/veyraSettlementCreation.ts')
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(
+            '/** Reproducibly compiled from contracts/VeyraSettlement.sol. '
+            'Verified by GitHub Actions and cast keccak; do not edit manually. */\\n'
+            + 'export const VEYRA_SETTLEMENT_CREATION_BYTECODE = '
+            + repr(creation).replace("'", '"') + ' as const;\\n'
+            + 'export const VEYRA_SETTLEMENT_CREATION_KECCAK = '
+            + '"0xc70cdb0b5f3b9bdd698e44bfae66f6b76475b3a05686c950be33d7c444aad3d2" as const;\\n'
+          )
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/generated/veyraSettlementCreation.ts
+          git diff --cached --quiet || git commit -m "build(mainnet): publish verified Settlement creation bytecode"
+          git push origin HEAD:refs/heads/arc-studio/settlement-mainnet-preview
       - name: Upload audited bytecode and ABI
         uses: actions/upload-artifact@v4
         with:
