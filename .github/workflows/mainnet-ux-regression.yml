@@ -1,0 +1,33 @@
+name: Veyra Mainnet UX Safety
+
+on:
+  push:
+    branches:
+      - arc-studio/settlement-mainnet-preview
+    paths:
+      - '.github/workflows/mainnet-ux-regression.yml'
+      - 'src/mainnet/mainnetProduct.ts'
+      - 'src/mainnet/localOperations.ts'
+      - 'src/tests/mainnetProductAndActivity.test.ts'
+      - 'src/components/pages/MainnetHomePage.tsx'
+      - 'src/components/pages/MainnetActivityPage.tsx'
+      - 'src/components/pages/AgentPage.tsx'
+      - 'src/components/pages/MainnetCirclePage.tsx'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Mainnet product and activity tests
+        run: bun run test src/tests/mainnetProductAndActivity.test.ts
+      - name: TypeScript safety gate
+        run: bun run typecheck
