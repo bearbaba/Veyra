@@ -61,11 +61,11 @@ jobs:
           output.parent.mkdir(parents=True, exist_ok=True)
           output.write_text(
             '/** Reproducibly compiled from contracts/VeyraSettlement.sol. '
-            'Verified by GitHub Actions and cast keccak; do not edit manually. */\\n'
+            'Verified by GitHub Actions and cast keccak; do not edit manually. */\n'
             + 'export const VEYRA_SETTLEMENT_CREATION_BYTECODE = '
-            + repr(creation).replace("'", '"') + ' as const;\\n'
+            + repr(creation).replace("'", '"') + ' as const;\n'
             + 'export const VEYRA_SETTLEMENT_CREATION_KECCAK = '
-            + '"0xc70cdb0b5f3b9bdd698e44bfae66f6b76475b3a05686c950be33d7c444aad3d2" as const;\\n'
+            + '"0xc70cdb0b5f3b9bdd698e44bfae66f6b76475b3a05686c950be33d7c444aad3d2" as const;\n'
           )
           PY
           git config user.name "github-actions[bot]"
