@@ -11,7 +11,7 @@ import {useAccount,usePublicClient,useReadContract,useSwitchChain} from 'wagmi';
 import {ConnectKitButton} from 'connectkit';
 import {decodeEventLog,erc20Abi,formatUnits,getAddress,isAddress,parseAbi,parseUnits,type EIP1193Provider,type Hash} from 'viem';
 import {ArrowLeftRight,Route,ShieldCheck,AlertTriangle,ExternalLink,RefreshCw} from 'lucide-react';
-import {getMainnetChain} from '@/config/mainnetCatalog';
+import {getMainnetChain,CCTP_V2_MAINNET} from '@/config/mainnetCatalog';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 
 const kit=new AppKit();
@@ -55,10 +55,10 @@ function parseSaved(raw:string|null,owner:string,mode:Mode):Recovery|null {
  if(p.owner!==owner.toLowerCase()||p.mode!==mode||!['UNKNOWN','PENDING','VERIFIED','REVERTED'].includes(p.status)||
  (p.hash!==undefined&&!HASH.test(p.hash))||(p.burnHash!==undefined&&!HASH.test(p.burnHash))||
  (p.mintHash!==undefined&&!HASH.test(p.mintHash)))throw Error('Invalid prior operation');
- return p;
+ return p.status==='VERIFIED'||p.status==='REVERTED'?{...p,status:'PENDING'}:p;
 }
 export function MainnetCirclePage({mode}:{mode:Mode}){
- const {address,connector,chainId}=useAccount();
+ const {address,connector}=useAccount();
  const {switchChainAsync}=useSwitchChain();
  const arc=usePublicClient({chainId:ARC});
  const base=usePublicClient({chainId:BASE});
@@ -209,8 +209,16 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
     if(!sourceClient)throw Error('Source chain RPC unavailable.');
     const burn=await sourceClient.getTransactionReceipt({hash:sourceHash as Hash});
     if(burn.status!=='success')throw Error('Source burn is not confirmed.');
+    const sourceTx=await sourceClient.getTransaction({hash:sourceHash as Hash});
+    if(sourceTx.from.toLowerCase()!==owner)throw Error('Source burn sender differs from the reviewed wallet.');
+    if(!burn.logs.some(log=>log.address.toLowerCase()===CCTP_V2_MAINNET.tokenMessengerV2.toLowerCase()))
+     throw Error('Canonical CCTP source burn event missing.');
    }
    const receipt=await destinationClient.getTransactionReceipt({hash:hash as Hash});
+   if(mode==='swap'){
+    const submitted=await destinationClient.getTransaction({hash:hash as Hash});
+    if(submitted.from.toLowerCase()!==owner)throw Error('Swap transaction sender differs from the connected wallet.');
+   }
    if(receipt.status==='reverted'){
     if(mode==='swap'){
      const r:Recovery={...recovery,status:'REVERTED',hash};
@@ -219,6 +227,9 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
     throw Error('Destination transaction reverted. Check Circle status before any new request.');
    }
    if(receipt.status!=='success')throw Error('Receipt not confirmed.');
+   if(mode==='bridge'&&!receipt.logs.some(log=>
+    [CCTP_V2_MAINNET.messageTransmitterV2.toLowerCase(),CCTP_V2_MAINNET.tokenMinterV2.toLowerCase()].includes(log.address.toLowerCase())))
+    throw Error('Canonical CCTP destination mint evidence missing.');
    const amountOut=transferSum(receipt,receivedToken,address);
    if(amountOut<parseUnits(recovery.minimum,6))throw Error('Destination Transfer amount below reviewed minimum or mint not found.');
    const r:Recovery={...recovery,status:'VERIFIED',...(mode==='swap'?{hash}:{mintHash:hash})};
