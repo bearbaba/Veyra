@@ -39,7 +39,7 @@ export function recordLocalOperation(input:Omit<LocalOperation,'updatedAt'>):boo
     const packed=JSON.stringify([next,...existing].slice(0,60));
     window.localStorage.setItem(operationKey(input.owner),packed);
     const saved=window.localStorage.getItem(operationKey(input.owner))===packed;
-    if(saved)window.dispatchEvent(new Event('veyra:mainnet:operation'));
+    if(saved&&typeof window.dispatchEvent==='function')window.dispatchEvent(new Event('veyra:mainnet:operation'));
     return saved;
   }catch{return false;}
 }
