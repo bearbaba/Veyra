@@ -1,0 +1,53 @@
+name: VeyraSettlement audited build artifact
+
+on:
+  push:
+    branches:
+      - arc-studio/settlement-mainnet-preview
+    paths:
+      - '.github/workflows/settlement-artifact.yml'
+      - 'contracts/VeyraSettlement.sol'
+      - 'foundry.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Reproducible mainnet creation bytecode
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+      - name: Install Foundry compiler
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Install Solidity dependencies
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Rebuild and verify source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Source SHA-256:"
+          sha256sum contracts/VeyraSettlement.sol
+          test "$(sha256sum contracts/VeyraSettlement.sol | cut -d' ' -f1)" = "5a6785953424a887bfc05a264237a1ed37076f15490a23a780b63fcbb317ad4b"
+          forge build
+          artifact=contracts/out/VeyraSettlement.sol/VeyraSettlement.json
+          test -s "$artifact"
+          bytecode=$(jq -r '.bytecode.object' "$artifact")
+          echo "Creation bytecode bytes: $(($(('${#bytecode}'-2))/2))"
+          actual=$(cast keccak "$bytecode")
+          echo "Creation bytecode Keccak: $actual"
+          test "$actual" = "0xc70cdb0b5f3b9bdd698e44bfae66f6b76475b3a05686c950be33d7c444aad3d2"
+          mkdir -p settlement-release
+          cp "$artifact" settlement-release/VeyraSettlement.json
+          printf '%s\n' "$actual" > settlement-release/bytecode.keccak
+          sha256sum contracts/VeyraSettlement.sol > settlement-release/source.sha256
+      - name: Upload audited bytecode and ABI
+        uses: actions/upload-artifact@v4
+        with:
+          name: veyra-settlement-mainnet-bytecode
+          path: settlement-release/
+          retention-days: 7
