@@ -22,6 +22,7 @@ import { SocialPage } from './components/pages/SocialPage';
 import { SettlementPage } from './components/pages/SettlementPage';
 import { MainnetPayPage } from './components/pages/MainnetPayPage';
 import { MainnetCirclePage } from './components/pages/MainnetCirclePage';
+import { MainnetContactsPage } from './components/pages/MainnetContactsPage';
 import { VEYRA_ENV } from './lib/env';
 import { UnifiedSocialProvider } from './features/social/UnifiedSocial';
 
@@ -35,6 +36,7 @@ export default function App() {
       window.history.replaceState(window.history.state,'',window.location.pathname);
   },[]);
   const [friendPayment, setFriendPayment] = useState<string | null>(null);
+  const [contactRecipient, setContactRecipient] = useState<string | null>(null);
 
   function startFriendPayment(handle: string) {
     // A friendly label is only a suggestion. Pay resolves a fresh 30-second
@@ -52,7 +54,7 @@ export default function App() {
       case 'agent':
         return <AgentPage onNavigate={setPage} />;
       case 'pay':
-        return VEYRA_ENV === 'mainnet' ? <MainnetPayPage friendHandle={friendPayment} /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
+        return VEYRA_ENV === 'mainnet' ? <MainnetPayPage friendHandle={friendPayment} recipientWallet={contactRecipient} onRecipientUsed={() => setContactRecipient(null)} /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
       case 'convert':
         return VEYRA_ENV === 'mainnet' ? <MainnetCirclePage mode="swap" /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="convert" /> : <ConvertPage />;
       case 'bridge':
@@ -62,7 +64,7 @@ export default function App() {
       case 'settings':
         return <SettingsPage onOpenSocial={() => setPage('social')} />;
       case 'social':
-        return <SocialPage onPayFriend={startFriendPayment} />;
+        return (VEYRA_ENV === 'mainnet' ? <MainnetContactsPage onPay={(recipient) => {setContactRecipient(recipient);setFriendPayment(null);setPage('pay');}} /> : <SocialPage onPayFriend={startFriendPayment} />);
       case 'settlement':
         return <SettlementPage />;
       default:
