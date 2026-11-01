@@ -17,6 +17,9 @@ import {
   Settings,
   Command,
   Shield,
+  ArrowLeftRight,
+  Route,
+  MoreHorizontal,
 } from 'lucide-react';
 import { CommandBar } from '../command/CommandBar';
 import { WebPreviewBanner } from '../system/WebPreviewBanner';
@@ -34,13 +37,18 @@ interface NavItem {
 const PRIMARY_NAV: NavItem[] = [
   { id: 'home', label: 'Home', icon: <Home className="size-5" /> },
   { id: 'pay', label: 'Pay', icon: <SendHorizontal className="size-5" /> },
-  { id: 'settlement', label: 'Settlement', icon: <Shield className="size-5" /> },
+  { id: 'convert', label: 'Swap', icon: <ArrowLeftRight className="size-5" /> },
+  { id: 'bridge', label: 'Bridge', icon: <Route className="size-5" /> },
   { id: 'agent', label: 'Agent', icon: <Bot className="size-5" /> },
   { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
-  { id: 'social', label: 'Friends', icon: <Users className="size-5" /> },
 ];
-
-const SETTINGS_NAV: NavItem = { id: 'settings', label: 'Settings', icon: <Settings className="size-5" /> };
+const SECONDARY_NAV: NavItem[] = [
+  { id: 'social', label: 'Friends', icon: <Users className="size-5" /> },
+  { id: 'settlement', label: 'Settlement', icon: <Shield className="size-5" /> },
+  { id: 'settings', label: 'Settings', icon: <Settings className="size-5" /> },
+];
+const MOBILE_NAV = PRIMARY_NAV.filter(item => ['home', 'pay', 'agent', 'activity'].includes(item.id));
+const MOBILE_MORE_NAV = [...PRIMARY_NAV.filter(item => item.id === 'convert' || item.id === 'bridge'), ...SECONDARY_NAV];
 
 interface AppShellProps {
   page: VeyraPage;
@@ -50,6 +58,9 @@ interface AppShellProps {
 
 export function AppShell({ page, onNavigate, children }: AppShellProps) {
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const navigate = (next: VeyraPage) => { setMobileMoreOpen(false); onNavigate(next); };
+  const moreActive = MOBILE_MORE_NAV.some(item => item.id === page);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -77,8 +88,12 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
           <NavButton key={item.id} item={item} active={page === item.id} onClick={() => onNavigate(item.id)} />
         ))}
 
+        <div className="mt-4 border-t pt-3 space-y-1" style={{borderColor:'var(--border)'}}>
+          {SECONDARY_NAV.map(item => (
+            <NavButton key={item.id} item={item} active={page === item.id} onClick={() => navigate(item.id)} />
+          ))}
+        </div>
         <div className="mt-auto space-y-1">
-          <NavButton item={SETTINGS_NAV} active={page === 'settings'} onClick={() => onNavigate('settings')} />
           <button
             onClick={() => setCmdOpen(true)}
             className="flex w-full items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors hover:bg-white/5"
@@ -140,25 +155,43 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
           </AnimatePresence>
         </div>
 
-        <nav
+        {mobileMoreOpen && (
+          <div role="region" aria-label="More Veyra features" className="md:hidden grid grid-cols-2 gap-2 border-t p-3"
+            style={{borderColor:'var(--border)',background:'var(--surface-strong)'}}>
+            {MOBILE_MORE_NAV.map(item => (
+              <button type="button" key={item.id} onClick={() => navigate(item.id)}
+                className="flex min-w-0 items-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold"
+                style={{borderColor:'var(--border)',color:page===item.id?'var(--accent)':'var(--ink)'}}>
+                {item.icon}<span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <nav aria-label="Primary navigation"
           className="md:hidden flex items-center border-t"
           style={{ borderColor: 'var(--border)', background: 'rgba(13,27,47,0.92)', backdropFilter: 'blur(20px)' }}
         >
-          {PRIMARY_NAV.map((item) => (
-            <button
+          {MOBILE_NAV.map((item) => (
+            <button type="button"
               key={item.id}
-              onClick={() => onNavigate(item.id)}
-              className="flex-1 flex flex-col items-center gap-1 py-2.5 text-xs font-medium transition-colors"
+              onClick={() => navigate(item.id)}
+              className="flex min-w-0 flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors"
+              aria-current={page === item.id ? 'page' : undefined}
               style={{ color: page === item.id ? 'var(--accent)' : 'var(--subtle)' }}
             >
               <span style={{ color: page === item.id ? 'var(--accent)' : 'var(--subtle)' }}>{item.icon}</span>
               {item.label}
             </button>
           ))}
+          <button type="button" onClick={() => setMobileMoreOpen(open => !open)} aria-expanded={mobileMoreOpen}
+            aria-label="More Veyra features" className="flex min-w-0 flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium"
+            style={{color:moreActive||mobileMoreOpen?'var(--accent)':'var(--subtle)'}}>
+            <MoreHorizontal className="size-5"/>More
+          </button>
         </nav>
       </main>
 
-      <CommandBar open={cmdOpen} onClose={() => setCmdOpen(false)} onNavigate={onNavigate} />
+      <CommandBar open={cmdOpen} onClose={() => setCmdOpen(false)} onNavigate={navigate} />
     </div>
   );
 }

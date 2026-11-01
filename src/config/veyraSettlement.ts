@@ -9,7 +9,7 @@
  * This contract never handles native ETH / Arc native gas directly.
  */
 
-import artifact from '../../contracts/contract-metadata/VeyraSettlement.json';
+import artifact from '../../contracts/out/VeyraSettlement.sol/VeyraSettlement.json';
 
 /** Arc Testnet chain ID */
 export const ARC_TESTNET_CHAIN_ID = 5042002 as const;
@@ -45,7 +45,7 @@ export const VEYRA_SETTLEMENT_DEPLOYMENTS = {
   mainnet: null as VeyraSettlementDeployment | null, // populated after mainnet deploy
 } as const;
 
-/** ABI from the checked-in Arc Studio contract metadata, reproducible on Vercel. */
+/** ABI imported directly from the Foundry artifact — never copy-paste ABI manually. */
 export const VEYRA_SETTLEMENT_ABI = artifact.abi;
 
 /**

@@ -1,8 +1,10 @@
 import { useAccount, useReadContract } from 'wagmi';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ConnectKitButton } from 'connectkit';
 import {
   ArrowRight,
+  ArrowLeftRight,
+  Route,
   AtSign,
   Bot,
   CheckCircle2,
@@ -22,6 +24,8 @@ import type { MyProfile } from '@/lib/api/identityApi';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS, REGISTRY_STATUS_COPY, type RegistryStatus } from '@/config/productRegistry';
 import { BrandLogo } from '../brand/BrandLogo';
 import type { VeyraPage } from '../layout/AppShell';
+import { useUnifiedSocial } from '../../features/social/UnifiedSocial';
+import { fetchGatewayTestnetBalances } from '../../core/gateway/gatewayBalances';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
 const ARC_MAINNET_CHAIN_ID = 5042;
@@ -44,7 +48,9 @@ export function HomePage({ onNavigate }: HomePageProps) {
   // Balance reads on testnet are pinned to Arc Testnet; on mainnet env they switch.
   // On Arc, USDC ERC-20 and native share the same address but different decimal views.
   // We always read ERC-20 balanceOf (6 decimals) for display.
-  const isMainnet = VEYRA_ENV === 'mainnet' || connectedChainId === ARC_MAINNET_CHAIN_ID;
+  // The deployed environment determines financial availability, not a user's wallet network.
+  // A Testnet build must never look like Mainnet just because the wallet switched chains.
+  const isMainnet = VEYRA_ENV === 'mainnet';
   const usdc = getUsdc(ARC_TESTNET_CHAIN_ID);
   const usdcMainnet = getUsdc(ARC_MAINNET_CHAIN_ID);
   const { receipts, error: receiptError } = useReceiptStore();
@@ -101,8 +107,9 @@ export function HomePage({ onNavigate }: HomePageProps) {
     ? formatArcUsdcBalance(activeBalanceRaw)
     : null;
   const balanceNetworkLabel = isMainnet ? 'Arc Mainnet · On-chain' : 'Arc Testnet · On-chain';
-  const envLabel = isMainnet ? 'Veyra · Mainnet' : 'Veyra · Testnet';
+  const envLabel = isMainnet ? 'Veyra · Mainnet (read-only)' : 'Veyra · Testnet Beta';
   const recentReceipts = receipts.slice(0, 3);
+  const wrongNetworkForPay = VEYRA_ENV === 'testnet' && isConnected && connectedChainId !== ARC_TESTNET_CHAIN_ID;
   const profile = identity.profile;
   const [copiedReceive, setCopiedReceive] = useState(false);
   const [receiveCopyError, setReceiveCopyError] = useState(false);
@@ -125,12 +132,25 @@ export function HomePage({ onNavigate }: HomePageProps) {
               style={{background:'var(--accent)',color:'#0d1b2f'}}>
               <SendHorizontal className="size-4"/> Send USDC <ArrowRight className="size-4"/>
             </button>
+            <button type="button" onClick={() => onNavigate('convert')}
+              className="flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold"
+              style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>
+              <ArrowLeftRight className="size-4"/> Swap
+            </button>
+            <button type="button" onClick={() => onNavigate('bridge')}
+              className="flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold"
+              style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>
+              <Route className="size-4"/> Bridge
+            </button>
             <button type="button" onClick={() => onNavigate('agent')}
               className="flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold"
               style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>
-              <Bot className="size-4"/> Explore Veyra
+              <Bot className="size-4"/> Ask Veyra
             </button>
           </div>
+          <p className="mt-3 text-xs" style={{color:'var(--muted)'}}>
+            Available routes depend on your network and signed Veyra ID. Nothing executes without your wallet approval.
+          </p>
         </div>
         <IdentityCard
           profile={profile}
@@ -141,13 +161,21 @@ export function HomePage({ onNavigate }: HomePageProps) {
         />
       </section>
 
+      {wrongNetworkForPay && (
+        <p role="status" className="rounded-xl border p-3 text-xs"
+          style={{borderColor:'var(--border-strong)',color:'var(--muted)'}}>
+          Wallet connected on a different network. The current Pay route uses Arc Testnet; you will review and switch networks before signing.
+        </p>
+      )}
+      <HomeGatewayOverview onNavigate={onNavigate} />
+
       <section className="grid gap-4 lg:grid-cols-[1fr_0.72fr]">
         <div className="rounded-3xl p-5 md:p-6" style={{background:'var(--surface-strong)',border:'1px solid var(--border)'}}>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <BrandLogo logoKey="usdc" size={36}/>
               <div>
-                <h2 className="text-sm font-bold" style={{color:'var(--ink)'}}>USDC balance</h2>
+                <h2 className="text-sm font-bold" style={{color:'var(--ink)'}}>Wallet USDC balance</h2>
                 <p className="mt-0.5 text-xs" style={{color:'var(--muted)'}}>{balanceNetworkLabel}</p>
               </div>
             </div>
@@ -163,7 +191,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
           </div>
           {!isConnected ? (
             <p className="mt-6 text-sm leading-6" style={{color:'var(--muted)'}}>
-              Connect your wallet to view your Arc Testnet USDC balance.
+              Connect your wallet to view your selected Veyra environment's Arc USDC balance.
             </p>
           ) : activeBalanceError || (!balanceLoading && !balanceFetching && formattedBalance===null) ? (
             <p role="alert" className="mt-6 text-sm" style={{color:'var(--warning)'}}>
@@ -188,7 +216,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
             <Wallet className="size-5" style={{color:'var(--accent)'}}/>
             <div>
               <h2 className="text-sm font-bold" style={{color:'var(--ink)'}}>Receive USDC</h2>
-              <p className="mt-0.5 text-xs" style={{color:'var(--muted)'}}>Arc Testnet · Your wallet address</p>
+              <p className="mt-0.5 text-xs" style={{color:'var(--muted)'}}>{balanceNetworkLabel} · Your wallet address</p>
             </div>
           </div>
           {isConnected && address ? (
@@ -206,7 +234,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
                 Clipboard unavailable. Select and copy the address above.
               </p>}
               <p className="mt-3 text-xs leading-5" style={{color:'var(--muted)'}}>
-                Only send supported Arc Testnet assets. Do not send from another network without a verified bridge.
+                Confirm your receiving network and token before receiving funds. Wallet assets are separate from Gateway deposits.
               </p>
             </>
           ) : (
@@ -267,6 +295,95 @@ export function HomePage({ onNavigate }: HomePageProps) {
         Recent transaction history could not be updated. This does not mean your wallet has no transactions.
       </p>}
     </div>
+  );
+}
+
+
+/**
+ * The Circle Gateway ledger is NOT the sum of ERC-20 wallet balances.  Display
+ * the independently verified deposited balance as its own card, never as a
+ * spendable combined portfolio figure. No credentials or values persist here.
+ */
+function HomeGatewayOverview({ onNavigate }: HomePageProps) {
+  const { address, connector } = useAccount();
+  const social = useUnifiedSocial();
+  const [refreshSequence, setRefreshSequence] = useState(0);
+  const [reading, setReading] = useState<{
+    owner: string; token: string; loading: boolean;
+    available: bigint | null; error: string | null;
+  } | null>(null);
+  const owner = address?.toLowerCase() ?? '';
+  const signedToken = social.session?.walletKey === [owner, connector?.uid ?? ''].join(':')
+    ? social.session.token : null;
+  useEffect(() => {
+    if (!owner || !signedToken || VEYRA_ENV !== 'testnet') {
+      setReading(null);
+      return;
+    }
+    let active = true;
+    setReading({ owner, token: signedToken, loading: true, available: null, error: null });
+    void fetchGatewayTestnetBalances(owner).then(snapshot => {
+      if (active) setReading({ owner, token: signedToken, loading: false, available: snapshot.available, error: null });
+    }).catch((cause: unknown) => {
+      if (active) setReading({ owner, token: signedToken, loading: false, available: null,
+        error: cause instanceof Error ? cause.message : 'Gateway balance is unavailable.' });
+    });
+    return () => { active = false; };
+  }, [owner, signedToken, refreshSequence]);
+  const current = reading?.owner === owner && reading.token === signedToken ? reading : null;
+  return (
+    <section aria-label="Circle Gateway Unified Balance" className="rounded-3xl p-5 md:p-6"
+      style={{background:'var(--surface-strong)',border:'1px solid var(--border-strong)'}}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em]" style={{color:'var(--accent)'}}>Circle Gateway</p>
+          <h2 className="mt-1 text-xl font-bold" style={{color:'var(--ink)'}}>Unified Balance</h2>
+          <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Deposited USDC only · separate from your wallet balances</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setRefreshSequence(x => x + 1)}
+            disabled={!signedToken || VEYRA_ENV !== 'testnet' || Boolean(current?.loading)}
+            className="rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-40"
+            style={{borderColor:'var(--border)',color:'var(--ink)'}}>
+            <RefreshCw className="mr-1 inline size-3.5"/> Refresh
+          </button>
+          <button type="button" onClick={() => onNavigate('agent')}
+            className="rounded-xl px-3 py-2 text-xs font-bold"
+            style={{background:'var(--accent-muted)',border:'1px solid var(--border-strong)',color:'var(--accent)'}}>
+            Manage funds <ArrowRight className="ml-1 inline size-3.5"/>
+          </button>
+        </div>
+      </div>
+      <div className="mt-4">
+        {VEYRA_ENV !== 'testnet' ? (
+          <p className="text-sm" style={{color:'var(--muted)'}}>Gateway balances are not enabled in this environment.</p>
+        ) : !owner ? (
+          <p className="text-sm" style={{color:'var(--muted)'}}>Connect your wallet to view deposited USDC.</p>
+        ) : !signedToken ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm" style={{color:'var(--muted)'}}>Sign in to your existing Veyra ID to view Gateway funds.</p>
+            <button type="button" onClick={() => onNavigate('social')} className="text-xs font-bold"
+              style={{color:'var(--accent)'}}>Open Veyra ID</button>
+          </div>
+        ) : !current || current.loading ? (
+          <p role="status" className="text-sm" style={{color:'var(--muted)'}}>Checking deposited USDC with Circle…</p>
+        ) : current.error || current.available === null ? (
+          <p role="alert" className="text-sm" style={{color:'var(--warning)'}}>
+            Gateway balance unavailable. Unknown does not mean zero. {current.error ?? ''}
+          </p>
+        ) : (
+          <div className="flex flex-wrap items-baseline gap-2" aria-live="polite">
+            <span className="display text-3xl font-black tabular-nums" style={{color:'var(--ink)'}}>
+              {formatArcUsdcBalance(current.available)}
+            </span>
+            <span className="text-sm font-semibold" style={{color:'var(--muted)'}}>USDC available</span>
+          </div>
+        )}
+        <p className="mt-3 text-[11px] leading-5" style={{color:'var(--subtle)'}}>
+          Pending deposits and transfers are not spendable. Gateway available is never added to or confused with wallet-held USDC.
+        </p>
+      </div>
+    </section>
   );
 }
 

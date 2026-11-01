@@ -52,7 +52,7 @@ export function WebPreviewBanner() {
       <div className="mx-auto flex max-w-5xl items-center gap-2 text-xs">
         <ShieldCheck className="size-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
         <span className="font-semibold" style={{ color: 'var(--ink-2)' }}>
-          {IS_UI_ONLY_PREVIEW ? 'Vercel UI Preview · Signing disabled' : 'Web Preview'}
+          {IS_UI_ONLY_PREVIEW ? 'UI Preview · Signing disabled' : VEYRA_ENV === 'testnet' ? 'Veyra Testnet Beta' : 'Veyra development'}
         </span>
         <span className="hidden sm:inline" style={{ color: 'var(--muted)' }}>
           {IS_UI_ONLY_PREVIEW
@@ -62,7 +62,7 @@ export function WebPreviewBanner() {
         <span className="ml-auto flex items-center gap-1.5" style={{ color: originBlocked ? 'var(--warning)' : signInReady ? 'var(--success)' : 'var(--subtle)' }}>
           {signInReady ? <Wifi className="size-3.5" /> : <WifiOff className="size-3.5" />}
           {IS_UI_ONLY_PREVIEW ? 'Demo only · No signing'
-            : originBlocked ? 'Sign-in unavailable on this Preview'
+            : originBlocked ? 'Sign-in unavailable on this site'
             : checking || social.identityOrigin === 'checking' ? 'Checking connection'
             : signInReady ? 'Veyra ID ready'
             : 'Identity connection unavailable'}

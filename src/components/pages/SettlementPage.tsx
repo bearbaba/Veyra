@@ -200,7 +200,7 @@ export function SettlementPage() {
             <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-sm text-amber-300 font-medium">Switch to an Arc network</p>
-              <p className="text-xs text-amber-400/70 mt-1">VeyraSettlement is deployed on Arc Testnet and Arc Mainnet</p>
+              <p className="text-xs text-amber-400/70 mt-1">VeyraSettlement is deployed on Arc Testnet; Mainnet deployment is pending.</p>
               <div className="mt-3 flex gap-3">
                 <button
                   onClick={() => switchChain({ chainId: ARC_TESTNET_CHAIN_ID })}
@@ -278,9 +278,15 @@ export function SettlementPage() {
             <p className="text-xs text-white/40 px-1">
               {mode === 'pay'
                 ? 'Immediately transfers USDC to recipient via the settlement contract. Instant and final.'
-                : 'Locks USDC in the contract. Recipient claims before the timeout, or you refund after it.'}
+                : 'Locks USDC in a time-bound contract. This app cannot release or refund an escrow yet.'}
             </p>
 
+            {mode === 'escrow' && (
+              <div role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
+                Escrow management is not yet available in this interface. Release or refund requires direct contract interaction.
+                Only use disposable Testnet funds and retain your transaction evidence. Do not use this as buyer protection.
+              </div>
+            )}
             {/* Recipient */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-white/50 uppercase tracking-wide">Recipient address</label>
