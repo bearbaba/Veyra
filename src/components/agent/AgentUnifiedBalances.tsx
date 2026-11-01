@@ -4,7 +4,9 @@
  * Gateway queries use only the currently signed Veyra ID / wallet.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAccount, usePublicClient } from 'wagmi';
+import { useAccount, usePublicClient, useReadContract } from 'wagmi';
+import { erc20Abi, formatUnits, type Address } from 'viem';
+import { getUsdc } from '@/onchain-facts';
 import { RefreshCw } from 'lucide-react';
 import { formatArcUsdcBalance } from '../../features/balance/arcUsdcBalance';
 import {
@@ -22,6 +24,15 @@ type UnifiedState = { owner:string; loading:boolean; entries:UnifiedRead[] } | n
 export function AgentUnifiedBalances(){
   const {address}=useAccount();
   const arc=usePublicClient({chainId:M.ARC_TESTNET_CHAIN_ID});
+  const mainnetUsdc=getUsdc(5042);
+  const {data: mainnetWalletBalance,isError:mainnetBalanceError,isFetching:mainnetBalanceLoading,refetch:refetchMainnetBalance}=useReadContract({
+    address:mainnetUsdc?.address as Address|undefined,
+    abi:erc20Abi,
+    functionName:'balanceOf',
+    args:address?[address]:undefined,
+    chainId:5042,
+    query:{enabled:VEYRA_ENV==='mainnet'&&!!address&&!!mainnetUsdc,refetchInterval:15000},
+  });
   const ethereum=usePublicClient({chainId:M.ETH_SEPOLIA_CHAIN_ID});
   const base=usePublicClient({chainId:M.BASE_SEPOLIA_CHAIN_ID});
   const [state,setState]=useState<UnifiedState>(null);
@@ -66,10 +77,26 @@ export function AgentUnifiedBalances(){
   const success=balances.filter(x=>x.status==='AVAILABLE').length;
   const latestRead=balances.filter((x):x is Extract<UnifiedRead,{status:'AVAILABLE'}>=>x.status==='AVAILABLE')
     .reduce((n,x)=>Math.max(n,x.readAt),0);
-  if(VEYRA_ENV==='mainnet')return <p className="rounded-xl border p-3 text-xs"
-    style={{borderColor:'var(--border)',color:'var(--muted)'}}>
-    Unified Testnet balance reads are disabled in Mainnet mode.
-  </p>;
+  if(VEYRA_ENV==='mainnet')return <div className="grid gap-3 sm:grid-cols-2" aria-label="Veyra Mainnet balances">
+    <div className="rounded-2xl border p-4" style={{borderColor:'var(--border)',background:'var(--surface-strong)'}}>
+      <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>Wallet · Arc Mainnet USDC</p>
+      <strong className="mt-2 block text-2xl font-bold tabular-nums" style={{color:'var(--ink)'}}>
+        {!address?'Connect wallet':mainnetBalanceError?'Unavailable':mainnetWalletBalance!==undefined?formatUnits(mainnetWalletBalance,6)+' USDC':'Reading…'}
+      </strong>
+      <button type="button" className="mt-3 flex items-center gap-2 text-xs" disabled={mainnetBalanceLoading}
+        style={{color:'var(--accent)'}} onClick={()=>void refetchMainnetBalance()}>
+        <RefreshCw className="size-3"/>Refresh onchain balance</button>
+      <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>Wallet-held funds · not a pooled Gateway balance.</p>
+    </div>
+    <div className="rounded-2xl border p-4" style={{borderColor:'var(--border)',background:'var(--surface-strong)'}}>
+      <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>Unified · Circle Gateway</p>
+      <strong className="mt-2 block text-2xl font-bold" style={{color:'var(--ink)'}}>Not connected</strong>
+      <p className="mt-3 text-xs leading-5" style={{color:'var(--muted)'}}>
+        Gateway funds are separate from wallet USDC. Mainnet Gateway authorization and deposit/spend
+        are not available until the provider integration is verified.
+      </p>
+    </div>
+  </div>;
   if(!address)return <div className="rounded-xl border p-3 text-sm"
     style={{borderColor:'var(--border)',color:'var(--muted)'}}>
     Connect your wallet to view USDC on Arc, Ethereum Sepolia and Base Sepolia. No signature required.
