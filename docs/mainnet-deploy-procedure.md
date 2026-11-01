@@ -35,7 +35,13 @@
 | Optimizer | enabled, 200 runs |
 | Source SHA-256 | `5a6785953424a887bfc05a264237a1ed37076f15490a23a780b63fcbb317ad4b` |
 | Creation bytecode size | 5996 bytes |
-| Creation bytecode keccak256 | `0x0bd00eecebf037aec65725fe89b142499d39be533d8a747c5cd8f453dd7899e8` |
+| Creation bytecode keccak256 | `0xc70cdb0b5f3b9bdd698e44bfae66f6b76475b3a05686c950be33d7c444aad3d2` |
+
+> **Note on hash algorithm:** The hash above is Ethereum Keccak-256 (keccak256), not SHA3-256.
+> These are different algorithms. The previous iteration of this document incorrectly used
+> `hashlib.sha3_256` (Python's SHA-3/Keccak variant) — that produces a different digest.
+> The value above was computed with Foundry's `cast keccak` which uses Ethereum's Keccak-256.
+> Use the verification command in Step 2 to reproduce it.
 
 You can verify the source hash before building:
 
@@ -121,18 +127,26 @@ forge build
 # Confirm the artifact was produced
 ls -la contracts/out/VeyraSettlement.sol/VeyraSettlement.json
 
-# Verify creation bytecode hash matches the expected value above
-cat contracts/out/VeyraSettlement.sol/VeyraSettlement.json \
-  | python3 -c "
-import sys, json, hashlib
-d = json.load(sys.stdin)
-bc = d['bytecode']['object']
-raw = bytes.fromhex(bc[2:] if bc.startswith('0x') else bc)
-print('creation bytecode size (bytes):', len(raw))
-print('keccak256:', '0x' + hashlib.sha3_256(raw).hexdigest())
-"
-# expected size:  5996
-# expected hash:  0x0bd00eecebf037aec65725fe89b142499d39be533d8a747c5cd8f453dd7899e8
+# Verify creation bytecode Keccak-256 using Foundry's cast keccak
+# (cast keccak uses Ethereum Keccak-256, not SHA3-256 — these are different)
+BYTECODE=$(cat contracts/out/VeyraSettlement.sol/VeyraSettlement.json \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['bytecode']['object'])")
+echo "Creation bytecode hex length: ${#BYTECODE} chars (expect 11994 for 5997 bytes incl. 0x prefix)"
+cast keccak "$BYTECODE"
+# expected: 0xc70cdb0b5f3b9bdd698e44bfae66f6b76475b3a05686c950be33d7c444aad3d2
+#
+# Alternative: python3 using the eth-hash library (Ethereum Keccak-256):
+#   pip install pysha3
+#   python3 -c "
+#     import sys, json, sha3
+#     d = json.load(open('contracts/out/VeyraSettlement.sol/VeyraSettlement.json'))
+#     bc = d['bytecode']['object']
+#     raw = bytes.fromhex(bc[2:] if bc.startswith('0x') else bc)
+#     k = sha3.keccak_256(); k.update(raw); print('0x' + k.hexdigest())
+#   "
+#
+# DO NOT use hashlib.sha3_256 — that is Python's SHA-3 (FIPS 202 variant),
+# which produces a different hash from Ethereum's Keccak-256.
 ```
 
 If the hash does not match, **stop**. The build is not reproducible from this source

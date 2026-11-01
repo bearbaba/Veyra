@@ -83,8 +83,8 @@ Live-verified fields (read_contract confirmed at time of writing):
 ### Vitest (TypeScript unit tests)
 
 ```
-Test Files  175 passed (175)
-     Tests  1175 passed (1175)
+Test Files  176 passed (176)
+     Tests  1204 passed (1204)
    Duration  ~30s
 ```
 
@@ -220,4 +220,4 @@ Video will be recorded after mainnet canary payment is verified.
 - GitHub: github.com/bearbaba
 - Built entirely with Arc Studio (Circle)
 - Arc Studio project: https://ibb9vwyygkkct5eupl9ay.preview.studio.arc.io
-- Arc Studio branch: arc-studio/mainnet at commit `6260fa9` (latest push before this document)
+- Arc Studio branch: arc-studio/mainnet at commit `e2e67b7` (final P0 corrections pending push)

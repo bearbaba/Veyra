@@ -3,34 +3,53 @@
  *
  * P0 Financial-correctness invariants (enforced here, not assumed):
  *
- * 1. FAIL-CLOSED FEE READ: The review screen only becomes signable once
- *    both feeBps AND feeRecipient have been fetched successfully from the
- *    live contract. If either read is still loading or has errored, the
- *    Sign button is blocked and a clear warning is shown. There is no
- *    silent zero-fee fallback.
+ * 1. FAIL-CLOSED FEE READ: Review only unlocks once feeBps AND feeRecipient
+ *    have been read successfully from the live contract. No silent zero fallback.
  *
- * 2. NETWORK FEE ESTIMATE: An estimated network-gas cost (in USDC, Arc's
- *    native gas) is fetched via wagmi estimateGas before the Sign button
- *    is enabled. It is shown as a separate line — it is NOT combined with
- *    protocol fee, gross amount, or net recipient amount.
+ * 2. NETWORK FEE ESTIMATE — CORRECT DENOMINATION:
+ *    Arc native gas uses 18 decimals; USDC ERC-20 uses 6 decimals.
+ *    gasPrice from getGasPrice() is in 18-decimal native units (wei-equivalent).
+ *    gasEstimateRaw * gasPrice produces a value in 10^18 denomination.
+ *    We divide by 10^12 (= 10^18 / 10^6) to arrive at 6-decimal USDC micro-units.
+ *    This is identical to the usdcToGasToken / gasTokenToUsdc rescale in
+ *    @/onchain-money — we replicate the arithmetic inline rather than importing
+ *    the Amount type so this file stays a React component with plain bigint.
+ *    The estimate is shown as a SEPARATE line — never combined with protocol fee,
+ *    gross amount, or net recipient amount.
+ *    Approve tx gas is estimated separately and also shown before each signature.
+ *    If estimation fails, "estimation unavailable" is shown explicitly (never near-zero).
+ *    The estimate is refreshed immediately before the Sign button is enabled.
  *
- * 3. PRE-SIGN REVALIDATION: Immediately before broadcasting the settlement
- *    call, the component re-reads feeBps, feeRecipient, allowance, and
- *    the connected wallet/network from the live chain. Any mismatch with
- *    what was shown at review time blocks the broadcast and returns the
- *    user to the review screen with an error.
+ * 3. PRE-SIGN REVALIDATION: Before broadcasting, publicClient re-reads feeBps,
+ *    feeRecipient, and USDC allowance. Any mismatch blocks broadcast.
+ *    Wallet address and chain ID are also verified against the review snapshot.
  *
- * 4. EVENT-BASED VERIFIED STATE: After the transaction receipt is confirmed,
- *    the component parses the receipt's logs to extract the canonical
- *    PaymentSettled (or EscrowCreated) event and the USDC Transfer logs.
- *    "Verified" is only shown once ALL of the following match the review
- *    parameters: payment reference, sender, recipient, gross amount,
- *    protocol fee, net amount. A receipt without matching events shows
- *    "Confirmed (events not found)" — not "Verified".
+ * 4. INDEPENDENT PAYMENT VERIFICATION — ALL 12 CHECKS:
+ *    After receipt confirmed, the verifier checks:
+ *      (a) Chain ID matches Arc (5042002 or 5042)
+ *      (b) Receipt status === 'success'
+ *      (c) tx.to === deployment.address (contract was the target)
+ *      (d) PaymentSettled event emitted BY deployment.address (not another contract)
+ *      (e) args.payer === snapshot.address (correct sender)
+ *      (f) args.recipient === snapshot.recipient (correct recipient)
+ *      (g) args.amount === snapshot.amountParsed (correct gross)
+ *      (h) args.fee === snapshot.feeAmount (correct protocol fee)
+ *      (i) args.amount - args.fee === snapshot.netAmount (consistent net)
+ *      (j) args.ref === snapshot.ref (matching payment reference)
+ *      (k) USDC Transfer log from payer to contract present with correct amount
+ *      (l) USDC Transfer log from contract to recipient present with net amount
+ *    A single mismatch produces 'confirmed' (not 'verified').
+ *    The reason for each failure is recorded and shown.
  *
- * 5. MAINNET ESCROW GATE: On Arc Mainnet, the Escrow tab is hidden and
- *    replaced by an explanatory notice. Escrow functions remain callable
- *    on-chain (EVM is permissionless) — this is documented explicitly.
+ * 5. MAINNET ESCROW GATE: Escrow tab hidden on Arc Mainnet in the UI.
+ *    The on-chain escrow functions remain callable (EVM is permissionless) —
+ *    this is documented explicitly to users.
+ *
+ * 6. REVIEW SNAPSHOT FREEZE: sender, recipient, amount, chainId, mode, contract,
+ *    feeBps, feeAmount, netAmount, and paymentRef are frozen into an immutable
+ *    FeeSnapshot when the user clicks "Review". Execution uses snapshot values,
+ *    not live state, so wallet/network changes after review are caught at
+ *    revalidation and never silently used.
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
@@ -38,7 +57,10 @@ import {
   useAccount, useWriteContract, useWaitForTransactionReceipt,
   useReadContract, useSwitchChain, useEstimateGas, usePublicClient,
 } from 'wagmi';
-import { parseUnits, isAddress, formatUnits, erc20Abi, decodeEventLog, encodeFunctionData, type Log } from 'viem';
+import {
+  parseUnits, isAddress, formatUnits, erc20Abi,
+  decodeEventLog, encodeFunctionData, type Log,
+} from 'viem';
 import { ConnectKitButton } from 'connectkit';
 import { AlertTriangle, CheckCircle, Clock, ExternalLink, Lock, Send, Unlock, Loader2 } from 'lucide-react';
 import {
@@ -51,64 +73,75 @@ import {
   getVeyraSettlementDeployment,
 } from '@/config/veyraSettlement';
 
+// ─── constants ────────────────────────────────────────────────────────────────
+
+/** USDC ERC-20 interface uses 6 decimals on Arc. */
+const USDC_DECIMALS = 6;
+
+/**
+ * Arc native gas token uses 18 decimals (wei-equivalent).
+ * gasPrice from getGasPrice() is denominated in these units.
+ * gasEstimateRaw * gasPrice is therefore in 10^18 units.
+ * Divide by GAS_TO_USDC_DIVISOR to convert to 6-decimal USDC micro-units.
+ *
+ * GAS_TO_USDC_DIVISOR = 10^(18 - 6) = 10^12
+ *
+ * This is the same rescale that @/onchain-money's gasTokenToUsdc performs.
+ * We keep it as a named constant to make the intent explicit and
+ * to protect against any future decimal-count change.
+ */
+const ARC_GAS_DECIMALS = 18;
+const ARC_USDC_DECIMALS = 6;
+const GAS_TO_USDC_DIVISOR = 10n ** BigInt(ARC_GAS_DECIMALS - ARC_USDC_DECIMALS); // 10^12
+
+const MIN_ESCROW_HOURS = 1;
+const MAX_ESCROW_DAYS = 30;
+const BPS_DENOM = 10_000n;
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 function arcUsdcForChain(chainId: number): `0x${string}` {
   return chainId === ARC_MAINNET_CHAIN_ID ? ARC_MAINNET_USDC : ARC_TESTNET_USDC;
 }
+
 function arcChainLabel(chainId: number): string {
   if (chainId === ARC_MAINNET_CHAIN_ID) return 'Arc Mainnet';
   if (chainId === ARC_TESTNET_CHAIN_ID) return 'Arc Testnet';
   return `Chain ${chainId}`;
 }
 
-const USDC_DECIMALS = 6;
-/** Arc native-gas token also has 6 decimals (it is USDC). */
-const GAS_DECIMALS = 6;
-const MIN_ESCROW_HOURS = 1;
-const MAX_ESCROW_DAYS = 30;
-const BPS_DENOM = 10_000n;
-
-type Mode = 'pay' | 'escrow';
-/**
- * form         — input fields
- * loading-fees — waiting for live feeBps + feeRecipient + gas estimate
- * review       — all fields shown, awaiting sign
- * approve      — USDC approval tx in wallet
- * revalidating — pre-sign re-read of contract state
- * execute      — settlement tx in wallet
- * pending      — waiting for on-chain confirmation
- * verified     — PaymentSettled / EscrowCreated event found and fields match
- * confirmed    — receipt received but matching event not found
- * error        — any failure
- */
-type Step =
-  | 'form'
-  | 'loading-fees'
-  | 'review'
-  | 'approve'
-  | 'revalidating'
-  | 'execute'
-  | 'pending'
-  | 'verified'
-  | 'confirmed'
-  | 'error';
-
-/** Crypto-random 32-byte payment reference. Generated at review entry so the user sees it before signing. */
-function buildRef(): `0x${string}` {
-  const entropy = crypto.getRandomValues(new Uint8Array(32));
-  const hex = Array.from(entropy).map(b => b.toString(16).padStart(2, '0')).join('');
-  return `0x${hex}`;
-}
-
-/** Format a raw USDC amount, stripping trailing zeros. */
+/** Format 6-decimal USDC raw amount, stripping trailing zeros. */
 function fmtUsdc(raw: bigint): string {
   return formatUnits(raw, USDC_DECIMALS).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 }
 
-/** Format native-gas cost in USDC (Arc: same denomination, same decimals). */
-function fmtGas(raw: bigint): string {
-  return formatUnits(raw, GAS_DECIMALS).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+/**
+ * Convert a native-gas cost (in 10^18 denomination) to 6-decimal USDC display.
+ *
+ * gasUnits * gasPrice  →  10^18 denomination
+ * divide by 10^12     →  6-decimal USDC micro-units
+ * formatUnits(_, 6)   →  human USDC string
+ *
+ * Safe upward rounding (ceiling): always rounds UP to the nearest micro-USDC,
+ * so the displayed reserve estimate is never less than the true gas cost.
+ * Floor/truncation can under-report by up to (GAS_TO_USDC_DIVISOR - 1) native
+ * units. For a reserve shown to the user, ceiling is the correct choice.
+ *
+ * For sub-micro-USDC values (1 ≤ native < 10^12) this returns 1n, which is
+ * displayed as "< 0.000002 USDC" — reserves 1 micro conservatively.
+ * gasNative === 0n means no estimate available, returns 0n (shown separately).
+ *
+ * Ceiling integer division: ceil(a / d) = (a + d - 1) / d  (a ≥ 0).
+ */
+function gasNativeToUsdcMicro(gasNative: bigint): bigint {
+  if (gasNative === 0n) return 0n;
+  return (gasNative + GAS_TO_USDC_DIVISOR - 1n) / GAS_TO_USDC_DIVISOR;
+}
+
+function fmtGasUsdc(gasNative: bigint): string {
+  const micro = gasNativeToUsdcMicro(gasNative);
+  if (micro === 0n) return '< 0.000001 USDC';
+  return `~${fmtUsdc(micro)} USDC`;
 }
 
 function ReviewRow({ label, value, mono = false, accent = false, warn = false }: {
@@ -132,29 +165,74 @@ function ReviewRow({ label, value, mono = false, accent = false, warn = false }:
   );
 }
 
-// ─── snapshot of fee state captured when review begins ────────────────────────
-interface FeeSnapshot {
+// ─── types ─────────────────────────────────────────────────────────────────────
+
+type Mode = 'pay' | 'escrow';
+type Step =
+  | 'form'
+  | 'loading-fees'
+  | 'review'
+  | 'approve'
+  | 'revalidating'
+  | 'execute'
+  | 'pending'
+  | 'verified'
+  | 'confirmed'
+  | 'error';
+
+/**
+ * Immutable snapshot of every parameter shown to the user at review time.
+ * Execution MUST use these values; any live deviation is caught at revalidation.
+ */
+interface ReviewSnapshot {
+  // identity
+  walletAddress: `0x${string}`;
+  chainId: number;
+  chainLabel: string;
+  // payment target
+  mode: Mode;
+  recipient: `0x${string}`;
+  amountParsed: bigint;
+  // contract
+  contractAddress: `0x${string}`;
+  usdcAddress: `0x${string}`;
+  // fee config (from live contract read)
   feeBps: bigint;
-  feeRecipient: string | null; // null when feeBps === 0n
+  feeRecipient: string | null;
   feeAmount: bigint;
   netAmount: bigint;
   feePercent: number;
-  gasEstimateUsdc: bigint; // in native gas units (== USDC on Arc)
+  // gas estimate (in 6-decimal USDC micro-units for display; raw native stored for pre-sign refresh)
+  gasEstimateNative: bigint;
+  approveGasNative: bigint;
+  // payment reference (fixed at review entry)
   ref: `0x${string}`;
+  // escrow (only set when mode === 'escrow')
+  escrowHours?: string;
 }
 
-// ─── PaymentSettled event interface ──────────────────────────────────────────
-interface VerifiedReceipt {
+interface VerificationResult {
+  verified: boolean;
   paymentId: `0x${string}`;
   feeOnChain: bigint;
   netOnChain: bigint;
   refOnChain: `0x${string}`;
   blockNumber: bigint;
   txHash: `0x${string}`;
-  eventsFound: boolean;
+  gasUsed: bigint;
+  failReasons: string[];
 }
 
-// ─── component ────────────────────────────────────────────────────────────────
+// ─── crypto random ref ────────────────────────────────────────────────────────
+
+function buildRef(): `0x${string}` {
+  const entropy = crypto.getRandomValues(new Uint8Array(32));
+  const hex = Array.from(entropy).map(b => b.toString(16).padStart(2, '0')).join('');
+  return `0x${hex}`;
+}
+
+// ─── component ─────────────────────────────────────────────────────────────────
+
 export function SettlementPage() {
   const { address, isConnected, chainId } = useAccount();
   const { switchChain } = useSwitchChain();
@@ -166,26 +244,26 @@ export function SettlementPage() {
   const [amount, setAmount] = useState('');
   const [escrowHours, setEscrowHours] = useState('24');
 
-  // lifecycle state
+  // lifecycle
   const [step, setStep] = useState<Step>('form');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [approveTxHash, setApproveTxHash] = useState<`0x${string}` | undefined>();
   const [settleTxHash, setSettleTxHash] = useState<`0x${string}` | undefined>();
 
-  // fee snapshot — locked when user clicks "Review"; released on reset
-  const [feeSnapshot, setFeeSnapshot] = useState<FeeSnapshot | null>(null);
+  // frozen snapshot (set at review entry, read during execution and verification)
+  const [snapshot, setSnapshot] = useState<ReviewSnapshot | null>(null);
 
-  // final verified receipt
-  const [verifiedReceipt, setVerifiedReceipt] = useState<VerifiedReceipt | null>(null);
+  // verification result
+  const [verResult, setVerResult] = useState<VerificationResult | null>(null);
 
-  // derived chain values
+  // derived chain state
   const deployment = chainId ? getVeyraSettlementDeployment(chainId) : null;
   const onArc = chainId === ARC_TESTNET_CHAIN_ID || chainId === ARC_MAINNET_CHAIN_ID;
   const isMainnet = chainId === ARC_MAINNET_CHAIN_ID;
   const activeUsdcAddress = chainId ? arcUsdcForChain(chainId) : ARC_TESTNET_USDC;
   const chainLabel = chainId ? arcChainLabel(chainId) : 'Arc';
 
-  // form-derived values (used only in form step; review uses snapshot)
+  // form-derived values (only used in form/review-entry phase)
   const amountParsed = (() => {
     try { return parseUnits(amount, USDC_DECIMALS); } catch { return 0n; }
   })();
@@ -194,18 +272,14 @@ export function SettlementPage() {
     const h = parseFloat(escrowHours);
     return !isNaN(h) && h >= MIN_ESCROW_HOURS && h <= MAX_ESCROW_DAYS * 24;
   })();
-  // Escrow is disabled on mainnet in the UI (on-chain functions remain callable).
   const escrowAllowedInUi = !isMainnet;
   const effectiveMode: Mode = (mode === 'escrow' && !escrowAllowedInUi) ? 'pay' : mode;
   const canReview =
-    recipientValid &&
-    amountParsed > 0n &&
+    recipientValid && amountParsed > 0n &&
     (effectiveMode === 'pay' || escrowSecondsValid) &&
-    !!deployment &&
-    onArc &&
-    isConnected;
+    !!deployment && onArc && isConnected;
 
-  // ── live contract reads (always running when on Arc with a deployment) ──────
+  // ── live contract reads ──────────────────────────────────────────────────────
 
   const { data: liveFeeBps, isError: feeBpsError, isLoading: feeBpsLoading } = useReadContract({
     address: deployment?.address,
@@ -232,10 +306,9 @@ export function SettlementPage() {
     query: { enabled: isConnected && !!deployment && !!address && onArc, staleTime: 10_000 },
   });
 
-  // Current fee values from live reads (used in form/loading-fees phase only)
-  const liveFeesBpsReady = !feeBpsLoading && !feeBpsError && liveFeeBps !== undefined;
+  const liveFeeBpsReady = !feeBpsLoading && !feeBpsError && liveFeeBps !== undefined;
   const liveFeesRecipientReady = !feeRecipientLoading && !feeRecipientError && liveFeeRecipient !== undefined;
-  const liveFeesReady = liveFeesBpsReady && liveFeesRecipientReady;
+  const liveFeesReady = liveFeeBpsReady && liveFeesRecipientReady;
 
   const currentFeeBps: bigint =
     typeof liveFeeBps === 'bigint' ? liveFeeBps :
@@ -243,42 +316,77 @@ export function SettlementPage() {
   const currentFeeAmount = amountParsed > 0n ? (amountParsed * currentFeeBps) / BPS_DENOM : 0n;
   const currentNetAmount = amountParsed - currentFeeAmount;
 
-  // ── gas estimate ─────────────────────────────────────────────────────────────
-  // Build the call data for the gas estimate (pay() only — escrow is similar cost).
-  // We use a synthetic ref here just for estimation; actual ref is set at snapshot time.
-  const dummyRef = '0x0000000000000000000000000000000000000000000000000000000000000001' as `0x${string}`;
-  const gasEstimateEnabled =
-    !!deployment && !!address && recipientValid && amountParsed > 0n && onArc && isConnected;
+  // ── gas estimates (18-decimal native units from getGasPrice) ─────────────────
 
-  const gasCallData = (gasEstimateEnabled && deployment)
+  /** Latest gas price in 18-decimal native units. Updated on mount and chain change. */
+  const gasPriceRef = useRef<bigint>(1_000_000_000n); // 1 gwei fallback
+  const gasPriceLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!publicClient) return;
+    let cancelled = false;
+    publicClient.getGasPrice()
+      .then(p => { if (!cancelled) { gasPriceRef.current = p; gasPriceLoadedRef.current = true; } })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [publicClient, chainId]);
+
+  // Dummy ref for gas estimation call — value doesn't affect gas cost
+  const dummyRef = '0x0000000000000000000000000000000000000000000000000000000000000001' as `0x${string}`;
+  const dummyRecipient = (recipientValid ? recipient.trim() : '0x0000000000000000000000000000000000000001') as `0x${string}`;
+
+  const gasEstimateEnabled =
+    !!deployment && !!address && amountParsed > 0n && onArc && isConnected;
+
+  const payGasCallData = (gasEstimateEnabled && deployment)
     ? encodeFunctionData({
         abi: VEYRA_SETTLEMENT_ABI,
         functionName: 'pay',
-        args: [recipient.trim() as `0x${string}`, amountParsed, dummyRef],
+        args: [dummyRecipient, amountParsed, dummyRef],
       })
     : undefined;
 
-  const { data: gasEstimateRaw, isLoading: gasLoading } = useEstimateGas(
-    (gasEstimateEnabled && deployment && gasCallData) ? {
+  const { data: payGasEstimateRaw, isLoading: payGasLoading, isError: payGasError } = useEstimateGas(
+    (gasEstimateEnabled && deployment && payGasCallData) ? {
       account: address,
       to: deployment.address,
-      data: gasCallData,
+      data: payGasCallData,
       chainId,
     } : undefined
   );
 
-  // On Arc, gasPrice ≈ 1 (USDC per gas unit). Convert gas units to micro-USDC.
-  // We fetch gasPrice via publicClient for accuracy; fall back to 1n if unavailable.
-  const gasPriceRef = useRef<bigint>(1n);
-  useEffect(() => {
-    if (!publicClient) return;
-    publicClient.getGasPrice().then(p => { gasPriceRef.current = p; }).catch(() => undefined);
-  }, [publicClient, chainId]);
+  // Approve gas estimate (fixed ERC-20 approve call)
+  const approveGasCallData = (gasEstimateEnabled && deployment)
+    ? encodeFunctionData({
+        abi: erc20Abi,
+        functionName: 'approve',
+        args: [deployment.address, amountParsed],
+      })
+    : undefined;
 
-  const gasEstimateUsdc: bigint =
-    gasEstimateRaw !== undefined ? gasEstimateRaw * gasPriceRef.current : 0n;
+  const { data: approveGasEstimateRaw, isLoading: approveGasLoading } = useEstimateGas(
+    (gasEstimateEnabled && deployment && approveGasCallData) ? {
+      account: address,
+      to: activeUsdcAddress,
+      data: approveGasCallData,
+      chainId,
+    } : undefined
+  );
 
-  // ── wagmi write hooks ─────────────────────────────────────────────────────────
+  /**
+   * Convert gas estimate to 18-decimal native units (gasUnits * gasPrice).
+   * Returns 0n if either value is unavailable — caller must handle this case
+   * by showing "unavailable" rather than near-zero.
+   */
+  function toGasNative(gasUnits: bigint | undefined): bigint {
+    if (!gasUnits || gasUnits === 0n) return 0n;
+    return gasUnits * gasPriceRef.current;
+  }
+
+  const payGasNative = toGasNative(payGasEstimateRaw);
+  const approveGasNative = toGasNative(approveGasEstimateRaw);
+
+  // ── wagmi write hooks ────────────────────────────────────────────────────────
   const { writeContractAsync: writeApprove, isPending: approving } = useWriteContract();
   const { writeContractAsync: writeSettle, isPending: settling } = useWriteContract();
 
@@ -291,84 +399,200 @@ export function SettlementPage() {
     setStep('review');
   }
 
-  // ── receipt event verification ────────────────────────────────────────────────
+  // ── receipt verification ──────────────────────────────────────────────────────
+  /**
+   * Runs after settleConfirmed. Checks ALL 12 conditions:
+   * (a) chain is Arc
+   * (b) receipt.status === 'success'
+   * (c) receipt.to === deployment.address
+   * (d) PaymentSettled emitted BY deployment.address
+   * (e) args.payer === snapshot.walletAddress
+   * (f) args.recipient === snapshot.recipient
+   * (g) args.amount === snapshot.amountParsed
+   * (h) args.fee === snapshot.feeAmount
+   * (i) args.amount - args.fee === snapshot.netAmount
+   * (j) args.ref === snapshot.ref
+   * (k) USDC Transfer: payer → contract, amount === snapshot.amountParsed
+   * (l) USDC Transfer: contract → recipient, amount === snapshot.netAmount
+   */
   useEffect(() => {
-    if (!settleConfirmed || !settleReceipt || !feeSnapshot || !deployment) return;
+    if (!settleConfirmed || !settleReceipt || !snapshot || !deployment) return;
     if (step !== 'pending') return;
 
-    const snap = feeSnapshot;
+    const snap = snapshot;
+    const failReasons: string[] = [];
     let eventsFound = false;
-    let paymentId: `0x${string}` = '0x' + '00'.repeat(32) as `0x${string}`;
+    let paymentId: `0x${string}` = `0x${'00'.repeat(32)}`;
     let feeOnChain = 0n;
     let netOnChain = 0n;
-    let refOnChain: `0x${string}` = '0x' + '00'.repeat(32) as `0x${string}`;
+    let refOnChain: `0x${string}` = `0x${'00'.repeat(32)}`;
+
+    // (a) Chain
+    if (chainId !== ARC_TESTNET_CHAIN_ID && chainId !== ARC_MAINNET_CHAIN_ID) {
+      failReasons.push(`chain ID ${chainId ?? 'unknown'} is not an Arc chain`);
+    }
+
+    // (b) Receipt status
+    if (settleReceipt.status !== 'success') {
+      failReasons.push(`transaction reverted (status: ${settleReceipt.status})`);
+    }
+
+    // (c) Transaction target
+    const receiptTo = settleReceipt.to?.toLowerCase();
+    const expectedTo = snap.contractAddress.toLowerCase();
+    if (receiptTo !== expectedTo) {
+      failReasons.push(`tx target ${receiptTo ?? 'null'} does not match contract ${expectedTo}`);
+    }
+
+    // Parse logs for PaymentSettled and USDC Transfer events
+    let payerToContractTransferFound = false;
+    let contractToRecipientTransferFound = false;
 
     try {
       for (const log of settleReceipt.logs as Log[]) {
-        try {
-          const decoded = decodeEventLog({
-            abi: VEYRA_SETTLEMENT_ABI,
-            data: log.data,
-            topics: log.topics,
-          });
+        // Only consider logs from the deployment contract for PaymentSettled
+        const logAddress = (log.address ?? '').toLowerCase();
+        const deploymentLc = snap.contractAddress.toLowerCase();
+        const usdcLc = snap.usdcAddress.toLowerCase();
 
-          if (decoded.eventName === 'PaymentSettled') {
-            const args = decoded.args as unknown as {
-              paymentId: `0x${string}`;
-              payer: `0x${string}`;
-              recipient: `0x${string}`;
-              amount: bigint;
-              fee: bigint;
-              ref: `0x${string}`;
-            };
-            paymentId = args.paymentId;
-            feeOnChain = args.fee;
-            netOnChain = args.amount - args.fee;
-            refOnChain = args.ref;
-            eventsFound = true;
-          }
+        // Try PaymentSettled (must come from VeyraSettlement)
+        if (logAddress === deploymentLc) {
+          try {
+            const decoded = decodeEventLog({
+              abi: VEYRA_SETTLEMENT_ABI,
+              data: log.data,
+              topics: log.topics,
+            });
 
-          if (decoded.eventName === 'EscrowCreated') {
-            const args = decoded.args as unknown as {
-              paymentId: `0x${string}`;
-              payer: `0x${string}`;
-              recipient: `0x${string}`;
-              amount: bigint;
-              expiresAt: bigint;
-              ref: `0x${string}`;
-            };
-            paymentId = args.paymentId;
-            // Escrow: fee not yet realised; gross stored in contract
-            feeOnChain = snap.feeAmount;
-            netOnChain = snap.netAmount;
-            refOnChain = args.ref;
-            eventsFound = true;
+            if (decoded.eventName === 'PaymentSettled') {
+              const args = decoded.args as unknown as {
+                paymentId: `0x${string}`;
+                payer: `0x${string}`;
+                recipient: `0x${string}`;
+                amount: bigint;
+                fee: bigint;
+                ref: `0x${string}`;
+              };
+              eventsFound = true;
+              paymentId = args.paymentId;
+              feeOnChain = args.fee;
+              netOnChain = args.amount - args.fee;
+              refOnChain = args.ref;
+
+              // (d) already satisfied (log came from deployment contract)
+              // (e) payer
+              if (args.payer.toLowerCase() !== snap.walletAddress.toLowerCase()) {
+                failReasons.push(
+                  `PaymentSettled payer ${args.payer} does not match signing wallet ${snap.walletAddress}`
+                );
+              }
+              // (f) recipient
+              if (args.recipient.toLowerCase() !== snap.recipient.toLowerCase()) {
+                failReasons.push(
+                  `PaymentSettled recipient ${args.recipient} does not match intended ${snap.recipient}`
+                );
+              }
+              // (g) gross amount
+              if (args.amount !== snap.amountParsed) {
+                failReasons.push(
+                  `PaymentSettled amount ${args.amount} differs from reviewed ${snap.amountParsed}`
+                );
+              }
+              // (h) fee
+              if (args.fee !== snap.feeAmount) {
+                failReasons.push(
+                  `PaymentSettled fee ${args.fee} differs from reviewed ${snap.feeAmount}`
+                );
+              }
+              // (i) net consistency
+              if (args.amount - args.fee !== snap.netAmount) {
+                failReasons.push(
+                  `net amount ${args.amount - args.fee} inconsistent with reviewed net ${snap.netAmount}`
+                );
+              }
+              // (j) payment reference
+              if (args.ref.toLowerCase() !== snap.ref.toLowerCase()) {
+                failReasons.push(
+                  `PaymentSettled ref ${args.ref} does not match review ref ${snap.ref}`
+                );
+              }
+            }
+          } catch {
+            // log did not decode as PaymentSettled — skip
           }
-        } catch {
-          // log did not decode against this ABI — skip
+        }
+
+        // Try USDC Transfer events (must come from USDC contract)
+        if (logAddress === usdcLc) {
+          try {
+            const decoded = decodeEventLog({
+              abi: erc20Abi,
+              data: log.data,
+              topics: log.topics,
+            });
+            if (decoded.eventName === 'Transfer') {
+              // erc20Abi Transfer: { from, to, value } — viem types this correctly
+              const { from, to, value } = decoded.args;
+              // (k) payer → contract, value === gross amount
+              if (
+                from.toLowerCase() === snap.walletAddress.toLowerCase() &&
+                to.toLowerCase() === snap.contractAddress.toLowerCase() &&
+                value === snap.amountParsed
+              ) {
+                payerToContractTransferFound = true;
+              }
+              // (l) contract → recipient, value === net amount
+              if (
+                from.toLowerCase() === snap.contractAddress.toLowerCase() &&
+                to.toLowerCase() === snap.recipient.toLowerCase() &&
+                value === snap.netAmount
+              ) {
+                contractToRecipientTransferFound = true;
+              }
+            }
+          } catch {
+            // not a Transfer log
+          }
         }
       }
     } catch {
-      // receipt parsing failed entirely
+      failReasons.push('receipt log parsing failed');
     }
 
-    // Validate event fields against what was shown at review time
-    const refMatch = !eventsFound || refOnChain.toLowerCase() === snap.ref.toLowerCase();
-    const feeMatch = !eventsFound || feeOnChain === snap.feeAmount;
+    // (d) PaymentSettled must have been emitted
+    if (!eventsFound) {
+      failReasons.push('PaymentSettled event not found in receipt');
+    }
 
-    const allMatch = eventsFound && refMatch && feeMatch;
+    // (k) payer → contract Transfer
+    if (!payerToContractTransferFound) {
+      failReasons.push(
+        `USDC Transfer from payer to contract not found (expected ${fmtUsdc(snap.amountParsed)} USDC)`
+      );
+    }
 
-    setVerifiedReceipt({
+    // (l) contract → recipient Transfer
+    if (!contractToRecipientTransferFound) {
+      failReasons.push(
+        `USDC Transfer from contract to recipient not found (expected ${fmtUsdc(snap.netAmount)} USDC)`
+      );
+    }
+
+    const verified = failReasons.length === 0;
+
+    setVerResult({
+      verified,
       paymentId,
       feeOnChain,
       netOnChain,
       refOnChain,
       blockNumber: settleReceipt.blockNumber,
       txHash: settleReceipt.transactionHash,
-      eventsFound,
+      gasUsed: settleReceipt.gasUsed,
+      failReasons,
     });
 
-    setStep(allMatch ? 'verified' : 'confirmed');
+    setStep(verified ? 'verified' : 'confirmed');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settleConfirmed, settleReceipt]);
 
@@ -378,81 +602,82 @@ export function SettlementPage() {
     setErrorMsg(null);
     setApproveTxHash(undefined);
     setSettleTxHash(undefined);
-    setFeeSnapshot(null);
-    setVerifiedReceipt(null);
+    setSnapshot(null);
+    setVerResult(null);
   }, []);
 
-  // ── review entry: load fees, then lock snapshot ───────────────────────────────
+  // ── review entry: load fees, lock snapshot ─────────────────────────────────────
   function handleReview() {
-    if (!liveFeesReady) {
-      setStep('loading-fees');
-      return;
-    }
-    lockReviewSnapshot();
+    if (!liveFeesReady) { setStep('loading-fees'); return; }
+    lockSnapshot();
   }
 
-  function lockReviewSnapshot() {
-    const bps = typeof liveFeeBps === 'bigint' ? liveFeeBps :
-      typeof liveFeeBps === 'number' ? BigInt(liveFeeBps) : 0n;
-    const fee = amountParsed > 0n ? (amountParsed * bps) / BPS_DENOM : 0n;
-    const net = amountParsed - fee;
-    const recipient_addr = liveFeeRecipient;
+  function lockSnapshot() {
+    if (!address || !chainId || !deployment) return;
 
-    // P0-1: FAIL CLOSED — both reads must have succeeded
     if (feeBpsError || feeRecipientError) {
       setErrorMsg(
         'Unable to read fee configuration from the contract. ' +
-        'Cannot present a verified review until the contract state is confirmed. ' +
-        'Please check your network connection and try again.'
+        'Review is blocked until live contract state is confirmed.'
       );
       setStep('error');
       return;
     }
     if (liveFeeBps === undefined || liveFeeRecipient === undefined) {
-      setErrorMsg(
-        'Fee configuration is still loading. Please wait for contract data to load before reviewing.'
-      );
+      setErrorMsg('Fee configuration still loading — please wait and try again.');
       setStep('error');
       return;
     }
 
-    setFeeSnapshot({
+    const bps =
+      typeof liveFeeBps === 'bigint' ? liveFeeBps :
+      typeof liveFeeBps === 'number' ? BigInt(liveFeeBps) : 0n;
+    const fee = amountParsed > 0n ? (amountParsed * bps) / BPS_DENOM : 0n;
+    const net = amountParsed - fee;
+
+    setSnapshot({
+      walletAddress: address,
+      chainId,
+      chainLabel,
+      mode: effectiveMode,
+      recipient: recipient.trim() as `0x${string}`,
+      amountParsed,
+      contractAddress: deployment.address,
+      usdcAddress: activeUsdcAddress,
       feeBps: bps,
-      feeRecipient: bps > 0n && typeof recipient_addr === 'string' ? recipient_addr : null,
+      feeRecipient: bps > 0n && typeof liveFeeRecipient === 'string' ? liveFeeRecipient : null,
       feeAmount: fee,
       netAmount: net,
       feePercent: Number(bps) / 100,
-      gasEstimateUsdc: gasEstimateUsdc,
+      gasEstimateNative: payGasNative,
+      approveGasNative: approveGasNative,
       ref: buildRef(),
+      ...(effectiveMode === 'escrow' ? { escrowHours } : {}),
     });
     setStep('review');
   }
 
-  // Auto-advance from loading-fees once reads complete
   useEffect(() => {
     if (step !== 'loading-fees') return;
-    if (liveFeesReady) lockReviewSnapshot();
+    if (liveFeesReady) lockSnapshot();
     if (feeBpsError || feeRecipientError) {
-      setErrorMsg(
-        'Failed to load fee configuration from the contract. ' +
-        'Review blocked until live contract state is confirmed.'
-      );
+      setErrorMsg('Failed to load fee configuration from the contract. Review blocked.');
       setStep('error');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, liveFeesReady, feeBpsError, feeRecipientError]);
 
-  // ── approve ───────────────────────────────────────────────────────────────────
+  // ── approve ──────────────────────────────────────────────────────────────────
   async function handleApprove() {
-    if (!deployment || !address || !feeSnapshot) return;
+    if (!deployment || !address || !snapshot) return;
     setStep('approve');
     setErrorMsg(null);
     try {
       const hash = await writeApprove({
-        address: activeUsdcAddress,
+        address: snapshot.usdcAddress,
         abi: erc20Abi,
         functionName: 'approve',
-        args: [deployment.address, amountParsed], // exact allowance — not unlimited
+        args: [snapshot.contractAddress, snapshot.amountParsed],
       });
       setApproveTxHash(hash);
     } catch (e) {
@@ -461,14 +686,28 @@ export function SettlementPage() {
     }
   }
 
-  // ── P0-3: pre-sign revalidation ───────────────────────────────────────────────
+  // ── P0-3: pre-sign revalidation + broadcast ───────────────────────────────────
   async function handleSettle() {
-    if (!deployment || !address || !feeSnapshot || !publicClient) return;
+    if (!deployment || !address || !snapshot || !publicClient) return;
     setStep('revalidating');
     setErrorMsg(null);
 
     try {
-      // Re-read feeBps, feeRecipient, and allowance from the live chain
+      // Detect wallet / chain change since snapshot
+      if (address.toLowerCase() !== snapshot.walletAddress.toLowerCase()) {
+        throw new Error(
+          `Wallet changed since review (was ${snapshot.walletAddress}, now ${address}). ` +
+          `Please start a new transaction.`
+        );
+      }
+      if (chainId !== snapshot.chainId) {
+        throw new Error(
+          `Network changed since review (was chain ${snapshot.chainId}, now ${chainId ?? 'unknown'}). ` +
+          `Please start a new transaction.`
+        );
+      }
+
+      // Re-read from live chain
       const [freshFeeBpsRaw, freshFeeRecipientRaw, freshAllowanceRaw] = await Promise.all([
         publicClient.readContract({
           address: deployment.address,
@@ -481,7 +720,7 @@ export function SettlementPage() {
           functionName: 'feeRecipient',
         }),
         publicClient.readContract({
-          address: activeUsdcAddress,
+          address: snapshot.usdcAddress,
           abi: erc20Abi,
           functionName: 'allowance',
           args: [address, deployment.address],
@@ -494,40 +733,29 @@ export function SettlementPage() {
       const freshAllowance =
         typeof freshAllowanceRaw === 'bigint' ? freshAllowanceRaw : 0n;
 
-      // Validate chain / wallet have not changed since snapshot
-      if (!chainId || (chainId !== ARC_TESTNET_CHAIN_ID && chainId !== ARC_MAINNET_CHAIN_ID)) {
-        throw new Error('Network changed since review — please restart the transaction.');
-      }
-
-      // P0-1 re-check: feeBps must match what was shown
-      if (freshFeeBps !== feeSnapshot.feeBps) {
+      if (freshFeeBps !== snapshot.feeBps) {
         throw new Error(
-          `Protocol fee changed between review and signing ` +
-          `(shown: ${feeSnapshot.feePercent}%, current: ${Number(freshFeeBps) / 100}%). ` +
-          `Please review the transaction again with the updated fee.`
-        );
-      }
-
-      // feeRecipient must match (only when fee > 0)
-      if (
-        freshFeeBps > 0n &&
-        feeSnapshot.feeRecipient !== null &&
-        typeof freshFeeRecipientRaw === 'string' &&
-        freshFeeRecipientRaw.toLowerCase() !== feeSnapshot.feeRecipient.toLowerCase()
-      ) {
-        throw new Error(
-          `Fee recipient changed between review and signing. ` +
+          `Protocol fee changed (shown: ${snapshot.feePercent}%, current: ${Number(freshFeeBps) / 100}%). ` +
           `Please review the transaction again.`
         );
       }
 
-      // Allowance must cover the amount
-      if (freshAllowance < amountParsed) {
-        // Re-fetch allowance state and return to review to re-approve
+      if (
+        freshFeeBps > 0n &&
+        snapshot.feeRecipient !== null &&
+        typeof freshFeeRecipientRaw === 'string' &&
+        freshFeeRecipientRaw.toLowerCase() !== snapshot.feeRecipient.toLowerCase()
+      ) {
+        throw new Error(
+          `Fee recipient changed since review. Please review the transaction again.`
+        );
+      }
+
+      if (freshAllowance < snapshot.amountParsed) {
         await refetchAllowance();
         throw new Error(
-          `USDC allowance is insufficient (${fmtUsdc(freshAllowance)} of ${fmtUsdc(amountParsed)} approved). ` +
-          `Please approve again.`
+          `USDC allowance insufficient (${fmtUsdc(freshAllowance)} approved, ` +
+          `${fmtUsdc(snapshot.amountParsed)} needed). Please approve again.`
         );
       }
     } catch (e) {
@@ -540,20 +768,20 @@ export function SettlementPage() {
     setStep('execute');
     try {
       let hash: `0x${string}`;
-      if (effectiveMode === 'pay') {
+      if (snapshot.mode === 'pay') {
         hash = await writeSettle({
-          address: deployment.address,
+          address: snapshot.contractAddress,
           abi: VEYRA_SETTLEMENT_ABI,
           functionName: 'pay',
-          args: [recipient.trim() as `0x${string}`, amountParsed, feeSnapshot.ref],
+          args: [snapshot.recipient, snapshot.amountParsed, snapshot.ref],
         });
       } else {
-        const timeoutSeconds = BigInt(Math.round(parseFloat(escrowHours) * 3600));
+        const timeoutSeconds = BigInt(Math.round(parseFloat(snapshot.escrowHours ?? '24') * 3600));
         hash = await writeSettle({
-          address: deployment.address,
+          address: snapshot.contractAddress,
           abi: VEYRA_SETTLEMENT_ABI,
           functionName: 'createEscrow',
-          args: [recipient.trim() as `0x${string}`, amountParsed, timeoutSeconds, feeSnapshot.ref],
+          args: [snapshot.recipient, snapshot.amountParsed, timeoutSeconds, snapshot.ref],
         });
       }
       setSettleTxHash(hash);
@@ -571,10 +799,31 @@ export function SettlementPage() {
     ? buildSettlementTxExplorerUrl(chainId ?? ARC_TESTNET_CHAIN_ID, settleTxHash)
     : null;
 
+  // ── gas display helpers ────────────────────────────────────────────────────────
+  function GasRow({ label, native, loading, error }: {
+    label: string;
+    native: bigint;
+    loading: boolean;
+    error: boolean;
+  }) {
+    return (
+      <ReviewRow
+        label={label}
+        warn
+        value={
+          loading
+            ? <span className="text-white/40 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />estimating…</span>
+            : error || native === 0n
+              ? <span className="text-amber-300/60">estimation unavailable</span>
+              : fmtGasUsdc(native) + ' (gas)'
+        }
+      />
+    );
+  }
+
   // ── render ────────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      {/* Header */}
       <div className="px-4 pt-6 pb-4 border-b border-white/[0.06]">
         <h1 className="text-xl font-semibold text-white">Settlement</h1>
         <p className="text-sm text-white/50 mt-1">
@@ -592,13 +841,12 @@ export function SettlementPage() {
           </div>
         )}
 
-        {/* Wrong chain banner */}
+        {/* Wrong chain */}
         {isConnected && !onArc && (
           <div className="rounded-2xl bg-amber-500/10 border border-amber-500/20 p-4 flex items-start gap-3">
             <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-sm text-amber-300 font-medium">Switch to an Arc network</p>
-              <p className="text-xs text-amber-400/70 mt-1">VeyraSettlement is deployed on Arc Testnet and Arc Mainnet</p>
               <div className="mt-3 flex gap-3">
                 <button onClick={() => switchChain({ chainId: ARC_TESTNET_CHAIN_ID })}
                   className="text-xs font-medium text-amber-300 underline">Arc Testnet</button>
@@ -609,7 +857,7 @@ export function SettlementPage() {
           </div>
         )}
 
-        {/* Contract info badge */}
+        {/* Contract badge */}
         {deployment && (
           <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -624,12 +872,12 @@ export function SettlementPage() {
           </div>
         )}
 
-        {/* Fee config error banner (shown in form step when reads have errored) */}
+        {/* Fee error banner */}
         {isConnected && onArc && !!deployment && step === 'form' && (feeBpsError || feeRecipientError) && (
           <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
             <p className="text-xs text-red-300">
-              Unable to read contract fee configuration. Review is blocked until live contract state is confirmed.
+              Unable to read contract fee configuration. Review is blocked.
             </p>
           </div>
         )}
@@ -641,7 +889,7 @@ export function SettlementPage() {
             <p className="text-xs text-white/40">
               {isMainnet
                 ? 'Mainnet deployment requires owner authorization. Use Arc Testnet to try Settlement.'
-                : 'Switch to Arc Testnet to use Settlement.'}
+                : 'Switch to Arc Testnet.'}
             </p>
             <button onClick={() => switchChain({ chainId: ARC_TESTNET_CHAIN_ID })}
               className="mt-2 text-xs font-medium text-blue-400 underline">Use Arc Testnet</button>
@@ -666,20 +914,13 @@ export function SettlementPage() {
                 ))}
               </div>
             ) : (
-              /* P0-4: Mainnet escrow gate */
               <div className="rounded-xl bg-white/[0.04] border border-white/[0.08] px-4 py-3 space-y-1">
                 <p className="text-xs text-white/70 font-medium flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-white/40" />
-                  Direct Pay only on Mainnet
+                  <Lock className="w-3.5 h-3.5 text-white/40" />Direct Pay only on Mainnet
                 </p>
                 <p className="text-xs text-white/40 leading-relaxed">
-                  Escrow is not available in this application on Arc Mainnet. It has not
-                  completed a live Mainnet canary test and is pending explicit approval.
-                  <br />
-                  <span className="text-white/30">
-                    Note: the escrow functions (createEscrow, releaseEscrow, refundEscrow) remain
-                    callable directly on-chain — this is an application-level gate only.
-                  </span>
+                  Escrow is not available in this application on Arc Mainnet pending a live canary test.
+                  Note: escrow functions remain callable directly on-chain (application-level gate only).
                 </p>
               </div>
             )}
@@ -687,7 +928,7 @@ export function SettlementPage() {
             <p className="text-xs text-white/40 px-1">
               {effectiveMode === 'pay'
                 ? 'Immediately transfers USDC to recipient via the settlement contract. Instant and final.'
-                : 'Locks USDC in the contract. Recipient claims before the timeout, or you refund after it.'}
+                : 'Locks USDC in the contract. Recipient claims before timeout, or you refund after.'}
             </p>
 
             <div className="space-y-1.5">
@@ -717,11 +958,9 @@ export function SettlementPage() {
               </div>
             )}
 
-            {/* Fee loading indicator in form */}
             {canReview && !liveFeesReady && !feeBpsError && !feeRecipientError && (
               <p className="text-xs text-white/40 flex items-center gap-1.5">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                Loading contract fee configuration…
+                <Loader2 className="w-3 h-3 animate-spin" />Loading contract fee configuration…
               </p>
             )}
 
@@ -744,77 +983,83 @@ export function SettlementPage() {
         )}
 
         {/* ── REVIEW ── */}
-        {step === 'review' && feeSnapshot && (
+        {step === 'review' && snapshot && (
           <div className="space-y-4">
-            {/* P0-1: fee-source indicator */}
             <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 px-4 py-2.5 flex items-center gap-2">
               <CheckCircle className="w-3.5 h-3.5 text-blue-400 shrink-0" />
               <p className="text-xs text-blue-300">
-                Fee configuration verified from live contract · feeBps = {feeSnapshot.feeBps.toString()}
+                Fee verified from live contract · feeBps = {snapshot.feeBps.toString()} · parameters frozen
               </p>
             </div>
 
             <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] divide-y divide-white/[0.06]">
-              <ReviewRow label="Network" value={chainLabel} />
+              <ReviewRow label="Network" value={snapshot.chainLabel} />
               <ReviewRow label="Your wallet" value={
-                <span className="font-mono">{address?.slice(0, 8)}…{address?.slice(-6)}</span>
+                <span className="font-mono">{snapshot.walletAddress.slice(0, 8)}…{snapshot.walletAddress.slice(-6)}</span>
               } mono />
-              <ReviewRow label="Type" value={effectiveMode === 'pay' ? 'Direct payment' : 'Escrow'} />
+              <ReviewRow label="Type" value={snapshot.mode === 'pay' ? 'Direct payment' : 'Escrow'} />
               <ReviewRow label="Recipient" value={
-                <span className="font-mono">{recipient.slice(0, 10)}…{recipient.slice(-6)}</span>
+                <span className="font-mono">{snapshot.recipient.slice(0, 10)}…{snapshot.recipient.slice(-6)}</span>
               } mono />
-              {/* separator */}
-              <ReviewRow label="Gross amount" value={`${fmtUsdc(amountParsed)} USDC`} />
+              <ReviewRow label="Gross amount" value={`${fmtUsdc(snapshot.amountParsed)} USDC`} />
               <ReviewRow label="Protocol fee" value={
-                `${fmtUsdc(feeSnapshot.feeAmount)} USDC (${feeSnapshot.feePercent}%)`
+                `${fmtUsdc(snapshot.feeAmount)} USDC (${snapshot.feePercent}%)`
               } />
-              {feeSnapshot.feeRecipient && (
+              {snapshot.feeRecipient && (
                 <ReviewRow label="Fee recipient" value={
                   <span className="font-mono text-xs">
-                    {feeSnapshot.feeRecipient.slice(0, 8)}…{feeSnapshot.feeRecipient.slice(-6)}
+                    {snapshot.feeRecipient.slice(0, 8)}…{snapshot.feeRecipient.slice(-6)}
                   </span>
                 } mono />
               )}
-              <ReviewRow label="Net to recipient" value={`${fmtUsdc(feeSnapshot.netAmount)} USDC`} accent />
-              {/* P0-2: network fee separate line */}
-              <ReviewRow
-                label="Est. network fee"
-                value={
-                  gasLoading
-                    ? <span className="text-white/40 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />estimating…</span>
-                    : gasEstimateUsdc > 0n
-                      ? `~${fmtGas(gasEstimateUsdc)} USDC (gas)`
-                      : '< 0.000001 USDC (gas)'
-                }
-                warn
+              <ReviewRow label="Net to recipient" value={`${fmtUsdc(snapshot.netAmount)} USDC`} accent />
+              {/* Step-specific gas — shown before each signature step */}
+              {needsApproval && (
+                <GasRow
+                  label="Est. Approve gas"
+                  native={snapshot.approveGasNative}
+                  loading={approveGasLoading}
+                  error={false}
+                />
+              )}
+              <GasRow
+                label="Est. Pay gas"
+                native={snapshot.gasEstimateNative}
+                loading={payGasLoading}
+                error={payGasError}
               />
-              {effectiveMode === 'escrow' && (
+              {snapshot.mode === 'escrow' && (
                 <ReviewRow label="Escrow timeout" value={
                   <span className="flex items-center gap-1.5 justify-end">
-                    <Clock className="w-3.5 h-3.5 text-white/40" />{escrowHours}h
+                    <Clock className="w-3.5 h-3.5 text-white/40" />{snapshot.escrowHours}h
                   </span>
                 } />
               )}
               <ReviewRow label="Contract" value={
                 <a href={deployment?.explorerUrl} target="_blank" rel="noopener noreferrer"
                   className="text-blue-400 flex items-center gap-1 hover:underline text-xs font-mono">
-                  {deployment?.address.slice(0, 10)}…{deployment?.address.slice(-6)}
+                  {snapshot.contractAddress.slice(0, 10)}…{snapshot.contractAddress.slice(-6)}
                   <ExternalLink className="w-3 h-3" />
                 </a>
               } />
+              <ReviewRow label="USDC contract" value={
+                <span className="font-mono text-xs text-white/60">
+                  {snapshot.usdcAddress.slice(0, 10)}…{snapshot.usdcAddress.slice(-6)}
+                </span>
+              } mono />
               <ReviewRow label="Payment ref" value={
-                <span className="font-mono text-xs text-white/60">{feeSnapshot.ref.slice(0, 18)}…</span>
+                <span className="font-mono text-xs text-white/60">{snapshot.ref.slice(0, 18)}…</span>
               } mono />
             </div>
 
             {needsApproval ? (
               <div className="space-y-3">
                 <p className="text-xs text-white/50 text-center">
-                  Step 1 of 2: Approve the settlement contract to spend exactly {fmtUsdc(amountParsed)} USDC
+                  Step 1 of 2: Approve settlement contract to spend exactly {fmtUsdc(snapshot.amountParsed)} USDC
                 </p>
                 <button disabled={approving} onClick={() => { void handleApprove(); }}
                   className="w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-colors">
-                  {approving ? 'Waiting for signature…' : `Approve ${fmtUsdc(amountParsed)} USDC`}
+                  {approving ? 'Waiting for signature…' : `Approve ${fmtUsdc(snapshot.amountParsed)} USDC`}
                 </button>
               </div>
             ) : (
@@ -822,17 +1067,16 @@ export function SettlementPage() {
                 {approveTxHash && (
                   <p className="text-xs text-emerald-400 text-center flex items-center justify-center gap-1.5">
                     <CheckCircle className="w-3.5 h-3.5" />
-                    Approval confirmed — contract will re-validate fees before signing
+                    Approval confirmed — fees re-verified before signing
                   </p>
                 )}
                 <p className="text-xs text-white/50 text-center">
                   {approveTxHash ? 'Step 2 of 2: ' : ''}
-                  Sign the {effectiveMode === 'pay' ? 'payment' : 'escrow creation'} transaction.
                   Fee configuration and allowance will be re-verified immediately before broadcast.
                 </p>
                 <button disabled={settling} onClick={() => { void handleSettle(); }}
                   className="w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-colors">
-                  {settling ? 'Waiting for signature…' : effectiveMode === 'pay' ? 'Send payment' : 'Create escrow'}
+                  {settling ? 'Waiting for signature…' : snapshot.mode === 'pay' ? 'Send payment' : 'Create escrow'}
                 </button>
               </div>
             )}
@@ -843,19 +1087,19 @@ export function SettlementPage() {
           </div>
         )}
 
-        {/* ── APPROVE / REVALIDATING / EXECUTE ── */}
+        {/* ── PENDING STATES ── */}
         {(step === 'approve' || step === 'revalidating' || step === 'execute') && (
           <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] p-6 text-center space-y-3">
             <div className="w-10 h-10 mx-auto rounded-full border-2 border-white/20 border-t-white animate-spin" />
             <p className="text-sm text-white/70">
               {step === 'approve' ? 'Approving USDC…' :
-               step === 'revalidating' ? 'Re-verifying fee configuration before signing…' :
+               step === 'revalidating' ? 'Re-verifying fee configuration and allowance before signing…' :
                'Submitting transaction…'}
             </p>
           </div>
         )}
 
-        {/* ── PENDING (waiting for on-chain confirmation) ── */}
+        {/* ── WAITING FOR CONFIRMATION ── */}
         {step === 'pending' && (
           <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] p-6 text-center space-y-3">
             <Unlock className="w-8 h-8 text-white/30 mx-auto" />
@@ -869,40 +1113,39 @@ export function SettlementPage() {
           </div>
         )}
 
-        {/* ── VERIFIED (PaymentSettled / EscrowCreated event found and fields match) ── */}
-        {step === 'verified' && feeSnapshot && verifiedReceipt && (
+        {/* ── VERIFIED (all 12 checks passed) ── */}
+        {step === 'verified' && snapshot && verResult && (
           <div className="rounded-2xl bg-emerald-500/10 border border-emerald-500/20 p-6 space-y-4">
             <div className="text-center space-y-2">
               <CheckCircle className="w-10 h-10 text-emerald-400 mx-auto" />
               <p className="text-base font-semibold text-white">
-                {effectiveMode === 'pay' ? 'Payment verified' : 'Escrow verified'}
+                {snapshot.mode === 'pay' ? 'Payment verified' : 'Escrow verified'}
               </p>
               <p className="text-xs text-emerald-300/70">
-                PaymentSettled event and USDC Transfer logs confirmed on-chain
+                All verification checks passed: chain, receipt, contract, event, USDC transfers
               </p>
             </div>
-
             <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] divide-y divide-white/[0.06]">
-              <ReviewRow label="Gross amount" value={`${fmtUsdc(amountParsed)} USDC`} />
-              <ReviewRow label="Protocol fee" value={`${fmtUsdc(verifiedReceipt.feeOnChain)} USDC`} />
-              <ReviewRow label="Net received" value={`${fmtUsdc(verifiedReceipt.netOnChain)} USDC`} accent />
+              <ReviewRow label="Gross" value={`${fmtUsdc(snapshot.amountParsed)} USDC`} />
+              <ReviewRow label="Protocol fee" value={`${fmtUsdc(verResult.feeOnChain)} USDC`} />
+              <ReviewRow label="Net received" value={`${fmtUsdc(verResult.netOnChain)} USDC`} accent />
+              <ReviewRow label="Gas used" value={`${verResult.gasUsed.toString()} gas units`} />
               <ReviewRow label="Payment ref" value={
-                <span className="font-mono text-xs text-white/60">{verifiedReceipt.refOnChain.slice(0, 18)}…</span>
+                <span className="font-mono text-xs text-white/60">{verResult.refOnChain.slice(0, 18)}…</span>
               } mono />
               <ReviewRow label="Payment ID" value={
-                <span className="font-mono text-xs text-white/40">{verifiedReceipt.paymentId.slice(0, 14)}…</span>
+                <span className="font-mono text-xs text-white/40">{verResult.paymentId.slice(0, 14)}…</span>
               } mono />
-              <ReviewRow label="Block" value={verifiedReceipt.blockNumber.toString()} />
+              <ReviewRow label="Block" value={verResult.blockNumber.toString()} />
             </div>
-
             {explorerTxUrl && (
               <a href={explorerTxUrl} target="_blank" rel="noopener noreferrer"
                 className="flex items-center justify-center gap-1.5 text-sm text-blue-400 hover:underline">
                 View on Arc Explorer <ExternalLink className="w-3.5 h-3.5" />
               </a>
             )}
-            {verifiedReceipt.txHash && (
-              <p className="text-xs text-white/30 font-mono break-all text-center">{verifiedReceipt.txHash}</p>
+            {verResult.txHash && (
+              <p className="text-xs text-white/30 font-mono break-all text-center">{verResult.txHash}</p>
             )}
             <button onClick={reset} className="w-full py-2 text-sm text-white/40 hover:text-white/70">
               New transaction
@@ -910,23 +1153,28 @@ export function SettlementPage() {
           </div>
         )}
 
-        {/* ── CONFIRMED but events not found / not matched ── */}
-        {step === 'confirmed' && feeSnapshot && (
+        {/* ── CONFIRMED but not fully verified ── */}
+        {step === 'confirmed' && snapshot && verResult && (
           <div className="rounded-2xl bg-white/[0.04] border border-amber-500/20 p-6 space-y-4">
             <div className="text-center space-y-2">
-              <CheckCircle className="w-10 h-10 text-amber-400 mx-auto" />
-              <p className="text-base font-semibold text-white">Transaction confirmed</p>
+              <AlertTriangle className="w-10 h-10 text-amber-400 mx-auto" />
+              <p className="text-base font-semibold text-white">Transaction confirmed — not fully verified</p>
               <p className="text-xs text-amber-300/70">
-                Receipt received — but PaymentSettled event was not found or did not match review parameters.
+                Receipt received but one or more verification checks failed.
                 Verify manually on the explorer.
               </p>
             </div>
-
+            {verResult.failReasons.length > 0 && (
+              <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 px-4 py-3 space-y-1">
+                <p className="text-xs text-amber-300 font-medium">Failed checks:</p>
+                {verResult.failReasons.map((r, i) => (
+                  <p key={i} className="text-xs text-amber-400/70">• {r}</p>
+                ))}
+              </div>
+            )}
             <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] divide-y divide-white/[0.06]">
-              <ReviewRow label="Gross amount (shown at review)" value={`${fmtUsdc(amountParsed)} USDC`} />
-              <ReviewRow label="Block" value={verifiedReceipt?.blockNumber?.toString() ?? '–'} />
+              <ReviewRow label="Block" value={verResult.blockNumber.toString()} />
             </div>
-
             {explorerTxUrl && (
               <a href={explorerTxUrl} target="_blank" rel="noopener noreferrer"
                 className="flex items-center justify-center gap-1.5 text-sm text-blue-400 hover:underline">
