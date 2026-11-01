@@ -64,7 +64,7 @@ import {
 import { ConnectKitButton } from 'connectkit';
 import { AlertTriangle, CheckCircle, Clock, ExternalLink, Lock, Send, Unlock, Loader2 } from 'lucide-react';
 import { VEYRA_ENV } from '@/lib/env';
-import {recordLocalOperation} from '@/mainnet/localOperations';
+import {recordLocalOperation,readLocalOperations} from '@/mainnet/localOperations';
 import { MainnetSettlementDeploy } from './MainnetSettlementDeploy';
 import { VEYRA_SETTLEMENT_CREATION_BYTECODE, VEYRA_SETTLEMENT_CREATION_KECCAK } from '@/generated/veyraSettlementCreation';
 import {
@@ -722,6 +722,13 @@ export function SettlementPage() {
       return;
     }
 
+    // Never blindly re-broadcast an earlier Mainnet Settlement payment.
+    // Activity automatically verifies and resolves the original recorded hash.
+    if(isMainnet && readLocalOperations(address).some(v=>v.type==='Settlement'&&v.status==='SUBMITTED')){
+      setErrorMsg('A prior Settlement is still processing. Open Activity to follow its receipt before signing again.');
+      setStep('error');
+      return;
+    }
     // Revalidation passed — broadcast
     setStep('execute');
     try {
@@ -741,6 +748,17 @@ export function SettlementPage() {
           functionName: 'createEscrow',
           args: [snapshot.recipient, snapshot.amountParsed, timeoutSeconds, snapshot.ref],
         });
+      }
+      // Capture the wallet-returned hash immediately, before the receipt exists.
+      if(isMainnet && snapshot.mode==='pay'){
+        const stored=recordLocalOperation({
+          type:'Settlement',owner:snapshot.walletAddress,hash,
+          amount:formatUnits(snapshot.amountParsed,6),asset:'USDC',
+          chainId:ARC_MAINNET_CHAIN_ID,status:'SUBMITTED',destination:snapshot.recipient,
+        });
+        if(!stored){
+          setErrorMsg('Payment submitted but browser storage is unavailable. Check this transaction in your wallet; do not sign it again.');
+        }
       }
       setSettleTxHash(hash);
       setStep('pending');

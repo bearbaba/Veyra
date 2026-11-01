@@ -6,7 +6,7 @@
 export type OperationKind='Pay'|'Settlement'|'Swap'|'Bridge'|'Gateway';
 export type LocalOperation={
   type:OperationKind; hash:string; owner:string; amount:string; asset:string;
-  chainId:number; status:'SUBMITTED'|'RECORDED'; updatedAt:number;
+  chainId:number; status:'SUBMITTED'|'RECORDED'|'REVERTED'; updatedAt:number;
   destination?:string;
 };
 const HASH=/^0x[0-9a-fA-F]{64}$/;
@@ -25,7 +25,7 @@ export function readLocalOperations(owner:string):LocalOperation[]{
         ['Pay','Settlement','Swap','Bridge','Gateway'].includes(a.type??'')&&
         typeof a.amount==='string'&&typeof a.asset==='string'&&
         (a.chainId===5042||a.chainId===8453)&&
-        (a.status==='SUBMITTED'||a.status==='RECORDED')&&
+        (a.status==='SUBMITTED'||a.status==='RECORDED'||a.status==='REVERTED')&&
         typeof a.updatedAt==='number'&&Number.isFinite(a.updatedAt);
     }).slice(0,60);
   }catch{return [];}
@@ -38,6 +38,8 @@ export function recordLocalOperation(input:Omit<LocalOperation,'updatedAt'>):boo
       !(v.hash.toLowerCase()===input.hash.toLowerCase()&&v.type===input.type));
     const packed=JSON.stringify([next,...existing].slice(0,60));
     window.localStorage.setItem(operationKey(input.owner),packed);
-    return window.localStorage.getItem(operationKey(input.owner))===packed;
+    const saved=window.localStorage.getItem(operationKey(input.owner))===packed;
+    if(saved)window.dispatchEvent(new Event('veyra:mainnet:operation'));
+    return saved;
   }catch{return false;}
 }

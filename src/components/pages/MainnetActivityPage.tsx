@@ -1,129 +1,152 @@
-import {useEffect,useState} from 'react';
+/** Automatic wallet-scoped Mainnet Activity. Transactions are captured by each Veyra flow.
+ * Onchain evidence is re-read rather than trusting browser-local status.
+ */
+import {useEffect,useRef,useState} from 'react';
 import {useAccount} from 'wagmi';
 import {ConnectKitButton} from 'connectkit';
-import {CheckCircle2,AlertTriangle,ExternalLink} from 'lucide-react';
+import {CheckCircle2,Clock3,ExternalLink,RefreshCw} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
-import {inspectArcTransfer,type Inspection} from '@/mainnet/verifyArcTransfer';
-import {mainnetExplorerTx} from '@/mainnet/arcMainnetPay';
-import {readLocalOperations,type LocalOperation} from '@/mainnet/localOperations';
-import {inspectRecordedSettlement} from '@/mainnet/verifyRecordedSettlement';
+import {readLocalOperations,recordLocalOperation,type LocalOperation} from '@/mainnet/localOperations';
+import {inspectRecordedOperation,type OperationInspection} from '@/mainnet/inspectRecordedOperation';
 import type {VeyraPage} from '../layout/AppShell';
-const HASH=/^0x[0-9a-fA-F]{64}$/;
+
+const id=(v:LocalOperation)=>v.type+':'+v.chainId+':'+v.hash.toLowerCase();
+const explorer=(v:LocalOperation)=>(v.chainId===8453?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+v.hash;
+function label(x:OperationInspection|undefined){
+ if(!x)return 'Checking onchain…';
+ return ({VERIFIED:'Verified onchain',REVERTED:'Reverted',PENDING:'Processing',
+  UNKNOWN:'Check unavailable',UNVERIFIED:'Not verified',PROVIDER:'Provider tracking'} as const)[x.status];
+}
+function color(x:OperationInspection|undefined){
+ return x?.status==='VERIFIED'?'var(--success)':
+  x?.status==='REVERTED'||x?.status==='UNVERIFIED'?'var(--warning)':'var(--muted)';
+}
 export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigate:(page:VeyraPage)=>void}){
-const {address}=useAccount();
-const [hash,setHash]=useState('');
-const [result,setResult]=useState<Inspection|null>(null);
-const [error,setError]=useState<string|null>(null);
-const [busy,setBusy]=useState(false);
-const [saved,setSaved]=useState('No local payment record.');
-const [operations,setOperations]=useState<LocalOperation[]>([]);
-const [settlementCheck,setSettlementCheck]=useState<{hash:string;result:Inspection}|null>(null);
-const [settlementError,setSettlementError]=useState<string|null>(null);
-const [settlementBusy,setSettlementBusy]=useState(false);
-const [filter,setFilter]=useState<'All'|'Pay'|'Settlement'|'Swap'|'Bridge'>('All');
-useEffect(()=>{
-setResult(null);setError(null);setSettlementCheck(null);setSettlementError(null);
-if(!address){setHash('');setOperations([]);return;}
-setOperations(readLocalOperations(address));
-const r=readMainnetJournal(address,storageForMainnet());
-setHash(r.kind==='active'?(r.value.hash??''):'');
-setSaved(r.kind==='active'?'Latest payment from this browser. Check onchain status.':
-r.kind==='blocked'?'Unrecoverable local state. Check your wallet first.':
-'Paste a transaction hash to verify an outgoing USDC payment.');
-},[address]);
-async function verify(){
-if(!address||!HASH.test(hash)||busy)return;
-setBusy(true);setError(null);setResult(null);
-try{setResult(await inspectArcTransfer(hash,address));}
-catch(e){setError(e instanceof Error?e.message:'RPC unavailable. Status remains unknown.');}
-finally{setBusy(false);}
-}
-async function verifySettlement(v:LocalOperation){
-  if(!address||v.type!=='Settlement'||settlementBusy)return;
-  setSettlementBusy(true);setSettlementCheck(null);setSettlementError(null);
-  try{
-    const checked=await inspectRecordedSettlement(v.hash,address,v.amount,v.destination);
-    setSettlementCheck({hash:v.hash,result:checked});
-  }catch(e){
-    setSettlementError(e instanceof Error?e.message:'Arc RPC unavailable. The status is unknown.');
-  }finally{setSettlementBusy(false);}
-}
-return <div className="mx-auto w-full max-w-4xl space-y-5 px-4 py-7 md:px-7 md:py-9">
-<div><span className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Arc Mainnet · 5042</span>
-<h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Activity</h1>
-<p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Verify outgoing Arc USDC payments with real blockchain evidence. No wallet signature needed.</p></div>
-<div className="space-y-4 rounded-2xl border p-5 sm:p-7" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
-{!address?<ConnectKitButton/>:<>
-<p className="text-xs" style={{color:'var(--muted)'}}>{saved}</p>
-<label htmlFor="mainnet-tx" className="block text-sm font-semibold" style={{color:'var(--ink)'}}>Transaction hash</label>
-<input id="mainnet-tx" value={hash} placeholder="0x…"
-onChange={e=>{setHash(e.target.value);setResult(null);setError(null);}}
-className="w-full rounded-xl border p-3 font-mono text-xs"
-style={{borderColor:'var(--border)',background:'var(--surface-raised)',color:'var(--ink)'}}/>
-<div className="flex flex-wrap gap-2">
-<button type="button" onClick={()=>void verify()} disabled={!HASH.test(hash)||busy}
-className="rounded-xl px-5 py-3 text-sm font-bold disabled:opacity-40"
-style={{background:'var(--accent)',color:'#0d1b2f'}}>{busy?'Verifying…':'Verify USDC receipt'}</button>
-<button type="button" onClick={onPay} className="rounded-xl border px-5 py-3 text-sm"
-style={{borderColor:'var(--border)',color:'var(--ink)'}}>Pay again</button></div>
-</>}
-{error&&<p role="alert" className="flex items-center gap-2 text-sm" style={{color:'var(--warning)'}}>
-<AlertTriangle className="size-4"/>{error}</p>}
-{result&&<div role="status" className="space-y-2 rounded-xl border p-4"
-style={{borderColor:'var(--border)',color:'var(--ink)'}}>
-<div className="flex items-center gap-2 font-bold">
-{result.status==='VERIFIED'?<CheckCircle2 className="size-5" style={{color:'var(--success)'}}/>:
-<AlertTriangle className="size-5" style={{color:'var(--warning)'}}/>}
-{result.status==='VERIFIED'?'Verified Arc USDC Transfer':result.status}</div>
-<p className="break-all text-xs leading-5">{result.detail}</p>
-<a href={mainnetExplorerTx(result.hash)} target="_blank" rel="noreferrer"
-className="flex items-center gap-2 text-xs" style={{color:'var(--accent)'}}>Arc Explorer <ExternalLink className="size-4"/></a>
-</div>}
-</div>
-<section className="space-y-3 rounded-2xl border p-5 sm:p-6" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
-<div className="flex flex-wrap items-center justify-between gap-2">
-<h2 className="text-base font-bold" style={{color:'var(--ink)'}}>Your Mainnet operations</h2>
-<button onClick={()=>address&&setOperations(readLocalOperations(address))} className="text-xs font-semibold" style={{color:'var(--accent)'}}>Refresh local index</button></div>
-<div className="flex flex-wrap gap-2" aria-label="Filter transactions">
-{(['All','Pay','Settlement','Swap','Bridge'] as const).map(v=><button key={v} type="button"
-onClick={()=>setFilter(v)} aria-pressed={filter===v}
-className="rounded-lg border px-3 py-2 text-xs font-semibold"
-style={{borderColor:'var(--border)',background:filter===v?'var(--accent-muted)':'transparent',color:filter===v?'var(--accent)':'var(--muted)'}}>{v}</button>)}
-</div>
-{!address?<p className="text-sm" style={{color:'var(--muted)'}}>Connect wallet to view your private local operation index.</p>:
-operations.filter(v=>filter==='All'||v.type===filter).length===0?
-<p className="text-sm" style={{color:'var(--muted)'}}>No locally recorded {filter==='All'?'operations':filter+' operations'} in this browser yet.</p>:
-<div className="divide-y" style={{borderColor:'var(--border)'}}>
-{operations.filter(v=>filter==='All'||v.type===filter).map(v=><div key={v.type+v.hash} className="flex flex-wrap items-center gap-3 py-3 text-sm">
-<div className="min-w-0 flex-1">
-<p className="font-semibold" style={{color:'var(--ink)'}}>{v.type} · {v.amount} {v.asset}</p>
-<p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Arc {v.chainId===8453?'Base':'Mainnet'} · {v.status==='SUBMITTED'?'Tracking required':'Locally recorded · reverify onchain'}</p>
-<p className="mt-1 break-all font-mono text-xs" style={{color:'var(--subtle)'}}>{v.hash.slice(0,15)}…{v.hash.slice(-9)}</p>
-</div>
-<div className="flex gap-2">
-<a target="_blank" rel="noreferrer" href={(v.chainId===8453?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+v.hash}
-className="rounded-lg border px-3 py-2 text-xs" style={{borderColor:'var(--border)',color:'var(--accent)'}}>Explorer</a>
-<button type="button" className="rounded-lg border px-3 py-2 text-xs font-semibold"
-disabled={v.type==='Settlement'&&settlementBusy}
-onClick={()=>{if(v.type==='Settlement'){void verifySettlement(v);}
-else if(v.type==='Pay'){setHash(v.hash);setResult(null);window.scrollTo({top:0,behavior:'smooth'});}
-else onNavigate(v.type==='Swap'?'convert':'bridge');}}
-style={{borderColor:'var(--border)',color:'var(--ink)'}}>{v.type==='Settlement'?'Verify receipt':v.type==='Pay'?'Reverify':'Continue'}</button>
-</div>
-</div>)}
-</div>}
-{settlementError&&<p role="alert" className="mt-3 text-sm" style={{color:'var(--warning)'}}>{settlementError}</p>}
-{settlementCheck&&<div role="status" className="mt-3 rounded-xl border p-4 text-sm"
- style={{borderColor:'var(--border)',background:'var(--surface-raised)'}}>
- <strong style={{color:settlementCheck.result.status==='VERIFIED'?'var(--success)':'var(--warning)'}}>
- Settlement · {settlementCheck.result.status==='VERIFIED'?'Onchain verified':settlementCheck.result.status}
- </strong>
- <p className="mt-2 break-words text-xs leading-5" style={{color:'var(--muted)'}}>{settlementCheck.result.detail}</p>
- <a href={mainnetExplorerTx(settlementCheck.hash)} target="_blank" rel="noreferrer"
- className="mt-2 inline-flex items-center gap-2 text-xs" style={{color:'var(--accent)'}}>Arc Explorer <ExternalLink className="size-4"/></a>
- </div>}
-<p className="text-xs leading-5" style={{color:'var(--muted)'}}>These entries are wallet-scoped browser pointers, not a complete cross-device history or proof of success. Recheck the original chain/provider receipt before trusting the status.</p>
-</section>
-<p className="text-xs leading-5" style={{color:'var(--muted)'}}>Activity verifies outgoing USDC transfers from this wallet. Browser-local history is not a complete cross-device ledger. Transaction submission is not proof of settlement.</p>
-</div>;
+ const {address}=useAccount();
+ const [entries,setEntries]=useState<LocalOperation[]>([]);
+ const [states,setStates]=useState<Record<string,OperationInspection>>({});
+ const [syncing,setSyncing]=useState(false);
+ const [filter,setFilter]=useState<'All'|'Pay'|'Settlement'|'Swap'|'Bridge'>('All');
+ const verifiedCache=useRef(new Map<string,{checked:number;state:OperationInspection}>());
+ useEffect(()=>{
+  let active=true,working=false;
+  verifiedCache.current.clear();setEntries([]);setStates({});
+  if(!address)return;
+  const owner=address;
+  async function update(){
+   if(!active||working)return;
+   working=true;setSyncing(true);
+   try{
+    const journal=readMainnetJournal(owner,storageForMainnet());
+    if(journal.kind==='active'&&journal.value.hash){
+     const p=journal.value;
+     if(!readLocalOperations(owner).some(v=>v.type==='Pay'&&v.hash.toLowerCase()===p.hash?.toLowerCase()))
+      recordLocalOperation({owner,hash:p.hash,type:'Pay',amount:p.amount,asset:'USDC',
+       chainId:5042,destination:p.to,status:'SUBMITTED'});
+    }
+    const list=readLocalOperations(owner);
+    if(!active)return;
+    setEntries(list);
+    for(let i=0;i<list.length&&active;i+=3){
+     const batch=list.slice(i,i+3);
+     const outcome=await Promise.all(batch.map(async v=>{
+      const k=id(v),cached=verifiedCache.current.get(k);
+      const age=Date.now()-(cached?.checked??0);
+      if(cached&&age<(cached.state.status==='VERIFIED'||cached.state.status==='REVERTED'?120000:18000))
+       return [v,cached.state] as const;
+      let state:OperationInspection;
+      try{state=await inspectRecordedOperation(v,owner);}
+      catch(e){state={status:'UNKNOWN',detail:e instanceof Error?e.message:'RPC or provider unavailable.'};}
+      verifiedCache.current.set(k,{checked:Date.now(),state});
+      return [v,state] as const;
+     }));
+     if(!active)return;
+     setStates(prev=>{
+      const next={...prev};
+      outcome.forEach(([v,status])=>next[id(v)]=status);
+      return next;
+     });
+     for(const [v,state] of outcome){
+      if((v.type==='Pay'||v.type==='Settlement')&&(state.status==='VERIFIED'||state.status==='REVERTED')){
+       const target=state.status==='VERIFIED'?'RECORDED':'REVERTED';
+       if(v.status!==target)recordLocalOperation({...v,status:target});
+      }
+     }
+    }
+    if(active)setEntries(readLocalOperations(owner));
+   }finally{working=false;if(active)setSyncing(false);}
+  }
+  void update();
+  const timer=window.setInterval(()=>void update(),20000);
+  const onChange=()=>void update();
+  window.addEventListener('focus',onChange);
+  window.addEventListener('veyra:mainnet:operation',onChange);
+  return()=>{active=false;window.clearInterval(timer);
+   window.removeEventListener('focus',onChange);
+   window.removeEventListener('veyra:mainnet:operation',onChange);};
+ },[address]);
+ const shown=entries.filter(v=>filter==='All'||v.type===filter);
+ return <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
+  <header className="flex flex-wrap items-center justify-between gap-3">
+   <div>
+    <span className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Arc Mainnet · 5042</span>
+    <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Activity</h1>
+    <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>
+     Transactions made in Veyra appear automatically. Receipts are checked onchain; no hash entry or wallet signature is needed.
+    </p>
+   </div>
+   {address&&<span className="flex items-center gap-2 text-xs" style={{color:'var(--muted)'}}>
+    {syncing&&<RefreshCw className="size-4 animate-spin"/>}{syncing?'Checking receipts…':'Auto-sync on'}
+   </span>}
+  </header>
+  {!address?<section className="rounded-2xl border p-6" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+   <p className="mb-3 text-sm" style={{color:'var(--muted)'}}>Connect your wallet to see its Veyra history.</p>
+   <ConnectKitButton/>
+  </section>:<>
+   <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex flex-wrap gap-2" aria-label="Filter transactions">
+     {(['All','Pay','Settlement','Swap','Bridge'] as const).map(v=><button type="button" key={v}
+      aria-pressed={filter===v} onClick={()=>setFilter(v)} className="rounded-lg border px-3 py-2 text-xs font-semibold"
+      style={{borderColor:'var(--border)',background:filter===v?'var(--accent-muted)':'var(--surface)',
+       color:filter===v?'var(--accent)':'var(--muted)'}}>{v}</button>)}
+    </div>
+    <button type="button" onClick={onPay} className="rounded-xl px-4 py-2 text-xs font-bold"
+     style={{background:'var(--accent)',color:'#0d1b2f'}}>New payment</button>
+   </div>
+   {shown.length===0?<section className="rounded-2xl border p-7 text-center" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+     <Clock3 className="mx-auto mb-3 size-6" style={{color:'var(--muted)'}}/>
+     <p className="font-semibold" style={{color:'var(--ink)'}}>No {filter==='All'?'transactions':filter+' transactions'} recorded yet</p>
+     <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Veyra saves the original transaction automatically when your wallet returns its hash.</p>
+    </section>:
+    <section className="overflow-hidden rounded-2xl border" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+     {shown.map(v=>{
+      const proof=states[id(v)],ink=color(proof);
+      return <article key={id(v)} className="border-b p-4 sm:p-5 last:border-0" style={{borderColor:'var(--border)'}}>
+       <div className="flex flex-wrap items-start gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl" style={{background:'var(--surface-raised)'}}>
+         {proof?.status==='VERIFIED'?<CheckCircle2 className="size-5" style={{color:ink}}/>:<Clock3 className="size-5" style={{color:ink}}/>}
+        </div>
+        <div className="min-w-0 flex-1 space-y-1">
+         <p className="font-semibold" style={{color:'var(--ink)'}}>{v.type} · {v.amount} {v.asset}</p>
+         <p className="text-xs" style={{color:ink}}>{label(proof)}</p>
+         {v.destination&&<p className="break-all text-xs" style={{color:'var(--muted)'}}>Recipient: {v.destination}</p>}
+         <p className="text-xs" style={{color:'var(--muted)'}}>
+          {v.chainId===8453?'Base':'Arc'} Mainnet · {new Date(v.updatedAt).toLocaleString()}</p>
+        </div>
+        <a href={explorer(v)} rel="noreferrer" target="_blank" className="inline-flex items-center gap-1 text-xs font-semibold"
+         style={{color:'var(--accent)'}}>Explorer <ExternalLink className="size-3.5"/></a>
+       </div>
+       {proof&&<p className="ml-12 mt-3 break-words text-xs leading-5" style={{color:'var(--muted)'}}>{proof.detail}</p>}
+       {(v.type==='Swap'||v.type==='Bridge')&&<button type="button" onClick={()=>onNavigate(v.type==='Swap'?'convert':'bridge')}
+        className="ml-12 mt-3 text-xs font-semibold" style={{color:'var(--accent)'}}>Open {v.type} tracking</button>}
+      </article>;
+     })}
+    </section>}
+   <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
+    Only Veyra-origin transactions recorded in this browser are listed. This is not yet a full cross-device indexer.
+    Direct Pay and Settlement are checked against Arc receipts. Circle operations retain their provider-specific tracking;
+    a saved browser record is never proof of success.
+   </p>
+  </>}
+ </div>;
 }

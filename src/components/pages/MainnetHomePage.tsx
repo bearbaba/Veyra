@@ -142,7 +142,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
       <div className="min-w-0 flex-1"><p className="text-sm font-semibold" style={{color:'var(--ink)'}}>
        {x.type} · {x.amount} {x.asset}</p>
        <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
-        {x.status==='SUBMITTED'?'Needs receipt check':'Locally recorded · reverify onchain'}</p></div>
+        {x.status==='SUBMITTED'?'Checking onchain in Activity':x.status==='REVERTED'?'Original transaction reverted':'Recorded · Activity auto-verifies receipts'}</p></div>
       <a href={explorer(x.hash,x.chainId)} target="_blank" rel="noreferrer"
        className="text-xs font-semibold" style={{color:'var(--accent)'}}>Explorer</a>
      </div>)}

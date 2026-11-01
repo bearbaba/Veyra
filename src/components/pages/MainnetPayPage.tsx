@@ -222,9 +222,15 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed}:{f
           {journal.hash&&<a className="flex items-center gap-2 break-all text-xs" href={mainnetExplorerTx(journal.hash)}
             style={{color:'var(--accent)'}} target="_blank" rel="noreferrer">
             {journal.hash}<ExternalLink className="size-4"/></a>}
-          {!journal.hash&&<input className={field} placeholder="Original transaction hash 0x…"
-            value={hashInput} style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}
-            onChange={e=>setHashInput(e.target.value)}/>}
+          {!journal.hash&&<details className="rounded-xl border p-3" style={{borderColor:'var(--border)'}}>
+            <summary className="cursor-pointer text-xs" style={{color:'var(--muted)'}}>Advanced recovery · only if the wallet did not return a hash</summary>
+            <p className="my-2 text-xs" style={{color:'var(--warning)'}}>
+              The original wallet request has an uncertain outcome. Do not send again. Normally Veyra recovers automatically; only use this fallback if your wallet can identify the exact original transaction.
+            </p>
+            <input className={field} placeholder="Original transaction from wallet history"
+              value={hashInput} style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}
+              onChange={e=>setHashInput(e.target.value)}/>
+          </details>}
           {!['VERIFIED','REVERTED'].includes(journal.stage)&&
             <button className="rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-40"
               disabled={busy||!(journal.hash||hashInput)} style={{background:'var(--accent)',color:'#fff'}}
