@@ -7,7 +7,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {AppKit} from '@circle-fin/app-kit';
 import {createViemAdapterFromProvider} from '@circle-fin/adapter-viem-v2';
-import {useAccount,usePublicClient,useSwitchChain} from 'wagmi';
+import {useAccount,usePublicClient,useReadContract,useSwitchChain} from 'wagmi';
 import {ConnectKitButton} from 'connectkit';
 import {decodeEventLog,erc20Abi,formatUnits,getAddress,isAddress,parseAbi,parseUnits,type EIP1193Provider,type Hash} from 'viem';
 import {ArrowLeftRight,Route,ShieldCheck,AlertTriangle,ExternalLink,RefreshCw} from 'lucide-react';
@@ -84,6 +84,11 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
  const selectedDest=mode==='swap'?ARC:destination;
  const token=mode==='swap'?TOKENS[fromToken]:getMainnetChain(selectedSource)?.usdc;
  const destToken=mode==='swap'?TOKENS[toToken]:getMainnetChain(selectedDest)?.usdc;
+ const {data:sourceBalance,isError:sourceBalanceError,isFetching:balanceLoading,refetch:refreshBalance}=useReadContract({
+  address: token?getAddress(token):undefined,abi:erc20Abi,functionName:'balanceOf',
+  args:address?[address]:undefined,chainId:selectedSource,
+  query:{enabled:!!address&&!!token,refetchInterval:15000,staleTime:8000},
+ });
  const title=mode==='swap'?'Swap':'Bridge';
  useEffect(()=>{
   setQuote(null);setProof('');setError('');setManualMint('');setManualSource('');
@@ -91,7 +96,7 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
   try{setRecovery(parseSaved(localStorage.getItem(key(mode,address)),address,mode));setUnknownStorage(false);}
   catch{setRecovery(null);setUnknownStorage(true);}
  },[address,mode]);
- useEffect(()=>{setQuote(null);},[chainId,source,destination,fromToken,amount,minimum]);
+ useEffect(()=>{setQuote(null);},[source,destination,fromToken,amount,minimum]);
  const client=(id:number)=>id===ARC?arc:id===BASE?base:undefined;
  async function wallet(id:number):Promise<EIP1193Provider>{
   if(!address||!connector)throw Error('Connect your wallet first.');
@@ -263,6 +268,10 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
       placeholder="0.01" onChange={e=>setAmount(e.target.value)}
       style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
     </label>
+    <div className="flex flex-wrap items-center justify-between gap-2 text-xs" style={{color:'var(--muted)'}}>
+     <span>Source wallet balance ({label(selectedSource)}): {sourceBalanceError?'Unavailable':sourceBalance!==undefined?formatUnits(sourceBalance,6)+' '+(mode==='swap'?fromToken:'USDC'):'Reading…'}</span>
+     <button type="button" disabled={balanceLoading} onClick={()=>void refreshBalance()} className="underline">Refresh</button>
+    </div>
     {mode==='bridge'&&<>
      <p className="text-xs" style={{color:'var(--muted)'}}>Destination wallet: {address} (same owner; forwarding service)</p>
      <label className="block text-sm" style={{color:'var(--muted)'}}>Minimum receive (USDC)
