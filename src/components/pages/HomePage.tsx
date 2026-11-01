@@ -124,7 +124,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
             Send USDC, simply.
           </h1>
           <p className="mt-3 max-w-lg text-sm leading-6" style={{color:'var(--muted)'}}>
-            Pay a friend, Veyra ID or wallet. Check every detail before signing.
+            {isMainnet?'Send real Arc USDC to a verified wallet address. Veyra ID Pay, Gateway, Bridge and Swap require separate Mainnet activation.':'Pay a friend, Veyra ID or wallet. Check every detail before signing.'}
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
             <button type="button" onClick={() => onNavigate('pay')}
