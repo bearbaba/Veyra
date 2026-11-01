@@ -8,7 +8,7 @@ export type MainnetRoute = 'pay'|'settlement'|'swap'|'bridge'|'gateway'|'identit
 export type RouteReadiness = 'wallet-signature'|'live-quote'|'backend-required';
 export type RouteCapability = {
   title:string; network:string; readiness:RouteReadiness; summary:string;
-  destination:'pay'|'settlement'|'convert'|'bridge'|'agent'|'settings';
+  destination:'pay'|'settlement'|'convert'|'bridge'|'agent'|'settings'|'social';
 };
 export const MAINNET_ROUTES: Record<MainnetRoute,RouteCapability> = {
   pay:{title:'Send USDC',network:'Arc Mainnet · 5042',readiness:'wallet-signature',
@@ -22,7 +22,7 @@ export const MAINNET_ROUTES: Record<MainnetRoute,RouteCapability> = {
   gateway:{title:'Unified Gateway',network:'Provider not connected',readiness:'backend-required',
     summary:'Wallet funds are separate; Gateway available funds are not readable on Mainnet yet.',destination:'agent'},
   identity:{title:'Veyra ID / X',network:'Backend verification required',readiness:'backend-required',
-    summary:'Wallet connection is not an authenticated Veyra ID or linked X account.',destination:'settings'},
+    summary:'Veyra ID and linked X require verified backend authentication. Local contacts are not verified identities.',destination:'social'},
 };
 export function routeLabel(route:MainnetRoute){
   const state=MAINNET_ROUTES[route].readiness;

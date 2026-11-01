@@ -21,7 +21,7 @@ const box = 'rounded-2xl border p-5 sm:p-6';
 const field = 'w-full rounded-xl border px-4 py-3 text-sm';
 type Review = {plan: MainnetPlan; preflight: MainnetPreflight};
 
-export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed}:{friendHandle?:string|null;recipientWallet?:string|null;onRecipientUsed?:()=>void}) {
+export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,embedded=false}:{friendHandle?:string|null;recipientWallet?:string|null;onRecipientUsed?:()=>void;embedded?:boolean}) {
   const {address, chainId, connector, isConnected} = useAccount();
   const {switchChain} = useSwitchChain();
   const [recipient,setRecipient] = useState('');
@@ -149,19 +149,19 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed}:{f
     if(!clearMainnetJournal(address,storageForMainnet())){setError('Cannot clear payment lock.');return;}
     setJournal(null);setReview(null);setReceipt(null);setRecipient('');setAmount('');setHashInput('');
   }
-  return <div className="mx-auto w-full max-w-2xl space-y-5 px-4 py-7 md:px-7 md:py-9">
-    <div>
+  return <div className={embedded?'space-y-4':'mx-auto w-full max-w-2xl space-y-5 px-4 py-7 md:px-7 md:py-9'}>
+    {!embedded&&<div>
       <span className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Arc Mainnet · 5042</span>
       <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Pay</h1>
       <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>
-        Send real Arc USDC directly to a wallet. Review → Sign → Track → Verify.
+        Send USDC to a wallet. Veyra automatically tracks and checks the receipt.
       </p>
-    </div>
+    </div>}
     <div className={box} style={{background:'var(--surface)',borderColor:'var(--border)'}}>
       <div className="flex items-start gap-3 text-sm" style={{color:'var(--muted)'}}>
         <ShieldCheck className="size-5 shrink-0" style={{color:'var(--accent)'}}/>
-        <p><strong style={{color:'var(--ink)'}}>Mainnet Wallet Pay Beta.</strong> Initial limit: 1 USDC per transfer.
-          Direct USDC transfer, not VeyraSettlement or Veyra ID. Your wallet must approve each payment. Never retry an unknown transaction.</p>
+        <p><strong style={{color:'var(--ink)'}}>Direct wallet transfer · limit 1 USDC.</strong> Your wallet confirms this payment once; no token spending permission is granted.
+          If it remains pending, Veyra checks the existing transaction rather than sending again.</p>
       </div>
     </div>
     {friendHandle&&<div role="status" className={box} style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--warning)'}}>

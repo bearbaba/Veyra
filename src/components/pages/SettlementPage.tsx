@@ -203,7 +203,7 @@ function buildRef(): `0x${string}` {
 
 // ─── component ─────────────────────────────────────────────────────────────────
 
-export function SettlementPage() {
+export function SettlementPage({embedded=false}:{embedded?:boolean}) {
   const { address, isConnected, chainId } = useAccount();
   const { switchChain } = useSwitchChain();
   const publicClient = usePublicClient({ chainId });
@@ -448,8 +448,9 @@ export function SettlementPage() {
         .then(p => setGasPriceNative(p))
         .catch(() => undefined);
     }
+    void refetchAllowance();
     setStep('review');
-  }, [approveConfirmed, step, approveTxHash, publicClient]);
+  }, [approveConfirmed, step, approveTxHash, publicClient, refetchAllowance]);
 
   // ── receipt verification (delegates to @/lib/settlementVerify) ───────────────
   useEffect(() => {
@@ -729,6 +730,26 @@ export function SettlementPage() {
       setStep('error');
       return;
     }
+    // A confirmed ERC-20 allowance is not a successful payment. Before a
+    // Mainnet pay() signature, simulate the exact frozen review call against
+    // the current chain. Fail closed on RPC/simulation failure.
+    if(isMainnet && snapshot.mode==='pay'){
+      try {
+        if(await publicClient.getChainId()!==ARC_MAINNET_CHAIN_ID)
+          throw new Error('Wallet network and Arc Mainnet RPC differ.');
+        await publicClient.simulateContract({
+          account:address,
+          address:snapshot.contractAddress,
+          abi:VEYRA_SETTLEMENT_ABI,
+          functionName:'pay',
+          args:[snapshot.recipient,snapshot.amountParsed,snapshot.ref],
+        });
+      }catch(e){
+        setErrorMsg('Contract payment could not be simulated. No payment signature requested. '+(e instanceof Error?e.message:'Check your network and allowance.'));
+        setStep('error');
+        return;
+      }
+    }
     // Revalidation passed — broadcast
     setStep('execute');
     try {
@@ -799,13 +820,13 @@ export function SettlementPage() {
 
   // ── render ────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full overflow-y-auto">
-      <div className="px-4 pt-6 pb-4 border-b border-white/[0.06]">
+    <div className={embedded?'flex flex-col':'flex flex-col h-full overflow-y-auto'}>
+      {!embedded&&<div className="px-4 pt-6 pb-4 border-b border-white/[0.06]">
         <h1 className="text-xl font-semibold text-white">Settlement</h1>
         <p className="text-sm text-white/50 mt-1">
           USDC payments powered by the Arc-native VeyraSettlement contract
         </p>
-      </div>
+      </div>}
 
       <div className="flex-1 px-4 py-6 space-y-5 max-w-2xl mx-auto w-full">
 

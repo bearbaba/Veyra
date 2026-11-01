@@ -21,7 +21,7 @@ import { IS_UI_ONLY_PREVIEW } from './lib/env';
 import { SettingsPage } from './components/pages/SettingsPage';
 import { SocialPage } from './components/pages/SocialPage';
 import { SettlementPage } from './components/pages/SettlementPage';
-import { MainnetPayPage } from './components/pages/MainnetPayPage';
+import { MainnetPayHub } from './components/pages/MainnetPayHub';
 import { MainnetCirclePage } from './components/pages/MainnetCirclePage';
 import { MainnetContactsPage } from './components/pages/MainnetContactsPage';
 import { VEYRA_ENV } from './lib/env';
@@ -55,7 +55,7 @@ export default function App() {
       case 'agent':
         return <AgentPage onNavigate={setPage} />;
       case 'pay':
-        return VEYRA_ENV === 'mainnet' ? <MainnetPayPage friendHandle={friendPayment} recipientWallet={contactRecipient} onRecipientUsed={() => setContactRecipient(null)} /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
+        return VEYRA_ENV === 'mainnet' ? <MainnetPayHub initialMethod="wallet" friendHandle={friendPayment} recipientWallet={contactRecipient} onRecipientUsed={() => setContactRecipient(null)} /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
       case 'convert':
         return VEYRA_ENV === 'mainnet' ? <MainnetCirclePage mode="swap" /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="convert" /> : <ConvertPage />;
       case 'bridge':
@@ -67,7 +67,7 @@ export default function App() {
       case 'social':
         return (VEYRA_ENV === 'mainnet' ? <MainnetContactsPage onPay={(recipient) => {setContactRecipient(recipient);setFriendPayment(null);setPage('pay');}} /> : <SocialPage onPayFriend={startFriendPayment} />);
       case 'settlement':
-        return <SettlementPage />;
+        return VEYRA_ENV === 'mainnet' ? <MainnetPayHub initialMethod="contract"/> : <SettlementPage />;
       default:
         return <HomePage onNavigate={setPage} />;
     }

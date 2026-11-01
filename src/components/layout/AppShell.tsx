@@ -16,7 +16,6 @@ import {
   Users,
   Settings,
   Command,
-  Shield,
   ArrowLeftRight,
   Route,
   MoreHorizontal,
@@ -45,8 +44,8 @@ const PRIMARY_NAV: NavItem[] = [
   { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
 ];
 const SECONDARY_NAV: NavItem[] = [
-  { id: 'social', label: VEYRA_ENV === 'mainnet' ? 'Contacts' : 'Friends', icon: <Users className="size-5" /> },
-  { id: 'settlement', label: 'Settlement', icon: <Shield className="size-5" /> },
+  { id: 'social', label: VEYRA_ENV === 'mainnet' ? 'People' : 'Friends', icon: <Users className="size-5" /> },
+  ...(VEYRA_ENV === 'mainnet' ? [] : [{ id: 'settlement' as const, label: 'Settlement', icon: <Shield className="size-5" /> }]),
   { id: 'settings', label: 'Settings', icon: <Settings className="size-5" /> },
 ];
 const MOBILE_NAV = PRIMARY_NAV.filter(item => ['home', 'pay', 'agent', 'activity'].includes(item.id));
@@ -87,7 +86,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
         </div>
 
         {PRIMARY_NAV.map((item) => (
-          <NavButton key={item.id} item={item} active={page === item.id} onClick={() => onNavigate(item.id)} />
+          <NavButton key={item.id} item={item} active={page === item.id || (VEYRA_ENV==='mainnet'&&item.id==='pay'&&page==='settlement')} onClick={() => onNavigate(item.id)} />
         ))}
 
         <div className="mt-4 border-t pt-3 space-y-1" style={{borderColor:'var(--border)'}}>
@@ -179,7 +178,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
               key={item.id}
               onClick={() => navigate(item.id)}
               className="flex min-w-0 flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors"
-              aria-current={page === item.id ? 'page' : undefined}
+              aria-current={page === item.id || (VEYRA_ENV==='mainnet'&&item.id==='pay'&&page==='settlement') ? 'page' : undefined}
               style={{ color: page === item.id ? 'var(--accent)' : 'var(--subtle)' }}
             >
               <span style={{ color: page === item.id ? 'var(--accent)' : 'var(--subtle)' }}>{item.icon}</span>

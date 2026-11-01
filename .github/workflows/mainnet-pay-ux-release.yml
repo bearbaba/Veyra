@@ -1,0 +1,36 @@
+name: Mainnet Pay UX release gates
+
+on:
+  push:
+    branches:
+      - release/mainnet-unified-pay-ux
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Typecheck · Lint · Mainnet tests · Production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bunx oxlint --type-aware --quiet src scripts
+      - run: >
+          bunx vitest run
+          src/tests/mainnetUnifiedPayUx.test.ts
+          src/tests/mainnetAutomaticHistory.test.ts
+          src/tests/mainnetProductAndActivity.test.ts
+          src/tests/phase6ArcMainnetPay.test.ts
+          src/tests/settlementGasAndVerification.test.ts
+          src/tests/phase3MainnetCatalog.test.ts
+          src/tests/arcAppKitSwap.test.ts
+          src/tests/arcAppKitBridge.test.ts
+      - run: VITE_VEYRA_ENV=mainnet VITE_VEYRA_MAINNET_MVP=1 VITE_VEYRA_MAINNET_PAY=1 bun run build
+      - run: bun run check:prod-bundle

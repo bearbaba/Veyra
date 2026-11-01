@@ -3,7 +3,7 @@ import {useEffect,useState} from 'react';
 import {useAccount,useReadContract} from 'wagmi';
 import {ConnectKitButton} from 'connectkit';
 import {erc20Abi,formatUnits} from 'viem';
-import {ArrowLeftRight,ArrowUpRight,ArrowDownLeft,Route,Copy,RefreshCw,ShieldCheck,Clock3,Wallet} from 'lucide-react';
+import {ArrowLeftRight,ArrowUpRight,ArrowDownLeft,Route,Copy,RefreshCw,Users,Clock3,Wallet} from 'lucide-react';
 import {getUsdc} from '@/onchain-facts';
 import {MAINNET_ROUTES,type MainnetRoute} from '@/mainnet/mainnetProduct';
 import {readLocalOperations,type LocalOperation} from '@/mainnet/localOperations';
@@ -38,7 +38,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
   {route:'pay',label:'Send',icon:<ArrowUpRight className="size-5"/>},
   {route:'swap',label:'Swap',icon:<ArrowLeftRight className="size-5"/>},
   {route:'bridge',label:'Bridge',icon:<Route className="size-5"/>},
-  {route:'settlement',label:'Contract Pay',icon:<ShieldCheck className="size-5"/>},
+  {route:'identity',label:'People',icon:<Users className="size-5"/>},
  ];
  const card='rounded-2xl p-5 sm:p-6';
  const cardStyle={background:'var(--surface)',border:'1px solid var(--border)'};
@@ -94,8 +94,8 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
     </button>)}
    </div>
    <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs" style={{color:'var(--muted)'}}>
-    <span>Pay & Settlement: wallet-confirmed</span>
-    <span>Swap & Bridge: live provider quote required</span>
+    <span>Send: review and confirm in your wallet</span>
+    <span>Swap and Bridge: check the quote before signing</span>
    </div>
   </section>
   {wrong&&<p role="status" className="rounded-xl px-4 py-3 text-sm" style={{background:'var(--surface)',color:'var(--warning)'}}>
@@ -110,7 +110,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
     </div>
     {pending.length===0?
      <p className="mt-3 text-sm" style={{color:'var(--muted)'}}>
-      No locally recorded pending operations. Provider-side transactions may still need checking.
+      Nothing needs your attention right now.
      </p>:
      <div className="mt-3 space-y-2">{pending.slice(0,3).map(x=><div key={x.hash} className="flex items-center gap-2 rounded-lg p-3"
       style={{background:'var(--surface-raised)'}}>
@@ -124,10 +124,10 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
     <p className="text-base font-bold" style={{color:'var(--ink)'}}>Your account</p>
     <p className="mt-3 text-sm font-semibold" style={{color:'var(--ink)'}}>{address?address.slice(0,7)+'…'+address.slice(-5):'Connect wallet'}</p>
     <p className="mt-2 text-xs leading-5" style={{color:'var(--muted)'}}>
-     Veyra ID and X linking require a verified service session; connecting a wallet alone does not sign in.
+     Your Veyra ID, friends and linked X account will appear here once identity sign-in is available on Mainnet.
     </p>
-    <button onClick={()=>onNavigate('settings')} className="mt-3 text-xs font-semibold"
-     style={{color:'var(--accent)'}}>Identity & settings</button>
+    <button onClick={()=>onNavigate('social')} className="mt-3 text-xs font-semibold"
+     style={{color:'var(--accent)'}}>People & Veyra ID</button>
    </div>
   </section>
   <section className={card} style={cardStyle} aria-label="Recent activity">
@@ -136,7 +136,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
     <button onClick={()=>onNavigate('activity')} className="text-xs font-semibold" style={{color:'var(--accent)'}}>View all</button>
    </div>
    {operations.length===0?
-    <p className="mt-3 text-sm" style={{color:'var(--muted)'}}>No operations recorded in this browser yet. Activity can look up your onchain transaction hashes.</p>:
+    <p className="mt-3 text-sm" style={{color:'var(--muted)'}}>No transactions yet. Payments made through Veyra will appear automatically.</p>:
     <div className="mt-3 divide-y" style={{borderColor:'var(--border)'}}>
      {operations.slice(0,3).map(x=><div className="flex items-center gap-3 py-3" key={x.type+x.hash}>
       <div className="min-w-0 flex-1"><p className="text-sm font-semibold" style={{color:'var(--ink)'}}>
