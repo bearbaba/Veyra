@@ -27,6 +27,7 @@ import { AgentUnifiedBalances } from '../agent/AgentUnifiedBalances';
 import { BridgePage } from './BridgePage';
 import { PayPage } from './PayPage';
 import { ConvertPage } from './ConvertPage';
+import { VEYRA_ENV } from '@/lib/env';
 import type { IntentCandidate } from '@/core/intent/intentSchema';
 import { restoreWalletScopedActiveTask, selectActiveTaskAfterReply } from '@/core/agent/activeTaskSelection';
 import type { VeyraPage } from '../layout/AppShell';
@@ -495,19 +496,19 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
             {activePayDraft?.messageId === activeTaskMessage.id && (
               <section aria-label="Pay review in active task" className="mt-4 border-t pt-4"
                 style={{ borderColor: 'var(--border)' }}>
-                <PayPage embedded initialIntent={activePayDraft.candidate} />
+                {VEYRA_ENV === 'mainnet' ? <div className="space-y-2 text-sm" style={{color:'var(--muted)'}}>Mainnet Pay uses the verified wallet flow in the Pay tab. No Testnet signature here.<button type="button" className="block rounded-xl px-3 py-2 font-semibold" style={{background:'var(--accent)',color:'#fff'}} onClick={()=>onNavigate('pay')}>Open Mainnet Pay</button></div> : <PayPage embedded initialIntent={activePayDraft.candidate} />}
               </section>
             )}
             {activeSwapDraft?.messageId === activeTaskMessage.id && (
               <section aria-label="Swap review in active task" className="mt-4 border-t pt-4"
                 style={{ borderColor:'var(--border)' }}>
-                <ConvertPage embedded initialIntent={activeSwapDraft.candidate} />
+                {VEYRA_ENV === 'mainnet' ? <p className="text-sm" style={{color:'var(--muted)'}}>Mainnet Swap is not activated. No Testnet signing on this domain.</p> : <ConvertPage embedded initialIntent={activeSwapDraft.candidate} />}
               </section>
             )}
             {inlineBridgeMessageId === activeTaskMessage.id && (
               <section aria-label="Bridge review in active task" className="mt-4 border-t pt-4"
                 style={{borderColor:'var(--border)'}}>
-                <BridgePage embedded />
+                {VEYRA_ENV === 'mainnet' ? <p className="text-sm" style={{color:'var(--muted)'}}>Mainnet Bridge is not activated. No Testnet signing on this domain.</p> : <BridgePage embedded />}
               </section>
             )}
           </aside>
