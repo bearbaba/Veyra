@@ -121,7 +121,7 @@ signer readiness, or mainnet readiness.
 - docs/arc-microgrants-evidence.md: complete evidence package
 - docs/vercel-mainnet-preview-setup.md: branch-specific Preview env vars, no Production auto-promote
 
-**Final P0 corrections (pending push):**
+**Final P0 corrections — commit 323774c (pushed 2026-11-01):**
 - SettlementPage: fixed Arc gas 18-dec→6-dec conversion (GAS_TO_USDC_DIVISOR=10^12, not 6-dec direct format); approve+pay gas estimates shown separately; gas "estimation unavailable" shown when estimate=0n; snapshot freeze includes walletAddress+chainId; 12-check verification (chain, status, target, emitter, payer, recipient, gross, fee, net, ref, USDC in-transfer, USDC out-transfer); verified receipt shows gasUsed; failReasons listed on 'confirmed' step
 - docs/mainnet-deploy-procedure.md: fixed bytecode hash to real Keccak-256=0xc70cdb0b5f3b9bdd698e44bfae66f6b76475b3a05686c950be33d7c444aad3d2 (was sha3_256 — different algorithm); verification command updated to `cast keccak`
 - docs/vercel-mainnet-preview-setup.md: rewritten — explains why env-var override alone is insufficient (buildCommand hard-codes flags), provides Option A (replace vercel.json on branch), Option B (vercel CLI --local-config); branch-protection warning against merging to main
