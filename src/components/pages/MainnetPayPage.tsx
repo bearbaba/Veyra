@@ -106,6 +106,33 @@ export function MainnetPayPage() {
     }catch(e){setError(msg(e)+' Previous transaction lock remains.');}
     finally{lock.current=false;setBusy(false);}
   }
+  // After a wallet signs, reconcile against Arc automatically; never submit again.
+  useEffect(()=>{
+    if(!address||!journal?.hash||journal.stage!=='PENDING')return;
+    let live=true;
+    let checking=false;
+    const snapshot=journal;
+    async function poll(){
+      if(checking)return;
+      checking=true;
+      try{
+        const plan=buildMainnetPayPlan(snapshot.from,snapshot.to,snapshot.amount);
+        const result=await reconcileMainnetCanary(plan,snapshot.hash!);
+        if(!live)return;
+        setReceipt(result);
+        if(result.state==='VERIFIED'||result.state==='REVERTED'){
+          const next:MainnetJournal={...snapshot,stage:result.state};
+          if(writeMainnetJournal(next,storageForMainnet()))setJournal(next);
+          else setError('Receipt confirmed but local history could not be saved. Preserve the transaction hash.');
+        }
+      }catch(e){
+        if(live)setError('Receipt check failed: '+(e instanceof Error?e.message:'RPC unavailable')+'. No duplicate payment will be submitted.');
+      }finally{checking=false;}
+    }
+    void poll();
+    const timer=window.setInterval(()=>void poll(),10000);
+    return()=>{live=false;window.clearInterval(timer);};
+  },[address,journal?.hash,journal?.stage,journal?.from,journal?.to,journal?.amount]);
   function reset(){
     if(!address||!journal||!['VERIFIED','REVERTED'].includes(journal.stage)||lock.current)return;
     if(!clearMainnetJournal(address,storageForMainnet())){setError('Cannot clear payment lock.');return;}
