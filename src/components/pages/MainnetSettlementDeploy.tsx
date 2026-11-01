@@ -142,7 +142,7 @@ export function MainnetSettlementDeploy(){
       if(Date.now()-review.reviewedAt>90_000)throw Error('Gas estimate expired. Review again.');
       if(review.owner!==owner)throw Error('Connected wallet changed after Review.');
       if(read(owner))throw Error('A deployment record already exists. Do not send another.');
-      if(await publicClient.getChainId()!==CHAIN || walletClient.chain.id!==CHAIN)
+      if(await publicClient.getChainId()!==CHAIN || chainId!==CHAIN)
         throw Error('Wallet/RPC network changed.');
       if(keccak256(VEYRA_SETTLEMENT_CREATION_BYTECODE)!==VEYRA_SETTLEMENT_CREATION_KECCAK)
         throw Error('Bytecode integrity check failed.');
