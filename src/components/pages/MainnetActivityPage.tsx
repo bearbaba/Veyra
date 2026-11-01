@@ -6,6 +6,7 @@ import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal'
 import {inspectArcTransfer,type Inspection} from '@/mainnet/verifyArcTransfer';
 import {mainnetExplorerTx} from '@/mainnet/arcMainnetPay';
 import {readLocalOperations,type LocalOperation} from '@/mainnet/localOperations';
+import {inspectRecordedSettlement} from '@/mainnet/verifyRecordedSettlement';
 import type {VeyraPage} from '../layout/AppShell';
 const HASH=/^0x[0-9a-fA-F]{64}$/;
 export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigate:(page:VeyraPage)=>void}){
@@ -16,9 +17,12 @@ const [error,setError]=useState<string|null>(null);
 const [busy,setBusy]=useState(false);
 const [saved,setSaved]=useState('No local payment record.');
 const [operations,setOperations]=useState<LocalOperation[]>([]);
+const [settlementCheck,setSettlementCheck]=useState<{hash:string;result:Inspection}|null>(null);
+const [settlementError,setSettlementError]=useState<string|null>(null);
+const [settlementBusy,setSettlementBusy]=useState(false);
 const [filter,setFilter]=useState<'All'|'Pay'|'Settlement'|'Swap'|'Bridge'>('All');
 useEffect(()=>{
-setResult(null);setError(null);
+setResult(null);setError(null);setSettlementCheck(null);setSettlementError(null);
 if(!address){setHash('');setOperations([]);return;}
 setOperations(readLocalOperations(address));
 const r=readMainnetJournal(address,storageForMainnet());
@@ -33,6 +37,16 @@ setBusy(true);setError(null);setResult(null);
 try{setResult(await inspectArcTransfer(hash,address));}
 catch(e){setError(e instanceof Error?e.message:'RPC unavailable. Status remains unknown.');}
 finally{setBusy(false);}
+}
+async function verifySettlement(v:LocalOperation){
+  if(!address||v.type!=='Settlement'||settlementBusy)return;
+  setSettlementBusy(true);setSettlementCheck(null);setSettlementError(null);
+  try{
+    const checked=await inspectRecordedSettlement(v.hash,address,v.amount,v.destination);
+    setSettlementCheck({hash:v.hash,result:checked});
+  }catch(e){
+    setSettlementError(e instanceof Error?e.message:'Arc RPC unavailable. The status is unknown.');
+  }finally{setSettlementBusy(false);}
 }
 return <div className="mx-auto w-full max-w-4xl space-y-5 px-4 py-7 md:px-7 md:py-9">
 <div><span className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Arc Mainnet · 5042</span>
@@ -90,11 +104,24 @@ operations.filter(v=>filter==='All'||v.type===filter).length===0?
 <a target="_blank" rel="noreferrer" href={(v.chainId===8453?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+v.hash}
 className="rounded-lg border px-3 py-2 text-xs" style={{borderColor:'var(--border)',color:'var(--accent)'}}>Explorer</a>
 <button type="button" className="rounded-lg border px-3 py-2 text-xs font-semibold"
-onClick={()=>{if(v.type==='Pay'){setHash(v.hash);setResult(null);window.scrollTo({top:0,behavior:'smooth'});}else onNavigate(v.type==='Swap'?'convert':v.type==='Bridge'?'bridge':'settlement');}}
-style={{borderColor:'var(--border)',color:'var(--ink)'}}>{v.type==='Pay'?'Reverify':'Continue'}</button>
+disabled={v.type==='Settlement'&&settlementBusy}
+onClick={()=>{if(v.type==='Settlement'){void verifySettlement(v);}
+else if(v.type==='Pay'){setHash(v.hash);setResult(null);window.scrollTo({top:0,behavior:'smooth'});}
+else onNavigate(v.type==='Swap'?'convert':'bridge');}}
+style={{borderColor:'var(--border)',color:'var(--ink)'}}>{v.type==='Settlement'?'Verify receipt':v.type==='Pay'?'Reverify':'Continue'}</button>
 </div>
 </div>)}
 </div>}
+{settlementError&&<p role="alert" className="mt-3 text-sm" style={{color:'var(--warning)'}}>{settlementError}</p>}
+{settlementCheck&&<div role="status" className="mt-3 rounded-xl border p-4 text-sm"
+ style={{borderColor:'var(--border)',background:'var(--surface-raised)'}}>
+ <strong style={{color:settlementCheck.result.status==='VERIFIED'?'var(--success)':'var(--warning)'}}>
+ Settlement · {settlementCheck.result.status==='VERIFIED'?'Onchain verified':settlementCheck.result.status}
+ </strong>
+ <p className="mt-2 break-words text-xs leading-5" style={{color:'var(--muted)'}}>{settlementCheck.result.detail}</p>
+ <a href={mainnetExplorerTx(settlementCheck.hash)} target="_blank" rel="noreferrer"
+ className="mt-2 inline-flex items-center gap-2 text-xs" style={{color:'var(--accent)'}}>Arc Explorer <ExternalLink className="size-4"/></a>
+ </div>}
 <p className="text-xs leading-5" style={{color:'var(--muted)'}}>These entries are wallet-scoped browser pointers, not a complete cross-device history or proof of success. Recheck the original chain/provider receipt before trusting the status.</p>
 </section>
 <p className="text-xs leading-5" style={{color:'var(--muted)'}}>Activity verifies outgoing USDC transfers from this wallet. Browser-local history is not a complete cross-device ledger. Transaction submission is not proof of settlement.</p>
