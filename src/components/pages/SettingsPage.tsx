@@ -218,7 +218,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
             <div>
               <h2 className="text-sm font-bold" style={{color:'var(--ink)'}}>Transaction protection</h2>
               <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
-                Every payment is reviewed before wallet approval. Testnet funds only.
+                {VEYRA_ENV==='mainnet'?'Arc Mainnet Pay transfers real USDC and requires explicit wallet confirmation. Other financial routes are not yet activated.':'Every payment is reviewed before wallet approval. Testnet funds only.'}
               </p>
             </div>
           </div>
@@ -251,7 +251,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-bold" style={{color:'var(--ink)'}}>Networks & assets</span>
             <span className="mt-1 block text-xs leading-5" style={{color:'var(--muted)'}}>
-              Arc Testnet USDC is enabled. Other listings are not available for sending yet.
+              {VEYRA_ENV==='mainnet'?'Arc Mainnet USDC Wallet Pay is enabled. Swap, Bridge and Gateway execution are not yet activated.':'Arc Testnet USDC is enabled. Other listings are not available for sending yet.'}
             </span>
           </span>
           <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180"
