@@ -61,7 +61,7 @@ export default function App() {
       case 'bridge':
         return VEYRA_ENV === 'mainnet' ? <MainnetCirclePage mode="bridge" /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="bridge" /> : <BridgePage />;
       case 'activity':
-        return VEYRA_ENV === 'mainnet' ? <MainnetActivityPage onPay={() => setPage('pay')} /> : <ActivityPage readOnly={IS_UI_ONLY_PREVIEW} />;
+        return VEYRA_ENV === 'mainnet' ? <MainnetActivityPage onPay={() => setPage('pay')} onNavigate={setPage} /> : <ActivityPage readOnly={IS_UI_ONLY_PREVIEW} />;
       case 'settings':
         return <SettingsPage onOpenSocial={() => setPage('social')} />;
       case 'social':

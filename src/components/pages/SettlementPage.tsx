@@ -64,6 +64,7 @@ import {
 import { ConnectKitButton } from 'connectkit';
 import { AlertTriangle, CheckCircle, Clock, ExternalLink, Lock, Send, Unlock, Loader2 } from 'lucide-react';
 import { VEYRA_ENV } from '@/lib/env';
+import {recordLocalOperation} from '@/mainnet/localOperations';
 import { MainnetSettlementDeploy } from './MainnetSettlementDeploy';
 import { VEYRA_SETTLEMENT_CREATION_BYTECODE, VEYRA_SETTLEMENT_CREATION_KECCAK } from '@/generated/veyraSettlementCreation';
 import {
@@ -541,6 +542,9 @@ export function SettlementPage() {
       gasUsed: result.gasUsed,
       failReasons: result.failReasons,
     });
+    if(result.verified && VEYRA_ENV==='mainnet' && result.txHash){
+      recordLocalOperation({type:'Settlement',owner:snap.from,hash:result.txHash,amount:formatUnits(snap.amountParsed,6),asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,status:'RECORDED',destination:snap.recipient});
+    }
     setStep(result.verified ? 'verified' : 'confirmed');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settleConfirmed, settleReceipt]);

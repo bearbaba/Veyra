@@ -12,6 +12,7 @@ import {ConnectKitButton} from 'connectkit';
 import {decodeEventLog,erc20Abi,formatUnits,getAddress,isAddress,parseAbi,parseUnits,type EIP1193Provider,type Hash} from 'viem';
 import {ArrowLeftRight,Route,ShieldCheck,AlertTriangle,ExternalLink,RefreshCw} from 'lucide-react';
 import {getMainnetChain,CCTP_V2_MAINNET} from '@/config/mainnetCatalog';
+import { recordLocalOperation } from '@/mainnet/localOperations';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 
 const kit=new AppKit();
@@ -179,11 +180,13 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
     const hash=typeof result.txHash==='string'&&HASH.test(result.txHash)?result.txHash:undefined;
     const next:Recovery={...record,status:'PENDING',...(hash?{hash}:{})};
     localStorage.setItem(key(mode,address),JSON.stringify(next));setRecovery(next);
+    if(hash)recordLocalOperation({type:'Swap',hash,owner:address,amount,asset:fromToken,chainId:ARC,status:'SUBMITTED'});
    }else{
     const result=await kit.bridge(p as Parameters<AppKit['bridge']>[0]);
     const steps=getAppKitBridgeSteps(result);
     const next:Recovery={...record,status:'PENDING',...steps};
     localStorage.setItem(key(mode,address),JSON.stringify(next));setRecovery(next);
+    if(steps.burnHash)recordLocalOperation({type:'Bridge',hash:steps.burnHash,owner:address,amount,asset:'USDC',chainId:selectedSource,status:'SUBMITTED'});
    }
   }catch(e){
    setError((e instanceof Error?e.message:'Provider outcome uncertain.')+
@@ -235,6 +238,7 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
    const r:Recovery={...recovery,status:'VERIFIED',...(mode==='swap'?{hash}:{mintHash:hash})};
    localStorage.setItem(key(mode,address),JSON.stringify(r));setRecovery(r);
    setProof('Destination verified: '+formatUnits(amountOut,6)+' '+(mode==='swap'?recovery.toToken:'USDC'));
+   recordLocalOperation({type:mode==='swap'?'Swap':'Bridge',hash,owner:address,amount:formatUnits(amountOut,6),asset:mode==='swap'?recovery.toToken:'USDC',chainId:recovery.destination,status:'RECORDED'});
   }catch(e){setError(e instanceof Error?e.message:'Destination receipt unverified.');}
   finally{lock.current=false;setBusy(false);}
  }

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAccount, useSwitchChain } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { formatUnits } from 'viem';
+import { recordLocalOperation } from '@/mainnet/localOperations';
 import { AlertTriangle, ExternalLink, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import {
   buildMainnetPayPlan, mainnetPreflight, requestMainnetCanaryTransfer,
@@ -85,6 +86,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed}:{f
       const hash=await requestMainnetCanaryTransfer(await provider(),review.plan,()=>{requested=true;});
       const next:MainnetJournal={...initial,hash,stage:'PENDING'};
       setJournal(next);setHashInput(hash);
+      recordLocalOperation({type:'Pay',hash,owner:address,amount:review.plan.amount,asset:'USDC',chainId:5042,status:'SUBMITTED',destination:review.plan.to});
       if(!writeMainnetJournal(next,storageForMainnet()))
         setError('Payment submitted but hash storage failed. Keep this hash and do not retry: '+hash);
     }catch(e){
@@ -108,6 +110,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed}:{f
       const next:MainnetJournal={...journal,hash:result.hash,
         stage:result.state==='VERIFIED'?'VERIFIED':result.state==='REVERTED'?'REVERTED':'PENDING'};
       setJournal(next);
+      if(result.state==='VERIFIED')recordLocalOperation({type:'Pay',hash:result.hash,owner:address,amount:journal.amount,asset:'USDC',chainId:5042,status:'RECORDED',destination:journal.to});
       if(!writeMainnetJournal(next,storageForMainnet()))
         setError('Could not save receipt state. Preserve the transaction hash.');
     }catch(e){setError(msg(e)+' Previous transaction lock remains.');}
@@ -129,6 +132,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed}:{f
         setReceipt(result);
         if(result.state==='VERIFIED'||result.state==='REVERTED'){
           const next:MainnetJournal={...snapshot,stage:result.state};
+          if(result.state==='VERIFIED')recordLocalOperation({type:'Pay',hash:snapshot.hash!,owner:address,amount:snapshot.amount,asset:'USDC',chainId:5042,status:'RECORDED',destination:snapshot.to});
           if(writeMainnetJournal(next,storageForMainnet()))setJournal(next);
           else setError('Receipt confirmed but local history could not be saved. Preserve the transaction hash.');
         }

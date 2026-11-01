@@ -5,17 +5,22 @@ import {CheckCircle2,AlertTriangle,ExternalLink} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
 import {inspectArcTransfer,type Inspection} from '@/mainnet/verifyArcTransfer';
 import {mainnetExplorerTx} from '@/mainnet/arcMainnetPay';
+import {readLocalOperations,type LocalOperation} from '@/mainnet/localOperations';
+import type {VeyraPage} from '../layout/AppShell';
 const HASH=/^0x[0-9a-fA-F]{64}$/;
-export function MainnetActivityPage({onPay}:{onPay:()=>void}){
+export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigate:(page:VeyraPage)=>void}){
 const {address}=useAccount();
 const [hash,setHash]=useState('');
 const [result,setResult]=useState<Inspection|null>(null);
 const [error,setError]=useState<string|null>(null);
 const [busy,setBusy]=useState(false);
 const [saved,setSaved]=useState('No local payment record.');
+const [operations,setOperations]=useState<LocalOperation[]>([]);
+const [filter,setFilter]=useState<'All'|'Pay'|'Settlement'|'Swap'|'Bridge'>('All');
 useEffect(()=>{
 setResult(null);setError(null);
-if(!address){setHash('');return;}
+if(!address){setHash('');setOperations([]);return;}
+setOperations(readLocalOperations(address));
 const r=readMainnetJournal(address,storageForMainnet());
 setHash(r.kind==='active'?(r.value.hash??''):'');
 setSaved(r.kind==='active'?'Latest payment from this browser. Check onchain status.':
@@ -61,6 +66,37 @@ style={{borderColor:'var(--border)',color:'var(--ink)'}}>
 className="flex items-center gap-2 text-xs" style={{color:'var(--accent)'}}>Arc Explorer <ExternalLink className="size-4"/></a>
 </div>}
 </div>
+<section className="space-y-3 rounded-2xl border p-5 sm:p-6" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+<div className="flex flex-wrap items-center justify-between gap-2">
+<h2 className="text-base font-bold" style={{color:'var(--ink)'}}>Your Mainnet operations</h2>
+<button onClick={()=>address&&setOperations(readLocalOperations(address))} className="text-xs font-semibold" style={{color:'var(--accent)'}}>Refresh local index</button></div>
+<div className="flex flex-wrap gap-2" aria-label="Filter transactions">
+{(['All','Pay','Settlement','Swap','Bridge'] as const).map(v=><button key={v} type="button"
+onClick={()=>setFilter(v)} aria-pressed={filter===v}
+className="rounded-lg border px-3 py-2 text-xs font-semibold"
+style={{borderColor:'var(--border)',background:filter===v?'var(--accent-muted)':'transparent',color:filter===v?'var(--accent)':'var(--muted)'}}>{v}</button>)}
+</div>
+{!address?<p className="text-sm" style={{color:'var(--muted)'}}>Connect wallet to view your private local operation index.</p>:
+operations.filter(v=>filter==='All'||v.type===filter).length===0?
+<p className="text-sm" style={{color:'var(--muted)'}}>No locally recorded {filter==='All'?'operations':filter+' operations'} in this browser yet.</p>:
+<div className="divide-y" style={{borderColor:'var(--border)'}}>
+{operations.filter(v=>filter==='All'||v.type===filter).map(v=><div key={v.type+v.hash} className="flex flex-wrap items-center gap-3 py-3 text-sm">
+<div className="min-w-0 flex-1">
+<p className="font-semibold" style={{color:'var(--ink)'}}>{v.type} · {v.amount} {v.asset}</p>
+<p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Arc {v.chainId===8453?'Base':'Mainnet'} · {v.status==='SUBMITTED'?'Tracking required':'Locally recorded · reverify onchain'}</p>
+<p className="mt-1 break-all font-mono text-xs" style={{color:'var(--subtle)'}}>{v.hash.slice(0,15)}…{v.hash.slice(-9)}</p>
+</div>
+<div className="flex gap-2">
+<a target="_blank" rel="noreferrer" href={(v.chainId===8453?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+v.hash}
+className="rounded-lg border px-3 py-2 text-xs" style={{borderColor:'var(--border)',color:'var(--accent)'}}>Explorer</a>
+<button type="button" className="rounded-lg border px-3 py-2 text-xs font-semibold"
+onClick={()=>{if(v.type==='Pay'){setHash(v.hash);setResult(null);window.scrollTo({top:0,behavior:'smooth'});}else onNavigate(v.type==='Swap'?'convert':v.type==='Bridge'?'bridge':'settlement');}}
+style={{borderColor:'var(--border)',color:'var(--ink)'}}>{v.type==='Pay'?'Reverify':'Continue'}</button>
+</div>
+</div>)}
+</div>}
+<p className="text-xs leading-5" style={{color:'var(--muted)'}}>These entries are wallet-scoped browser pointers, not a complete cross-device history or proof of success. Recheck the original chain/provider receipt before trusting the status.</p>
+</section>
 <p className="text-xs leading-5" style={{color:'var(--muted)'}}>Activity verifies outgoing USDC transfers from this wallet. Browser-local history is not a complete cross-device ledger. Transaction submission is not proof of settlement.</p>
 </div>;
 }

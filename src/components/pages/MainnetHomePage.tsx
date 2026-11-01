@@ -19,7 +19,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  const [operations,setOperations]=useState<LocalOperation[]>([]);
  const usdc=getUsdc(ARC);
  const {data,refetch,isError,isFetching}=useReadContract({
-  address:usdc?.address,abi:erc20Abi,functionName:'balanceOf',
+  address:usdc?.address as `0x${string}` | undefined,abi:erc20Abi,functionName:'balanceOf',
   args:address?[address]:undefined,chainId:ARC,
   query:{enabled:!!address&&!!usdc,staleTime:8000,refetchInterval:15000},
  });
