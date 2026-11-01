@@ -12,6 +12,8 @@ import { VEYRA_SETTLEMENT_CREATION_BYTECODE, VEYRA_SETTLEMENT_CREATION_KECCAK } 
 import { ARC_MAINNET_USDC } from '@/config/veyraSettlement';
 
 const CHAIN = 5042;
+// Only the wallet already demonstrated by the project owner may execute public deployment setup.
+const OWNER_DEPLOYER = '0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb';
 const ABI = parseAbi([
   'constructor(address usdc_,address initialOwner,address feeRecipient_,uint16 feeBps_)',
   'function owner() view returns (address)',
@@ -72,7 +74,8 @@ export function MainnetSettlementDeploy(){
   useEffect(()=>{setReview(null);setAccepted(false);},[chainId]);
 
   const owner = address ? getAddress(address) : null;
-  const canReview = isConnected && owner && chainId===CHAIN && !!publicClient && !record && !blocked && !busy;
+  const allowedOwner = !!owner && owner.toLowerCase()===OWNER_DEPLOYER.toLowerCase();
+  const canReview = isConnected && allowedOwner && owner && chainId===CHAIN && !!publicClient && !record && !blocked && !busy;
 
   async function checkPreflight(){
     if(!canReview || !owner || !publicClient || lock.current)return;
@@ -134,7 +137,7 @@ export function MainnetSettlementDeploy(){
   }
 
   async function deploy(){
-    if(!review||!accepted||!owner||!publicClient||!walletClient||chainId!==CHAIN||
+    if(!review||!accepted||!owner||!allowedOwner||!publicClient||!walletClient||chainId!==CHAIN||
        record||blocked||lock.current)return;
     lock.current=true;setBusy(true);setMessage('');
     let pending:RecordState|null=null;
@@ -166,9 +169,14 @@ export function MainnetSettlementDeploy(){
       try{await verifyTx(hash,pending);}
       catch(e){setMessage('Transaction submitted. '+err(e)+' Check the original hash below; do not redeploy.');}
     }catch(e){
+      // Wallet error 4001 means the owner explicitly rejected signing; no tx exists.
+      // All other send errors stay locked to prevent accidental duplicate deployments.
+      const rejected=!!e&&typeof e==='object'&&'code' in e&&
+        (e.code===4001||e.code==='ACTION_REJECTED');
+      if(pending&&rejected){
+        try{localStorage.removeItem(key(pending.owner));setRecord(null);}catch{/* remain locked */}
+      }
       setMessage(err(e));
-      // Once an injected wallet has been asked to sign, an unknown transaction
-      // must NEVER be silently cleared or sent again.
       if(!pending)setReview(null);
     }finally{lock.current=false;setBusy(false);}
   }
@@ -203,6 +211,7 @@ export function MainnetSettlementDeploy(){
       </div>
     </div>
     {!isConnected&&<p className="text-sm" style={{color:'var(--warning)'}}>Connect your owner wallet first.</p>}
+    {isConnected&&!allowedOwner&&<p role="alert" className="text-sm" style={{color:'var(--warning)'}}>Contract deployment is restricted to the authorized project owner's wallet.</p>}
     {isConnected&&chainId!==CHAIN&&<button type="button" onClick={()=>switchChain({chainId:CHAIN})}
       className="rounded-xl px-4 py-3 text-sm font-semibold"
       style={{background:'var(--accent)',color:'#0d1b2f'}}>Switch to Arc Mainnet (5042)</button>}
