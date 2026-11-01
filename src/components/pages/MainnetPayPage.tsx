@@ -20,7 +20,7 @@ const box = 'rounded-2xl border p-5 sm:p-6';
 const field = 'w-full rounded-xl border px-4 py-3 text-sm';
 type Review = {plan: MainnetPlan; preflight: MainnetPreflight};
 
-export function MainnetPayPage() {
+export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed}:{friendHandle?:string|null;recipientWallet?:string|null;onRecipientUsed?:()=>void}) {
   const {address, chainId, connector, isConnected} = useAccount();
   const {switchChain} = useSwitchChain();
   const [recipient,setRecipient] = useState('');
@@ -45,6 +45,13 @@ export function MainnetPayPage() {
     setLoadedFor(address.toLowerCase());
   },[address]);
   useEffect(()=>{setReview(null);setAck(false);},[chainId,connector]);
+  useEffect(()=>{
+    if(!recipientWallet)return;
+    if(/^0x[0-9a-fA-F]{40}$/.test(recipientWallet)){
+      setRecipient(recipientWallet);setAmount('');setReview(null);setAck(false);setError(null);
+    }
+    onRecipientUsed?.();
+  },[recipientWallet,onRecipientUsed]);
   async function provider():Promise<MainnetWallet>{
     const w:unknown=await connector?.getProvider();
     if(!w||typeof w!=='object'||!('request' in w)||typeof w.request!=='function')
