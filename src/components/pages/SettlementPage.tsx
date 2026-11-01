@@ -72,27 +72,21 @@ import {
   buildSettlementTxExplorerUrl,
   getVeyraSettlementDeployment,
 } from '@/config/veyraSettlement';
+import { gasNativeToUsdcMicro, fmtGasUsdc } from '@/lib/settlementGas';
+import {
+  verifyPaymentReceipt,
+  type VerifySnapshot,
+  type PaymentSettledArgs,
+  type TransferLog,
+} from '@/lib/settlementVerify';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
 /** USDC ERC-20 interface uses 6 decimals on Arc. */
 const USDC_DECIMALS = 6;
 
-/**
- * Arc native gas token uses 18 decimals (wei-equivalent).
- * gasPrice from getGasPrice() is denominated in these units.
- * gasEstimateRaw * gasPrice is therefore in 10^18 units.
- * Divide by GAS_TO_USDC_DIVISOR to convert to 6-decimal USDC micro-units.
- *
- * GAS_TO_USDC_DIVISOR = 10^(18 - 6) = 10^12
- *
- * This is the same rescale that @/onchain-money's gasTokenToUsdc performs.
- * We keep it as a named constant to make the intent explicit and
- * to protect against any future decimal-count change.
- */
-const ARC_GAS_DECIMALS = 18;
-const ARC_USDC_DECIMALS = 6;
-const GAS_TO_USDC_DIVISOR = 10n ** BigInt(ARC_GAS_DECIMALS - ARC_USDC_DECIMALS); // 10^12
+// gasNativeToUsdcMicro and fmtGasUsdc are imported from @/lib/settlementGas
+// (18-dec Arc native → 6-dec USDC micro-units, ceiling division)
 
 const MIN_ESCROW_HOURS = 1;
 const MAX_ESCROW_DAYS = 30;
@@ -113,35 +107,6 @@ function arcChainLabel(chainId: number): string {
 /** Format 6-decimal USDC raw amount, stripping trailing zeros. */
 function fmtUsdc(raw: bigint): string {
   return formatUnits(raw, USDC_DECIMALS).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
-}
-
-/**
- * Convert a native-gas cost (in 10^18 denomination) to 6-decimal USDC display.
- *
- * gasUnits * gasPrice  →  10^18 denomination
- * divide by 10^12     →  6-decimal USDC micro-units
- * formatUnits(_, 6)   →  human USDC string
- *
- * Safe upward rounding (ceiling): always rounds UP to the nearest micro-USDC,
- * so the displayed reserve estimate is never less than the true gas cost.
- * Floor/truncation can under-report by up to (GAS_TO_USDC_DIVISOR - 1) native
- * units. For a reserve shown to the user, ceiling is the correct choice.
- *
- * For sub-micro-USDC values (1 ≤ native < 10^12) this returns 1n, which is
- * displayed as "< 0.000002 USDC" — reserves 1 micro conservatively.
- * gasNative === 0n means no estimate available, returns 0n (shown separately).
- *
- * Ceiling integer division: ceil(a / d) = (a + d - 1) / d  (a ≥ 0).
- */
-function gasNativeToUsdcMicro(gasNative: bigint): bigint {
-  if (gasNative === 0n) return 0n;
-  return (gasNative + GAS_TO_USDC_DIVISOR - 1n) / GAS_TO_USDC_DIVISOR;
-}
-
-function fmtGasUsdc(gasNative: bigint): string {
-  const micro = gasNativeToUsdcMicro(gasNative);
-  if (micro === 0n) return '< 0.000001 USDC';
-  return `~${fmtUsdc(micro)} USDC`;
 }
 
 function ReviewRow({ label, value, mono = false, accent = false, warn = false }: {
@@ -318,16 +283,22 @@ export function SettlementPage() {
 
   // ── gas estimates (18-decimal native units from getGasPrice) ─────────────────
 
-  /** Latest gas price in 18-decimal native units. Updated on mount and chain change. */
-  const gasPriceRef = useRef<bigint>(1_000_000_000n); // 1 gwei fallback
-  const gasPriceLoadedRef = useRef(false);
+  /**
+   * Live gas price in 18-decimal native units from the RPC.
+   * Starts as null (unknown) — not a fabricated fallback.
+   * When null, gas estimates are shown as "unavailable" rather than a made-up value.
+   * Refreshed after approve confirmation to pick up any price movement.
+   */
+  const [gasPriceNative, setGasPriceNative] = useState<bigint | null>(null);
+  const gasPriceFetchCountRef = useRef(0);
 
   useEffect(() => {
     if (!publicClient) return;
     let cancelled = false;
+    const fetchId = ++gasPriceFetchCountRef.current;
     publicClient.getGasPrice()
-      .then(p => { if (!cancelled) { gasPriceRef.current = p; gasPriceLoadedRef.current = true; } })
-      .catch(() => undefined);
+      .then(p => { if (!cancelled && fetchId === gasPriceFetchCountRef.current) setGasPriceNative(p); })
+      .catch(() => { if (!cancelled) setGasPriceNative(null); });
     return () => { cancelled = true; };
   }, [publicClient, chainId]);
 
@@ -375,12 +346,15 @@ export function SettlementPage() {
 
   /**
    * Convert gas estimate to 18-decimal native units (gasUnits * gasPrice).
-   * Returns 0n if either value is unavailable — caller must handle this case
-   * by showing "unavailable" rather than near-zero.
+   * Returns 0n when gas units OR the live gas price are unavailable.
+   * 0n is the explicit sentinel for "estimation unavailable" — the caller
+   * shows "unavailable" rather than a fabricated near-zero amount.
+   * A fabricated fallback gas price (e.g. 1 gwei) is never substituted.
    */
   function toGasNative(gasUnits: bigint | undefined): bigint {
     if (!gasUnits || gasUnits === 0n) return 0n;
-    return gasUnits * gasPriceRef.current;
+    if (gasPriceNative === null) return 0n; // price not yet loaded from RPC
+    return gasUnits * gasPriceNative;
   }
 
   const payGasNative = toGasNative(payGasEstimateRaw);
@@ -394,205 +368,110 @@ export function SettlementPage() {
   const { data: settleReceipt, isSuccess: settleConfirmed } =
     useWaitForTransactionReceipt({ hash: settleTxHash });
 
-  // ── approve auto-advance ──────────────────────────────────────────────────────
-  if (approveConfirmed && step === 'approve' && approveTxHash) {
+  // ── approve auto-advance + gas price refresh ─────────────────────────────────
+  useEffect(() => {
+    if (!approveConfirmed || step !== 'approve' || !approveTxHash) return;
+    // Refresh gas price after approval so pay-step estimate reflects current price
+    if (publicClient) {
+      publicClient.getGasPrice()
+        .then(p => setGasPriceNative(p))
+        .catch(() => undefined);
+    }
     setStep('review');
-  }
+  }, [approveConfirmed, step, approveTxHash, publicClient]);
 
-  // ── receipt verification ──────────────────────────────────────────────────────
-  /**
-   * Runs after settleConfirmed. Checks ALL 12 conditions:
-   * (a) chain is Arc
-   * (b) receipt.status === 'success'
-   * (c) receipt.to === deployment.address
-   * (d) PaymentSettled emitted BY deployment.address
-   * (e) args.payer === snapshot.walletAddress
-   * (f) args.recipient === snapshot.recipient
-   * (g) args.amount === snapshot.amountParsed
-   * (h) args.fee === snapshot.feeAmount
-   * (i) args.amount - args.fee === snapshot.netAmount
-   * (j) args.ref === snapshot.ref
-   * (k) USDC Transfer: payer → contract, amount === snapshot.amountParsed
-   * (l) USDC Transfer: contract → recipient, amount === snapshot.netAmount
-   */
+  // ── receipt verification (delegates to @/lib/settlementVerify) ───────────────
   useEffect(() => {
     if (!settleConfirmed || !settleReceipt || !snapshot || !deployment) return;
     if (step !== 'pending') return;
 
     const snap = snapshot;
-    const failReasons: string[] = [];
-    let eventsFound = false;
-    let paymentId: `0x${string}` = `0x${'00'.repeat(32)}`;
-    let feeOnChain = 0n;
-    let netOnChain = 0n;
-    let refOnChain: `0x${string}` = `0x${'00'.repeat(32)}`;
 
-    // (a) Chain
-    if (chainId !== ARC_TESTNET_CHAIN_ID && chainId !== ARC_MAINNET_CHAIN_ID) {
-      failReasons.push(`chain ID ${chainId ?? 'unknown'} is not an Arc chain`);
-    }
-
-    // (b) Receipt status
-    if (settleReceipt.status !== 'success') {
-      failReasons.push(`transaction reverted (status: ${settleReceipt.status})`);
-    }
-
-    // (c) Transaction target
-    const receiptTo = settleReceipt.to?.toLowerCase();
-    const expectedTo = snap.contractAddress.toLowerCase();
-    if (receiptTo !== expectedTo) {
-      failReasons.push(`tx target ${receiptTo ?? 'null'} does not match contract ${expectedTo}`);
-    }
-
-    // Parse logs for PaymentSettled and USDC Transfer events
-    let payerToContractTransferFound = false;
-    let contractToRecipientTransferFound = false;
+    // Build typed PaymentSettledArgs from receipt logs
+    let paymentSettledLog: PaymentSettledArgs | null = null;
+    const transferLogs: TransferLog[] = [];
 
     try {
       for (const log of settleReceipt.logs as Log[]) {
-        // Only consider logs from the deployment contract for PaymentSettled
         const logAddress = (log.address ?? '').toLowerCase();
         const deploymentLc = snap.contractAddress.toLowerCase();
         const usdcLc = snap.usdcAddress.toLowerCase();
 
-        // Try PaymentSettled (must come from VeyraSettlement)
-        if (logAddress === deploymentLc) {
+        // PaymentSettled — only from VeyraSettlement
+        if (logAddress === deploymentLc && !paymentSettledLog) {
           try {
-            const decoded = decodeEventLog({
-              abi: VEYRA_SETTLEMENT_ABI,
-              data: log.data,
-              topics: log.topics,
-            });
-
+            const decoded = decodeEventLog({ abi: VEYRA_SETTLEMENT_ABI, data: log.data, topics: log.topics });
             if (decoded.eventName === 'PaymentSettled') {
-              const args = decoded.args as unknown as {
-                paymentId: `0x${string}`;
-                payer: `0x${string}`;
-                recipient: `0x${string}`;
-                amount: bigint;
-                fee: bigint;
-                ref: `0x${string}`;
+              const a = decoded.args as unknown as {
+                paymentId: `0x${string}`; payer: `0x${string}`; recipient: `0x${string}`;
+                amount: bigint; fee: bigint; ref: `0x${string}`;
               };
-              eventsFound = true;
-              paymentId = args.paymentId;
-              feeOnChain = args.fee;
-              netOnChain = args.amount - args.fee;
-              refOnChain = args.ref;
-
-              // (d) already satisfied (log came from deployment contract)
-              // (e) payer
-              if (args.payer.toLowerCase() !== snap.walletAddress.toLowerCase()) {
-                failReasons.push(
-                  `PaymentSettled payer ${args.payer} does not match signing wallet ${snap.walletAddress}`
-                );
-              }
-              // (f) recipient
-              if (args.recipient.toLowerCase() !== snap.recipient.toLowerCase()) {
-                failReasons.push(
-                  `PaymentSettled recipient ${args.recipient} does not match intended ${snap.recipient}`
-                );
-              }
-              // (g) gross amount
-              if (args.amount !== snap.amountParsed) {
-                failReasons.push(
-                  `PaymentSettled amount ${args.amount} differs from reviewed ${snap.amountParsed}`
-                );
-              }
-              // (h) fee
-              if (args.fee !== snap.feeAmount) {
-                failReasons.push(
-                  `PaymentSettled fee ${args.fee} differs from reviewed ${snap.feeAmount}`
-                );
-              }
-              // (i) net consistency
-              if (args.amount - args.fee !== snap.netAmount) {
-                failReasons.push(
-                  `net amount ${args.amount - args.fee} inconsistent with reviewed net ${snap.netAmount}`
-                );
-              }
-              // (j) payment reference
-              if (args.ref.toLowerCase() !== snap.ref.toLowerCase()) {
-                failReasons.push(
-                  `PaymentSettled ref ${args.ref} does not match review ref ${snap.ref}`
-                );
-              }
+              paymentSettledLog = {
+                emitterAddress: log.address ?? '',
+                paymentId: a.paymentId,
+                payer: a.payer,
+                recipient: a.recipient,
+                amount: a.amount,
+                fee: a.fee,
+                ref: a.ref,
+              };
             }
-          } catch {
-            // log did not decode as PaymentSettled — skip
-          }
+          } catch { /* not a PaymentSettled log */ }
         }
 
-        // Try USDC Transfer events (must come from USDC contract)
+        // USDC Transfer — only from canonical USDC contract
         if (logAddress === usdcLc) {
           try {
-            const decoded = decodeEventLog({
-              abi: erc20Abi,
-              data: log.data,
-              topics: log.topics,
-            });
+            const decoded = decodeEventLog({ abi: erc20Abi, data: log.data, topics: log.topics });
             if (decoded.eventName === 'Transfer') {
-              // erc20Abi Transfer: { from, to, value } — viem types this correctly
               const { from, to, value } = decoded.args;
-              // (k) payer → contract, value === gross amount
-              if (
-                from.toLowerCase() === snap.walletAddress.toLowerCase() &&
-                to.toLowerCase() === snap.contractAddress.toLowerCase() &&
-                value === snap.amountParsed
-              ) {
-                payerToContractTransferFound = true;
-              }
-              // (l) contract → recipient, value === net amount
-              if (
-                from.toLowerCase() === snap.contractAddress.toLowerCase() &&
-                to.toLowerCase() === snap.recipient.toLowerCase() &&
-                value === snap.netAmount
-              ) {
-                contractToRecipientTransferFound = true;
-              }
+              transferLogs.push({ tokenAddress: log.address ?? '', from, to, value });
             }
-          } catch {
-            // not a Transfer log
-          }
+          } catch { /* not a Transfer log */ }
         }
       }
-    } catch {
-      failReasons.push('receipt log parsing failed');
-    }
+    } catch { /* receipt log parse failure — verifier will fail all event checks */ }
 
-    // (d) PaymentSettled must have been emitted
-    if (!eventsFound) {
-      failReasons.push('PaymentSettled event not found in receipt');
-    }
+    // Build VerifySnapshot from frozen ReviewSnapshot
+    const verifySnap: VerifySnapshot = {
+      chainId: snap.chainId,
+      walletAddress: snap.walletAddress,
+      recipient: snap.recipient,
+      amountParsed: snap.amountParsed,
+      contractAddress: snap.contractAddress,
+      usdcAddress: snap.usdcAddress,
+      feeBps: snap.feeBps,
+      feeAmount: snap.feeAmount,
+      netAmount: snap.netAmount,
+      ref: snap.ref,
+    };
 
-    // (k) payer → contract Transfer
-    if (!payerToContractTransferFound) {
-      failReasons.push(
-        `USDC Transfer from payer to contract not found (expected ${fmtUsdc(snap.amountParsed)} USDC)`
-      );
-    }
-
-    // (l) contract → recipient Transfer
-    if (!contractToRecipientTransferFound) {
-      failReasons.push(
-        `USDC Transfer from contract to recipient not found (expected ${fmtUsdc(snap.netAmount)} USDC)`
-      );
-    }
-
-    const verified = failReasons.length === 0;
+    const result = verifyPaymentReceipt(
+      {
+        status: settleReceipt.status,
+        to: settleReceipt.to,
+        transactionHash: settleReceipt.transactionHash,
+        blockNumber: settleReceipt.blockNumber,
+        gasUsed: settleReceipt.gasUsed,
+      },
+      chainId ?? 0,
+      paymentSettledLog,
+      transferLogs,
+      verifySnap,
+    );
 
     setVerResult({
-      verified,
-      paymentId,
-      feeOnChain,
-      netOnChain,
-      refOnChain,
-      blockNumber: settleReceipt.blockNumber,
-      txHash: settleReceipt.transactionHash,
-      gasUsed: settleReceipt.gasUsed,
-      failReasons,
+      verified: result.verified,
+      paymentId: result.paymentId as `0x${string}`,
+      feeOnChain: result.feeOnChain,
+      netOnChain: result.netOnChain,
+      refOnChain: result.refOnChain as `0x${string}`,
+      blockNumber: result.blockNumber,
+      txHash: result.txHash as `0x${string}`,
+      gasUsed: result.gasUsed,
+      failReasons: result.failReasons,
     });
-
-    setStep(verified ? 'verified' : 'confirmed');
+    setStep(result.verified ? 'verified' : 'confirmed');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settleConfirmed, settleReceipt]);
 

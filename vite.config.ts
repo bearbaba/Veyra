@@ -19,8 +19,18 @@ const identityBeta = process.env.VITE_VEYRA_IDENTITY_BETA === '1';
 if (Number(uiOnlyPreview) + Number(mainnetMvp) + Number(identityBeta) > 1) {
   throw new Error('[build] Identity Beta, Testnet Preview and Mainnet must have separate bundles.');
 }
-if (process.env.VITE_VEYRA_MAINNET_PAY === '1' && !mainnetMvp) {
-  throw new Error('[build] Mainnet signing may only be requested in its isolated Mainnet MVP bundle.');
+// VITE_VEYRA_MAINNET_PAY=1 is permitted in two build modes:
+//   (a) MAINNET_MVP=1  — the isolated canary ERC-20 transfer bundle (src/mainnet/)
+//   (b) ENV=mainnet with no isolated-bundle flag — the full Veyra app with SettlementPage
+// It is never permitted in the UI-only Testnet preview or Identity Beta bundles.
+if (process.env.VITE_VEYRA_MAINNET_PAY === '1') {
+  const isFullMainnetApp = process.env.VITE_VEYRA_ENV === 'mainnet' && !uiOnlyPreview && !identityBeta;
+  if (!mainnetMvp && !isFullMainnetApp) {
+    throw new Error(
+      '[build] VITE_VEYRA_MAINNET_PAY=1 requires either VITE_VEYRA_MAINNET_MVP=1 (isolated canary bundle) ' +
+      'or VITE_VEYRA_ENV=mainnet with no isolated-bundle flag (full Veyra app with SettlementPage).'
+    );
+  }
 }
 const previewHtml = path.resolve(__dirname, 'preview.html');
 const mainnetHtml = path.resolve(__dirname, 'mainnet.html');
