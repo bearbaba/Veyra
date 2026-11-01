@@ -14,8 +14,11 @@ function read(owner:string):Contact[]{
   const raw=localStorage.getItem(key(owner));
   const parsed:unknown=raw?JSON.parse(raw):[];
   if(!Array.isArray(parsed))return [];
-  return parsed.filter((v):v is Contact=>Boolean(v&&typeof v==='object'&&
-   typeof v.name==='string'&&typeof v.address==='string'&&isAddress(v.address))).slice(0,75);
+  return (parsed as unknown[]).filter((raw:unknown):raw is Contact=>{
+   if(!raw||typeof raw!=='object'||Array.isArray(raw))return false;
+   const v=raw as Record<string,unknown>;
+   return typeof v.name==='string'&&typeof v.address==='string'&&isAddress(v.address);
+  }).slice(0,75);
  }catch{return [];}
 }
 export function MainnetContactsPage({onPay}:{onPay:(address:string)=>void}){

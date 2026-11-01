@@ -45,7 +45,8 @@ function feeLines(result:unknown):string[]{
  return result.fees.map((f:unknown)=>{
   if(!f||typeof f!=='object')return 'Fee details unavailable';
   const x=f as Record<string,unknown>;
-  return String(x.type??'Fee')+': '+String(x.amount??'unknown')+' '+String(x.token??'');
+  const scalar=(value:unknown,fallback:string)=>typeof value==='string'||typeof value==='number'?String(value):fallback;
+  return scalar(x.type,'Fee')+': '+scalar(x.amount,'unknown')+' '+scalar(x.token,'');
  });
 }
 function parseSaved(raw:string|null,owner:string,mode:Mode):Recovery|null {
