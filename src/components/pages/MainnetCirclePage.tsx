@@ -1,0 +1,327 @@
+/**
+ * Mainnet Circle App Kit workflows. Never reuses a Testnet chain or token.
+ * Every quote is review-only until an explicit wallet signature.
+ * The SDK may submit multiple transactions; local recovery locks prevent blind repeats.
+ * VERIFIED requires independently checked destination USDC or swap output logs.
+ */
+import {useEffect,useRef,useState} from 'react';
+import {AppKit} from '@circle-fin/app-kit';
+import {createViemAdapterFromProvider} from '@circle-fin/adapter-viem-v2';
+import {useAccount,usePublicClient,useSwitchChain} from 'wagmi';
+import {ConnectKitButton} from 'connectkit';
+import {decodeEventLog,erc20Abi,formatUnits,getAddress,isAddress,parseAbi,parseUnits,type EIP1193Provider,type Hash} from 'viem';
+import {ArrowLeftRight,Route,ShieldCheck,AlertTriangle,ExternalLink,RefreshCw} from 'lucide-react';
+import {getMainnetChain} from '@/config/mainnetCatalog';
+import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
+
+const kit=new AppKit();
+const ARC=5042,BASE=8453;
+const EURC='0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1' as const;
+const TOKENS={USDC:'0x3600000000000000000000000000000000000000',EURC} as const;
+const TRANSFER=parseAbi(['event Transfer(address indexed from,address indexed to,uint256 value)']);
+const HASH=/^0x[0-9a-fA-F]{64}$/;
+type Mode='swap'|'bridge';
+type Token='USDC'|'EURC';
+type Quote={owner:string;at:number;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;expected:string;fees:string[]};
+type Recovery={owner:string;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;status:'UNKNOWN'|'PENDING'|'VERIFIED'|'REVERTED';hash?:string;burnHash?:string;mintHash?:string};
+const key=(mode:Mode,owner:string)=>'veyra:mainnet:circle:v1:'+mode+':'+owner.toLowerCase();
+const label=(id:number)=>id===ARC?'Arc Mainnet':'Base Mainnet';
+const sdkChain=(id:number)=>id===ARC?'Arc' as const:'Base' as const;
+const validAmount=(amount:string)=>/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amount)&&parseUnits(amount,6)>0n&&parseUnits(amount,6)<=100_000_000n;
+function transferSum(receipt:{logs:ReadonlyArray<{address:string;data:string;topics:ReadonlyArray<string>}>},token:string,receiver:string):bigint {
+ let sum=0n;
+ for(const log of receipt.logs){
+  if(log.address.toLowerCase()!==token.toLowerCase())continue;
+  try{
+   const e=decodeEventLog({abi:TRANSFER,data:log.data as Hash,topics:log.topics as [Hash,...Hash[]]});
+   if(e.eventName==='Transfer'&&e.args.to.toLowerCase()===receiver.toLowerCase())sum+=e.args.value;
+  }catch{ /* unrelated token log */ }
+ }
+ return sum;
+}
+function feeLines(result:unknown):string[]{
+ if(!result||typeof result!=='object'||!('fees' in result)||!Array.isArray(result.fees))return ['Fees not itemized by provider'];
+ return result.fees.map((f:unknown)=>{
+  if(!f||typeof f!=='object')return 'Fee details unavailable';
+  const x=f as Record<string,unknown>;
+  return String(x.type??'Fee')+': '+String(x.amount??'unknown')+' '+String(x.token??'');
+ });
+}
+function parseSaved(raw:string|null,owner:string,mode:Mode):Recovery|null {
+ if(!raw)return null;
+ const v:unknown=JSON.parse(raw);
+ if(!v||typeof v!=='object'||Array.isArray(v))throw Error('Unreadable prior operation');
+ const p=v as Recovery;
+ if(p.owner!==owner.toLowerCase()||p.mode!==mode||!['UNKNOWN','PENDING','VERIFIED','REVERTED'].includes(p.status)||
+ (p.hash!==undefined&&!HASH.test(p.hash))||(p.burnHash!==undefined&&!HASH.test(p.burnHash))||
+ (p.mintHash!==undefined&&!HASH.test(p.mintHash)))throw Error('Invalid prior operation');
+ return p;
+}
+export function MainnetCirclePage({mode}:{mode:Mode}){
+ const {address,connector,chainId}=useAccount();
+ const {switchChainAsync}=useSwitchChain();
+ const arc=usePublicClient({chainId:ARC});
+ const base=usePublicClient({chainId:BASE});
+ const [source,setSource]=useState(ARC);
+ const [destination,setDestination]=useState(BASE);
+ const [fromToken,setFromToken]=useState<Token>('USDC');
+ const toToken:Token=fromToken==='USDC'?'EURC':'USDC';
+ const [amount,setAmount]=useState('');
+ const [minimum,setMinimum]=useState('');
+ const [quote,setQuote]=useState<Quote|null>(null);
+ const [recovery,setRecovery]=useState<Recovery|null>(null);
+ const [unknownStorage,setUnknownStorage]=useState(false);
+ const [busy,setBusy]=useState(false);
+ const [error,setError]=useState('');
+ const [proof,setProof]=useState('');
+ const [manualMint,setManualMint]=useState('');
+ const [manualSource,setManualSource]=useState('');
+ const lock=useRef(false);
+ const owner=address?.toLowerCase()??'';
+ const card='rounded-2xl border p-5 sm:p-6';
+ const input='mt-2 w-full rounded-xl border p-3 text-sm';
+ const selectedSource=mode==='swap'?ARC:source;
+ const selectedDest=mode==='swap'?ARC:destination;
+ const token=mode==='swap'?TOKENS[fromToken]:getMainnetChain(selectedSource)?.usdc;
+ const destToken=mode==='swap'?TOKENS[toToken]:getMainnetChain(selectedDest)?.usdc;
+ const title=mode==='swap'?'Swap':'Bridge';
+ useEffect(()=>{
+  setQuote(null);setProof('');setError('');setManualMint('');setManualSource('');
+  if(!address){setRecovery(null);setUnknownStorage(false);return;}
+  try{setRecovery(parseSaved(localStorage.getItem(key(mode,address)),address,mode));setUnknownStorage(false);}
+  catch{setRecovery(null);setUnknownStorage(true);}
+ },[address,mode]);
+ useEffect(()=>{setQuote(null);},[chainId,source,destination,fromToken,amount,minimum]);
+ const client=(id:number)=>id===ARC?arc:id===BASE?base:undefined;
+ async function wallet(id:number):Promise<EIP1193Provider>{
+  if(!address||!connector)throw Error('Connect your wallet first.');
+  await switchChainAsync({chainId:id});
+  const raw:unknown=await connector.getProvider();
+  if(!raw||typeof raw!=='object'||!('request' in raw)||typeof raw.request!=='function')
+   throw Error('Browser wallet provider unavailable.');
+  const p=raw as EIP1193Provider;
+  const [accounts,chain]=await Promise.all([p.request({method:'eth_accounts'}),p.request({method:'eth_chainId'})]);
+  if(!Array.isArray(accounts)||typeof accounts[0]!=='string'||accounts[0].toLowerCase()!==address.toLowerCase()||
+   typeof chain!=='string'||Number.parseInt(chain,16)!==id)
+   throw Error('Wallet address or network changed. Review again.');
+  return p;
+ }
+ const params=async()=>{
+  const p=await wallet(selectedSource);
+  const adapter=await createViemAdapterFromProvider({provider:p});
+  if(mode==='swap'){
+   return {adapter,params:{from:{adapter,chain:'Arc' as const},tokenIn:fromToken,tokenOut:toToken,
+    amountIn:amount,config:{slippageBps:100}}};
+  }
+  return {adapter,params:{from:{adapter,chain:sdkChain(selectedSource)},
+   to:{chain:sdkChain(selectedDest),recipientAddress:address!,useForwarder:true},
+   amount,token:'USDC',config:{transferSpeed:'SLOW'}}};
+ };
+ async function quoteNow(){
+  if(!address||!validAmount(amount)||lock.current||unknownStorage||recovery)return;
+  lock.current=true;setBusy(true);setError('');setProof('');
+  try{
+   if(!token||!destToken||!isAddress(address)||selectedSource===selectedDest&&mode==='bridge')
+    throw Error('Choose valid supported Mainnet chains and tokens.');
+   if(mode==='bridge'&&(!validAmount(minimum)||parseUnits(minimum,6)>parseUnits(amount,6)))
+    throw Error('Enter a minimum acceptable destination amount.');
+   const c=client(selectedSource);
+   if(!c||await c.getChainId()!==selectedSource)throw Error('Mainnet RPC is not available.');
+   const available=await c.readContract({address:getAddress(token),abi:erc20Abi,
+    functionName:'balanceOf',args:[address]});
+   if(available<parseUnits(amount,6))throw Error('Insufficient source wallet balance.');
+   const {params:p}=await params();
+   const estimate=mode==='swap'?
+    await kit.estimateSwap(p as Parameters<AppKit['estimateSwap']>[0]):
+    await kit.estimateBridge(p as Parameters<AppKit['estimateBridge']>[0]);
+   const expected=mode==='swap'?String((estimate as Awaited<ReturnType<AppKit['estimateSwap']>>).estimatedOutput.amount):amount;
+   const min=mode==='swap'?String((estimate as Awaited<ReturnType<AppKit['estimateSwap']>>).stopLimit.amount):minimum;
+   if(!validAmount(min)||parseUnits(min,6)>parseUnits(expected,6)&&mode==='swap')
+    throw Error('Provider did not return a usable minimum-output quote.');
+   setQuote({owner,at:Date.now(),mode,amount,source:selectedSource,destination:selectedDest,
+    fromToken,toToken,minimum:min,expected,fees:feeLines(estimate)});
+  }catch(e){setError(e instanceof Error?e.message:'Circle Mainnet quote unavailable.');}
+  finally{setBusy(false);lock.current=false;}
+ }
+ async function signNow(){
+  if(!quote||!address||lock.current||unknownStorage||recovery)return;
+  lock.current=true;setBusy(true);setError('');setProof('');
+  let saved=false;
+  try{
+   if(quote.owner!==owner||quote.mode!==mode||quote.amount!==amount||
+    quote.source!==selectedSource||quote.destination!==selectedDest||
+    quote.fromToken!==fromToken||quote.toToken!==toToken||
+    mode==='bridge'&&quote.minimum!==minimum||Date.now()-quote.at>30000)
+    throw Error('Payment route changed or quote expired. Review again.');
+   if(localStorage.getItem(key(mode,address)))throw Error('Previous operation must be resolved first.');
+   const {params:p}=await params();
+   const fresh=mode==='swap'?
+    await kit.estimateSwap(p as Parameters<AppKit['estimateSwap']>[0]):
+    await kit.estimateBridge(p as Parameters<AppKit['estimateBridge']>[0]);
+   if(JSON.stringify(feeLines(fresh))!==JSON.stringify(quote.fees)||
+    mode==='swap'&&String((fresh as Awaited<ReturnType<AppKit['estimateSwap']>>).stopLimit.amount)!==quote.minimum)
+    throw Error('Provider quote changed. Review it again before signing.');
+   if(Date.now()-quote.at>30000)throw Error('Quote expired.');
+   await wallet(selectedSource);
+   const record:Recovery={owner,mode,amount,source:selectedSource,destination:selectedDest,
+    fromToken,toToken,minimum:quote.minimum,status:'UNKNOWN'};
+   localStorage.setItem(key(mode,address),JSON.stringify(record));
+   if(localStorage.getItem(key(mode,address))!==JSON.stringify(record))
+    throw Error('Cannot persist recovery lock.');
+   saved=true;setRecovery(record);setQuote(null);
+   if(mode==='swap'){
+    const result=await kit.swap(p as Parameters<AppKit['swap']>[0]);
+    const hash=typeof result.txHash==='string'&&HASH.test(result.txHash)?result.txHash:undefined;
+    const next:Recovery={...record,status:'PENDING',...(hash?{hash}:{})};
+    localStorage.setItem(key(mode,address),JSON.stringify(next));setRecovery(next);
+   }else{
+    const result=await kit.bridge(p as Parameters<AppKit['bridge']>[0]);
+    const steps=getAppKitBridgeSteps(result);
+    const next:Recovery={...record,status:'PENDING',...steps};
+    localStorage.setItem(key(mode,address),JSON.stringify(next));setRecovery(next);
+   }
+  }catch(e){
+   setError((e instanceof Error?e.message:'Provider outcome uncertain.')+
+    (saved?' Original operation remains locked. Do not sign again.':''));
+  }finally{lock.current=false;setBusy(false);}
+ }
+ async function verify(){
+  if(!recovery||!address||lock.current)return;
+  lock.current=true;setBusy(true);setError('');
+  try{
+   if(recovery.owner!==owner)throw Error('Owner changed.');
+   const hash=mode==='swap'?(recovery.hash||manualSource):
+    (recovery.mintHash||manualMint);
+   if(!HASH.test(hash))throw Error('Supply the original output transaction hash from wallet/SDK; do not retry.');
+   const destinationClient=client(recovery.destination);
+   const receivedToken=mode==='swap'?TOKENS[recovery.toToken]:getMainnetChain(recovery.destination)?.usdc;
+   if(!destinationClient||!receivedToken||await destinationClient.getChainId()!==recovery.destination)
+    throw Error('Destination RPC or token unavailable.');
+   if(mode==='bridge'){
+    const sourceHash=recovery.burnHash||manualSource;
+    if(!HASH.test(sourceHash))throw Error('Supply source burn hash before checking destination.');
+    const sourceClient=client(recovery.source);
+    if(!sourceClient)throw Error('Source chain RPC unavailable.');
+    const burn=await sourceClient.getTransactionReceipt({hash:sourceHash as Hash});
+    if(burn.status!=='success')throw Error('Source burn is not confirmed.');
+   }
+   const receipt=await destinationClient.getTransactionReceipt({hash:hash as Hash});
+   if(receipt.status==='reverted'){
+    if(mode==='swap'){
+     const r:Recovery={...recovery,status:'REVERTED',hash};
+     localStorage.setItem(key(mode,address),JSON.stringify(r));setRecovery(r);
+    }
+    throw Error('Destination transaction reverted. Check Circle status before any new request.');
+   }
+   if(receipt.status!=='success')throw Error('Receipt not confirmed.');
+   const amountOut=transferSum(receipt,receivedToken,address);
+   if(amountOut<parseUnits(recovery.minimum,6))throw Error('Destination Transfer amount below reviewed minimum or mint not found.');
+   const r:Recovery={...recovery,status:'VERIFIED',...(mode==='swap'?{hash}:{mintHash:hash})};
+   localStorage.setItem(key(mode,address),JSON.stringify(r));setRecovery(r);
+   setProof('Destination verified: '+formatUnits(amountOut,6)+' '+(mode==='swap'?recovery.toToken:'USDC'));
+  }catch(e){setError(e instanceof Error?e.message:'Destination receipt unverified.');}
+  finally{lock.current=false;setBusy(false);}
+ }
+ function reset(){
+  if(!address||!recovery||lock.current||
+   !['VERIFIED','REVERTED'].includes(recovery.status))return;
+  localStorage.removeItem(key(mode,address));setRecovery(null);setProof('');setQuote(null);
+ }
+ return <div className="mx-auto w-full max-w-3xl space-y-5 px-4 py-7 md:px-7 md:py-9">
+  <div><p className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Veyra · Mainnet Circle App Kit</p>
+   <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>{title}</h1>
+   <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>
+    {mode==='swap'?'Swap Arc Mainnet USDC and EURC with a live liquidity quote.':
+     'Bridge USDC between Arc and Base Mainnet via CCTP. Destination verification is required.'}
+   </p>
+  </div>
+  <div className={card+' space-y-4'} style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+   {!address?<ConnectKitButton/>:<>
+    {mode==='bridge'?<div className="grid gap-3 sm:grid-cols-2">
+     <label className="text-sm" style={{color:'var(--muted)'}}>From
+      <select className={input} value={source} disabled={!!recovery||busy}
+       onChange={e=>{const id=Number(e.target.value);setSource(id);setDestination(id===ARC?BASE:ARC);}}
+       style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}>
+       <option value={ARC}>Arc Mainnet</option><option value={BASE}>Base Mainnet</option>
+      </select>
+     </label>
+     <label className="text-sm" style={{color:'var(--muted)'}}>To
+      <select className={input} value={destination} disabled={!!recovery||busy}
+       onChange={e=>{const id=Number(e.target.value);setDestination(id);setSource(id===ARC?BASE:ARC);}}
+       style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}>
+       <option value={BASE}>Base Mainnet</option><option value={ARC}>Arc Mainnet</option>
+      </select>
+     </label>
+    </div>:<div className="flex flex-wrap items-center gap-3">
+     <span className="text-sm" style={{color:'var(--ink)'}}>{fromToken} → {toToken}</span>
+     <button type="button" disabled={!!recovery||busy} className="rounded-xl border px-4 py-2 text-xs"
+      style={{borderColor:'var(--border)',color:'var(--ink)'}}
+      onClick={()=>setFromToken(t=>t==='USDC'?'EURC':'USDC')}><ArrowLeftRight className="inline size-4"/> Reverse</button>
+    </div>}
+    <label className="block text-sm" style={{color:'var(--muted)'}}>Amount ({mode==='swap'?fromToken:'USDC'})
+     <input className={input} value={amount} disabled={!!recovery||busy} inputMode="decimal"
+      placeholder="0.01" onChange={e=>setAmount(e.target.value)}
+      style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
+    </label>
+    {mode==='bridge'&&<>
+     <p className="text-xs" style={{color:'var(--muted)'}}>Destination wallet: {address} (same owner; forwarding service)</p>
+     <label className="block text-sm" style={{color:'var(--muted)'}}>Minimum receive (USDC)
+      <input className={input} value={minimum} disabled={!!recovery||busy} inputMode="decimal"
+       placeholder="Net amount after fees" onChange={e=>setMinimum(e.target.value)}
+       style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
+     </label>
+    </>}
+    {!quote&&!recovery&&<button type="button" disabled={busy||unknownStorage||!validAmount(amount)}
+      className="w-full rounded-xl px-4 py-3 font-semibold disabled:opacity-40"
+      style={{background:'var(--accent)',color:'#0d1b2f'}} onClick={()=>void quoteNow()}>
+      {busy?'Getting live quote…':'Review live Mainnet quote'}
+    </button>}
+    {quote&&!recovery&&<div className="space-y-2 rounded-xl border p-4 text-sm"
+      style={{borderColor:'var(--border)',color:'var(--ink)'}}>
+      <p className="font-bold">{label(quote.source)} {mode==='bridge'?'→ '+label(quote.destination):'Swap'}</p>
+      <p>{quote.amount} {quote.fromToken} → {quote.expected} {mode==='swap'?quote.toToken:'USDC'}</p>
+      <p>Minimum receive: {quote.minimum} {mode==='swap'?quote.toToken:'USDC'}</p>
+      <p>Recipient: {address}</p>
+      <p>Quote expires in 30 seconds · Real Mainnet assets</p>
+      {quote.fees.map((fee,i)=><p key={i} className="text-xs">{fee}</p>)}
+      <button type="button" disabled={busy} onClick={()=>void signNow()}
+       className="w-full rounded-xl px-4 py-3 font-bold disabled:opacity-40"
+       style={{background:'var(--accent)',color:'#0d1b2f'}}>Confirm and sign in wallet</button>
+    </div>}
+    {(recovery||unknownStorage)&&<div role="status" className="space-y-3 rounded-xl border p-4 text-sm"
+     style={{borderColor:'var(--border)',color:'var(--ink)'}}>
+     <p className="font-bold">Existing Mainnet {title} · {recovery?.status??'Unreadable recovery'}</p>
+     <p className="text-xs" style={{color:'var(--warning)'}}>Do not submit another transaction while previous outcome is uncertain.</p>
+     {recovery?.hash&&<p className="break-all text-xs">Swap: {recovery.hash}</p>}
+     {recovery?.burnHash&&<p className="break-all text-xs">Burn: {recovery.burnHash}</p>}
+     {recovery?.mintHash&&<p className="break-all text-xs">Destination: {recovery.mintHash}</p>}
+     {recovery&&recovery.status!=='VERIFIED'&&recovery.status!=='REVERTED'&&<>
+      {mode==='bridge'&&!recovery.burnHash&&<input className={input} value={manualSource}
+       placeholder="Original source burn hash" onChange={e=>setManualSource(e.target.value)}
+       style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>}
+      {!(mode==='bridge'?recovery.mintHash:recovery.hash)&&<input className={input}
+       value={mode==='swap'?manualSource:manualMint} placeholder="Original destination transaction hash"
+       onChange={e=>mode==='swap'?setManualSource(e.target.value):setManualMint(e.target.value)}
+       style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>}
+      <button type="button" disabled={busy} onClick={()=>void verify()}
+       className="w-full rounded-xl border px-4 py-3 font-semibold disabled:opacity-40"
+       style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>
+       <RefreshCw className="mr-2 inline size-4"/>Verify destination onchain
+      </button>
+     </>}
+     {recovery&&['VERIFIED','REVERTED'].includes(recovery.status)&&
+      <button type="button" onClick={reset} className="rounded-xl border px-4 py-2"
+       style={{borderColor:'var(--border)',color:'var(--ink)'}}>Start new review</button>}
+    </div>}
+    {proof&&<p role="status" className="flex items-center gap-2 text-sm"
+      style={{color:'var(--success)'}}><ShieldCheck className="size-4"/>{proof}</p>}
+    {error&&<p role="alert" className="flex items-start gap-2 text-sm" style={{color:'var(--warning)'}}>
+      <AlertTriangle className="size-4"/>{error}</p>}
+   </>}
+  </div>
+  <p className="flex items-start gap-2 text-xs leading-5" style={{color:'var(--muted)'}}>
+   <ShieldCheck className="size-4 shrink-0"/>Mainnet transactions are irreversible. Circle route availability depends on live SDK and liquidity.
+   Approval, burn or source confirmation alone never counts as final settlement. No automatic retries.
+  </p>
+ </div>;
+}
