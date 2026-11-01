@@ -41,7 +41,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     if(journal.kind==='active'&&journal.value.hash){
      const p=journal.value;
      if(!readLocalOperations(owner).some(v=>v.type==='Pay'&&v.hash.toLowerCase()===p.hash?.toLowerCase()))
-      recordLocalOperation({owner,hash:p.hash,type:'Pay',amount:p.amount,asset:'USDC',
+      recordLocalOperation({owner,hash:p.hash!,type:'Pay',amount:p.amount,asset:'USDC',
        chainId:5042,destination:p.to,status:'SUBMITTED'});
     }
     const list=readLocalOperations(owner);
