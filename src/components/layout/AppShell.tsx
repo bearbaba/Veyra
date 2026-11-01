@@ -26,6 +26,7 @@ import { WebPreviewBanner } from '../system/WebPreviewBanner';
 import { NotificationBell } from '../../features/social/NotificationBell';
 import { WalletAccountControls } from './WalletAccountControls';
 import { GlobalWalletBalance } from './GlobalWalletBalance';
+import { VEYRA_ENV } from '@/lib/env';
 
 export type VeyraPage = 'home' | 'agent' | 'pay' | 'convert' | 'bridge' | 'activity' | 'social' | 'settings' | 'settlement';
 
@@ -44,7 +45,7 @@ const PRIMARY_NAV: NavItem[] = [
   { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
 ];
 const SECONDARY_NAV: NavItem[] = [
-  { id: 'social', label: 'Friends', icon: <Users className="size-5" /> },
+  { id: 'social', label: VEYRA_ENV === 'mainnet' ? 'Contacts' : 'Friends', icon: <Users className="size-5" /> },
   { id: 'settlement', label: 'Settlement', icon: <Shield className="size-5" /> },
   { id: 'settings', label: 'Settings', icon: <Settings className="size-5" /> },
 ];
