@@ -107,7 +107,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
     ? formatArcUsdcBalance(activeBalanceRaw)
     : null;
   const balanceNetworkLabel = isMainnet ? 'Arc Mainnet · On-chain' : 'Arc Testnet · On-chain';
-  const envLabel = isMainnet ? 'Veyra · Mainnet (read-only)' : 'Veyra · Testnet Beta';
+  const envLabel = isMainnet ? 'Veyra · Mainnet Wallet Pay Beta' : 'Veyra · Testnet Beta';
   const recentReceipts = receipts.slice(0, 3);
   const wrongNetworkForPay = VEYRA_ENV === 'testnet' && isConnected && connectedChainId !== ARC_TESTNET_CHAIN_ID;
   const profile = identity.profile;

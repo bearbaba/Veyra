@@ -146,7 +146,7 @@ export function ConvertPage({embedded = false, initialIntent = null}: {
 
   if (!isConnected) {
     return (
-      <div className="max-w-md mx-auto px-4 py-8">
+      <div className="max-w-2xl mx-auto px-4 py-7 md:px-7 md:py-9">
         <h1 className="display text-2xl font-bold mb-6" style={{ color: 'var(--ink)' }}>Convert</h1>
         <div className="rounded-2xl p-6 text-center" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
           <Info className="size-6 mx-auto mb-3" style={{ color: 'var(--accent)' }} />
@@ -159,7 +159,7 @@ export function ConvertPage({embedded = false, initialIntent = null}: {
   // Lifecycle gate — provider must reach ENABLED before execution
   if (!STABLEFX_LIFECYCLE_READY) {
     return (
-      <div className="max-w-md mx-auto px-4 py-8">
+      <div className="max-w-2xl mx-auto px-4 py-7 md:px-7 md:py-9">
         <h1 className="display text-2xl font-bold mb-6" style={{ color: 'var(--ink)' }}>Convert</h1>
         <div className="rounded-2xl p-6" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
           <div className="flex items-start gap-3 mb-4">
@@ -186,7 +186,7 @@ export function ConvertPage({embedded = false, initialIntent = null}: {
 
   if (state.status === 'VERIFIED' && state.receipt) {
     return (
-      <div className="max-w-md mx-auto px-4 py-8">
+      <div className="max-w-2xl mx-auto px-4 py-7 md:px-7 md:py-9">
         <div className="rounded-2xl p-6 text-center space-y-4" style={{ background: 'var(--surface)', border: '1px solid var(--success-muted)' }}>
           <CheckCircle className="size-10 mx-auto" style={{ color: 'var(--success)' }} />
           <h2 className="text-lg font-semibold" style={{ color: 'var(--ink)' }}>Convert complete</h2>
@@ -204,7 +204,7 @@ export function ConvertPage({embedded = false, initialIntent = null}: {
   }
 
   return (
-    <div className={embedded ? 'min-w-0 w-full space-y-4' : 'max-w-md mx-auto px-4 py-8 space-y-4'}>
+    <div className={embedded ? 'min-w-0 w-full space-y-4' : 'max-w-2xl mx-auto px-4 py-7 md:px-7 md:py-9 space-y-4'}>
       <div className="mb-2">
         <h1 className="display text-2xl font-bold" style={{ color: 'var(--ink)', letterSpacing: '-0.02em' }}>Convert</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>USDC ↔ EURC via Circle StableFX</p>

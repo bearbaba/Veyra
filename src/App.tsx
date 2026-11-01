@@ -19,6 +19,9 @@ import { IS_UI_ONLY_PREVIEW } from './lib/env';
 import { SettingsPage } from './components/pages/SettingsPage';
 import { SocialPage } from './components/pages/SocialPage';
 import { SettlementPage } from './components/pages/SettlementPage';
+import { MainnetPayPage } from './components/pages/MainnetPayPage';
+import { MainnetFeatureStatus } from './components/pages/MainnetFeatureStatus';
+import { VEYRA_ENV } from './lib/env';
 import { UnifiedSocialProvider } from './features/social/UnifiedSocial';
 
 export default function App() {
@@ -48,11 +51,11 @@ export default function App() {
       case 'agent':
         return <AgentPage onNavigate={setPage} />;
       case 'pay':
-        return IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
+        return VEYRA_ENV === 'mainnet' ? <MainnetPayPage /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
       case 'convert':
-        return IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="convert" /> : <ConvertPage />;
+        return VEYRA_ENV === 'mainnet' ? <MainnetFeatureStatus feature="swap" /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="convert" /> : <ConvertPage />;
       case 'bridge':
-        return IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="bridge" /> : <BridgePage />;
+        return VEYRA_ENV === 'mainnet' ? <MainnetFeatureStatus feature="bridge" /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="bridge" /> : <BridgePage />;
       case 'activity':
         return <ActivityPage readOnly={IS_UI_ONLY_PREVIEW} />;
       case 'settings':

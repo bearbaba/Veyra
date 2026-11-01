@@ -501,7 +501,7 @@ function LegacyBridgePage({ embedded = false }: { embedded?: boolean } = {}) {
 
   if (!isConnected) {
     return (
-      <div className="max-w-md mx-auto px-4 py-8">
+      <div className="max-w-2xl mx-auto px-4 py-7 md:px-7 md:py-9">
         <h1 className="display text-2xl font-bold mb-6" style={{ color: 'var(--ink)' }}>Bridge</h1>
         <div className="rounded-2xl p-6 text-center" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
           <Info className="size-6 mx-auto mb-3" style={{ color: 'var(--accent)' }} />
@@ -514,7 +514,7 @@ function LegacyBridgePage({ embedded = false }: { embedded?: boolean } = {}) {
   // Lifecycle gate — provider must reach ENABLED before execution
   if (!CCTP_LIFECYCLE_READY) {
     return (
-      <div className="max-w-md mx-auto px-4 py-8">
+      <div className="max-w-2xl mx-auto px-4 py-7 md:px-7 md:py-9">
         <h1 className="display text-2xl font-bold mb-6" style={{ color: 'var(--ink)' }}>Bridge</h1>
         <div className="rounded-2xl p-6" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
           <div className="flex items-start gap-3 mb-4">
@@ -540,7 +540,7 @@ function LegacyBridgePage({ embedded = false }: { embedded?: boolean } = {}) {
   }
 
   return (
-    <div className={embedded ? "w-full min-w-0 space-y-4" : "max-w-md mx-auto px-4 py-8 space-y-4"}>
+    <div className={embedded ? "w-full min-w-0 space-y-4" : "max-w-2xl mx-auto px-4 py-7 md:px-7 md:py-9 space-y-4"}>
       {!embedded && <div className="mb-2">
         <h1 className="display text-2xl font-bold" style={{ color: 'var(--ink)', letterSpacing: '-0.02em' }}>Bridge</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>USDC Arc Testnet → Ethereum Sepolia / Base Sepolia via CCTP V2</p>

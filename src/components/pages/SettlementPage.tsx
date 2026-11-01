@@ -63,6 +63,7 @@ import {
 } from 'viem';
 import { ConnectKitButton } from 'connectkit';
 import { AlertTriangle, CheckCircle, Clock, ExternalLink, Lock, Send, Unlock, Loader2 } from 'lucide-react';
+import { VEYRA_ENV } from '@/lib/env';
 import {
   VEYRA_SETTLEMENT_ABI,
   ARC_TESTNET_CHAIN_ID,
@@ -222,8 +223,8 @@ export function SettlementPage() {
   const [verResult, setVerResult] = useState<VerificationResult | null>(null);
 
   // derived chain state
-  const deployment = chainId ? getVeyraSettlementDeployment(chainId) : null;
-  const onArc = chainId === ARC_TESTNET_CHAIN_ID || chainId === ARC_MAINNET_CHAIN_ID;
+  const onArc = VEYRA_ENV === 'mainnet' ? chainId === ARC_MAINNET_CHAIN_ID : chainId === ARC_TESTNET_CHAIN_ID;
+  const deployment = onArc && chainId ? getVeyraSettlementDeployment(chainId) : null;
   const isMainnet = chainId === ARC_MAINNET_CHAIN_ID;
   const activeUsdcAddress = chainId ? arcUsdcForChain(chainId) : ARC_TESTNET_USDC;
   const chainLabel = chainId ? arcChainLabel(chainId) : 'Arc';
@@ -710,7 +711,7 @@ export function SettlementPage() {
         </p>
       </div>
 
-      <div className="flex-1 px-4 py-6 space-y-5 max-w-md mx-auto w-full">
+      <div className="flex-1 px-4 py-6 space-y-5 max-w-2xl mx-auto w-full">
 
         {/* Wallet connection */}
         {!isConnected && (
@@ -725,12 +726,14 @@ export function SettlementPage() {
           <div className="rounded-2xl bg-amber-500/10 border border-amber-500/20 p-4 flex items-start gap-3">
             <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-amber-300 font-medium">Switch to an Arc network</p>
+              <p className="text-sm text-amber-300 font-medium">
+                Switch to {VEYRA_ENV === 'mainnet' ? 'Arc Mainnet (5042)' : 'Arc Testnet (5042002)'}
+              </p>
               <div className="mt-3 flex gap-3">
-                <button onClick={() => switchChain({ chainId: ARC_TESTNET_CHAIN_ID })}
-                  className="text-xs font-medium text-amber-300 underline">Arc Testnet</button>
-                <button onClick={() => switchChain({ chainId: ARC_MAINNET_CHAIN_ID })}
-                  className="text-xs font-medium text-amber-300/60 underline">Arc Mainnet</button>
+                {VEYRA_ENV !== 'mainnet' && <button onClick={() => switchChain({ chainId: ARC_TESTNET_CHAIN_ID })}
+                  className="text-xs font-medium text-amber-300 underline">Arc Testnet</button>}
+                {VEYRA_ENV === 'mainnet' && <button onClick={() => switchChain({ chainId: ARC_MAINNET_CHAIN_ID })}
+                  className="text-xs font-medium text-amber-300 underline">Arc Mainnet</button>}
               </div>
             </div>
           </div>
@@ -770,8 +773,8 @@ export function SettlementPage() {
                 ? 'Mainnet deployment requires owner authorization. Use Arc Testnet to try Settlement.'
                 : 'Switch to Arc Testnet.'}
             </p>
-            <button onClick={() => switchChain({ chainId: ARC_TESTNET_CHAIN_ID })}
-              className="mt-2 text-xs font-medium text-blue-400 underline">Use Arc Testnet</button>
+            {VEYRA_ENV !== 'mainnet' && <button onClick={() => switchChain({ chainId: ARC_TESTNET_CHAIN_ID })}
+              className="mt-2 text-xs font-medium text-blue-400 underline">Use Arc Testnet</button>}
           </div>
         )}
 

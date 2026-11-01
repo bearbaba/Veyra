@@ -25,6 +25,7 @@ import { CommandBar } from '../command/CommandBar';
 import { WebPreviewBanner } from '../system/WebPreviewBanner';
 import { NotificationBell } from '../../features/social/NotificationBell';
 import { WalletAccountControls } from './WalletAccountControls';
+import { GlobalWalletBalance } from './GlobalWalletBalance';
 
 export type VeyraPage = 'home' | 'agent' | 'pay' | 'convert' | 'bridge' | 'activity' | 'social' | 'settings' | 'settlement';
 
@@ -139,6 +140,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
           <NotificationBell openSocial={() => onNavigate('social')} />
         </div>
         <WebPreviewBanner />
+        <GlobalWalletBalance />
 
         <div className="flex-1 overflow-y-auto">
           <AnimatePresence mode="wait">
