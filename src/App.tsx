@@ -9,6 +9,7 @@ import { useEffect,useState } from 'react';
 import { AppShell } from './components/layout/AppShell';
 import type { VeyraPage } from './components/layout/AppShell';
 import { HomePage } from './components/pages/HomePage';
+import { MainnetHomePage } from './components/pages/MainnetHomePage';
 import { AgentPage } from './components/pages/AgentPage';
 import { PayPage } from './components/pages/PayPage';
 import { ConvertPage } from './components/pages/ConvertPage';
@@ -50,7 +51,7 @@ export default function App() {
   function renderPage() {
     switch (page) {
       case 'home':
-        return <HomePage onNavigate={setPage} />;
+        return VEYRA_ENV === 'mainnet' ? <MainnetHomePage onNavigate={setPage} /> : <HomePage onNavigate={setPage} />;
       case 'agent':
         return <AgentPage onNavigate={setPage} />;
       case 'pay':

@@ -6,6 +6,8 @@ import type { IntentResult, IntentCandidate } from '@/core/intent/intentSchema';
 import { validateAgentTransferDraft } from '@/core/agent/transferDraftGate';
 import { validateAgentBridgeDraft } from '@/core/agent/bridgeDraftGate';
 import type { VeyraPage } from '../layout/AppShell';
+import { VEYRA_ENV } from '@/lib/env';
+import { MainnetIntentCard } from './MainnetIntentCard';
 
 interface ActionCardProps {
   intent: IntentResult;
@@ -22,6 +24,8 @@ interface ActionCardProps {
 export function ActionCard({ intent, onNavigate, onReviewBridgeInline, onReviewPayInline, onReviewSwapInline, onClarifyDestination, bridgeHandoffScope, messageId, linkedBridge }: ActionCardProps) {
   const best = intent.candidates[0];
   if (!best) return null;
+  // Mainnet intentions must not be gated or labeled using Sepolia/Testnet rules.
+  if (VEYRA_ENV === 'mainnet') return <MainnetIntentCard intent={intent} onNavigate={onNavigate} />;
 
   const isTransfer = best.actionType === 'TRANSFER';
   const isConvert = best.actionType === 'CONVERT';

@@ -5,7 +5,7 @@ import {ConnectKitButton} from 'connectkit';
 import {erc20Abi,formatUnits} from 'viem';
 import {ArrowLeftRight,ArrowUpRight,ArrowDownLeft,Route,Copy,RefreshCw,ShieldCheck,Clock3,Wallet} from 'lucide-react';
 import {getUsdc} from '@/onchain-facts';
-import {MAINNET_ROUTES,routeLabel,type MainnetRoute} from '@/mainnet/mainnetProduct';
+import {MAINNET_ROUTES,type MainnetRoute} from '@/mainnet/mainnetProduct';
 import {readLocalOperations,type LocalOperation} from '@/mainnet/localOperations';
 import type {VeyraPage} from '../layout/AppShell';
 

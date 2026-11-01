@@ -23,6 +23,7 @@ import { ActionCard } from '../transfer/ActionCard';
 import { loadActivityReceiptsRemote, type ActivityReceiptRemoteRecord } from '../../lib/api/activityReceiptApi';
 import { agentBridgeReceiptState, readAgentBridgeReceiptLinks, type AgentBridgeReceiptLink } from '../../core/agent/agentBridgeReceiptLink';
 import { AgentQuickStart } from '../agent/AgentQuickStart';
+import { MainnetAgentLauncher } from '../agent/MainnetAgentLauncher';
 import { AgentUnifiedBalances } from '../agent/AgentUnifiedBalances';
 import { BridgePage } from './BridgePage';
 import { PayPage } from './PayPage';
@@ -320,7 +321,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
             style={{borderColor:'var(--border-strong)'}}>View Activity</button>
         </div>
       )}
-      <section aria-label="Your USDC balances" className="mt-5 rounded-2xl border p-3 sm:p-4"
+      <section aria-label="Your USDC balances" className="mt-3 rounded-xl border p-3"
         style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
         <AgentUnifiedBalances />
       </section>
@@ -329,7 +330,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
         <div className="order-2 flex min-w-0 flex-col lg:order-1">
       <div className="flex-1 overflow-y-auto py-6">
         {messages.length === 0 ? (
-          <AgentQuickStart friends={friends} signedIn={signedIn}
+          VEYRA_ENV === 'mainnet' ? <MainnetAgentLauncher onNavigate={onNavigate} /> : <AgentQuickStart friends={friends} signedIn={signedIn}
             onPrepare={prepareQuickRequest} onNavigate={onNavigate} />
         ) : (
           <div className="mx-auto max-w-3xl space-y-5">
@@ -341,8 +342,8 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
                 {showQuickActions ? 'Close quick actions' : 'Explore Send · Swap · Bridge · Unified'}
               </button>
             </div>
-            {showQuickActions && <AgentQuickStart friends={friends} signedIn={signedIn}
-              onPrepare={prepareQuickRequest} onNavigate={onNavigate} compact />}
+            {showQuickActions && (VEYRA_ENV === 'mainnet' ? <MainnetAgentLauncher onNavigate={onNavigate} compact /> : <AgentQuickStart friends={friends} signedIn={signedIn}
+              onPrepare={prepareQuickRequest} onNavigate={onNavigate} compact />)}
             <AnimatePresence initial={false}>
               {messages.map((message) => (
                 <motion.div
@@ -496,19 +497,19 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
             {activePayDraft?.messageId === activeTaskMessage.id && (
               <section aria-label="Pay review in active task" className="mt-4 border-t pt-4"
                 style={{ borderColor: 'var(--border)' }}>
-                {VEYRA_ENV === 'mainnet' ? <div className="space-y-2 text-sm" style={{color:'var(--muted)'}}>Mainnet Pay uses the verified wallet flow in the Pay tab. No Testnet signature here.<button type="button" className="block rounded-xl px-3 py-2 font-semibold" style={{background:'var(--accent)',color:'#fff'}} onClick={()=>onNavigate('pay')}>Open Mainnet Pay</button></div> : <PayPage embedded initialIntent={activePayDraft.candidate} />}
+                {VEYRA_ENV === 'mainnet' ? <div className="space-y-2 text-sm" style={{color:'var(--muted)'}}>Pay on Arc Mainnet uses the same wallet review as the Pay tab. Nothing is signed in chat.<button type="button" className="block rounded-xl px-3 py-2 font-semibold" style={{background:'var(--accent)',color:'#fff'}} onClick={()=>onNavigate('pay')}>Open Mainnet Pay</button></div> : <PayPage embedded initialIntent={activePayDraft.candidate} />}
               </section>
             )}
             {activeSwapDraft?.messageId === activeTaskMessage.id && (
               <section aria-label="Swap review in active task" className="mt-4 border-t pt-4"
                 style={{ borderColor:'var(--border)' }}>
-                {VEYRA_ENV === 'mainnet' ? <p className="text-sm" style={{color:'var(--muted)'}}>Mainnet Swap uses live Circle quotes. Open Swap to review and sign in your wallet.<button type="button" className="mt-2 block rounded-xl px-3 py-2 font-semibold" style={{background:'var(--accent)',color:'#0d1b2f'}} onClick={()=>onNavigate('convert')}>Open Mainnet Swap</button></p> : <ConvertPage embedded initialIntent={activeSwapDraft.candidate} />}
+                {VEYRA_ENV === 'mainnet' ? <p className="text-sm" style={{color:'var(--muted)'}}>Swap uses a fresh Circle Mainnet quote. Open Swap to review minimum received and sign there.<button type="button" className="mt-2 block rounded-xl px-3 py-2 font-semibold" style={{background:'var(--accent)',color:'#0d1b2f'}} onClick={()=>onNavigate('convert')}>Open Mainnet Swap</button></p> : <ConvertPage embedded initialIntent={activeSwapDraft.candidate} />}
               </section>
             )}
             {inlineBridgeMessageId === activeTaskMessage.id && (
               <section aria-label="Bridge review in active task" className="mt-4 border-t pt-4"
                 style={{borderColor:'var(--border)'}}>
-                {VEYRA_ENV === 'mainnet' ? <p className="text-sm" style={{color:'var(--muted)'}}>Mainnet Bridge uses CCTP Arc ↔ Base. Review a live route in Bridge.<button type="button" className="mt-2 block rounded-xl px-3 py-2 font-semibold" style={{background:'var(--accent)',color:'#0d1b2f'}} onClick={()=>onNavigate('bridge')}>Open Mainnet Bridge</button></p> : <BridgePage embedded />}
+                {VEYRA_ENV === 'mainnet' ? <p className="text-sm" style={{color:'var(--muted)'}}>Bridge uses CCTP Arc ↔ Base. Open Bridge to review source and destination; completion requires destination verification.<button type="button" className="mt-2 block rounded-xl px-3 py-2 font-semibold" style={{background:'var(--accent)',color:'#0d1b2f'}} onClick={()=>onNavigate('bridge')}>Open Mainnet Bridge</button></p> : <BridgePage embedded />}
               </section>
             )}
           </aside>
