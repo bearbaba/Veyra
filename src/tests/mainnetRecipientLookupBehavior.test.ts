@@ -34,8 +34,8 @@ describe('M0 People and Pay use the same fail-closed recipient resolver',()=>{
   expect(prepare).not.toHaveBeenCalled();
  });
  it('requires signed session, chain 5042, server snapshot and independent verification',async()=>{
-  const prepare=vi.fn(async()=>response);
-  const verify=vi.fn(async()=>{});
+  const prepare=vi.fn(()=>Promise.resolve(response));
+  const verify=vi.fn(()=>Promise.resolve());
   const result=await lookupMainnetRecipient('@bob.veyra',sender,'signed-session',{prepare,verify});
   expect(result).toMatchObject({kind:'veyra',person:{wallet:receiver,veyraHandle:'bob',owner:sender}});
   expect(prepare).toHaveBeenCalledWith('@bob.veyra',5042,'signed-session');
@@ -47,7 +47,7 @@ describe('M0 People and Pay use the same fail-closed recipient resolver',()=>{
   expect(verify).toHaveBeenCalledTimes(1);
  });
  it('does not promote unauthenticated, wrong-network, expired or substituted wallet snapshots',async()=>{
-  const verify=vi.fn(async()=>{});
+  const verify=vi.fn(()=>Promise.resolve());
   for(const corrupted of [
    {...response,chainId:8453}, {...response,snapshot:null},
    {...response,resolvedAddress:'0xnotwallet'},
@@ -55,7 +55,7 @@ describe('M0 People and Pay use the same fail-closed recipient resolver',()=>{
    {...response,snapshot:{...response.snapshot!,veyraUserId:'unverified'}},
   ]){
    await expect(lookupMainnetRecipient('@bob.veyra',sender,'signed-session',
-    {prepare:async()=>corrupted,verify})).rejects.toThrow();
+    {prepare:()=>Promise.resolve(corrupted),verify})).rejects.toThrow();
   }
   expect(verify).not.toHaveBeenCalled();
  });
