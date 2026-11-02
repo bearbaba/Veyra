@@ -199,7 +199,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     if(!address||!token||social.identityOrigin!=='ready'||journal?.stage!=='VERIFIED'||!journal.hash)return;
     if(journal.from.toLowerCase()!==address.toLowerCase())return;
     let active=true,inFlight=false,failures=0;
-    let timer:ReturnType<typeof setTimeout>|null=null;
+    let timer:number|null=null;
     const original={hash:journal.hash,note:journal.note,
       ...(journal.recipientSnapshotId?{snapshotId:journal.recipientSnapshotId}:{})};
     const retry=async()=>{
