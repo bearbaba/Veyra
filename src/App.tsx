@@ -27,6 +27,7 @@ import { MainnetPeoplePage } from './components/pages/MainnetPeoplePage';
 import type {VerifiedMainnetRecipient} from './mainnet/verifiedRecipient';
 import { VEYRA_ENV } from './lib/env';
 import { UnifiedSocialProvider } from './features/social/UnifiedSocial';
+import {MainnetReceiptSyncWorker} from './mainnet/MainnetReceiptSyncWorker';
 
 export default function App() {
   // OAuth success is only a UI navigation hint; it is NEVER authentication.
@@ -83,6 +84,7 @@ export default function App() {
 
   return (
     <UnifiedSocialProvider>
+      {VEYRA_ENV==='mainnet'&&<MainnetReceiptSyncWorker/>}
       <AppShell page={page} onNavigate={setPage}>
         {renderPage()}
       </AppShell>
