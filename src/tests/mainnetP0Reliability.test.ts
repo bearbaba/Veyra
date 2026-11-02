@@ -72,11 +72,15 @@ const u32=(n:number)=>n.toString(16).padStart(8,'0');
 const nonce='0x'+'3'.repeat(64);
 const sender='0x'+'4'.repeat(64);
 const recipient32='0x'+'0'.repeat(24)+recipient.slice(2);
-const body='0x'+'6'.repeat(64);
-const buildMessage=(n:string)=>'0x'+u32(1)+u32(sourceDomain)+u32(destDomain)+
- n.slice(2)+sender.slice(2)+recipient32.slice(2)+'0'.repeat(64)+u32(2000)+u32(2000)+body.slice(2);
-const signedMessage=buildMessage(nonce);
-const originalMessage=buildMessage('0x'+'0'.repeat(64));
+const word=(n:bigint)=>n.toString(16).padStart(64,'0');
+const pad=(addr:string)=>'0'.repeat(24)+addr.slice(2).toLowerCase();
+const amount=100000n;
+const burnToken='0x3600000000000000000000000000000000000000';
+const body='0x'+u32(1)+pad(burnToken)+pad(owner)+word(amount)+pad(owner)+word(0n)+word(0n)+word(0n);
+const buildMessage=(n:string,b:string)=>'0x'+u32(1)+u32(sourceDomain)+u32(destDomain)+
+ n.slice(2)+sender.slice(2)+recipient32.slice(2)+'0'.repeat(64)+u32(2000)+u32(2000)+b.slice(2);
+const signedMessage=buildMessage(nonce,body);
+const originalMessage=buildMessage('0x'+'0'.repeat(64),body);
 const sentEvent={
  address:CCTP_V2_MAINNET.messageTransmitterV2,
  topics:encodeEventTopics({abi:events,eventName:'MessageSent'}),
@@ -113,14 +117,20 @@ describe('CCTP V2 independently linked burn and mint receipts',()=>{
   }]};
   expect(matchCctpLinkedMessages(sourceDomain,destDomain,burn,differentBody,signedMessage,nonce)).toBe(false);
  });
+ it('rejects amount or destination recipient mismatch even with matching header',()=>{
+  const changed='0x'+u32(1)+pad(burnToken)+pad(owner)+word(amount+1n)+pad(owner)+word(0n)+word(0n)+word(0n);
+  expect(matchCctpLinkedMessages(sourceDomain,destDomain,burn,mint,buildMessage(nonce,changed),nonce)).toBe(false);
+  expect(matchCctpLinkedMessages(sourceDomain,destDomain,burn,mint,signedMessage,nonce,
+   {burnToken,mintRecipient:recipient,amount})).toBe(false);
+ });
  it('requires Circle Iris to map the exact original burn to its destination',async()=>{
   const fetchMock=vi.fn((_url:unknown)=>({ok:true,json:()=>({
    messages:[{status:'complete',eventNonce:nonce,message:signedMessage,
     sourceTxHash:burnHash,destinationMintTxHash:mintHash}],
   })}));
   vi.stubGlobal('fetch',fetchMock);
-  await expect(assertCctpBridgeLinked(5042,8453,burnHash,mintHash,burn,mint)).resolves.toBeUndefined();
+  await expect(assertCctpBridgeLinked(5042,8453,burnHash,mintHash,burn,mint,owner,amount)).resolves.toBeUndefined();
   expect(fetchMock.mock.calls[0][0]).toContain('/v2/messages/26?transactionHash='+burnHash);
-  await expect(assertCctpBridgeLinked(5042,8453,burnHash,'0x'+'c'.repeat(64),burn,mint)).rejects.toThrow('could not be linked');
+  await expect(assertCctpBridgeLinked(5042,8453,burnHash,'0x'+'c'.repeat(64),burn,mint,owner,amount)).rejects.toThrow('could not be linked');
  });
 });

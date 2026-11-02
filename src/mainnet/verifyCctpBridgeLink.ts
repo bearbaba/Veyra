@@ -25,6 +25,7 @@ export function matchCctpLinkedMessages(
  sourceDomain:number,destDomain:number,
  source:Receipt,destination:Receipt,
  signedMessage:string,eventNonce:string,
+ expected?:{burnToken:string;mintRecipient:string;amount:bigint},
 ):boolean{
  if(!bytes.test(signedMessage)||signedMessage.length<2+148*2||
     !hash.test(eventNonce))return false;
@@ -35,6 +36,17 @@ export function matchCctpLinkedMessages(
  const sender='0x'+data.slice(88,152);
  const body='0x'+data.slice(296);
  if(nonce!==eventNonce.toLowerCase()||!bytes.test(body))return false;
+ // TokenMessengerV2 burn body: version/token/mintRecipient/amount/sender/maxFee/
+ // feeExecuted/expirationBlock, followed by optional hookData.
+ if(body.length<2+228*2||Number.parseInt(body.slice(2,10),16)!==1)return false;
+ if(expected){
+  const pad=(a:string)=>'0x'+'0'.repeat(24)+a.slice(2).toLowerCase();
+  if(!/^0x[0-9a-fA-F]{40}$/.test(expected.burnToken)||
+     !/^0x[0-9a-fA-F]{40}$/.test(expected.mintRecipient)||
+     '0x'+body.slice(10,74)!==pad(expected.burnToken)||
+     '0x'+body.slice(74,138)!==pad(expected.mintRecipient)||
+     BigInt('0x'+body.slice(138,202))!==expected.amount)return false;
+ }
  const sourceMessages:string[]=[];
  for(const log of source.logs){
   if(log.address.toLowerCase()!==CCTP_V2_MAINNET.messageTransmitterV2.toLowerCase())continue;
@@ -45,11 +57,14 @@ export function matchCctpLinkedMessages(
   }catch{/* Not a CCTP MessageSent event. */}
  }
  const sourceLinked=sourceMessages.some(original=>{
-  if(!bytes.test(original)||original.length<2+148*2)return false;
+  if(!bytes.test(original)||original.length<2+(148+228)*2)return false;
   const o=original.slice(2);
-  // The original sender/recipient/destination-caller/finality and domains
-  // are immutable, while Iris sets nonce, executed finality and fee body.
-  return o.slice(0,24)===data.slice(0,24)&&o.slice(88,288)===data.slice(88,288);
+  // Compare immutable CCTP header and burn fields, not only the nonce/header.
+  // Circle may update nonce, executedFinality, feeExecuted and expirationBlock.
+  return o.slice(0,24)===data.slice(0,24)&&
+   o.slice(88,288)===data.slice(88,288)&&
+   o.slice(296,624)===data.slice(296,624)&&
+   o.slice(752)===data.slice(752);
  });
  if(!sourceLinked)return false;
  for(const log of destination.logs){
@@ -69,13 +84,16 @@ export function matchCctpLinkedMessages(
 
 export async function assertCctpBridgeLinked(
  sourceChain:number,destinationChain:number,burnHash:string,mintHash:string,
- burn:Receipt,mint:Receipt,
+ burn:Receipt,mint:Receipt,owner:string,amount:bigint,
 ):Promise<void>{
  const sourceDomain=getMainnetChain(sourceChain)?.cctpDomain;
  const destDomain=getMainnetChain(destinationChain)?.cctpDomain;
  if(sourceDomain===undefined||destDomain===undefined||sourceDomain===destDomain||
     !hash.test(burnHash)||!hash.test(mintHash))
   throw Error('Unsupported CCTP route or missing original transaction hash.');
+ const token=getMainnetChain(sourceChain)?.usdc;
+ if(!token||!/^0x[0-9a-fA-F]{40}$/.test(owner)||amount<=0n)
+  throw Error('Cannot validate the original CCTP token, recipient or amount.');
  const response=await fetch('https://iris-api.circle.com/v2/messages/'+sourceDomain+
    '?transactionHash='+encodeURIComponent(burnHash),{
    method:'GET',headers:{Accept:'application/json'},cache:'no-store',
@@ -87,12 +105,16 @@ export async function assertCctpBridgeLinked(
    !('messages' in payload)||!Array.isArray(payload.messages))
   throw Error('Circle did not return a valid attestation response.');
  const messages=payload.messages as IrisMessage[];
+ const sourceTxHash='sourceTxHash' in payload?payload.sourceTxHash:undefined;
+ if(typeof sourceTxHash==='string'&&sourceTxHash.toLowerCase()!==burnHash.toLowerCase())
+  throw Error('Circle attestation belongs to another source transaction.');
  const matches=messages.filter(item=>
    item.status==='complete'&&typeof item.message==='string'&&
    typeof item.eventNonce==='string'&&
    (typeof item.sourceTxHash!=='string'||item.sourceTxHash.toLowerCase()===burnHash.toLowerCase())&&
    (typeof item.destinationMintTxHash!=='string'||item.destinationMintTxHash.toLowerCase()===mintHash.toLowerCase())&&
-   matchCctpLinkedMessages(sourceDomain,destDomain,burn,mint,item.message,item.eventNonce));
+   matchCctpLinkedMessages(sourceDomain,destDomain,burn,mint,item.message,item.eventNonce,
+    {burnToken:token,mintRecipient:owner,amount}));
  if(matches.length!==1)
   throw Error('CCTP source burn and destination mint could not be linked by the Circle signed-message nonce. Do not treat this bridge as complete.');
 }

@@ -7,6 +7,8 @@ import {readSettlementIntent,settlementUnresolved} from '@/mainnet/settlementJou
 import {MainnetPayPage} from './MainnetPayPage';
 import {SettlementPage} from './SettlementPage';
 
+declare const __VEYRA_RELEASE_SHA__:string;
+declare const __VEYRA_RELEASE_ENV__:string;
 type Method='wallet'|'contract';
 export function MainnetPayHub({
  initialMethod='wallet',friendHandle,recipientWallet,onRecipientUsed,
@@ -59,6 +61,12 @@ export function MainnetPayHub({
    <p className="text-xs font-semibold uppercase tracking-wider" style={{color:'var(--accent)'}}>Veyra · Arc Mainnet</p>
    <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Send USDC</h1>
    <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Choose a payment method, review the destination, and let Veyra track the original receipt.</p>
+   {__VEYRA_RELEASE_ENV__==='preview'
+    ?<p className="mt-2 text-xs font-semibold" style={{color:'var(--warning)'}}>REAL MAINNET Preview · commit {__VEYRA_RELEASE_SHA__.slice(0,12)} · controlled wallets only</p>
+    :<details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+      <summary>Release details</summary>
+      Build {__VEYRA_RELEASE_SHA__.slice(0,12)} · {__VEYRA_RELEASE_ENV__}
+     </details>}
   </header>
   <div className="grid grid-cols-2 gap-2" role="group" aria-label="Choose payment method">
    <button type="button" disabled={locked} aria-pressed={selected==='wallet'} onClick={()=>choose('wallet')}

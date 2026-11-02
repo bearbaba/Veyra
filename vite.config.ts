@@ -38,6 +38,10 @@ const identityHtml = path.resolve(__dirname, 'identity-beta.html');
 const outputDir = path.resolve(__dirname, 'dist');
 
 export default defineConfig({
+  define: {
+    __VEYRA_RELEASE_SHA__: JSON.stringify(process.env.VERCEL_GIT_COMMIT_SHA || 'local'),
+    __VEYRA_RELEASE_ENV__: JSON.stringify(process.env.VERCEL_ENV || 'local'),
+  },
   plugins: [
     react(),
     ...(!uiOnlyPreview && !mainnetMvp && !identityBeta ? [nodePolyfills()] : []),
