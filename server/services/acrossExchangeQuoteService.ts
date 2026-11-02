@@ -29,6 +29,12 @@ function numberAmount(value:unknown):bigint|null{
 export function isAcrossConfigured(env:NodeJS.ProcessEnv=process.env){
  return !!env.ACROSS_API_KEY&&/^0x[0-9a-fA-F]{4}$/.test(env.ACROSS_INTEGRATOR_ID??'');
 }
+export function authorizeAcrossQuoteWallet(owner:string,userId:string,
+ binding:{userId:string;walletAddress:string}|null):boolean{
+ return isAddress(owner)&&typeof userId==='string'&&userId.startsWith('usr_')&&
+  !!binding&&binding.userId===userId&&
+  isAddress(binding.walletAddress)&&binding.walletAddress.toLowerCase()===owner.toLowerCase();
+}
 export function validateAcrossQuoteRequest(v:unknown):{
  owner:string;amount:string;sourceChainId:8453;destinationChainId:5042;
  inputToken:string;outputToken:string;
