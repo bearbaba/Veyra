@@ -13,6 +13,8 @@ const selection={sourceChainId:8453,destinationChainId:5042,inputToken:ACROSS_BA
 const env={ACROSS_API_KEY:'not-a-real-key',ACROSS_INTEGRATOR_ID:'0x1234'};
 const now=1783000000000;
 const payload={
+ inputToken:{address:ACROSS_BASE_WETH,chainId:8453,decimals:18,symbol:'WETH'},
+ outputToken:{address:ACROSS_ARC_USDC,chainId:5042,decimals:6,symbol:'USDC'},
  inputAmount:amount,expectedOutputAmount:'1999000',minOutputAmount:'1985000',
  quoteExpiryTimestamp:Math.floor(now/1000)+65,expectedFillTime:4,
  steps:{originSwap:{},bridge:{}},approvalTxns:[{chainId:8453,to:ACROSS_BASE_WETH,data:'0x'}],
@@ -68,6 +70,9 @@ describe('Across candidate: server-only live quote without token impersonation o
    {minOutputAmount:'2999000'}, {quoteExpiryTimestamp:Math.floor(now/1000)-1},
    {swapTx:{...payload.swapTx,chainId:5042}},
    {swapTx:{...payload.swapTx,simulationSuccess:false}},
+   {inputToken:{...payload.inputToken,chainId:5042}},
+   {outputToken:{...payload.outputToken,address:ACROSS_BASE_WETH}},
+   {swapTx:{...payload.swapTx,to:'0x2222222222222222222222222222222222222222'}},
    {steps:{originSwap:{}}},{inputAmount:'900000000000000'},
   ])expect(()=>normalizeAcrossQuote({...payload,...mutate},requested,now)).toThrow(AcrossQuoteError);
  });
