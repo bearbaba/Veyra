@@ -90,7 +90,7 @@ export function normalizeAcrossQuote(raw:unknown,requested:ReturnType<typeof val
  const feeTotal=fees.total&&typeof fees.total==='object'?fees.total as Record<string,unknown>:{};
  const feeGas=fees.originGas&&typeof fees.originGas==='object'?
   fees.originGas as Record<string,unknown>:{};
- const usd=(x:unknown)=>typeof x==='string'&&/^\\d+(?:\\.\\d{1,12})?$/.test(x)?x:null;
+ const usd=(x:unknown)=>typeof x==='string'&&/^[0-9]+(?:[.][0-9]{1,12})?$/.test(x)?x:null;
  const totalUsd=usd(feeTotal.amountUsd),gasUsd=usd(feeGas.amountUsd);
  const feeSummary=totalUsd!==null?'Provider quoted fees ≈ $'+totalUsd+
    (gasUsd!==null?' · origin gas ≈ $'+gasUsd:' (origin gas not itemized)'):
