@@ -48,15 +48,17 @@ export function MainnetPayHub({
  const locked=payLocked||settlementLocked;
  const forcedMethod:Method|null=settlementLocked?'contract':payLocked?'wallet':null;
  const selected=forcedMethod??method;
+ // A completed transaction must not silently switch a person back to Wallet.
+ useEffect(()=>{
+  setMethod(initialMethod);
+  setVisited(v=>v[initialMethod]?v:{...v,[initialMethod]:true});
+ },[initialMethod,owner]);
  useEffect(()=>{
   if(forcedMethod){
    setMethod(forcedMethod);
    setVisited(v=>v[forcedMethod]?v:{...v,[forcedMethod]:true});
-  }else{
-   setMethod(initialMethod);
-   setVisited(v=>v[initialMethod]?v:{...v,[initialMethod]:true});
   }
- },[initialMethod,owner,forcedMethod]);
+ },[forcedMethod]);
  useEffect(()=>{
   if(!recipientWallet)return;
   if(/^0x[0-9a-fA-F]{40}$/.test(recipientWallet)&&owner&&address&&!locked){
