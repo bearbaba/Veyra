@@ -11,14 +11,16 @@ import {readPayDraft,writePayDraft,type MainnetPayDraft} from '@/mainnet/payDraf
 import {MainnetPayPage} from './MainnetPayPage';
 import {SettlementPage} from './SettlementPage';
 import {MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
+import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 
 declare const __VEYRA_RELEASE_SHA__:string;
 declare const __VEYRA_RELEASE_ENV__:string;
 type Method='wallet'|'contract';
 export function MainnetPayHub({
- initialMethod='wallet',friendHandle,recipientWallet,onRecipientUsed,
+ initialMethod='wallet',friendHandle,recipientWallet,verifiedRecipient,onRecipientUsed,
 }:{
- initialMethod?:Method;friendHandle?:string|null;recipientWallet?:string|null;onRecipientUsed?:()=>void;
+ initialMethod?:Method;friendHandle?:string|null;recipientWallet?:string|null;
+ verifiedRecipient?:VerifiedMainnetRecipient|null;onRecipientUsed?:()=>void;
 }){
  const {address}=useAccount();
  const owner=(address??'').toLowerCase();
@@ -71,6 +73,14 @@ export function MainnetPayHub({
  // A new recipient is consumed exactly once by the parent route.
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[recipientWallet,owner]);
+ useEffect(()=>{
+  if(!verifiedRecipient||!address||verifiedRecipient.owner.toLowerCase()!==address.toLowerCase()||locked)return;
+  const next={...readPayDraft(owner),recipient:verifiedRecipient.wallet,amount:''};
+  setDraftHolder({owner,value:next});writePayDraft(owner,next);
+  setMethod('wallet');setVisited(v=>({...v,wallet:true}));
+ // One new verified recipient selection, never an old draft, changes the target.
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[verifiedRecipient?.snapshotId,owner]);
  function changeDraft(patch:Partial<MainnetPayDraft>){
   if(!address||locked)return;
   const next={...draft,...patch};
@@ -78,7 +88,7 @@ export function MainnetPayHub({
   writePayDraft(owner,next);
  }
  function choose(next:Method){
-  if(locked)return;
+  if(locked||next==='contract'&&verifiedRecipient)return;
   setMethod(next);
   setVisited(v=>v[next]?v:{...v,[next]:true});
   setOptionsOpen(false);
@@ -125,7 +135,7 @@ export function MainnetPayHub({
      <span className="flex items-center gap-2 text-sm font-semibold"><Wallet className="size-4"/> Wallet transfer</span>
      <span className="mt-1 block text-xs" style={{color:'var(--muted)'}}>Everyday payments · direct to recipient</span>
     </button>
-    <button type="button" disabled={locked} aria-pressed={selected==='contract'} onClick={()=>choose('contract')}
+    <button type="button" disabled={locked||!!verifiedRecipient} aria-pressed={selected==='contract'} onClick={()=>choose('contract')}
      className="rounded-lg border p-3 text-left disabled:opacity-40"
      style={{borderColor:selected==='contract'?'var(--accent)':'var(--border)',background:selected==='contract'?'var(--accent-muted)':'transparent',color:'var(--ink)'}}>
      <span className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck className="size-4"/> Contract payment</span>
@@ -135,7 +145,7 @@ export function MainnetPayHub({
   </section>
   {/* Both forms stay mounted after first visit. Their visible drafts share owner-scoped fields. */}
   {visited.wallet&&<section aria-label="Wallet transfer" hidden={selected!=='wallet'}>
-   <MainnetPayPage key={owner} embedded friendHandle={friendHandle}
+   <MainnetPayPage key={owner} embedded friendHandle={friendHandle} verifiedRecipient={verifiedRecipient}
     sharedDraft={draft} onDraftChange={changeDraft}/>
   </section>}
   {visited.contract&&<section aria-label="Contract payment" hidden={selected!=='contract'}>

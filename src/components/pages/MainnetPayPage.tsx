@@ -6,6 +6,9 @@ import { useAccount, useSwitchChain } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { formatUnits } from 'viem';
 import { recordLocalOperation } from '@/mainnet/localOperations';
+import {verifyPaymentRecipient} from '@/lib/api/identityApi';
+import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
+import {validVerifiedRecipient,type VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 import type {MainnetPayDraft} from '@/mainnet/payDraft';
 import {assertMainnetSigningAllowed,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
 import { AlertTriangle, ExternalLink, ShieldCheck, CheckCircle2 } from 'lucide-react';
@@ -23,8 +26,20 @@ const box = 'rounded-2xl border p-5 sm:p-6';
 const field = 'w-full rounded-xl border px-4 py-3 text-sm';
 type Review = {plan: MainnetPlan; preflight: MainnetPreflight};
 
-export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,embedded=false,sharedDraft,onDraftChange}:{friendHandle?:string|null;recipientWallet?:string|null;onRecipientUsed?:()=>void;embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void}) {
+export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,embedded=false,sharedDraft,onDraftChange,verifiedRecipient}:{friendHandle?:string|null;recipientWallet?:string|null;onRecipientUsed?:()=>void;embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void;verifiedRecipient?:VerifiedMainnetRecipient|null}) {
   const {address, chainId, connector, isConnected} = useAccount();
+  const social=useUnifiedSocial();
+  const idSelection=verifiedRecipient&&address&&recipient.toLowerCase()===verifiedRecipient.wallet.toLowerCase()
+    &&verifiedRecipient.owner.toLowerCase()===address.toLowerCase()?verifiedRecipient:null;
+  async function reverifySelectedIdentity(plan:MainnetPlan){
+    if(!idSelection)return;
+    if(!validVerifiedRecipient(idSelection,plan.from,plan.to))
+      throw Error('Recipient Veyra ID snapshot expired. Return to People to verify the current wallet.');
+    if(social.identityOrigin!=='ready'||!social.session?.token)
+      throw Error('Signed identity session is no longer available. Reverify the recipient in People.');
+    await verifyPaymentRecipient({snapshotId:idSelection.snapshotId,expectedWalletId:idSelection.walletId,
+      expectedWalletAddress:plan.to,expectedChainId:5042,reviewToken:idSelection.reviewToken},social.session.token);
+  }
   const {switchChain} = useSwitchChain();
   const [recipient,setRecipient] = useState('');
   const [amount,setAmount] = useState('');
@@ -76,6 +91,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     try {
       const plan=buildMainnetPayPlan(address,recipient.trim(),amount.trim());
       const preflight=await mainnetPreflight(await provider(),plan);
+      await reverifySelectedIdentity(plan);
       setReview({plan,preflight});setAck(false);
     }catch(e){setError(msg(e));}
     finally{lock.current=false;setBusy(false);}
@@ -87,6 +103,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     const initial:MainnetJournal={from:review.plan.from,to:review.plan.to,amount:review.plan.amount,hash:null,stage:'AWAITING_WALLET'};
     let requested=false;
     try {
+      await reverifySelectedIdentity(review.plan);
       if(readMainnetJournal(address,storageForMainnet()).kind!=='empty')
         throw new Error('Earlier transaction record exists. Do not resubmit.');
       if(!writeMainnetJournal(initial,storageForMainnet()))
@@ -95,7 +112,10 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
       const hash=await requestMainnetCanaryTransfer(await provider(),review.plan,()=>{requested=true;});
       const next:MainnetJournal={...initial,hash,stage:'PENDING'};
       setJournal(next);setHashInput(hash);
-      recordLocalOperation({type:'Pay',hash,owner:address,amount:review.plan.amount,asset:'USDC',chainId:5042,status:'SUBMITTED',destination:review.plan.to});
+      recordLocalOperation({type:'Pay',hash,owner:address,amount:review.plan.amount,asset:'USDC',chainId:5042,
+       status:'SUBMITTED',destination:review.plan.to,
+       note:sharedDraft?.note?.trim().slice(0,120)||undefined,
+       recipientLabel:idSelection?'@'+idSelection.veyraHandle+'.veyra':undefined});
       if(!writeMainnetJournal(next,storageForMainnet()))
         setError('Payment submitted but hash storage failed. Keep this hash and do not retry: '+hash);
     }catch(e){
@@ -173,6 +193,11 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
           If it remains pending, Veyra checks the existing transaction rather than sending again.</p>
       </div>
     </div>
+    {idSelection&&<div role="status" className={box} style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
+      <p className="text-sm font-semibold">{'Send to @'+idSelection.veyraHandle+'.veyra'}</p>
+      <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Verified recipient snapshot · address will be rechecked by the backend before signing.</p>
+      <p className="mt-2 break-all font-mono text-xs">{idSelection.wallet}</p>
+    </div>}
     {friendHandle&&<div role="status" className={box} style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--warning)'}}>
       Paying {friendHandle} by Veyra ID is not activated on Mainnet. No recipient address has been substituted.
       Use the direct wallet transfer only after verifying the exact recipient address.

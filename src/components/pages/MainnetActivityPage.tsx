@@ -152,9 +152,11 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
         <div className="min-w-0 flex-1 space-y-1">
          <p className="font-semibold" style={{color:'var(--ink)'}}>{v.type==='Pay'||v.type==='Settlement'?'Send':v.type} · {v.amount} {v.asset}</p>
          <p className="text-xs" style={{color:ink}}>{label(proof)}</p>
-         {v.destination&&<p className="break-all text-xs" style={{color:'var(--muted)'}}>Recipient: {v.destination}</p>}
+         {v.recipientLabel&&<p className="text-sm" style={{color:'var(--ink)'}}>{v.recipientLabel} · label saved at review (this browser only)</p>}
+         {v.destination&&<p className="break-all text-xs" style={{color:'var(--muted)'}}>Recipient wallet: {v.destination}</p>}
+         {v.note&&<p className="text-sm" style={{color:'var(--muted)'}}>Your note: {v.note}</p>}
          <p className="text-xs" style={{color:'var(--muted)'}}>
-          {v.chainId===8453?'Base':'Arc'} Mainnet · last updated {new Date(v.updatedAt).toLocaleString()}</p>
+          {v.chainId===8453?'Base':'Arc'} Mainnet · saved {new Date(v.submittedAt??v.updatedAt).toLocaleString()} · last updated {new Date(v.updatedAt).toLocaleString()}</p>
         </div>
        </div>
        <details className="ml-12 mt-3 text-xs" style={{color:'var(--muted)'}}>
@@ -170,7 +172,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
      })}
     </section>}
    <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
-    Only Veyra-origin transactions recorded in this browser are listed. This is not yet a full cross-device indexer.
+    Only Veyra-origin transactions recorded in this browser are listed; local notes and labels are not authenticated server receipts or shared with recipients.
     Direct Pay and Settlement are checked against Arc receipts. Swap and Bridge still need a shared task proof in Activity;
     a saved browser record is never proof of success.
    </p>
