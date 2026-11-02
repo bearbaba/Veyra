@@ -61,6 +61,18 @@ describe('M0 recipient receipt sync is independent of financial transfer',()=>{
   expect(pay).toContain('Money sent · syncing receipt. Do not send again.');
   expect(pay).toContain("disabled={journal.stage==='VERIFIED'&&receiptSync!=='saved'}");
  });
+ it('renders a saved Sent receipt and correct Received counterparty without a duplicate payment',()=>{
+  const pay=readFileSync(new URL('../components/pages/MainnetPayPage.tsx',import.meta.url),'utf8');
+  const activity=readFileSync(new URL('../components/pages/MainnetActivityPage.tsx',import.meta.url),'utf8');
+  expect(pay).toContain('setAccountReceipt(saved)');
+  expect(pay).toContain('Verified USDC receipt');
+  expect(pay).toContain('Sent · {formatUnits(BigInt(accountReceipt.amountRaw),6)} USDC');
+  expect(pay).toContain('<summary className="cursor-pointer">Receipt details</summary>');
+  expect(pay).toContain('Original transaction details');
+  expect(activity).toContain("v.direction==='sent'?'Sent':'Received'");
+  expect(activity).toContain("'From wallet '+v.senderAddress.slice(0,8)");
+  expect(activity).toContain('Counterparty wallet');
+ });
  it('Activity retries only independently verified original Pay and polls B account receipts',()=>{
   const activity=readFileSync(new URL('../components/pages/MainnetActivityPage.tsx',import.meta.url),'utf8');
   expect(activity).toContain("serverHistoryStatus==='checking')return");
