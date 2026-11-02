@@ -7,9 +7,9 @@ import { ConnectKitButton } from 'connectkit';
 import { formatUnits } from 'viem';
 import { recordLocalOperation } from '@/mainnet/localOperations';
 import {saveVerifiedMainnetPayReceipt} from '@/lib/api/mainnetPayReceipts';
-import {verifyPaymentRecipient} from '@/lib/api/identityApi';
+import {preparePaymentRecipient,verifyPaymentRecipient} from '@/lib/api/identityApi';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
-import {validVerifiedRecipient,type VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
+import {isSameVerifiedPaymentReceiver,type VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 import type {MainnetPayDraft} from '@/mainnet/payDraft';
 import {assertMainnetSigningAllowed,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
 import { AlertTriangle, ExternalLink, ShieldCheck, CheckCircle2 } from 'lucide-react';
@@ -30,16 +30,25 @@ type Review = {plan: MainnetPlan; preflight: MainnetPreflight};
 export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,embedded=false,sharedDraft,onDraftChange,verifiedRecipient}:{friendHandle?:string|null;recipientWallet?:string|null;onRecipientUsed?:()=>void;embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void;verifiedRecipient?:VerifiedMainnetRecipient|null}) {
   const {address, chainId, connector, isConnected} = useAccount();
   const social=useUnifiedSocial();
-  async function reverifySelectedIdentity(plan:MainnetPlan){
+  async function reverifySelectedIdentity(plan:MainnetPlan):Promise<VerifiedMainnetRecipient|null>{
     if(verifiedRecipient&&!idSelection)
-      throw Error('Recipient differs from the reviewed Veyra ID. Change person or verify again in People.');
-    if(!idSelection)return;
-    if(!validVerifiedRecipient(idSelection,plan.from,plan.to))
-      throw Error('Recipient Veyra ID snapshot expired. Return to People to verify the current wallet.');
+      throw Error('The recipient wallet no longer matches the selected Veyra ID. Select the person again.');
+    if(!idSelection)return null;
     if(social.identityOrigin!=='ready'||!social.session?.token)
-      throw Error('Signed identity session is no longer available. Reverify the recipient in People.');
-    await verifyPaymentRecipient({snapshotId:idSelection.snapshotId,expectedWalletId:idSelection.walletId,
-      expectedWalletAddress:plan.to,expectedChainId:5042,reviewToken:idSelection.reviewToken},social.session.token);
+      throw Error('Veyra ID sign-in expired. Sign in again to verify the recipient.');
+    // Refresh a short-lived snapshot, but never silently change the original receiver.
+    const prepared=await preparePaymentRecipient('@'+idSelection.veyraHandle+'.veyra',5042,social.session.token);
+    if(prepared.kind!=='VEYRA_IDENTITY'||prepared.chainId!==5042||!prepared.snapshot)
+      throw Error('Recipient Veyra ID is no longer available for Mainnet payments.');
+    const sn=prepared.snapshot;
+    const renewed:VerifiedMainnetRecipient={...idSelection,wallet:prepared.resolvedAddress,
+      walletId:sn.walletId,veyraUserId:sn.veyraUserId,veyraHandle:sn.veyraHandle,
+      displayName:sn.displayName,snapshotId:sn.snapshotId,reviewToken:sn.reviewToken,expiresAt:sn.expiresAt};
+    if(!isSameVerifiedPaymentReceiver(idSelection,renewed)||renewed.wallet.toLowerCase()!==plan.to.toLowerCase())
+      throw Error('Receiving wallet or identity changed. Return to People to review. No transfer started.');
+    await verifyPaymentRecipient({snapshotId:renewed.snapshotId,expectedWalletId:renewed.walletId,
+      expectedWalletAddress:plan.to,expectedChainId:5042,reviewToken:renewed.reviewToken},social.session.token);
+    return renewed;
   }
   const {switchChain} = useSwitchChain();
   const [recipient,setRecipient] = useState('');
@@ -106,30 +115,32 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     if(!address||!review||!ack||blocked||lock.current)return;
     try{assertMainnetSigningAllowed();}catch(e){setError(msg(e));return;}
     lock.current=true;setBusy(true);setError(null);
-    const initial:MainnetJournal={from:review.plan.from,to:review.plan.to,amount:review.plan.amount,hash:null,stage:'AWAITING_WALLET',
+    let initial:MainnetJournal={from:review.plan.from,to:review.plan.to,amount:review.plan.amount,hash:null,stage:'AWAITING_WALLET',
       note:sharedDraft?.note?.trim().slice(0,120)||undefined,
       recipientLabel:idSelection?'@'+idSelection.veyraHandle+'.veyra':undefined};
-    let requested=false;
+    let requested=false,wroteJournal=false;
     try {
-      await reverifySelectedIdentity(review.plan);
+      const renewed=await reverifySelectedIdentity(review.plan);
+      initial={...initial,recipientSnapshotId:renewed?.snapshotId};
       if(readMainnetJournal(address,storageForMainnet()).kind!=='empty')
         throw new Error('Earlier transaction record exists. Do not resubmit.');
       if(!writeMainnetJournal(initial,storageForMainnet()))
         throw new Error('Cannot persist payment lock. Signing disabled.');
-      setJournal(initial);
+      wroteJournal=true;setJournal(initial);
       const hash=await requestMainnetCanaryTransfer(await provider(),review.plan,()=>{requested=true;});
       const next:MainnetJournal={...initial,hash,stage:'PENDING'};
       setJournal(next);setHashInput(hash);
       recordLocalOperation({type:'Pay',hash,owner:address,amount:review.plan.amount,asset:'USDC',chainId:5042,
        status:'SUBMITTED',destination:review.plan.to,
        note:sharedDraft?.note?.trim().slice(0,120)||undefined,
-       recipientLabel:idSelection?'@'+idSelection.veyraHandle+'.veyra':undefined});
+       recipientLabel:idSelection?'@'+idSelection.veyraHandle+'.veyra':undefined,
+       recipientSnapshotId:initial.recipientSnapshotId});
       if(!writeMainnetJournal(next,storageForMainnet()))
         setError('Payment submitted but hash storage failed. Keep this hash and do not retry: '+hash);
     }catch(e){
       const rejected=typeof e==='object'&&e!==null&&'code' in e&&(e.code===4001||e.code==='ACTION_REJECTED');
       if(!requested||rejected){
-        if(clearMainnetJournal(initial.from,storageForMainnet()))setJournal(null);
+        if(wroteJournal&&clearMainnetJournal(initial.from,storageForMainnet()))setJournal(null);
       }else{
         const unknown:MainnetJournal={...initial,stage:'UNKNOWN'};
         writeMainnetJournal(unknown,storageForMainnet());setJournal(unknown);
@@ -194,7 +205,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     let active=true;
     void saveVerifiedMainnetPayReceipt(token,{
       hash:journal.hash,note:journal.note,
-      ...(idSelection?.snapshotId?{snapshotId:idSelection.snapshotId}:{}),
+      ...(journal.recipientSnapshotId?{snapshotId:journal.recipientSnapshotId}:{}),
     }).then(()=>{
       if(!active)return;
       setReceiptSync('saved');

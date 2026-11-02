@@ -1,6 +1,6 @@
 import {describe,it,expect,afterEach,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
-import {validVerifiedRecipient,type VerifiedMainnetRecipient} from '../mainnet/verifiedRecipient';
+import {validVerifiedRecipient,isSameVerifiedPaymentReceiver,type VerifiedMainnetRecipient} from '../mainnet/verifiedRecipient';
 import {readBridgeQuoteAmounts} from '../mainnet/bridgeQuoteGuard';
 import {readLocalOperations,recordLocalOperation} from '../mainnet/localOperations';
 const src=(p:string)=>readFileSync(new URL('../'+p,import.meta.url),'utf8');
@@ -16,10 +16,17 @@ describe('Server-verifiable Veyra ID send safety',()=>{
   expect(validVerifiedRecipient(v,a,b,Date.parse('2036-01-01'))).toBe(false);
   expect(validVerifiedRecipient({...v,veyraUserId:'fake'},a,b,Date.parse('2034-01-01'))).toBe(false);
  });
+ it('refreshes an expired ID only for the exact same person and receiving wallet',()=>{
+  const next={...v,snapshotId:'snp_ABCDEFGHJKLMNPQ',reviewToken:'new-review-token',expiresAt:'2036-01-01T00:00:00Z'};
+  expect(isSameVerifiedPaymentReceiver(v,next)).toBe(true);
+  expect(isSameVerifiedPaymentReceiver(v,{...next,wallet:a})).toBe(false);
+  expect(isSameVerifiedPaymentReceiver(v,{...next,walletId:'wlt_DIFFERENT'})).toBe(false);
+  expect(isSameVerifiedPaymentReceiver(v,{...next,veyraUserId:'usr_OTHERPERSONABCDE'})).toBe(false);
+ });
  it('runs server recipient verification before journal write and wallet request',()=>{
   const pay=src('components/pages/MainnetPayPage.tsx');
   const start=pay.indexOf('async function send()');
-  const verify=pay.indexOf('await reverifySelectedIdentity(review.plan)',start);
+  const verify=pay.indexOf('const renewed=await reverifySelectedIdentity(review.plan)',start);
   const journal=pay.indexOf('writeMainnetJournal(initial',start);
   const send=pay.indexOf('requestMainnetCanaryTransfer',start);
   expect(verify).toBeGreaterThan(start);

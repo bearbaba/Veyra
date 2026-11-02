@@ -54,7 +54,8 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
      const p=journal.value;
      if(!readLocalOperations(owner).some(v=>v.type==='Pay'&&v.hash.toLowerCase()===p.hash?.toLowerCase()))
       recordLocalOperation({owner,hash:p.hash!,type:'Pay',amount:p.amount,asset:'USDC',
-       chainId:5042,destination:p.to,status:'SUBMITTED',note:p.note,recipientLabel:p.recipientLabel});
+       chainId:5042,destination:p.to,status:'SUBMITTED',note:p.note,recipientLabel:p.recipientLabel,
+       recipientSnapshotId:p.recipientSnapshotId});
     }
     const contract=readSettlementIntent(owner);
     if(contract.kind==='active'&&contract.value.phase==='PAYMENT'&&contract.value.hash){
@@ -150,7 +151,8 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
   for(const v of pending)syncAttempted.current.add(address.toLowerCase()+':'+token+':'+v.hash.toLowerCase());
   void Promise.all(pending.map(async v=>{
    try{
-    await saveVerifiedMainnetPayReceipt(token,{hash:v.hash,note:v.note});
+    await saveVerifiedMainnetPayReceipt(token,{hash:v.hash,note:v.note,
+      ...(v.recipientSnapshotId?{snapshotId:v.recipientSnapshotId}:{})});
     return true;
    }catch{return false;}
   })).then(results=>{

@@ -16,3 +16,11 @@ export function validVerifiedRecipient(v:VerifiedMainnetRecipient,owner:string,r
  typeof v.reviewToken==='string'&&v.reviewToken.length>0&&
  Number.isFinite(Date.parse(v.expiresAt))&&Date.parse(v.expiresAt)>now;
 }
+
+export function isSameVerifiedPaymentReceiver(old:VerifiedMainnetRecipient,now:VerifiedMainnetRecipient):boolean{
+ return old.owner.toLowerCase()===now.owner.toLowerCase()&&
+ old.wallet.toLowerCase()===now.wallet.toLowerCase()&&
+ old.walletId===now.walletId&&old.veyraUserId===now.veyraUserId&&
+ old.veyraHandle.toLowerCase()===now.veyraHandle.toLowerCase()&&
+ validVerifiedRecipient(now,old.owner,old.wallet);
+}
