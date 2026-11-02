@@ -1,57 +1,27 @@
 /** People is backed by signed identity; local contacts are never portrayed as verified. */
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useState} from 'react';
 import {useAccount} from 'wagmi';
-import {isAddress} from 'viem';
-import {UserRoundCheck,Search,Send,ShieldAlert,RefreshCw} from 'lucide-react';
+import {UserRoundCheck,Send,ShieldAlert,Copy} from 'lucide-react';
 import {useUnifiedSocial,friendLabel} from '../../features/social/UnifiedSocial';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
 import {MainnetContactsPage} from './MainnetContactsPage';
-import {preparePaymentRecipient,verifyPaymentRecipient} from '@/lib/api/identityApi';
-import {validVerifiedRecipient,type VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
-const HANDLE=/^@?[a-z0-9_-]{2,32}(?:\.veyra)?$/i;
+import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
+import {MainnetRecipientSearch} from '../identity/MainnetRecipientSearch';
+import type {RecipientSearchResult} from '@/mainnet/recipientLookup';
 export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
  onPayVerified:(value:VerifiedMainnetRecipient)=>void;onPayWallet:(wallet:string)=>void;
 }){
  const {address}=useAccount(),social=useUnifiedSocial();
- const [name,setName]=useState(''),[busy,setBusy]=useState(false);
- const searchEpoch=useRef(0);
- const [error,setError]=useState<string|null>(null);
+ const [friendLookup,setFriendLookup]=useState('');
  const [selected,setSelected]=useState<VerifiedMainnetRecipient|null>(null);
+ const [walletTarget,setWalletTarget]=useState<string|null>(null);
  const [friendActionBusy,setFriendActionBusy]=useState(false);
  const [friendActionError,setFriendActionError]=useState<string|null>(null);
- useEffect(()=>{
-  // A wallet/session change invalidates any previous async recipient lookup.
-  searchEpoch.current++;setBusy(false);setSelected(null);setError(null);setFriendActionError(null);
- },[address,social.session?.token]);
+ useEffect(()=>{setSelected(null);setWalletTarget(null);setFriendActionError(null);},[address,social.session?.token]);
  const ready=!!address&&social.identityOrigin==='ready'&&!!social.session?.token;
- async function find(value=name){
-  if(!ready||!address||!social.session?.token)return;
-  if(!HANDLE.test(value.trim())){
-   searchEpoch.current++;setBusy(false);setSelected(null);
-   setError('Enter a complete Veyra ID such as @alex.veyra.');return;
-  }
-  const epoch=++searchEpoch.current;
-  setBusy(true);setSelected(null);setError(null);
-  try{
-   const normalized='@'+value.trim().replace(/^@/,'').replace(/\.veyra$/i,'')+'.veyra';
-   const data=await preparePaymentRecipient(normalized,5042,social.session.token);
-   if(epoch!==searchEpoch.current)return;
-   if(data.kind!=='VEYRA_IDENTITY'||data.chainId!==5042||!data.snapshot||
-       !isAddress(data.resolvedAddress))
-    throw Error('This Veyra ID does not have a server-verified Arc Mainnet receiving wallet.');
-   const x=data.snapshot;
-   const verified:VerifiedMainnetRecipient={owner:address,wallet:data.resolvedAddress,
-    walletId:x.walletId,veyraUserId:x.veyraUserId,veyraHandle:x.veyraHandle,
-    displayName:x.displayName,snapshotId:x.snapshotId,reviewToken:x.reviewToken,expiresAt:x.expiresAt};
-   if(!validVerifiedRecipient(verified,address,data.resolvedAddress))
-    throw Error('The recipient snapshot is invalid or expired. Please look up this ID again.');
-   // This call is read-only and rechecked again at payment review + before wallet signing.
-   await verifyPaymentRecipient({snapshotId:verified.snapshotId,expectedWalletId:verified.walletId,
-    expectedWalletAddress:verified.wallet,expectedChainId:5042,reviewToken:verified.reviewToken},social.session.token);
-   if(epoch===searchEpoch.current)setSelected(verified);
-  }catch(e){if(epoch===searchEpoch.current)setError((e instanceof Error?e.message:'Veyra recipient unavailable')+
-    ' No recipient was selected or money sent. Mainnet ID Pay requires an approved backend.');}
-  finally{if(epoch===searchEpoch.current)setBusy(false);}
+ function select(result:RecipientSearchResult|null){
+  setSelected(result?.kind==='veyra'?result.person:null);
+  setWalletTarget(result?.kind==='wallet'?result.wallet:null);
  }
  const relation=selected?social.friends.find(x=>x.veyraUserId===selected.veyraUserId):undefined;
  async function connectSelected(){
@@ -85,37 +55,32 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
      <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>{'@'+social.session.profile.veyraHandle+'.veyra'}</p>
      <p className="text-xs" style={{color:'var(--muted)'}}>Wallet-authenticated profile · {address?.slice(0,8)}…{address?.slice(-5)}</p>
     </div>
-    <span className="text-xs" style={{color: 'var(--muted)'}}>X: {social.session.profile.x?.xHandle?'@'+social.session.profile.x.xHandle:'Not linked'}</span>
+    <div className="flex flex-col items-end gap-2 text-xs" style={{color:'var(--muted)'}}>
+     <span>{social.session.profile.x?.xHandle?'X account linked · @'+social.session.profile.x.xHandle:'X · not linked'}</span>
+     <button type="button" className="inline-flex items-center gap-1 font-semibold" style={{color:'var(--accent)'}}
+      onClick={()=>void navigator.clipboard?.writeText('https://veyra-seven-beta.vercel.app/?veyra='+encodeURIComponent('@'+social.session!.profile.veyraHandle+'.veyra'))}>
+      <Copy className="size-3.5"/>Copy profile link
+     </button>
+    </div>
    </div>
   </section>:<VeyraIdentityAccess/>}
   {ready&&<section className="rounded-xl border p-4 sm:p-5" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
-   <h2 className="text-base font-semibold" style={{color:'var(--ink)'}}>Find by Veyra ID</h2>
-   <div className="mt-3 flex flex-wrap gap-2">
-    <input aria-label="Find Veyra ID" value={name} onChange={e=>{searchEpoch.current++;setBusy(false);setName(e.target.value);setSelected(null);setError(null);}}
-     placeholder="@friend.veyra" maxLength={40} autoComplete="off"
-     className="min-w-0 flex-1 rounded-xl border px-3 py-3 text-sm"
-     style={{borderColor:'var(--border)',background:'var(--surface-raised)',color:'var(--ink)'}}/>
-    <button type="button" disabled={busy} onClick={()=>void find()}
-     className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-40"
-     style={{background:'var(--accent)',color:'#0d1b2f'}}>{busy?<RefreshCw className="size-4 animate-spin"/>:<Search className="size-4"/>}Verify</button>
-   </div>
-   {error&&<p role="alert" className="mt-3 text-sm" style={{color:'var(--warning)'}}>{error}</p>}
-   {selected&&<div className="mt-4 rounded-xl border p-4" style={{borderColor:'var(--border-strong)'}}>
-    <p className="font-semibold" style={{color:'var(--ink)'}}>{'@'+selected.veyraHandle+'.veyra'}</p>
-    <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Receiving wallet verified for this request. Review the full address before signing.</p>
-    <p className="mt-3 break-all font-mono text-sm" style={{color:'var(--ink)'}}>{selected.wallet}</p>
-    <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>Snapshot expires {new Date(selected.expiresAt).toLocaleTimeString()}. Recipient will be rechecked before signing.</p>
-    <div className="mt-3 flex flex-wrap gap-2">
-     <button type="button" onClick={()=>onPayVerified(selected)} className="flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
-      style={{background:'var(--accent)',color:'#0d1b2f'}}><Send className="size-4"/>Send USDC</button>
-     {selected.veyraUserId!==social.session?.profile.veyraUserId&&
-      <button type="button" disabled={friendActionBusy||!!relation}
-       onClick={()=>void connectSelected()} className="rounded-lg border px-4 py-3 text-sm font-semibold disabled:opacity-50"
-       style={{borderColor:'var(--border)',color:'var(--ink)'}}>
-       {relation?.state==='CONNECTED'?'Friends':relation?.state==='OUTGOING_PENDING'?'Invitation sent':
-        relation?.state==='INCOMING_PENDING'?'Respond below':'Add friend'}
-      </button>}
-    </div>
+   <MainnetRecipientSearch owner={address} sessionToken={social.session?.token} initialQuery={friendLookup}
+     label="Find a Veyra ID, X handle or wallet" onSelection={select}/>
+   {(selected||walletTarget)&&<div className="mt-3 flex flex-wrap gap-2">
+    {selected&&<button type="button" onClick={()=>onPayVerified(selected)}
+     className="inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
+     style={{background:'var(--accent)',color:'#0d1b2f'}}><Send className="size-4"/>Send USDC</button>}
+    {walletTarget&&<button type="button" onClick={()=>onPayWallet(walletTarget)}
+     className="inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
+     style={{background:'var(--accent)',color:'#0d1b2f'}}><Send className="size-4"/>Send to wallet</button>}
+    {selected&&selected.veyraUserId!==social.session?.profile.veyraUserId&&
+     <button type="button" disabled={friendActionBusy||!!relation} onClick={()=>void connectSelected()}
+      className="rounded-lg border px-4 py-3 text-sm font-semibold disabled:opacity-50"
+      style={{borderColor:'var(--border)',color:'var(--ink)'}}>
+      {relation?.state==='CONNECTED'?'Friends':relation?.state==='OUTGOING_PENDING'?'Invitation sent':
+       relation?.state==='INCOMING_PENDING'?'Respond below':'Add friend'}
+     </button>}
    </div>}
    {friendActionError&&<p role="alert" className="mt-3 text-sm" style={{color:'var(--warning)'}}>{friendActionError}</p>}
    <div className="mt-5 border-t pt-4" style={{borderColor:'var(--border)'}}>
@@ -139,7 +104,7 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
     {social.friends.filter(x=>x.state==='CONNECTED').length===0?
       <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>{social.friendsHasMore?'No connected friends on this page. Load more to find your contacts.':'No connected friends yet. Find a Veyra ID and send an invitation.'}</p>:
       <div className="mt-2 space-y-2">{social.friends.filter(x=>x.state==='CONNECTED').map(x=><button key={x.veyraUserId}
-       onClick={()=>{if(!x.veyraHandle)return;const id=friendLabel(x);searchEpoch.current++;setName(id);void find(id);}}
+       onClick={()=>{if(!x.veyraHandle)return;setFriendLookup(friendLabel(x));}}
        disabled={!x.veyraHandle} type="button"
        className="flex w-full items-center justify-between rounded-lg border px-3 py-3 text-sm disabled:opacity-50"
        style={{borderColor:'var(--border)',color:'var(--ink)'}}>{friendLabel(x)}<span style={{color:'var(--accent)'}}>
