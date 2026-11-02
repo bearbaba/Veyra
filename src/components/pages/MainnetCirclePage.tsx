@@ -27,8 +27,8 @@ const TOKENS={USDC:ARC_VERIFIED_ASSETS.USDC.contractAddress,
 const TRANSFER=parseAbi(['event Transfer(address indexed from,address indexed to,uint256 value)']);
 const HASH=/^0x[0-9a-fA-F]{64}$/;
 declare const __VEYRA_RELEASE_ENV__:string;
-const BRIDGE_WRITE_ENABLED=__VEYRA_RELEASE_ENV__==='preview' ||
- (__VEYRA_RELEASE_ENV__==='production' && import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_WRITE_ENABLED==='1');
+const BRIDGE_WRITE_ENABLED=__VEYRA_RELEASE_ENV__==='production' &&
+ import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_WRITE_ENABLED==='1';
 type Mode='swap'|'bridge';
 type Token='USDC'|'EURC';
 export type ExchangeExecutionSelection={fromChainId:number;toChainId:number;fromToken:Token;toToken:Token};
@@ -172,6 +172,8 @@ export function MainnetCirclePage({mode,selection,embedded=false}:{mode:Mode;sel
   lock.current=true;setBusy(true);setError('');setProof('');
   let saved=false;
   try{
+   if(__VEYRA_RELEASE_ENV__!=='production')
+    throw Error('Preview is read-only for real Mainnet Exchange. No wallet signature requested.');
    assertMainnetSigningAllowed();
    if(mode==='swap'){
     assertArcSwapCandidate(quote.source,TOKENS[quote.fromToken]);
