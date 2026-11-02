@@ -158,8 +158,12 @@ export function MainnetPayHub({
      </div>:
      <>
       <MainnetRecipientSearch key={owner} owner={address} sessionToken={social.session?.token}
-       initialQuery={draft.recipient} label="Who are you paying?"
-       onSelection={resolveSelected}/>
+       initialQuery="" label="Who are you paying?" onSelection={resolveSelected}
+       onQueryEdit={()=>{
+        if(!address||locked)return;
+        const next={...readPayDraft(owner),recipient:'',amount:''};
+        setDraftHolder({owner,value:next});writePayDraft(owner,next);setLocalVerified(null);
+       }}/>
       {draft.recipient&&<p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
         Recipient: {draft.recipient.slice(0,10)}…{draft.recipient.slice(-6)} · direct wallet transfer (not a verified Veyra ID)
        </p>}
