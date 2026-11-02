@@ -448,13 +448,23 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
   const { writeContractAsync: writeApprove, isPending: approving } = useWriteContract();
   const { writeContractAsync: writeSettle, isPending: settling } = useWriteContract();
 
-  const { isSuccess: approveConfirmed } = useWaitForTransactionReceipt({ hash: approveTxHash });
+  const { data: approveReceipt, isSuccess: approveConfirmed } = useWaitForTransactionReceipt({ hash: approveTxHash });
   const { data: settleReceipt, isSuccess: settleConfirmed } =
     useWaitForTransactionReceipt({ hash: settleTxHash });
 
   // ── approve auto-advance + gas price refresh ─────────────────────────────────
   useEffect(() => {
-    if (!approveConfirmed || step !== 'approve' || !approveTxHash) return;
+    if (!approveConfirmed || !approveReceipt || step !== 'approve' || !approveTxHash) return;
+    if(approveReceipt.status!=='success'){
+      if(isMainnet&&address){
+        const journal=readSettlementIntent(address);
+        if(journal.kind==='active'&&journal.value.phase==='APPROVAL'&&
+           journal.value.hash?.toLowerCase()===approveTxHash.toLowerCase())
+          writeSettlementIntent({...journal.value,stage:'REVERTED'});
+      }
+      setErrorMsg('The original token approval reverted. No payment was submitted.');
+      setStep('error');return;
+    }
     // Refresh gas price after approval so pay-step estimate reflects current price
     if (publicClient) {
       publicClient.getGasPrice()
@@ -470,7 +480,7 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
       }
     }
     setStep('review');
-  }, [approveConfirmed, step, approveTxHash, publicClient, refetchAllowance, isMainnet, address]);
+  }, [approveConfirmed, approveReceipt, step, approveTxHash, publicClient, refetchAllowance, isMainnet, address]);
 
   // ── receipt verification (delegates to @/lib/settlementVerify) ───────────────
   useEffect(() => {
