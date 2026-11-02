@@ -114,6 +114,9 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     if(!address||blocked||lock.current)return;
     lock.current=true;setBusy(true);setError(null);setReview(null);
     try {
+      const queued=readReceiptOutbox(address,storageForReceiptOutbox());
+      if(queued.kind!=='ready'||queued.items.length>=60)
+       throw Error('Receipt storage needs attention before signing another payment.');
       const plan=buildMainnetPayPlan(address,recipient.trim(),amount.trim());
       const preflight=await mainnetPreflight(await provider(),plan);
       await reverifySelectedIdentity(plan);
@@ -132,6 +135,9 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     let requested=false,wroteJournal=false;
     try {
       const renewed=await reverifySelectedIdentity(review.plan);
+      const queued=readReceiptOutbox(address,storageForReceiptOutbox());
+      if(queued.kind!=='ready'||queued.items.length>=60)
+       throw Error('Receipt queue is unavailable or full. No wallet transfer requested.');
       initial={...initial,recipientSnapshotId:renewed?.snapshotId};
       if(readMainnetJournal(address,storageForMainnet()).kind!=='empty')
         throw new Error('Earlier transaction record exists. Do not resubmit.');
