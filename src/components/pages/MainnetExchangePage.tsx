@@ -181,7 +181,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
  useEffect(()=>{
   setAcrossQuote(null);setQuoteProblem('');setAcrossAmount('');
  },[pairKey,address,social.session?.token]);
- useEffect(()=>{const t=window.setInterval(()=>setQuoteRefresh(v=>v+1),1000);
+ useEffect(()=>{const t=window.setInterval(()=>setQuoteRefresh(Date.now()),1000);
   return()=>window.clearInterval(t);},[]);
  async function getAcrossQuote(){
   if(route.kind!=='quote-only'||!address||!social.session?.token||locked)return;
@@ -310,9 +310,9 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
     <p className="text-xs">Provider steps: {acrossQuote.steps.join(' → ')} · {acrossQuote.walletConfirmations??'Unknown'} potential wallet confirmation(s)</p>
     <p className="text-xs">Estimated time: {acrossQuote.estimatedSeconds===null?'Not available':acrossQuote.estimatedSeconds+' seconds'}</p>
     <p className="text-xs">Expires: {new Date(acrossQuote.expiresAt).toLocaleTimeString()}</p>
-    <p className="text-xs" style={{color:acrossQuote.expiresAt<=Date.now()?'var(--warning)':'var(--muted)'}}>
-     {acrossQuote.expiresAt<=Date.now()?'Quote expired; request another before reviewing.':'Execution is disabled until spender, wallet approval and destination proof pass acceptance.'}
-     {quoteRefresh<0?'':''}
+    <p className="text-xs" style={{color:acrossQuote.expiresAt<=quoteRefresh?'var(--warning)':'var(--muted)'}}>
+     {acrossQuote.expiresAt<=quoteRefresh?'Quote expired; request another before reviewing.':'Execution is disabled until spender, wallet approval and destination proof pass acceptance.'}
+
     </p>
    </div>}
   </section>}
