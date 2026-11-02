@@ -296,6 +296,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
        task.stage==='SOURCE_UNKNOWN'?'Wallet outcome uncertain · never resubmit the source transaction automatically':
        task.stage==='REFUND_PENDING'?'Refund processing · verify where funds return':
        task.stage==='REFUNDED'?'Refund recorded · inspect original proof':
+       task.stage==='SOURCE_REVERTED'?'Original source transaction reverted onchain · no Exchange output was sent. Open Exchange to review a new request.':
        'Exchange task is being tracked · do not create a duplicate request.'}
      </p>
      {task.holdingToken&&<p className="mt-1 text-xs" style={{color:'var(--warning)'}}>
