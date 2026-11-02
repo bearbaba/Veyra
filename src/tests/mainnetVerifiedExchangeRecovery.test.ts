@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {createExchangeIntent,advanceExchangeIntent,readExchangeIntents,type ExchangeIntent} from '../mainnet/exchangeIntentJournal';
-import {recordVerifiedExchangeProof} from '../mainnet/recordVerifiedExchangeProof';
+import {recordVerifiedExchangeProof,recordVerifiedSourceRevert} from '../mainnet/recordVerifiedExchangeProof';
 const owner='0x1111111111111111111111111111111111111111',other='0x2222222222222222222222222222222222222222';
 const id='123e4567-e89b-12d3-a456-426614174000',source='0x'+'a'.repeat(64),dest='0x'+'b'.repeat(64);
 function store(){const data=new Map<string,string>();return {
@@ -52,6 +52,26 @@ describe('Verified Exchange proof is committed only after independent chain chec
   const broken={...s,setItem:(_key:string,_value:string)=>{throw Error('Quota');}};
   expect(recordVerifiedExchangeProof(proof,broken)).toMatchObject({kind:'blocked'});
   expect(readExchangeIntents(owner,s).items[0].stage).toBe('SOURCE_CONFIRMED');
+ });
+ it('only an onchain-reverted original Swap source may close and unlock the journal',()=>{
+  const s=store();
+  const swap={...seed,mode:'swap' as const,fromChainId:5042,toChainId:5042,
+   tokenIn:'USDC',tokenOut:'EURC'};
+  expect(createExchangeIntent(swap,s)).toBe(true);
+  expect(advanceExchangeIntent(owner,id,'AWAITING_WALLET',{},s)).toBe(true);
+  expect(advanceExchangeIntent(owner,id,'SOURCE_UNKNOWN',{},s)).toBe(true);
+  expect(recordVerifiedSourceRevert({owner,intentId:id,sourceHash:source,chainId:5042,
+   sourceToken:'USDC',checkedAt:1200},s)).toEqual({kind:'recorded'});
+  expect(readExchangeIntents(owner,s).items[0]).toMatchObject({stage:'SOURCE_REVERTED',sourceHash:source});
+  expect(createExchangeIntent({...swap,id:'123e4567-e89b-12d3-a456-426614174002'},s)).toBe(true);
+  expect(recordVerifiedExchangeProof({...proof,sourceChainId:5042,
+   destinationChainId:5042,destinationToken:'EURC'},s)).toMatchObject({kind:'blocked'});
+ });
+ it('never marks a burned Bridge source as refunded merely because the destination reverted',()=>{
+  const s=init('SOURCE_SUBMITTED');
+  expect(recordVerifiedSourceRevert({owner,intentId:id,sourceHash:source,
+   chainId:8453,sourceToken:'USDC',checkedAt:1500},s)).toMatchObject({kind:'blocked'});
+  expect(readExchangeIntents(owner,s).items[0].stage).toBe('SOURCE_SUBMITTED');
  });
  it('rejects duplicate completed hashes with substituted destination proof',()=>{
   const s=init();
