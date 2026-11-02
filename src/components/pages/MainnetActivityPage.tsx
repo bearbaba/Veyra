@@ -30,18 +30,21 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const {address}=useAccount();
  const social=useUnifiedSocial();
  const [serverReceipts,setServerReceipts]=useState<MainnetPayServerReceipt[]>([]);
+ const [serverReceiptScope,setServerReceiptScope]=useState('');
  const [serverHistoryStatus,setServerHistoryStatus]=useState<'unavailable'|'checking'|'ready'>('unavailable');
  const [entries,setEntries]=useState<LocalOperation[]>([]);
+ const [localOwner,setLocalOwner]=useState('');
  const [states,setStates]=useState<Record<string,OperationInspection>>({});
  const [syncing,setSyncing]=useState(false);
  const [unknownSettlement,setUnknownSettlement]=useState(false);
  const [filter,setFilter]=useState<'All'|'Send'|'Swap'|'Bridge'>('All');
  const verifiedCache=useRef(new Map<string,{checked:number;state:OperationInspection}>());
  const [queuedReceipts,setQueuedReceipts]=useState<ReceiptOutboxItem[]>([]);
+ const [queuedOwner,setQueuedOwner]=useState('');
  const [outboxBlocked,setOutboxBlocked]=useState(false);
  useEffect(()=>{
   let active=true,working=false;
-  verifiedCache.current.clear();setEntries([]);setStates({});setUnknownSettlement(false);
+  verifiedCache.current.clear();setLocalOwner('');setEntries([]);setStates({});setUnknownSettlement(false);
   if(!address)return;
   const owner=address;
   async function update(){
@@ -67,7 +70,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       !contract.value.hash&&['AWAITING_WALLET','UNKNOWN'].includes(contract.value.stage));
     const list=readLocalOperations(owner);
     if(!active)return;
-    setEntries(list);
+    setEntries(list);setLocalOwner(owner.toLowerCase());
     for(let i=0;i<list.length&&active;i+=3){
      const batch=list.slice(i,i+3);
      const outcome=await Promise.all(batch.map(async v=>{
@@ -114,7 +117,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
    window.removeEventListener('veyra:mainnet:operation',onChange);};
  },[address]);
  useEffect(()=>{
-  setServerReceipts([]);setServerHistoryStatus('unavailable');
+  setServerReceipts([]);setServerReceiptScope('');setServerHistoryStatus('unavailable');
   const token=social.session?.token;
   if(!address||!token||social.identityOrigin!=='ready')return;
   const controller=new AbortController();
@@ -125,7 +128,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
    setServerHistoryStatus(previous=>previous==='ready'?'ready':'checking');
    try{
     const records=await listVerifiedMainnetPayReceipts(token!,controller.signal);
-    if(active){setServerReceipts(records);setServerHistoryStatus('ready');}
+    if(active){setServerReceipts(records);setServerReceiptScope(address!.toLowerCase()+':'+token);setServerHistoryStatus('ready');}
    }catch{if(active)setServerHistoryStatus('unavailable');}
    finally{fetching=false;}
   }
@@ -140,14 +143,14 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  },[address,social.session?.token,social.identityOrigin]);
  // Read-only outbox view. The app-scoped worker exclusively performs idempotent uploads.
  useEffect(()=>{
-  setQueuedReceipts([]);setOutboxBlocked(false);
+  setQueuedOwner('');setQueuedReceipts([]);setOutboxBlocked(false);
   if(!address)return;
   let active=true;
   const owner=address;
   const refresh=()=>{
    const queue=readReceiptOutbox(owner,storageForReceiptOutbox());
    if(!active)return;
-   setQueuedReceipts(queue.kind==='ready'?queue.items:[]);
+   setQueuedReceipts(queue.kind==='ready'?queue.items:[]);setQueuedOwner(owner.toLowerCase());
    setOutboxBlocked(queue.kind==='blocked');
   };
   refresh();
@@ -164,10 +167,16 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
    window.removeEventListener('veyra:mainnet:server-receipt',refresh);
    window.removeEventListener('focus',refresh);window.removeEventListener('storage',storageChange);};
  },[address]);
- const verifiedRemote=filter==='All'||filter==='Send'?serverReceipts:[];
- const remoteHashes=new Set(serverReceipts.map(r=>r.txHash.toLowerCase()));
+ const scopedReceipts=address&&social.session?.token&&
+   serverReceiptScope===address.toLowerCase()+':'+social.session.token?serverReceipts:[];
+ const scopedEntries=address&&localOwner===address.toLowerCase()?entries:[];
+ const scopedStates=address&&localOwner===address.toLowerCase()?states:{};
+ const scopedQueue=address&&queuedOwner===address.toLowerCase()?queuedReceipts:[];
+ const scopedOutboxBlocked=address&&queuedOwner===address.toLowerCase()?outboxBlocked:false;
+ const verifiedRemote=filter==='All'||filter==='Send'?scopedReceipts:[];
+ const remoteHashes=new Set(scopedReceipts.map(r=>r.txHash.toLowerCase()));
  // Server-verified payment appears ONCE, even when there is a browser journal pointer.
- const shown=entries.filter(v=>!((v.type==='Pay')&&remoteHashes.has(v.hash.toLowerCase()))&&
+ const shown=scopedEntries.filter(v=>!((v.type==='Pay')&&remoteHashes.has(v.hash.toLowerCase()))&&
    (filter==='All'||(filter==='Send'?(v.type==='Pay'||v.type==='Settlement'):v.type===filter)));
  return <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
   <header className="flex flex-wrap items-center justify-between gap-3">
@@ -182,7 +191,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     {syncing&&<RefreshCw className="size-4 animate-spin"/>}{syncing?'Checking wallet receipts…':'Wallet payments auto-checked'}
    </span>}
   </header>
-  {address&&unknownSettlement&&<div role="alert" className="rounded-xl border p-4 text-sm"
+  {address&&localOwner===address.toLowerCase()&&unknownSettlement&&<div role="alert" className="rounded-xl border p-4 text-sm"
      style={{borderColor:'var(--border)',color:'var(--warning)'}}>
      A previous contract wallet request has no returned transaction hash. Its outcome is unknown.
      Veyra will not resubmit the payment automatically. Check the original request in your wallet.
@@ -201,15 +210,15 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     <button type="button" onClick={onPay} className="rounded-xl px-4 py-2 text-xs font-bold"
      style={{background:'var(--accent)',color:'#0d1b2f'}}>New payment</button>
    </div>
-   {(social.session||queuedReceipts.length>0||outboxBlocked)&&
+   {(social.session||scopedQueue.length>0||scopedOutboxBlocked)&&
     <div className="flex flex-wrap items-center justify-between gap-2 text-xs" style={{color:'var(--muted)'}}>
-     <span>{outboxBlocked?'Local receipt recovery storage needs attention. Do not retry the original payment.':
-      queuedReceipts.some(x=>x.status==='review')?'Some verified transfers need receipt review; no new transfer required.':
-      queuedReceipts.length&&!social.session?.token?'Money sent · sign in to save the receipt to your account.':
-      queuedReceipts.length?'Money sent · syncing '+queuedReceipts.length+' receipt(s).':
+     <span>{scopedOutboxBlocked?'Local receipt recovery storage needs attention. Do not retry the original payment.':
+      scopedQueue.some(x=>x.status==='review')?'Some verified transfers need receipt review; no new transfer required.':
+      scopedQueue.length&&!social.session?.token?'Money sent · sign in to save the receipt to your account.':
+      scopedQueue.length?'Money sent · syncing '+scopedQueue.length+' receipt(s).':
       'Veyra account history: '+(serverHistoryStatus==='ready'?'server verified':
        serverHistoryStatus==='checking'?'loading':'offline; local history stays visible')}</span>
-     {queuedReceipts.length>0&&<button type="button" onClick={onPay}
+     {scopedQueue.length>0&&<button type="button" onClick={onPay}
       className="font-semibold" style={{color:'var(--accent)'}}>View payment receipt</button>}
     </div>}
    {verifiedRemote.length>0&&<section aria-label="Verified Veyra account receipts"
@@ -249,8 +258,8 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     </section>:
     <section className="overflow-hidden rounded-2xl border" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
      {shown.map(v=>{
-      const proof=states[id(v)],ink=color(proof);
-      const queued=queuedReceipts.find(x=>x.hash.toLowerCase()===v.hash.toLowerCase());
+      const proof=scopedStates[id(v)],ink=color(proof);
+      const queued=scopedQueue.find(x=>x.hash.toLowerCase()===v.hash.toLowerCase());
       return <article key={id(v)} className="border-b p-4 sm:p-5 last:border-0" style={{borderColor:'var(--border)'}}>
        <div className="flex flex-wrap items-start gap-3">
         <div className="flex size-9 shrink-0 items-center justify-center rounded-xl" style={{background:'var(--surface-raised)'}}>
