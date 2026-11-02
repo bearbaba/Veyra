@@ -141,6 +141,13 @@
       "when": 1793260800000,
       "tag": "0019_stablefx_owner_bound_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793610000000,
+      "tag": "0020_mainnet_direct_pay_receipts",
+      "breakpoints": true
     }
   ]
 }

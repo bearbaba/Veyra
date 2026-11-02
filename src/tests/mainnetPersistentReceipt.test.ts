@@ -15,7 +15,7 @@ describe('Mainnet Direct Pay persistent receipt input boundaries',()=>{
   for(const value of [{hash:'0x1'},{hash},null,[],{hash,note:'x'.repeat(121)},
     {hash,note:17},{hash,snapshotId:'fake'}]){
    // A valid hash alone is deliberately allowed; no untrusted names are accepted.
-   if(value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===1&&'hash' in value)
+   if(value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===1&&'hash' in value&&value.hash===hash)
     expect(parseDirectPayReceiptRequest(value).hash).toBe(hash);
    else expect(()=>parseDirectPayReceiptRequest(value)).toThrow();
   }

@@ -1,5 +1,7 @@
--- Mainnet direct USDC receipt, additive only. Run against a separately backed-up,
--- approved Mainnet PostgreSQL database. Never apply to Testnet by accident.
+-- Additive schema only. Mainnet endpoints are still guarded behind an authorized
+-- Mainnet BFF, active Arc-5042 wallet identity and chain proof.
+-- Deploy to a separate, backed-up Mainnet PostgreSQL database; schema alone
+-- does not activate any money movement or identity login.
 CREATE TABLE IF NOT EXISTS mainnet_direct_pay_receipts (
  tx_hash text PRIMARY KEY CHECK (tx_hash ~ '^0x[0-9a-f]{64}$'),
  chain_id bigint NOT NULL CHECK (chain_id=5042),
