@@ -17,6 +17,7 @@ import {recordLocalOperation} from '@/mainnet/localOperations';
 import {recordExchangeActivity} from '@/mainnet/exchangeActivity';
 import {advanceExchangeIntent,readExchangeIntents} from '@/mainnet/exchangeIntentJournal';
 import {reserveCircleExchangeBeforeSigning} from '@/mainnet/reserveCircleExchange';
+import {recordVerifiedExchangeProof} from '@/mainnet/recordVerifiedExchangeProof';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked} from '@/mainnet/verifyCctpBridgeLink';
 import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
@@ -326,19 +327,14 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    const amountOut=transferSum(receipt,receivedToken,address);
    if(amountOut<parseUnits(recovery.minimum,6))throw Error('Destination Transfer amount below reviewed minimum or mint not found.');
    if(recovery.intentId){
-    const pending=readExchangeIntents(owner);
-    const current=pending.kind==='ready'?pending.items.find(v=>v.id===recovery.intentId):null;
-    if(current?.stage==='SOURCE_UNKNOWN')
-     advanceExchangeIntent(owner,recovery.intentId,'SOURCE_SUBMITTED',{sourceHash:mode==='swap'?hash:recovery.burnHash});
-    if(current&&['SOURCE_SUBMITTED','SOURCE_UNKNOWN'].includes(current.stage))
-     advanceExchangeIntent(owner,recovery.intentId,'SOURCE_CONFIRMED',{
-      sourceHash:mode==='swap'?hash:recovery.burnHash});
-    advanceExchangeIntent(owner,recovery.intentId,'DESTINATION_VERIFIED',{
-     destinationHash:hash,
-     steps:[{stage:'source',chainId:recovery.source,token:recovery.fromToken,status:'verified',
-      hash:mode==='swap'?hash:recovery.burnHash},
-      {stage:'destination',chainId:recovery.destination,token:recovery.toToken,
-       status:'verified',hash}]});
+    const originalHash=mode==='swap'?hash:(recovery.burnHash||manualSource);
+    const commit=recordVerifiedExchangeProof({
+     owner,intentId:recovery.intentId,sourceHash:originalHash,destinationHash:hash,
+     sourceChainId:recovery.source,destinationChainId:recovery.destination,
+     sourceToken:recovery.fromToken,destinationToken:recovery.toToken,checkedAt:Date.now(),
+    });
+    if(commit.kind==='blocked')throw Error(commit.reason+
+     ' The onchain result is not lost; do not submit this transfer again.');
    }
    const r:Recovery={...recovery,status:'VERIFIED',...(mode==='swap'?{hash}:{mintHash:hash})};
    localStorage.setItem(key(mode,address),JSON.stringify(r));setRecovery(r);
