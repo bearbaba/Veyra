@@ -1,6 +1,6 @@
 import {describe,expect,it,vi} from 'vitest';
 import {isMainnetIdentityOnlyRouteAllowed} from '../../server/services/mainnetIdentityOnlyRoutes';
-import {AcrossQuoteError,isAcrossConfigured,normalizeAcrossQuote,quoteAcrossBaseWethToArcUsdc,
+import {AcrossQuoteError,authorizeAcrossQuoteWallet,isAcrossConfigured,normalizeAcrossQuote,quoteAcrossBaseWethToArcUsdc,
  validateAcrossQuoteRequest,validateAcrossTrackingResponse,
  ACROSS_BASE_WETH,ACROSS_ARC_USDC} from '../../server/services/acrossExchangeQuoteService';
 import {EXCHANGE_ASSETS,resolveExchangeRoute,exchangeAssetSupport,
@@ -19,7 +19,7 @@ const payload={
  quoteExpiryTimestamp:Math.floor(now/1000)+65,expectedFillTime:4,
  steps:{originSwap:{},bridge:{}},approvalTxns:[{chainId:8453,to:ACROSS_BASE_WETH,data:'0x'}],
  swapTx:{simulationSuccess:true,chainId:8453,to:'0x09aea4b2242abC8bb4BB78D537A67a245A7bEC64',
-  data:'0x1234'},fees:{total:'3000'},
+  data:'0x1234'},fees:{total:{amountUsd:'0.24'},originGas:{amountUsd:'0.08'}},
 };
 describe('Across candidate: server-only live quote without token impersonation or arbitrary signing',()=>{
  it('keeps unaccepted routes separate from existing Circle Swap/Bridge',()=>{
@@ -30,6 +30,15 @@ describe('Across candidate: server-only live quote without token impersonation o
   expect(hasAvailableExchangeDestination(from)).toBe(true);
   expect(resolveExchangeRoute(to,from).kind).toBe('unavailable');
   expect(exchangeAssetSupport(to,to)).toBe('unsupported');
+ });
+ it('binds quote request to active signed Veyra user and same wallet',()=>{
+  expect(authorizeAcrossQuoteWallet(owner,'usr_ABCDEFGHJKLMNPQ',{
+   userId:'usr_ABCDEFGHJKLMNPQ',walletAddress:owner.toUpperCase().replace('0X','0x')})).toBe(true);
+  expect(authorizeAcrossQuoteWallet(owner,'usr_ABCDEFGHJKLMNPQ',null)).toBe(false);
+  expect(authorizeAcrossQuoteWallet(owner,'usr_ABCDEFGHJKLMNPQ',{
+   userId:'usr_ABCDEFGHJKLMNPX',walletAddress:owner})).toBe(false);
+  expect(authorizeAcrossQuoteWallet(owner,'usr_ABCDEFGHJKLMNPQ',{
+   userId:'usr_ABCDEFGHJKLMNPQ',walletAddress:'0x2222222222222222222222222222222222222222'})).toBe(false);
  });
  it('accepts exact wallet, Base WETH and Arc USDC only',()=>{
   expect(validateAcrossQuoteRequest(selection)).toMatchObject(selection);
@@ -52,7 +61,8 @@ describe('Across candidate: server-only live quote without token impersonation o
    status:200,headers:{'content-type':'application/json'}})));
   const quote=await quoteAcrossBaseWethToArcUsdc(selection,env,fetcher,now);
   expect(quote).toMatchObject({provider:'Across',executionReady:false,
-   inputAmountRaw:amount,minimumOutputRaw:'1985000',approvalCount:1});
+   inputAmountRaw:amount,minimumOutputRaw:'1985000',approvalCount:1,
+   feeSummary:'Provider quoted fees ≈ $0.24 · origin gas ≈ $0.08'});
   expect(JSON.stringify(quote)).not.toContain('not-a-real-key');
   expect(JSON.stringify(quote)).not.toContain('swapTx');
   const requested=fetcher.mock.calls[0]?.[0];
