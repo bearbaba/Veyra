@@ -6,6 +6,7 @@ import {erc20Abi,formatUnits} from 'viem';
 import {ArrowUpRight,ArrowDownLeft,Copy,RefreshCw,Users,Clock3,Wallet,LayoutList} from 'lucide-react';
 import {getUsdc} from '@/onchain-facts';
 import {readLocalOperations,type LocalOperation} from '@/mainnet/localOperations';
+import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {isMainnetSessionForWallet,scopedMainnetReceipts} from '@/mainnet/signedWalletReceiptScope';
 import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
@@ -22,6 +23,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  const [copied,setCopied]=useState(false);
  const [copyError,setCopyError]=useState(false);
  const [operations,setOperations]=useState<LocalOperation[]>([]);
+ const [exchangeIntents,setExchangeIntents]=useState<ExchangeIntent[]>([]);
  const usdc=getUsdc(ARC);
  const {data,refetch,isError,isFetching}=useReadContract({
   address:usdc?.address as `0x${string}` | undefined,abi:erc20Abi,functionName:'balanceOf',
@@ -29,12 +31,15 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
   query:{enabled:!!address&&!!usdc,staleTime:8000,refetchInterval:15000},
  });
  useEffect(()=>{
-  if(!address){setOperations([]);return;}
-  const update=()=>setOperations(readLocalOperations(address));
+  if(!address){setOperations([]);setExchangeIntents([]);return;}
+  const update=()=>{setOperations(readLocalOperations(address));
+   const items=readExchangeIntents(address);
+   setExchangeIntents(items.kind==='ready'?items.items:[]);};
   update();
   window.addEventListener('focus',update);
+  window.addEventListener('storage',update);
   const timer=window.setInterval(update,15000);
-  return()=>{window.removeEventListener('focus',update);window.clearInterval(timer);};
+  return()=>{window.removeEventListener('focus',update);window.removeEventListener('storage',update);window.clearInterval(timer);};
  },[address]);
  useEffect(()=>{
   setAccountReceipts([]);
@@ -58,7 +63,12 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  },[address,connector?.uid,social.session?.token,social.session?.walletKey,social.identityOrigin,signedWallet]);
  const recentVerified=accountReceipts.slice(0,3);
  const knownHashes=new Set(accountReceipts.map(x=>x.txHash.toLowerCase()));
- const localRecent=operations.filter(x=>!(x.type==='Pay'&&knownHashes.has(x.hash.toLowerCase())));
+ const exchangeHashes=new Set(exchangeIntents.flatMap(task=>[
+  ...(task.sourceHash?[task.sourceHash.toLowerCase()]:[]),
+  ...(task.destinationHash?[task.destinationHash.toLowerCase()]:[])]));
+ const localRecent=operations.filter(x=>!(x.type==='Pay'&&knownHashes.has(x.hash.toLowerCase()))&&
+  !((x.type==='Swap'||x.type==='Bridge')&&exchangeHashes.has(x.hash.toLowerCase())));
+ const recentExchange=exchangeIntents.slice(0,3);
  const wrong=isConnected&&chainId!==ARC;
  const available=!address?'—':isError?'Unavailable':data!==undefined?formatUnits(data,6):'Reading…';
  const pending=operations.filter(x=>x.status==='SUBMITTED');
@@ -189,7 +199,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
     <h2 className="text-base font-bold" style={{color:'var(--ink)'}}>Recent activity</h2>
     <button onClick={()=>onNavigate('activity')} className="text-xs font-semibold" style={{color:'var(--accent)'}}>View all</button>
    </div>
-   {recentVerified.length===0&&localRecent.length===0?
+   {recentVerified.length===0&&localRecent.length===0&&recentExchange.length===0?
     <p className="mt-3 text-sm" style={{color:'var(--muted)'}}>No transactions yet. Your verified payments will appear here when account history is available.</p>:
     <div className="mt-3 divide-y" style={{borderColor:'var(--border)'}}>
      {recentVerified.map(x=><div className="flex items-center gap-3 py-3" key={'remote:'+x.txHash}>
@@ -204,7 +214,24 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
       <button type="button" onClick={()=>onNavigate('activity')} className="text-xs font-semibold"
        style={{color:'var(--accent)'}}>Receipt</button>
      </div>)}
-     {localRecent.slice(0,Math.max(0,3-recentVerified.length)).map(x=><div className="flex items-center gap-3 py-3" key={x.type+x.hash}>
+     {recentExchange.slice(0,Math.max(0,3-recentVerified.length)).map(task=>
+      <div className="flex items-center gap-3 py-3" key={'exchange:'+task.id}>
+       <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>
+         Exchange · {task.amountIn} {task.tokenIn} → {task.tokenOut}
+        </p>
+        <p className="mt-1 text-xs" style={{color:task.stage==='PARTIAL'?'var(--warning)':'var(--muted)'}}>
+         {task.stage==='DESTINATION_VERIFIED'?'Destination verified · proof in Activity':
+          task.stage==='SOURCE_REVERTED'?'Source transaction reverted onchain':
+          task.stage==='PARTIAL'?'Partially completed · recovery required':
+          task.stage==='REFUNDED'?'Refund recorded · inspect proof':
+          'Tracking original Exchange · no duplicate transfer'}
+        </p>
+       </div>
+       <button type="button" onClick={()=>onNavigate('activity')} className="text-xs font-semibold"
+        style={{color:'var(--accent)'}}>Details</button>
+      </div>)}
+     {localRecent.slice(0,Math.max(0,3-recentVerified.length-recentExchange.length)).map(x=><div className="flex items-center gap-3 py-3" key={x.type+x.hash}>
       <div className="min-w-0 flex-1"><p className="text-sm font-semibold" style={{color:'var(--ink)'}}>
        {x.type} · {x.amount} {x.asset}</p>
        <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
