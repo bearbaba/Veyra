@@ -17,7 +17,7 @@ import {recordLocalOperation} from '@/mainnet/localOperations';
 import {recordExchangeActivity} from '@/mainnet/exchangeActivity';
 import {advanceExchangeIntent,readExchangeIntents} from '@/mainnet/exchangeIntentJournal';
 import {reserveCircleExchangeBeforeSigning} from '@/mainnet/reserveCircleExchange';
-import {recordVerifiedExchangeProof} from '@/mainnet/recordVerifiedExchangeProof';
+import {recordVerifiedExchangeProof,recordVerifiedSourceRevert} from '@/mainnet/recordVerifiedExchangeProof';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked} from '@/mainnet/verifyCctpBridgeLink';
 import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
@@ -313,6 +313,14 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
       message:'Destination receipt reverted. Inspect CCTP recovery or refund; never repeat the source burn.'});
     }
     if(mode==='swap'){
+     if(recovery.intentId){
+      const savedRevert=recordVerifiedSourceRevert({
+       owner,intentId:recovery.intentId,sourceHash:hash,
+       chainId:recovery.source,sourceToken:recovery.fromToken,checkedAt:Date.now(),
+      });
+      if(savedRevert.kind==='blocked')throw Error(savedRevert.reason+
+       ' Source transaction is reverted onchain but its local journal remains locked.');
+     }
      const r:Recovery={...recovery,status:'REVERTED',hash};
      localStorage.setItem(key(mode,address),JSON.stringify(r));setRecovery(r);
     }
