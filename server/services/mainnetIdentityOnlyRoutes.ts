@@ -4,6 +4,7 @@
  */
 const allowed=new Set([
  'GET /api/health',
+ 'GET /api/health/database',
  'POST /api/identity/mainnet-capability',
  'POST /api/auth/wallet-login/challenge',
  'POST /api/auth/wallet-login/complete',

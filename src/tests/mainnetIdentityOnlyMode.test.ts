@@ -42,7 +42,7 @@ describe('Budget-friendly Mainnet ID and receipt-only deployment boundary',()=>{
    ['POST','/api/identity/verify-payment'],['GET','/api/social/friends'],
    ['POST','/api/social/friend/request'],['POST','/api/social/block'],
    ['PATCH','/api/preferences/receive'],['POST','/api/mainnet/pay/receipt/verify'],
-   ['GET','/api/mainnet/pay/receipts'],['GET','/api/health']
+   ['GET','/api/mainnet/pay/receipts'],['GET','/api/health'],['GET','/api/health/database']
   ])expect(isMainnetIdentityOnlyRouteAllowed(endpoint[0],endpoint[1])).toBe(true);
   for(const endpoint of [
    ['POST','/api/bridge/relay-receive'],['POST','/api/gateway/estimate'],
