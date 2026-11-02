@@ -1,0 +1,73 @@
+/** Exchange search catalog. Identity is chainId + exact contract, never a ticker.
+ * Catalog presence does not imply Swap/Bridge liquidity, safety or execution readiness.
+ */
+import {isAddress} from 'viem';
+import {ARC_VERIFIED_ASSETS} from '@/config/arcVerifiedAssets';
+import {MAINNET_CHAIN_CATALOG} from '@/config/mainnetCatalog';
+
+export type ExchangeAsset={
+ chainId:number;contractAddress:`0x${string}`;
+ name:string;symbol:string;decimals:number;network:string;
+ sourceUrl:string;verification:'issuer-address-reviewed';logo:'usdc'|'eurc';
+};
+const arc=[ARC_VERIFIED_ASSETS.USDC,ARC_VERIFIED_ASSETS.EURC].map(asset=>({
+ chainId:asset.chainId,contractAddress:asset.contractAddress,name:asset.name,
+ symbol:asset.symbol,decimals:asset.decimals,network:'Arc',
+ sourceUrl:asset.sourceUrl,verification:'issuer-address-reviewed' as const,
+ logo:asset.symbol==='EURC'?'eurc' as const:'usdc' as const,
+}));
+const others=MAINNET_CHAIN_CATALOG.filter(c=>c.chainId!==5042).map(chain=>({
+ chainId:chain.chainId,contractAddress:chain.usdc,name:'USD Coin',symbol:'USDC',
+ decimals:6,network:chain.name,
+ sourceUrl:'https://developers.circle.com/stablecoins/usdc-contract-addresses',
+ verification:'issuer-address-reviewed' as const,logo:'usdc' as const,
+}));
+export const EXCHANGE_ASSETS:readonly ExchangeAsset[]=[...arc,...others];
+export const exchangeAssetId=(asset:Pick<ExchangeAsset,'chainId'|'contractAddress'>)=>
+ asset.chainId+':'+asset.contractAddress.toLowerCase();
+export function exchangeAsset(chainId:number,address:string):ExchangeAsset|null{
+ if(!isAddress(address))return null;
+ return EXCHANGE_ASSETS.find(a=>a.chainId===chainId&&a.contractAddress.toLowerCase()===address.toLowerCase())??null;
+}
+export function searchExchangeAssets(query:string,network:'all'|number='all'):ExchangeAsset[]{
+ const term=query.trim().toLowerCase();
+ return EXCHANGE_ASSETS.filter(asset=>(network==='all'||asset.chainId===network)&&(
+  !term||[asset.name,asset.symbol,asset.network,asset.contractAddress,String(asset.chainId)]
+   .some(v=>v.toLowerCase().includes(term))));
+}
+export type ExchangeRoute=
+ | {kind:'swap';source:ExchangeAsset;destination:ExchangeAsset;provider:'Circle App Kit'}
+ | {kind:'bridge';source:ExchangeAsset;destination:ExchangeAsset;provider:'Circle CCTP'}
+ | {kind:'unavailable';source:ExchangeAsset;destination:ExchangeAsset;reason:string};
+export function resolveExchangeRoute(from:ExchangeAsset,to:ExchangeAsset):ExchangeRoute{
+ const source=exchangeAsset(from.chainId,from.contractAddress);
+ const destination=exchangeAsset(to.chainId,to.contractAddress);
+ const no=(reason:string):ExchangeRoute=>({kind:'unavailable',source:from,destination:to,reason});
+ if(!source||!destination)return no('Unknown or unverified contract. No route or signature is available.');
+ if(exchangeAssetId(source)===exchangeAssetId(destination))
+  return no('You selected the same asset on the same network; no exchange is needed.');
+ if(source.chainId===destination.chainId){
+  if(source.chainId===5042&&source.symbol!==destination.symbol&&
+    new Set([source.symbol,destination.symbol]).size===2&&
+    ['USDC','EURC'].includes(source.symbol)&&['USDC','EURC'].includes(destination.symbol))
+   return {kind:'swap',source,destination,provider:'Circle App Kit'};
+  return no('No independently validated same-chain Swap executor is connected for this pair yet.');
+ }
+ if(source.symbol==='USDC'&&destination.symbol==='USDC'&&
+   [source.chainId,destination.chainId].every(id=>id===5042||id===8453))
+  return {kind:'bridge',source,destination,provider:'Circle CCTP'};
+ return no(source.symbol!==destination.symbol?
+  'A cross-network Bridge + Swap needs a complete provider quote and recoverable multi-step route. Not enabled yet.':
+  'This network pair has no accepted destination-proof bridge route in Veyra yet.');
+}
+export function validateExchangeCatalog():string[]{
+ const seen=new Set<string>(),problems:string[]=[];
+ for(const asset of EXCHANGE_ASSETS){
+  const key=exchangeAssetId(asset);
+  if(seen.has(key)||!isAddress(asset.contractAddress)||!Number.isSafeInteger(asset.chainId)||
+   !Number.isSafeInteger(asset.decimals)||asset.decimals<0||asset.decimals>36||
+   !asset.sourceUrl.startsWith('https://'))problems.push('Invalid exchange asset: '+key);
+  seen.add(key);
+ }
+ return problems;
+}
