@@ -20,7 +20,7 @@ export async function syncReceiptOutboxOnce(args:{
  if(queue.kind==='blocked')return 'blocked';
  const now=args.now??Date.now();
  // A signed-out or switched account must not consume someone else's queued metadata.
- const candidates=queue.items.filter(v=>v.senderUserId===undefined||v.senderUserId===userId);
+ const candidates=queue.items.filter(v=>v.senderUserId===userId);
  if(!candidates.length)return queue.items.length?'wrong-account':'empty';
  const item=candidates.find(v=>v.status!=='review'&&v.nextAttemptAt<=now&&
    (v.status!=='sign-in'||!args.skipSignIn));
@@ -30,7 +30,8 @@ export async function syncReceiptOutboxOnce(args:{
    ...(item.snapshotId?{snapshotId:item.snapshotId}:{})},signal);
   if(signal.aborted)return 'empty';
   if(receipt.txHash.toLowerCase()!==item.hash.toLowerCase()||receipt.chainId!==5042||
-     receipt.senderAddress.toLowerCase()!==owner.toLowerCase()||receipt.direction!=='sent')
+     receipt.senderAddress.toLowerCase()!==owner.toLowerCase()||receipt.direction!=='sent'||
+     receipt.senderUserId!==userId)
    throw new MainnetReceiptSyncError('review',200,'RECEIPT_OWNER_MISMATCH');
   const removed=updateReceiptOutbox(owner,item.hash,storage,()=>null);
   if(removed)try{window.dispatchEvent(new Event('veyra:mainnet:server-receipt'));}catch{/* no UI */ }
