@@ -6,12 +6,16 @@ import {erc20Abi,formatUnits} from 'viem';
 import {ArrowUpRight,ArrowDownLeft,Copy,RefreshCw,Users,Clock3,Wallet,LayoutList} from 'lucide-react';
 import {getUsdc} from '@/onchain-facts';
 import {readLocalOperations,type LocalOperation} from '@/mainnet/localOperations';
+import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
+import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
 import type {VeyraPage} from '../layout/AppShell';
 
 const ARC=5042;
 const explorer=(hash:string,chain:number)=>chain===8453?'https://basescan.org/tx/'+hash:'https://explorer.arc.io/tx/'+hash;
 export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}){
  const {address,isConnected,chainId}=useAccount();
+ const social=useUnifiedSocial();
+ const [accountReceipts,setAccountReceipts]=useState<MainnetPayServerReceipt[]>([]);
  const [receive,setReceive]=useState(false);
  const [copied,setCopied]=useState(false);
  const [copyError,setCopyError]=useState(false);
@@ -30,6 +34,29 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
   const timer=window.setInterval(update,15000);
   return()=>{window.removeEventListener('focus',update);window.clearInterval(timer);};
  },[address]);
+ useEffect(()=>{
+  setAccountReceipts([]);
+  const token=social.session?.token;
+  if(!address||!token||social.identityOrigin!=='ready')return;
+  const controller=new AbortController();
+  let active=true;
+  async function reload(){
+   try{
+    const items=await listVerifiedMainnetPayReceipts(token!,controller.signal);
+    if(active)setAccountReceipts(items.slice(0,10));
+   }catch{/* Offline identity history falls back to local transactions without fake receipts. */}
+  }
+  void reload();
+  const handle=()=>void reload();
+  window.addEventListener('focus',handle);
+  window.addEventListener('veyra:mainnet:server-receipt',handle);
+  return()=>{active=false;controller.abort();
+   window.removeEventListener('focus',handle);
+   window.removeEventListener('veyra:mainnet:server-receipt',handle);};
+ },[address,social.session?.token,social.identityOrigin]);
+ const recentVerified=accountReceipts.slice(0,3);
+ const knownHashes=new Set(accountReceipts.map(x=>x.txHash.toLowerCase()));
+ const localRecent=operations.filter(x=>!(x.type==='Pay'&&knownHashes.has(x.hash.toLowerCase())));
  const wrong=isConnected&&chainId!==ARC;
  const available=!address?'—':isError?'Unavailable':data!==undefined?formatUnits(data,6):'Reading…';
  const pending=operations.filter(x=>x.status==='SUBMITTED');
@@ -101,21 +128,20 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
     <span>Swap and Bridge are under More · Gateway funds are not yet connected</span>
    </div>
   </section>
-  <section className="rounded-xl" aria-label="Receive wallet USDC">
-   <button type="button" onClick={()=>setReceive(v=>!v)}
-    className="flex w-full items-center justify-between rounded-xl border p-4 text-sm font-semibold"
-    style={{borderColor:'var(--border)',color:'var(--ink)',background:'var(--surface)'}}>
-    <span className="flex items-center gap-2"><ArrowDownLeft className="size-4"/> Receive USDC</span>
-    <span className="text-xs" style={{color:'var(--muted)'}}>{receive?'Close':'Show wallet address'}</span>
-   </button>
-   {receive&&<div className="mt-2 rounded-xl border p-4" style={cardStyle}>
+  {receive&&<section className="rounded-xl border p-4" style={cardStyle} aria-label="Receive USDC on Arc Mainnet">
+    <div className="flex items-center justify-between gap-3">
+     <h2 className="font-semibold" style={{color:'var(--ink)'}}>Receive USDC</h2>
+     <button type="button" onClick={()=>setReceive(false)}
+      className="text-xs font-semibold" style={{color:'var(--accent)'}}>Close</button>
+    </div>
+    <div className="mt-2">
     <p className="text-xs" style={{color:'var(--muted)'}}>Use only Arc Mainnet USDC for this displayed wallet route.</p>
     <p className="my-3 break-all font-mono text-sm" style={{color:'var(--ink)'}}>{address??'Connect wallet to receive'}</p>
     <button disabled={!address} onClick={()=>void copy()} className="flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-40"
       style={{borderColor:'var(--border)',color:'var(--ink)'}}><Copy className="size-4"/>{copied?'Copied':'Copy address'}</button>
     {copyError&&<p role="alert" className="mt-2 text-xs" style={{color:'var(--warning)'}}>Clipboard unavailable. Copy the address manually.</p>}
-   </div>}
-  </section>
+    </div>
+  </section>}
 
   {wrong&&<p role="status" className="rounded-xl px-4 py-3 text-sm" style={{background:'var(--surface)',color:'var(--warning)'}}>
    Balance shown is on Arc Mainnet. Switch your wallet to Arc Mainnet before signing; no Testnet fallback is permitted.
@@ -137,10 +163,21 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
    </div>}
    <div className={card} style={cardStyle}>
     <p className="text-base font-bold" style={{color:'var(--ink)'}}>Your people</p>
-    <p className="mt-3 text-sm font-semibold" style={{color:'var(--ink)'}}>{address?address.slice(0,7)+'…'+address.slice(-5):'Connect wallet'}</p>
-    <p className="mt-2 text-xs leading-5" style={{color:'var(--muted)'}}>
-     Local contacts are not yet verified Veyra IDs or linked X friends. Secure profile sign-in and friends are the next product milestone.
-    </p>
+    {social.session&&social.identityOrigin==='ready'?<>
+     <p className="mt-3 text-base font-semibold" style={{color:'var(--ink)'}}>
+      {'@'+social.session.profile.veyraHandle+'.veyra'}
+     </p>
+     <p className="mt-1 text-sm" style={{color:'var(--muted)'}}>
+      {social.friends.filter(x=>x.state==='CONNECTED').length} connected friends · signed-in Veyra ID
+     </p>
+    </>:<>
+     <p className="mt-3 text-sm font-semibold" style={{color:'var(--ink)'}}>
+      {address?address.slice(0,7)+'…'+address.slice(-5):'Connect wallet'}
+     </p>
+     <p className="mt-2 text-xs leading-5" style={{color:'var(--muted)'}}>
+      Connect a verified Veyra ID when the Mainnet identity backend is available. Local contacts are not verified friends.
+     </p>
+    </>}
     <button onClick={()=>onNavigate('social')} className="mt-3 text-xs font-semibold"
      style={{color:'var(--accent)'}}>People & Veyra ID</button>
    </div>
@@ -150,10 +187,22 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
     <h2 className="text-base font-bold" style={{color:'var(--ink)'}}>Recent activity</h2>
     <button onClick={()=>onNavigate('activity')} className="text-xs font-semibold" style={{color:'var(--accent)'}}>View all</button>
    </div>
-   {operations.length===0?
-    <p className="mt-3 text-sm" style={{color:'var(--muted)'}}>No transactions yet. Payments made through Veyra will appear automatically.</p>:
+   {recentVerified.length===0&&localRecent.length===0?
+    <p className="mt-3 text-sm" style={{color:'var(--muted)'}}>No transactions yet. Your verified payments will appear here when account history is available.</p>:
     <div className="mt-3 divide-y" style={{borderColor:'var(--border)'}}>
-     {operations.slice(0,3).map(x=><div className="flex items-center gap-3 py-3" key={x.type+x.hash}>
+     {recentVerified.map(x=><div className="flex items-center gap-3 py-3" key={'remote:'+x.txHash}>
+      <div className="min-w-0 flex-1">
+       <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>
+        {x.direction==='sent'?'Sent':'Received'} · {formatUnits(BigInt(x.amountRaw),6)} USDC
+       </p>
+       <p className="mt-1 text-xs" style={{color:'var(--success)'}}>
+        Verified by Veyra backend · {x.recipientLabel??'Arc Mainnet'}
+       </p>
+      </div>
+      <button type="button" onClick={()=>onNavigate('activity')} className="text-xs font-semibold"
+       style={{color:'var(--accent)'}}>Receipt</button>
+     </div>)}
+     {localRecent.slice(0,Math.max(0,3-recentVerified.length)).map(x=><div className="flex items-center gap-3 py-3" key={x.type+x.hash}>
       <div className="min-w-0 flex-1"><p className="text-sm font-semibold" style={{color:'var(--ink)'}}>
        {x.type} · {x.amount} {x.asset}</p>
        <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
