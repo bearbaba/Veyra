@@ -23,7 +23,8 @@ describe('One Exchange activity groups verified source and destination',()=>{
   expect(recordExchangeActivity(result,s)).toBe(true);
   expect(readExchangeActivities(owner,s)).toHaveLength(1);
   expect(readExchangeActivities(owner,s)[0]).toMatchObject({
-   originalHash:burn,destinationHash:mint,status:'DESTINATION_VERIFIED'});
+   originalHash:burn,destinationHash:mint,status:'DESTINATION_VERIFIED',
+   createdAt:entry.createdAt,verifiedAt:1730000005000});
   expect(readExchangeActivities(other,s)).toEqual([]);
   expect(s.getItem(exchangeActivityKey(owner,burn))).toContain(mint);
  });
