@@ -29,14 +29,23 @@ import { VEYRA_ENV } from './lib/env';
 import { UnifiedSocialProvider } from './features/social/UnifiedSocial';
 import {MainnetReceiptSyncWorker} from './mainnet/MainnetReceiptSyncWorker';
 
+const sharedVeyraProfile=()=>{
+  if(typeof window==='undefined')return '';
+  const v=new URLSearchParams(window.location.search).get('veyra')??'';
+  return /^@[a-z0-9_-]{2,32}\\.veyra$/i.test(v)?v:'';
+};
 export default function App() {
+  const [profileSearch]=useState(sharedVeyraProfile);
   // OAuth success is only a UI navigation hint; it is NEVER authentication.
   // The wallet-bound server profile will be independently restored after F5.
   const [page, setPage] = useState<VeyraPage>(()=>
-    typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('x_linked')==='1'?'settings':'home');
+    typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('x_linked')==='1'?'settings':profileSearch?'social':'home');
   useEffect(()=>{
-    if(new URLSearchParams(window.location.search).get('x_linked')==='1')
-      window.history.replaceState(window.history.state,'',window.location.pathname);
+    const params=new URLSearchParams(window.location.search);
+    if(params.has('x_linked')||params.has('veyra')){
+      params.delete('x_linked');params.delete('veyra');
+      window.history.replaceState(window.history.state,'',window.location.pathname+(params.size?'?'+params.toString():''));
+    }
   },[]);
   const [friendPayment, setFriendPayment] = useState<string | null>(null);
   const [contactRecipient, setContactRecipient] = useState<string | null>(null);
@@ -70,7 +79,7 @@ export default function App() {
       case 'settings':
         return <SettingsPage onOpenSocial={() => setPage('social')} />;
       case 'social':
-        return (VEYRA_ENV === 'mainnet' ? <MainnetPeoplePage onPayVerified={recipient=>{
+        return (VEYRA_ENV === 'mainnet' ? <MainnetPeoplePage initialQuery={profileSearch} onPayVerified={recipient=>{
             setContactRecipient(null);setVerifiedRecipient(recipient);setFriendPayment(null);setPage('pay');
           }} onPayWallet={recipient=>{
             setVerifiedRecipient(null);setContactRecipient(recipient);setFriendPayment(null);setPage('pay');
