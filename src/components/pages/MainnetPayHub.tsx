@@ -157,7 +157,7 @@ export function MainnetPayHub({
        className="mt-3 text-xs font-semibold disabled:opacity-40" style={{color:'var(--accent)'}}>Change recipient</button>
      </div>:
      <>
-      <MainnetRecipientSearch key={owner} owner={address} sessionToken={social.session?.token}
+      <MainnetRecipientSearch key={owner} owner={address} sessionToken={social.session?.token} disabled={locked}
        initialQuery="" label="Who are you paying?" onSelection={resolveSelected}
        onQueryEdit={()=>{
         if(!address||locked)return;
