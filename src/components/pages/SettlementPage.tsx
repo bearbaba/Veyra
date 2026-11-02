@@ -59,7 +59,7 @@ import {
 } from 'wagmi';
 import {
   parseUnits, isAddress, formatUnits, erc20Abi,
-  decodeEventLog, decodeFunctionData, encodeFunctionData, encodeDeployData, parseAbi, keccak256, type Log,
+  decodeEventLog, decodeFunctionData, encodeFunctionData, encodeDeployData, parseAbi, parseAbiItem, keccak256, type Log,
 } from 'viem';
 import { ConnectKitButton } from 'connectkit';
 import { AlertTriangle, CheckCircle, Clock, ExternalLink, Lock, Send, Unlock, Loader2 } from 'lucide-react';
@@ -220,6 +220,8 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
   const [step, setStep] = useState<Step>('form');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [intentState,setIntentState]=useState<ReturnType<typeof readSettlementIntent>>({kind:'empty'});
+  const [recoveryBusy,setRecoveryBusy]=useState(false);
+  const [recoveryNotice,setRecoveryNotice]=useState<string|null>(null);
   useEffect(()=>{
     const sync=()=>setIntentState(address?readSettlementIntent(address):{kind:'empty'});
     sync();
@@ -627,6 +629,105 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
     return()=>{live=false;window.clearInterval(interval);};
   },[address,chainId,publicClient,deployment?.address,activeUsdcAddress]);
 
+
+  // Recover hashless requests by indexed canonical events, never by assuming absence.
+  async function checkOriginalRequest(){
+    if(!address||!publicClient||!deployment||!isMainnet||recoveryBusy)return;
+    setRecoveryBusy(true);setRecoveryNotice(null);
+    try{
+      const saved=readSettlementIntent(address);
+      if(saved.kind!=='active'){setRecoveryNotice('No active request found.');return;}
+      const intent=saved.value;
+      if(intent.hash){
+        if(intent.phase==='PAYMENT'){
+          const proof=await inspectRecordedSettlement(intent.hash,address,intent.amount,intent.recipient);
+          if(proof.status==='VERIFIED'||proof.status==='REVERTED'){
+            writeSettlementIntent({...intent,stage:proof.status});
+            recordLocalOperation({type:'Settlement',owner:address,hash:intent.hash,
+              amount:intent.amount,asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,
+              status:proof.status==='VERIFIED'?'RECORDED':'REVERTED',destination:intent.recipient});
+            setRecoveryNotice(proof.status==='VERIFIED'?'Original payment verified.':'Original payment reverted.');
+          }else setRecoveryNotice('Original payment is pending or unverified. No new transfer was sent.');
+        }else{
+          const tx=await publicClient.getTransaction({hash:intent.hash as `0x${string}`});
+          const receipt=await publicClient.getTransactionReceipt({hash:intent.hash as `0x${string}`});
+          const call=decodeFunctionData({abi:erc20Abi,data:tx.input});
+          if(tx.from.toLowerCase()!==address.toLowerCase()||
+             tx.to?.toLowerCase()!==activeUsdcAddress.toLowerCase()||
+             call.functionName!=='approve'||call.args[0].toLowerCase()!==deployment.address.toLowerCase()||
+             call.args[1]!==parseUnits(intent.amount,6))
+            throw Error('Original approval does not match the reviewed wallet, token or amount.');
+          writeSettlementIntent({...intent,stage:receipt.status==='success'?'VERIFIED':'REVERTED'});
+          setRecoveryNotice(receipt.status==='success'?'Original approval confirmed.':'Original approval reverted.');
+        }
+        return;
+      }
+      if(!intent.fromBlock){
+        setRecoveryNotice('This older wallet request has no transaction hash or saved starting block. Check your wallet history before deciding whether to send again.');
+        return;
+      }
+      if(await publicClient.getChainId()!==ARC_MAINNET_CHAIN_ID)
+        throw Error('Arc Mainnet RPC could not be confirmed.');
+      const latest=await publicClient.getBlockNumber();
+      const finalized=latest>2n?latest-2n:0n;
+      const start=BigInt(intent.scanCursor??intent.fromBlock);
+      if(start>finalized){
+        setRecoveryNotice('No new confirmed block range to check. The original request remains protected.');
+        return;
+      }
+      const end=start+999n<finalized?start+999n:finalized;
+      let located:string|null=null;
+      if(intent.phase==='PAYMENT'){
+        const event=parseAbiItem('event PaymentSettled(bytes32 indexed paymentId,address indexed payer,address indexed recipient,uint256 amount,uint256 fee,bytes32 ref)');
+        const logs=await publicClient.getLogs({address:deployment.address,event,
+          args:{payer:address,recipient:intent.recipient as `0x${string}`},
+          fromBlock:start,toBlock:end});
+        const matching=logs.filter(x=>x.args.ref?.toLowerCase()===intent.ref.toLowerCase()&&
+          x.args.amount===parseUnits(intent.amount,6));
+        if(matching.length>1)throw Error('More than one matching settlement event; manual review required.');
+        if(matching.length===1)located=matching[0].transactionHash;
+        if(located){
+          const proof=await inspectRecordedSettlement(located,address,intent.amount,intent.recipient);
+          if(proof.status==='VERIFIED'){
+            writeSettlementIntent({...intent,hash:located,stage:'VERIFIED',scanCursor:(end+1n).toString()});
+            recordLocalOperation({type:'Settlement',owner:address,hash:located,amount:intent.amount,
+              asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,status:'RECORDED',destination:intent.recipient});
+            setRecoveryNotice('Original payment located and verified onchain. No retry was submitted.');
+            return;
+          }
+          setRecoveryNotice('A matching payment event was found but could not be fully verified. Signing remains locked.');
+          return;
+        }
+      }else{
+        const event=parseAbiItem('event Approval(address indexed owner,address indexed spender,uint256 value)');
+        const logs=await publicClient.getLogs({address:activeUsdcAddress,event,
+          args:{owner:address,spender:deployment.address},fromBlock:start,toBlock:end});
+        for(const log of logs){
+          if(log.args.value!==parseUnits(intent.amount,6))continue;
+          const tx=await publicClient.getTransaction({hash:log.transactionHash});
+          const receipt=await publicClient.getTransactionReceipt({hash:log.transactionHash});
+          if(receipt.status!=='success'||tx.from.toLowerCase()!==address.toLowerCase()||
+             tx.to?.toLowerCase()!==activeUsdcAddress.toLowerCase())continue;
+          const call=decodeFunctionData({abi:erc20Abi,data:tx.input});
+          if(call.functionName!=='approve'||call.args[0].toLowerCase()!==deployment.address.toLowerCase()||
+             call.args[1]!==parseUnits(intent.amount,6))continue;
+          located=log.transactionHash;break;
+        }
+        if(located){
+          writeSettlementIntent({...intent,hash:located,stage:'VERIFIED',scanCursor:(end+1n).toString()});
+          setRecoveryNotice('Original approval found onchain. No second approval was sent.');
+          return;
+        }
+      }
+      writeSettlementIntent({...intent,scanCursor:(end+1n).toString()});
+      setRecoveryNotice('Checked Arc blocks '+start.toString()+'–'+end.toString()+
+        '. No matching confirmed event. This is NOT proof that the original transaction failed.');
+    }catch(e){
+      setRecoveryNotice('Cannot confirm the original request: '+
+       (e instanceof Error?e.message:'RPC unavailable')+'. No second payment was sent.');
+    }finally{setRecoveryBusy(false);}
+  }
+
   // ── reset ─────────────────────────────────────────────────────────────────────
   const reset = useCallback(() => {
     if(address&&VEYRA_ENV==='mainnet'&&settlementUnresolved(readSettlementIntent(address))){
@@ -717,9 +818,17 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
         setErrorMsg('Previous contract wallet request unresolved. Check its status before approving again.');
         setStep('error');return;
       }
+      let fromBlock:string;
+      try{
+        if(!publicClient)throw Error('RPC unavailable');
+        fromBlock=(await publicClient.getBlockNumber()).toString();
+      }catch{
+        setErrorMsg('Cannot save the original approval block. No wallet signature requested.');
+        setStep('error');return;
+      }
       const intent:SettlementIntent={owner:address,phase:'APPROVAL',stage:'AWAITING_WALLET',
        recipient:snapshot.recipient,amount:formatUnits(snapshot.amountParsed,6),
-       ref:snapshot.ref,hash:null,createdAt:Date.now()};
+       ref:snapshot.ref,hash:null,createdAt:Date.now(),fromBlock};
       if(!writeSettlementIntent(intent)){
         setErrorMsg('Cannot save secure approval recovery. Wallet signature was not requested.');
         setStep('error');return;
@@ -868,9 +977,15 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
         setErrorMsg('An earlier Settlement request is unresolved. Check Activity before signing again.');
         setStep('error');return;
       }
+      let fromBlock:string;
+      try{fromBlock=(await publicClient.getBlockNumber()).toString();}
+      catch{
+        setErrorMsg('Cannot save the original payment block. No wallet signature requested.');
+        setStep('error');return;
+      }
       const intent:SettlementIntent={owner:address,phase:'PAYMENT',
        stage:'AWAITING_WALLET',recipient:snapshot.recipient,
-       amount:formatUnits(snapshot.amountParsed,6),ref:snapshot.ref,hash:null,createdAt:Date.now()};
+       amount:formatUnits(snapshot.amountParsed,6),ref:snapshot.ref,hash:null,createdAt:Date.now(),fromBlock};
       if(!writeSettlementIntent(intent)){
         setErrorMsg('Recovery storage unavailable. No wallet signature requested.');
         setStep('error');return;
@@ -975,6 +1090,11 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
             while its result is unknown. A saved transaction hash is checked automatically.</p>
           {intentState.kind==='active'&&intentState.value.hash&&
             <p className="mt-2 break-all font-mono text-xs">{intentState.value.hash}</p>}
+          <button type="button" onClick={()=>void checkOriginalRequest()} disabled={recoveryBusy||!onArc}
+            className="mt-3 rounded-lg border border-amber-300/40 px-3 py-2 text-xs font-semibold disabled:opacity-50">
+            {recoveryBusy?'Checking Arc…':'Check original transaction again'}
+          </button>
+          {recoveryNotice&&<p role="status" className="mt-2 text-xs leading-5">{recoveryNotice}</p>}
         </div>}
         {/* Wallet connection */}
         {!isConnected && (

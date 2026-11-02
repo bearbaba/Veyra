@@ -6,6 +6,7 @@ export type SettlementStage='AWAITING_WALLET'|'UNKNOWN'|'PENDING'|'VERIFIED'|'RE
 export type SettlementIntent={
  owner:string; phase:SettlementPhase; stage:SettlementStage; recipient:string;
  amount:string; ref:string; hash:string|null; createdAt:number;
+ fromBlock?:string; scanCursor?:string;
 };
 export type SettlementRead={kind:'empty'}|{kind:'blocked'}|{kind:'active';value:SettlementIntent};
 type Store=Pick<Storage,'getItem'|'setItem'|'removeItem'>;
@@ -32,6 +33,8 @@ export function readSettlementIntent(owner:string,store?:Pick<Store,'getItem'>):
    !['AWAITING_WALLET','UNKNOWN','PENDING','VERIFIED','REVERTED'].includes(v.stage??'')||
    !(v.hash===null||typeof v.hash==='string'&&HASH.test(v.hash))||
    typeof v.createdAt!=='number'||!Number.isSafeInteger(v.createdAt)||v.createdAt<=0||
+   (v.fromBlock!==undefined&&!(typeof v.fromBlock==='string'&&/^[0-9]{1,22}$/.test(v.fromBlock)))||
+   (v.scanCursor!==undefined&&!(typeof v.scanCursor==='string'&&/^[0-9]{1,22}$/.test(v.scanCursor)))||
    (['PENDING','VERIFIED','REVERTED'].includes(v.stage??'')&&!v.hash)||
    (['AWAITING_WALLET','UNKNOWN'].includes(v.stage??'')&&v.hash!==null))
    return {kind:'blocked'};
