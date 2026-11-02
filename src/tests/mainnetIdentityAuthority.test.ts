@@ -10,7 +10,7 @@ const secret='s'.repeat(64),now=1793600000000;
 const runtime={environment:'mainnet' as const,nodeEnv:'production',hostedBackend:true,
  appOrigin:OFFICIAL_VEYRA_ORIGIN,databaseUrl:'postgres://u:p@db.example.com/db',
  sessionSecretConfigured:true,testnetSecondaryAppOrigin:undefined};
-const json=(status:number,data:unknown):Response=>({status,headers:{get:()=> 'application/json'},json:async()=>data}) as unknown as Response;
+const json=(status:number,data:unknown):Response=>({status,headers:{get:()=> 'application/json'},json:()=>Promise.resolve(data)}) as unknown as Response;
 afterEach(()=>vi.unstubAllGlobals());
 describe('Exactly one authorized Veyra Mainnet identity origin',()=>{
  it('accepts only the canonical hosted Mainnet service and explicit Arc chain authority',()=>{
