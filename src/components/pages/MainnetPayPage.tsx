@@ -109,9 +109,11 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   }
   const msg=(e:unknown)=>e instanceof Error?e.message:'Wallet or RPC unavailable; check activity before retrying.';
   const ready=!!address&&isConnected&&loadedFor===address.toLowerCase();
-  const blocked=!ready||blockedStorage||!!journal||busy||chainId!==5042;
+  const signedForWallet=!!address&&social.identityOrigin==='ready'&&!!social.session?.token&&
+    social.session.walletKey===address.toLowerCase()+':'+(connector?.uid??'');
+  const blocked=!ready||!signedForWallet||blockedStorage||!!journal||busy||chainId!==5042;
   async function prepare(){
-    if(!address||blocked||lock.current)return;
+    if(!address||blocked||lock.current||!signedForWallet)return;
     lock.current=true;setBusy(true);setError(null);setReview(null);
     try {
       const queued=readReceiptOutbox(address,storageForReceiptOutbox());
@@ -125,7 +127,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     finally{lock.current=false;setBusy(false);}
   }
   async function send(){
-    if(!address||!review||!ack||blocked||lock.current)return;
+    if(!address||!review||!ack||blocked||lock.current||!signedForWallet)return;
     try{assertMainnetCanarySigningAllowed(review.plan.from,review.plan.units);}catch(e){setError(msg(e));return;}
     lock.current=true;setBusy(true);setError(null);
     let initial:MainnetJournal={from:review.plan.from,to:review.plan.to,amount:review.plan.amount,hash:null,stage:'AWAITING_WALLET',
