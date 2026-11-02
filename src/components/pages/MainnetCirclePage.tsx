@@ -68,7 +68,10 @@ function parseSaved(raw:string|null,owner:string,mode:Mode):Recovery|null {
  (p.mintHash!==undefined&&!HASH.test(p.mintHash)))throw Error('Invalid prior operation');
  return p;
 }
-export function MainnetCirclePage({mode,selection,embedded=false}:{mode:Mode;selection?:ExchangeExecutionSelection;embedded?:boolean}){
+export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusyChange}:{
+ mode:Mode;selection?:ExchangeExecutionSelection;embedded?:boolean;
+ onFinancialBusyChange?:(blocked:boolean)=>void;
+}){
  const {address,connector}=useAccount();
  const {switchChainAsync}=useSwitchChain();
  const arc=usePublicClient({chainId:ARC});
@@ -91,6 +94,10 @@ export function MainnetCirclePage({mode,selection,embedded=false}:{mode:Mode;sel
  const [manualMint,setManualMint]=useState('');
  const [manualSource,setManualSource]=useState('');
  const lock=useRef(false);
+ useEffect(()=>{
+  onFinancialBusyChange?.(busy||!!recovery);
+  return()=>onFinancialBusyChange?.(false);
+ },[busy,recovery,onFinancialBusyChange]);
  const owner=address?.toLowerCase()??'';
  const card=embedded?'rounded-2xl border p-4 sm:p-5':'rounded-2xl border p-5 sm:p-6';
  const input='mt-2 w-full rounded-xl border p-3 text-sm';
