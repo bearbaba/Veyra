@@ -43,14 +43,14 @@ describe('Budget-friendly Mainnet ID and receipt-only deployment boundary',()=>{
    ['POST','/api/social/friend/request'],['POST','/api/social/block'],
    ['PATCH','/api/preferences/receive'],['POST','/api/mainnet/pay/receipt/verify'],
    ['GET','/api/mainnet/pay/receipts'],['GET','/api/health']
-  ])expect(isMainnetIdentityOnlyRouteAllowed(...endpoint)).toBe(true);
+  ])expect(isMainnetIdentityOnlyRouteAllowed(endpoint[0]!,endpoint[1]!)).toBe(true);
   for(const endpoint of [
    ['POST','/api/bridge/relay-receive'],['POST','/api/gateway/estimate'],
    ['POST','/api/stablefx/trade'],['POST','/api/agent/chat'],
    ['POST','/api/auth/x/start'],['GET','/api/auth/x/callback'],
    ['POST','/api/receipts/bridge'],['GET','/api/health/signer'],
    ['DELETE','/api/profile/me'],['POST','/api/identity/register/challenge/../complete'],
-  ])expect(isMainnetIdentityOnlyRouteAllowed(...endpoint)).toBe(false);
+  ])expect(isMainnetIdentityOnlyRouteAllowed(endpoint[0]!,endpoint[1]!)).toBe(false);
  });
  it('enforces the restrictive boundary BEFORE all business API routes',()=>{
   const server=src('server/bff.ts');
