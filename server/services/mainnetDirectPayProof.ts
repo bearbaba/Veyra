@@ -36,7 +36,7 @@ export function verifyCanonicalDirectPay(
     tx.value!==0n||!tx.blockHash)deny('NOT_DIRECT_USDC_TRANSFER');
  if(!HASH.test(receipt.transactionHash)||
     receipt.transactionHash.toLowerCase()!==tx.hash.toLowerCase()||
-    receipt.blockHash.toLowerCase()!==tx.blockHash.toLowerCase()||
+    receipt.blockHash.toLowerCase()!==(tx.blockHash??'').toLowerCase()||
     block.hash.toLowerCase()!==receipt.blockHash.toLowerCase()||
     block.number!==receipt.blockNumber)deny('NONCANONICAL_PAYMENT_RECEIPT');
  if(receipt.status!=='success')deny('PAYMENT_REVERTED');
