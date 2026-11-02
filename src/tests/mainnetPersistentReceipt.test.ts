@@ -76,9 +76,9 @@ describe('Mainnet signed history browser client',()=>{
    ...json(200,{ok:true,receipt:{chainId:5042,txHash:hash,paidAt:'2026-11-01T12:00:00.000Z',verifiedAt:'2026-11-02T12:00:00.000Z'}}),
    headers:{get:()=> 'text/html'},
   })));
-  await expect(saveVerifiedMainnetPayReceipt('signed.session',{hash})).rejects.toThrow('not configured');
+  await expect(saveVerifiedMainnetPayReceipt('signed.session',{hash})).rejects.toMatchObject({failure:'review',code:'RECEIPT_BACKEND_NOT_CONFIGURED'});
   vi.stubGlobal('fetch',vi.fn(()=>Promise.resolve(json(200,{ok:true,receipt:{chainId:5042,txHash:'0x'+'b'.repeat(64),paidAt:'2026-11-01T12:00:00.000Z',verifiedAt:'2026-11-02T12:00:00.000Z'}}))));
-  await expect(saveVerifiedMainnetPayReceipt('signed.session',{hash})).rejects.toThrow('does not match');
+  await expect(saveVerifiedMainnetPayReceipt('signed.session',{hash})).rejects.toMatchObject({failure:'review',code:'RECEIPT_MISMATCH'});
  });
  it('passes bearer session and refuses invalid list evidence',async()=>{
   const mocked=vi.fn((_path:string,_opts?:RequestInit)=>Promise.resolve(json(200,{ok:true,receipts:[{
