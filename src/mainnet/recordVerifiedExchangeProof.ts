@@ -13,6 +13,38 @@ export type RecordVerifiedExchangeResult=
  | {kind:'recorded'}
  | {kind:'blocked';reason:string};
 const HASH=/^0x[0-9a-f]{64}$/i;
+/** Source receipt reverted onchain and transaction sender matched owner.
+ * Only a failed source Swap can be closed; never assume a failed destination
+ * Bridge transaction returned already-burned source funds.
+ */
+export function recordVerifiedSourceRevert(args:{
+ owner:string;intentId:string;sourceHash:string;chainId:number;sourceToken:string;checkedAt:number;
+},s?:Store):RecordVerifiedExchangeResult{
+ if(!HASH.test(args.sourceHash))return {kind:'blocked',reason:'Original source receipt hash is invalid.'};
+ const all=readExchangeIntents(args.owner,s);
+ if(all.kind!=='ready')return {kind:'blocked',reason:'Cannot read original Exchange intent.'};
+ const entry=all.items.find(v=>v.id===args.intentId);
+ if(!entry||entry.mode!=='swap'||entry.fromChainId!==args.chainId||
+  entry.tokenIn!==args.sourceToken||entry.owner.toLowerCase()!==args.owner.toLowerCase())
+  return {kind:'blocked',reason:'Reverted source receipt does not match Exchange intent.'};
+ if(entry.sourceHash&&entry.sourceHash.toLowerCase()!==args.sourceHash.toLowerCase())
+  return {kind:'blocked',reason:'Source hash differs from original signed transaction.'};
+ if(entry.stage==='SOURCE_REVERTED')return {kind:'recorded'};
+ if(entry.stage==='AWAITING_WALLET'&&!advanceExchangeIntent(args.owner,args.intentId,
+  'SOURCE_UNKNOWN',{},s,args.checkedAt))
+  return {kind:'blocked',reason:'Cannot update wallet recovery.'};
+ const state=readExchangeIntents(args.owner,s);
+ const current=state.kind==='ready'?state.items.find(v=>v.id===args.intentId):undefined;
+ if(!current||!['SOURCE_UNKNOWN','SOURCE_SUBMITTED'].includes(current.stage))
+  return {kind:'blocked',reason:'Only the original failed source operation can be closed.'};
+ const ok=advanceExchangeIntent(args.owner,args.intentId,'SOURCE_REVERTED',{
+  sourceHash:args.sourceHash,
+  message:'Original source receipt reverted onchain. This source transaction did not transfer funds.',
+  steps:[{stage:'source',chainId:args.chainId,token:args.sourceToken,
+   status:'needs-attention',hash:args.sourceHash,checkedAt:args.checkedAt}],
+ },s,args.checkedAt);
+ return ok?{kind:'recorded'}:{kind:'blocked',reason:'Could not save onchain-reverted source proof.'};
+}
 export function recordVerifiedExchangeProof(proof:VerifiedExchangeProof,s?:Store):RecordVerifiedExchangeResult{
  if(!HASH.test(proof.sourceHash)||!HASH.test(proof.destinationHash)||
   !Number.isSafeInteger(proof.sourceChainId)||!Number.isSafeInteger(proof.destinationChainId))
