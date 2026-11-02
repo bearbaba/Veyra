@@ -125,7 +125,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
    </div>
    <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs" style={{color:'var(--muted)'}}>
     <span>Send: review and confirm in your wallet</span>
-    <span>Swap and Bridge are under More · Gateway funds are not yet connected</span>
+    <span>Exchange is under More · choose assets and Veyra checks Swap or Bridge routes</span>
    </div>
   </section>
   {receive&&<section className="rounded-xl border p-4" style={cardStyle} aria-label="Receive USDC on Arc Mainnet">
