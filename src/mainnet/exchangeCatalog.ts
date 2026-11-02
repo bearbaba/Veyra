@@ -48,6 +48,7 @@ export function searchExchangeAssets(query:string,network:'all'|number='all'):Ex
 export type ExchangeRoute=
  | {kind:'swap';source:ExchangeAsset;destination:ExchangeAsset;provider:'Circle App Kit'}
  | {kind:'bridge';source:ExchangeAsset;destination:ExchangeAsset;provider:'Circle CCTP'}
+ | {kind:'quote-only';source:ExchangeAsset;destination:ExchangeAsset;provider:'Across';reason:'Signing requires independently accepted wallet execution'}
  | {kind:'unavailable';source:ExchangeAsset;destination:ExchangeAsset;reason:string};
 export function resolveExchangeRoute(from:ExchangeAsset,to:ExchangeAsset):ExchangeRoute{
  const source=exchangeAsset(from.chainId,from.contractAddress);
@@ -56,6 +57,14 @@ export function resolveExchangeRoute(from:ExchangeAsset,to:ExchangeAsset):Exchan
  if(!source||!destination)return no('Unknown or unverified contract. No route or signature is available.');
  if(exchangeAssetId(source)===exchangeAssetId(destination))
   return no('You selected the same asset on the same network; no exchange is needed.');
+ // Across supports origin WETH -> Arc USDC on its Swap API. New route remains
+ // QUOTE-ONLY until exact spender, calldata, wallet approvals and destination proof pass acceptance.
+ if(source.chainId===8453&&source.symbol==='WETH'&&
+   source.contractAddress.toLowerCase()==='0x4200000000000000000000000000000000000006'&&
+   destination.chainId===5042&&destination.symbol==='USDC'&&
+   destination.contractAddress.toLowerCase()==='0x3600000000000000000000000000000000000000')
+  return {kind:'quote-only',source,destination,provider:'Across',
+   reason:'Signing requires independently accepted wallet execution'};
  if(source.chainId===destination.chainId){
   if(source.chainId===5042&&source.symbol!==destination.symbol&&
     new Set([source.symbol,destination.symbol]).size===2&&
@@ -80,4 +89,13 @@ export function validateExchangeCatalog():string[]{
   seen.add(key);
  }
  return problems;
+}
+/** Theoretical route capability is NOT a live quote or execution guarantee. */
+export type ExchangeAssetSupport='tradable-route'|'quote-only'|'unsupported';
+export function exchangeAssetSupport(from:ExchangeAsset,to:ExchangeAsset):ExchangeAssetSupport{
+ const route=resolveExchangeRoute(from,to);
+ return route.kind==='unavailable'?'unsupported':route.kind==='quote-only'?'quote-only':'tradable-route';
+}
+export function hasAvailableExchangeDestination(from:ExchangeAsset):boolean{
+ return EXCHANGE_ASSETS.some(to=>exchangeAssetSupport(from,to)!=='unsupported');
 }
