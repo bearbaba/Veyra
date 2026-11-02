@@ -22,7 +22,7 @@ async function probe(path:string,method:'GET'|'POST'){
 }
 const schema=await probe('/api/health/database','GET');
 if(schema.scope!=='database-infrastructure-only'||!Array.isArray(schema.checks)||
- !schema.checks.every((x:unknown)=>!!x&&typeof x==='object'&&'ok' in x&&(x as {ok:unknown}).ok===true))
+ !schema.checks.every((x:unknown)=>!!x&&typeof x==='object'&&'ok' in x&&x.ok===true))
  throw Error('Mainnet database schema or migration checks incomplete');
 const identity=await probe('/api/identity/mainnet-capability','POST');
 if(identity.environment!=='mainnet'||identity.chainId!==5042||identity.origin!==origin||
