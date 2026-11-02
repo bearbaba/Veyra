@@ -5,6 +5,7 @@ import {useEffect,useRef,useState} from 'react';
 import {useAccount} from 'wagmi';
 import {formatUnits} from 'viem';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
+import {isMainnetSessionForWallet,scopedMainnetReceipts} from '@/mainnet/signedWalletReceiptScope';
 import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
 import {readReceiptOutbox,storageForReceiptOutbox,type ReceiptOutboxItem} from '@/mainnet/receiptOutbox';
 import {ConnectKitButton} from 'connectkit';
@@ -29,8 +30,9 @@ function color(x:OperationInspection|undefined){
   x?.status==='REVERTED'||x?.status==='UNVERIFIED'?'var(--warning)':'var(--muted)';
 }
 export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigate:(page:VeyraPage)=>void}){
- const {address}=useAccount();
+ const {address,connector}=useAccount();
  const social=useUnifiedSocial();
+ const signedWallet=isMainnetSessionForWallet(social.session,address,connector?.uid);
  const [serverReceipts,setServerReceipts]=useState<MainnetPayServerReceipt[]>([]);
  const [serverReceiptScope,setServerReceiptScope]=useState('');
  const [serverHistoryStatus,setServerHistoryStatus]=useState<'unavailable'|'checking'|'ready'>('unavailable');
@@ -133,7 +135,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  useEffect(()=>{
   setServerReceipts([]);setServerReceiptScope('');setServerHistoryStatus('unavailable');
   const token=social.session?.token;
-  if(!address||!token||social.identityOrigin!=='ready')return;
+  if(!address||!token||social.identityOrigin!=='ready'||!signedWallet)return;
   const controller=new AbortController();
   let active=true,fetching=false;
   async function reload(){
@@ -142,7 +144,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
    setServerHistoryStatus(previous=>previous==='ready'?'ready':'checking');
    try{
     const records=await listVerifiedMainnetPayReceipts(token!,controller.signal);
-    if(active){setServerReceipts(records);setServerReceiptScope(address!.toLowerCase()+':'+token);setServerHistoryStatus('ready');}
+    if(active){setServerReceipts(scopedMainnetReceipts(records,address));setServerReceiptScope(address!.toLowerCase()+':'+token);setServerHistoryStatus('ready');}
    }catch{if(active)setServerHistoryStatus('unavailable');}
    finally{fetching=false;}
   }
@@ -154,7 +156,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
   window.addEventListener('veyra:mainnet:server-receipt',onChange);
   return()=>{active=false;window.clearInterval(timer);controller.abort();window.removeEventListener('focus',onChange);
    window.removeEventListener('veyra:mainnet:server-receipt',onChange);};
- },[address,social.session?.token,social.identityOrigin]);
+ },[address,connector?.uid,social.session?.token,social.session?.walletKey,social.identityOrigin,signedWallet]);
  // Read-only outbox view. The app-scoped worker exclusively performs idempotent uploads.
  useEffect(()=>{
   setQueuedOwner('');setQueuedReceipts([]);setOutboxBlocked(false);
@@ -181,7 +183,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
    window.removeEventListener('veyra:mainnet:server-receipt',refresh);
    window.removeEventListener('focus',refresh);window.removeEventListener('storage',storageChange);};
  },[address]);
- const scopedReceipts=address&&social.session?.token&&
+ const scopedReceipts=signedWallet&&address&&social.session?.token&&
    serverReceiptScope===address.toLowerCase()+':'+social.session.token?serverReceipts:[];
  const scopedEntries=address&&localOwner===address.toLowerCase()?entries:[];
  const scopedExchange=address&&localOwner===address.toLowerCase()?exchangeActivities:[];
