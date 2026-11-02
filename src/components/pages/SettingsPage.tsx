@@ -201,7 +201,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
           {logoutWarning&&<p role="alert" className="mt-3 text-xs" style={{color:"var(--warning)"}}>{logoutWarning}</p>}
           {xCapability==='unavailable'&&!profile?.x && <p role="status" className="mt-3 text-xs leading-5" style={{color:'var(--muted)'}}>
               {xReadinessDetail ?? (social.identityOrigin!=='ready'
-                ? VEYRA_ENV==='mainnet'?'Veyra ID/X requires an authorized Mainnet identity origin. No account was changed.':'X linking requires the approved identity backend.'
+                ? VEYRA_ENV==='mainnet'?'X linking is not enabled in Mainnet V1. Wallet sign-in and ID payments are separate.':'X linking requires the approved identity backend.'
                 : 'Sign in to your existing Veyra ID with your wallet to check X linking.')}
               {' '}Your Veyra ID and wallet remain unchanged.
             </p>}

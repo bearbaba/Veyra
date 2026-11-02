@@ -52,6 +52,13 @@ describe('Budget-friendly Mainnet ID and receipt-only deployment boundary',()=>{
    ['DELETE','/api/profile/me'],['POST','/api/identity/register/challenge/../complete'],
   ])expect(isMainnetIdentityOnlyRouteAllowed(endpoint[0],endpoint[1])).toBe(false);
  });
+ it('keeps X OAuth disabled in Mainnet V1 without redirecting to another wallet site',()=>{
+  const x=src('src/lib/api/identityApi.ts');
+  const settings=src('src/components/pages/SettingsPage.tsx');
+  expect(x).toContain("if(VEYRA_ENV==='mainnet')");
+  expect(x).not.toContain('Open the stable Veyra Testnet V2 domain.');
+  expect(settings).toContain('X linking is not enabled in Mainnet V1');
+ });
  it('enforces the restrictive boundary BEFORE all business API routes',()=>{
   const server=src('server/bff.ts');
   const middleware=server.indexOf("app.use('/api', (req:Request,res:Response,next:NextFunction)");
