@@ -16,7 +16,8 @@ export function MainnetRecipientSearch({
  const [error,setError]=useState<string|null>(null);
  const [result,setResult]=useState<RecipientSearchResult|null>(null);
  const guard=useRef(createRecipientSearchGuard());
- const current=useRef(onSelection);current.current=onSelection;
+ const current=useRef(onSelection);
+ useEffect(()=>{current.current=onSelection;},[onSelection]);
  useEffect(()=>{
   guard.current.invalid();setResult(null);setError(null);setBusy(false);
   current.current(null);
