@@ -1,7 +1,7 @@
 /** Exchange: asset pair first, provider route second. No silently chained or fictitious transactions.
  * Only pre-reviewed Circle Arc Swap and Arc/Base USDC CCTP expose the existing executor.
  */
-import {useEffect,useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {useAccount,useReadContracts} from 'wagmi';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {erc20Abi,formatUnits,parseUnits} from 'viem';
@@ -11,6 +11,7 @@ import {MainnetCirclePage,type ExchangeExecutionSelection} from './MainnetCircle
 import {EXCHANGE_ASSETS,exchangeAssetId,resolveExchangeRoute,searchExchangeAssets,
  exchangeAssetSupport,hasAvailableExchangeDestination,type ExchangeAsset} from '@/mainnet/exchangeCatalog';
 import {getAcrossExchangeQuote,type ExchangeQuoteSummary} from '@/mainnet/exchangeProviderQuote';
+import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
 
 type Side='from'|'to';
 const ARC=5042,BASE=8453;
@@ -137,11 +138,14 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
  const [quoteProblem,setQuoteProblem]=useState('');
  const [quoteLoading,setQuoteLoading]=useState(false);
  const [quoteRefresh,setQuoteRefresh]=useState(0);
+ const quoteController=useRef<AbortController|null>(null);
  const [from,setFrom]=useState<ExchangeAsset>(()=>usdc(ARC));
  const [to,setTo]=useState<ExchangeAsset>(()=>initialBridge?usdc(BASE):eurc);
  const [picking,setPicking]=useState<Side|null>(null);
  const [prior,setPrior]=useState<ReturnType<typeof recordedExchange>>(null);
  const [unknownPrior,setUnknownPrior]=useState(false);
+ const [intentPrior,setIntentPrior]=useState<ExchangeIntent|null>(null);
+ const [intentBlocked,setIntentBlocked]=useState(false);
  const [engineBusy,setEngineBusy]=useState(false);
  const owner=address?.toLowerCase()??'';
  const readable=EXCHANGE_ASSETS.filter(a=>[ARC,BASE].includes(a.chainId));
@@ -159,12 +163,16 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   return result;
  },[walletBalances]);
  useEffect(()=>{
-  if(!address){setPrior(null);setUnknownPrior(false);return;}
+  if(!address){setPrior(null);setUnknownPrior(false);setIntentPrior(null);setIntentBlocked(false);return;}
   const refresh=()=>{
    try{
     const records=['swap','bridge'].map(m=>localStorage.getItem('veyra:mainnet:circle:v1:'+m+':'+owner));
     setUnknownPrior(records.some((raw,i)=>!!raw&&!recordedExchange(owner)&&i>=0));
     const existing=recordedExchange(owner);setPrior(existing);
+    const queued=readExchangeIntents(owner);
+    setIntentBlocked(queued.kind==='blocked');
+    setIntentPrior(queued.kind==='ready'?queued.items.find(x=>!
+     ['DESTINATION_VERIFIED','REFUNDED','CANCELLED_BEFORE_SOURCE'].includes(x.stage))??null:null);
     if(existing){
      setFrom(existing.source);setTo(existing.destination);
     }
@@ -175,11 +183,13 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   window.addEventListener('storage',refresh);window.addEventListener('focus',refresh);
   return()=>{window.clearInterval(timer);window.removeEventListener('storage',refresh);window.removeEventListener('focus',refresh);};
  },[address,owner]);
- const locked=!!prior||unknownPrior||engineBusy;
+ const locked=!!prior||unknownPrior||engineBusy||!!intentPrior||intentBlocked;
  const route=resolveExchangeRoute(from,to);
  const pairKey=exchangeAssetId(from)+'>'+exchangeAssetId(to);
  useEffect(()=>{
-  setAcrossQuote(null);setQuoteProblem('');setAcrossAmount('');
+  quoteController.current?.abort();
+  setAcrossQuote(null);setQuoteProblem('');setAcrossAmount('');setQuoteLoading(false);
+  return()=>quoteController.current?.abort();
  },[pairKey,address,social.session?.token]);
  useEffect(()=>{const t=window.setInterval(()=>setQuoteRefresh(Date.now()),1000);
   return()=>window.clearInterval(t);},[]);
@@ -194,15 +204,17 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
     throw Error('The Across pilot accepts a quote from 0.000001 to 10 WETH.');
   }catch(e){setQuoteProblem(e instanceof Error?e.message:'Invalid WETH amount.');return;}
   setQuoteLoading(true);setQuoteProblem('');setAcrossQuote(null);
-  const controller=new AbortController();
+  quoteController.current?.abort();
+  const controller=new AbortController();quoteController.current=controller;
   try{
    const quote=await getAcrossExchangeQuote({token:social.session.token,owner:address,
     fromContract:from.contractAddress,toContract:to.contractAddress,amountRaw:units,signal:controller.signal});
+   if(controller.signal.aborted)return;
    if(quote.inputAssetId!==exchangeAssetId(from)||quote.outputAssetId!==exchangeAssetId(to)||
     quote.inputRaw!==units||quote.expiresAt<=Date.now())throw Error('Quote mismatch or expired; review again.');
    setAcrossQuote(quote);
-  }catch(e){setQuoteProblem(e instanceof Error?e.message:'Live quote unavailable.');}
-  finally{setQuoteLoading(false);}
+  }catch(e){if(!controller.signal.aborted)setQuoteProblem(e instanceof Error?e.message:'Live quote unavailable.');}
+  finally{if(!controller.signal.aborted)setQuoteLoading(false);}
  }
  const choose=(asset:ExchangeAsset)=>{
   if(locked)return;
@@ -276,7 +288,9 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    </div>}
    {(locked||unknownPrior)&&<p role="status" className="mt-3 flex items-start gap-2 text-xs"
     style={{color:'var(--warning)'}}><Clock3 className="size-4 shrink-0"/>
-    Original Exchange activity is still stored. Resolve or inspect that operation before changing assets; do not submit a second transaction.
+    {intentBlocked?'Exchange recovery storage cannot be read. No new transaction is permitted.':
+     intentPrior?.stage==='PARTIAL'? 'Partial Exchange: original source completed but destination not confirmed. Open Activity to review current funds and recovery.':
+     'Original Exchange activity is still stored. Resolve or inspect that operation before changing assets; do not submit a second transaction.'}
    </p>}
   </section>
   {route.kind==='quote-only'&&<section className="space-y-3 rounded-2xl border p-4 sm:p-5"
