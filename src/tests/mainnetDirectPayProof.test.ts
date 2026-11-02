@@ -28,7 +28,7 @@ describe('Canonical Arc Mainnet Pay receipt proof (no wallet signing)',()=>{
   expect(()=>verifyCanonicalDirectPay({...f,chainId:5042002})).toThrow('WRONG_MAINNET_CHAIN');
   expect(()=>verifyCanonicalDirectPay({...f,expectedSender:bob})).toThrow('SENDER_WALLET_MISMATCH');
   expect(()=>verifyCanonicalDirectPay({...f,transaction:{...f.transaction,to:bob}})).toThrow('NOT_DIRECT_USDC_TRANSFER');
-  expect(()=>verifyCanonicalDirectPay({...f,transaction:{...f.transaction,input:'0x' as Hex}})).toThrow('INVALID_TRANSFER_CALLDATA');
+  expect(()=>verifyCanonicalDirectPay({...f,transaction:{...f.transaction,input:'0x'}})).toThrow('INVALID_TRANSFER_CALLDATA');
   expect(()=>verifyCanonicalDirectPay({...f,transaction:{...f.transaction,
    input:encodeFunctionData({abi,functionName:'transfer',args:[bob,0n]})}})).toThrow('INVALID_TRANSFER_CALLDATA');
  });
@@ -37,7 +37,7 @@ describe('Canonical Arc Mainnet Pay receipt proof (no wallet signing)',()=>{
   expect(()=>verifyCanonicalDirectPay({...f,receipt:{...f.receipt,status:'reverted' as const}})).toThrow('PAYMENT_REVERTED');
   expect(()=>verifyCanonicalDirectPay({...f,receipt:{...f.receipt,logs:[]}})).toThrow('USDC_TRANSFER_LOG_MISMATCH');
   expect(()=>verifyCanonicalDirectPay({...f,receipt:{...f.receipt,
-   logs:[{...f.receipt.logs[0]!,topics:[toEventSelector('Transfer(address,address,uint256)'),pad(alice),pad(alice)]}]}}))
+   logs:[{...f.receipt.logs[0],topics:[toEventSelector('Transfer(address,address,uint256)'),pad(alice),pad(alice)]}]}}))
    .toThrow('USDC_TRANSFER_LOG_MISMATCH');
   expect(()=>verifyCanonicalDirectPay({...f,block:{...f.block,hash:'0x'+'c'.repeat(64)}})).toThrow('NONCANONICAL_PAYMENT_RECEIPT');
  });
