@@ -277,13 +277,13 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
         Send USDC to a wallet. Veyra automatically tracks and checks the receipt.
       </p>
     </div>}
-    <div className={box} style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+    {!embedded&&<div className={box} style={{background:'var(--surface)',borderColor:'var(--border)'}}>
       <div className="flex items-start gap-3 text-sm" style={{color:'var(--muted)'}}>
         <ShieldCheck className="size-5 shrink-0" style={{color:'var(--accent)'}}/>
         <p><strong style={{color:'var(--ink)'}}>Direct wallet transfer · {MAINNET_CANARY_ONLY?'pilot limit 0.01 USDC.':'limit 1 USDC.'}</strong> Your wallet confirms this payment once; no token spending permission is granted.
           If it remains pending, Veyra checks the existing transaction rather than sending again.</p>
       </div>
-    </div>
+    </div>}
     {(shownCompleted||shownJournal?.stage==='VERIFIED')&&
       <section aria-label="USDC payment receipt" className={box+' space-y-3'}
        style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
@@ -317,7 +317,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
          className="w-full rounded-xl border px-4 py-3 text-sm font-semibold"
          style={{borderColor:'var(--border)',color:'var(--accent)'}}>Start another payment</button>}
       </section>}
-    {idSelection&&<div role="status" className={box} style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
+    {!embedded&&idSelection&&<div role="status" className={box} style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
       <p className="text-sm font-semibold">{'Send to @'+idSelection.veyraHandle+'.veyra'}</p>
       <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Verified recipient snapshot · address will be rechecked by the backend before signing.</p>
       <p className="mt-2 break-all font-mono text-xs">{idSelection.wallet}</p>
@@ -336,7 +336,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
         <button className="mt-3 rounded-xl px-4 py-2 text-sm font-semibold"
           style={{background:'var(--accent)',color:'#fff'}} onClick={()=>switchChain({chainId:5042})}>Switch to Arc Mainnet</button>
       </div>}
-      {!shownCompleted&&<div className={box+' space-y-4'} style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+      {!shownCompleted&&<div className={embedded?'space-y-4':box+' space-y-4'} style={{background:'var(--surface)',borderColor:embedded?'transparent':'var(--border)'}}>
         {!embedded&&<><div><label className="text-sm font-semibold" style={{color:'var(--ink)'}}>Recipient wallet</label>
           <input className={field+' mt-2'} style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}
             value={recipient} maxLength={42} autoComplete="off" spellCheck={false} placeholder="0x…"
@@ -351,11 +351,18 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
           onClick={()=>void prepare()}>{busy?'Checking…':'Review payment'}</button>}
         {review&&!shownJournal&&<div className="space-y-3 rounded-xl border p-4 text-sm"
           style={{borderColor:'var(--border)',color:'var(--ink)'}}>
-          <strong>Arc Mainnet · Review before signing</strong>
-          <p className="break-all text-xs">From: {review.plan.from}</p>
-          <p className="break-all text-xs">To: {review.plan.to}</p>
-          <p>Amount: <strong>{review.plan.amount} USDC</strong></p>
-          <p>Estimated gas reserve: {formatUnits(review.preflight.feeReserveUnits,6)} USDC</p>
+          <strong>Review · Arc Mainnet USDC</strong>
+          <p>To: <strong>{idSelection?'@'+idSelection.veyraHandle+'.veyra':review.plan.to}</strong></p>
+          <p>You send: <strong>{review.plan.amount} USDC</strong></p>
+          <p>Network fee reserve (estimate): {formatUnits(review.preflight.feeReserveUnits,6)} USDC</p>
+          <p>Amount + fee reserve: <strong>{formatUnits(review.plan.units+review.preflight.feeReserveUnits,6)} USDC</strong></p>
+          <p>Recipient receives: <strong>{review.plan.amount} USDC</strong> if the transfer succeeds.</p>
+          <details className="text-xs" style={{color:'var(--muted)'}}>
+           <summary className="cursor-pointer">Wallet and contract details</summary>
+           <p className="mt-2 break-all">From: {review.plan.from}</p>
+           <p className="mt-1 break-all">To: {review.plan.to}</p>
+           <p className="mt-1 break-all">USDC contract: {review.plan.token}</p>
+          </details>
           <label className="flex items-start gap-2 text-xs">
             <input type="checkbox" checked={ack} onChange={e=>setAck(e.target.checked)}/>
             <span>I verified network, recipient, amount and real-money risk.</span>
