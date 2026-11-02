@@ -30,6 +30,7 @@ const BRIDGE_WRITE_ENABLED=__VEYRA_RELEASE_ENV__==='preview' ||
  (__VEYRA_RELEASE_ENV__==='production' && import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_WRITE_ENABLED==='1');
 type Mode='swap'|'bridge';
 type Token='USDC'|'EURC';
+export type ExchangeExecutionSelection={fromChainId:number;toChainId:number;fromToken:Token;toToken:Token};
 type Quote={owner:string;at:number;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;expected:string;fees:string[]};
 type Recovery={owner:string;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;status:'UNKNOWN'|'PENDING'|'VERIFIED'|'REVERTED';hash?:string;burnHash?:string;mintHash?:string};
 const key=(mode:Mode,owner:string)=>'veyra:mainnet:circle:v1:'+mode+':'+owner.toLowerCase();
@@ -64,17 +65,20 @@ function parseSaved(raw:string|null,owner:string,mode:Mode):Recovery|null {
  if(p.owner!==owner.toLowerCase()||p.mode!==mode||!['UNKNOWN','PENDING','VERIFIED','REVERTED'].includes(p.status)||
  (p.hash!==undefined&&!HASH.test(p.hash))||(p.burnHash!==undefined&&!HASH.test(p.burnHash))||
  (p.mintHash!==undefined&&!HASH.test(p.mintHash)))throw Error('Invalid prior operation');
- return p.status==='VERIFIED'||p.status==='REVERTED'?{...p,status:'PENDING'}:p;
+ return p;
 }
-export function MainnetCirclePage({mode}:{mode:Mode}){
+export function MainnetCirclePage({mode,selection,embedded=false}:{mode:Mode;selection?:ExchangeExecutionSelection;embedded?:boolean}){
  const {address,connector}=useAccount();
  const {switchChainAsync}=useSwitchChain();
  const arc=usePublicClient({chainId:ARC});
  const base=usePublicClient({chainId:BASE});
- const [source,setSource]=useState(ARC);
- const [destination,setDestination]=useState(BASE);
- const [fromToken,setFromToken]=useState<Token>('USDC');
- const toToken:Token=fromToken==='USDC'?'EURC':'USDC';
+ const [legacySource,setSource]=useState(ARC);
+ const [legacyDestination,setDestination]=useState(BASE);
+ const [legacyFromToken,setFromToken]=useState<Token>('USDC');
+ const source=selection?.fromChainId??legacySource;
+ const destination=selection?.toChainId??legacyDestination;
+ const fromToken=selection?.fromToken??legacyFromToken;
+ const toToken:Token=selection?.toToken??(fromToken==='USDC'?'EURC':'USDC');
  const [amount,setAmount]=useState('');
  const [minimum,setMinimum]=useState('');
  const [quote,setQuote]=useState<Quote|null>(null);
@@ -87,7 +91,7 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
  const [manualSource,setManualSource]=useState('');
  const lock=useRef(false);
  const owner=address?.toLowerCase()??'';
- const card='rounded-2xl border p-5 sm:p-6';
+ const card=embedded?'rounded-2xl border p-4 sm:p-5':'rounded-2xl border p-5 sm:p-6';
  const input='mt-2 w-full rounded-xl border p-3 text-sm';
  const selectedSource=mode==='swap'?ARC:source;
  const selectedDest=mode==='swap'?ARC:destination;
@@ -285,17 +289,17 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
    !['VERIFIED','REVERTED'].includes(recovery.status))return;
   localStorage.removeItem(key(mode,address));setRecovery(null);setProof('');setQuote(null);
  }
- return <div className="mx-auto w-full max-w-3xl space-y-5 px-4 py-7 md:px-7 md:py-9">
-  <div><p className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Veyra · Mainnet Circle App Kit</p>
+ return <div className={embedded?'w-full space-y-3':'mx-auto w-full max-w-3xl space-y-5 px-4 py-7 md:px-7 md:py-9'}>
+  {!embedded&&<div><p className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Veyra · Mainnet Circle App Kit</p>
    <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>{title}</h1>
    <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>
     {mode==='swap'?'Swap Arc Mainnet USDC and EURC with a live liquidity quote.':
      'Bridge USDC between Arc and Base Mainnet via CCTP. Destination verification is required.'}
    </p>
-  </div>
+  </div>}
   <div className={card+' space-y-4'} style={{borderColor:'var(--border)',background:'var(--surface)'}}>
    {!address?<ConnectKitButton/>:<>
-    {mode==='bridge'?<div className="grid gap-3 sm:grid-cols-2">
+    {!embedded&&(mode==='bridge'?<div className="grid gap-3 sm:grid-cols-2">
      <label className="text-sm" style={{color:'var(--muted)'}}>From
       <select className={input} value={source} disabled={!!recovery||busy}
        onChange={e=>{const id=Number(e.target.value);setSource(id);setDestination(id===ARC?BASE:ARC);}}
@@ -315,7 +319,7 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
      <button type="button" disabled={!!recovery||busy} className="rounded-xl border px-4 py-2 text-xs"
       style={{borderColor:'var(--border)',color:'var(--ink)'}}
       onClick={()=>setFromToken(t=>t==='USDC'?'EURC':'USDC')}><ArrowLeftRight className="inline size-4"/> Reverse</button>
-    </div>}
+    </div>)}
     {mode==='swap'&&<details className="text-xs" style={{color:'var(--muted)'}}>
       <summary className="cursor-pointer">Verified asset details · trading availability</summary>
       <p className="mt-2">Veyra verifies token contract identities; the Circle route and liquidity
@@ -353,6 +357,9 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
       {mode==='swap'&&<p>Slippage limit: 1% · refresh quote if expired</p>}
       <p>Recipient: {address}</p>
       <p>Quote expires in 30 seconds · Real Mainnet assets</p>
+      <p>Provider: Circle App Kit {mode==='bridge'?'· CCTP burn → destination mint':'· swap router'}</p>
+      <p>Estimated completion: provider ETA not available · verify final destination before completion</p>
+      <p>Confirmations: wallet approval required; token allowance or provider steps may require additional signatures. Review wallet prompts individually.</p>
       {quote.fees.map((fee,i)=><p key={i} className="text-xs">{fee}</p>)}
       <button type="button" disabled={busy} onClick={()=>void signNow()}
        className="w-full rounded-xl px-4 py-3 font-bold disabled:opacity-40"
@@ -404,9 +411,9 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
       <AlertTriangle className="size-4"/>{error}</p>}
    </>}
   </div>
-  <p className="flex items-start gap-2 text-xs leading-5" style={{color:'var(--muted)'}}>
+  {!embedded&&<p className="flex items-start gap-2 text-xs leading-5" style={{color:'var(--muted)'}}>
    <ShieldCheck className="size-4 shrink-0"/>Mainnet transactions are irreversible. Circle route availability depends on live SDK and liquidity.
    Approval, burn or source confirmation alone never counts as final settlement. No automatic retries.
-  </p>
+  </p>}
  </div>;
 }
