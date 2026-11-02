@@ -49,6 +49,16 @@ On the **Mainnet BFF** Environment page, configure:
 Leave `RELAY_PRIVATE_KEY`, signer/KMS, Circle API credentials and X OAuth private keys
 **unset** in identity-only mode. Never paste these credentials into support threads.
 
+**Only after configuring the internal DATABASE_URL and taking a backup**, use the Mainnet
+Render BFF Shell (never a client machine) to run:
+```bash
+VEYRA_MAINNET_MIGRATE_CONFIRM=veyra_mainnet_v1_db bun server/db/migrateMainnetPilot.ts
+```
+This script refuses Testnet/localhost, the wrong DB name, missing explicit approval,
+non-TLS external PostgreSQL, and non-Mainnet environment settings. It only
+applies the registered Drizzle migration journal. Never run the generic
+`bun run db:migrate` against an unreviewed Mainnet target.
+
 The BFF must fail closed until all required values are present and the separately
 backed-up Mainnet database has passed its registered migrations. Confirm
 `POST /api/identity/mainnet-capability` returns authorized `5042` authority through
