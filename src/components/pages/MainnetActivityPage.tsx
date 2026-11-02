@@ -287,7 +287,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
      style={{borderColor:'var(--border)'}}>
      <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>Exchange · {task.amountIn} {task.tokenIn} → {task.tokenOut}</p>
      <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
-      Request {task.id.slice(0,8)} · {task.provider} · {task.stage.replaceAll('_',' ').toLowerCase()}
+      Request {task.id.slice(0,8)} · {task.provider} · {task.stage.split('_').join(' ').toLowerCase()}
      </p>
      <p className="mt-2 text-sm" style={{color:task.stage==='PARTIAL'?'var(--warning)':'var(--muted)'}}>
       {task.stage==='PARTIAL'?
