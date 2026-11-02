@@ -50,8 +50,7 @@ const PRIMARY_NAV: NavItem[] = VEYRA_ENV === 'mainnet' ? [
   { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
 ];
 const SECONDARY_NAV: NavItem[] = VEYRA_ENV === 'mainnet' ? [
-  { id: 'convert', label: 'Swap', icon: <ArrowLeftRight className="size-5" /> },
-  { id: 'bridge', label: 'Bridge', icon: <Route className="size-5" /> },
+  { id: 'convert', label: 'Exchange', icon: <ArrowLeftRight className="size-5" /> },
   { id: 'agent', label: 'Agent', icon: <Bot className="size-5" /> },
   { id: 'settings', label: 'Settings', icon: <Settings className="size-5" /> },
 ] : [
