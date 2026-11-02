@@ -566,6 +566,12 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
     if(result.verified && VEYRA_ENV==='mainnet' && result.txHash){
       recordLocalOperation({type:'Settlement',owner:snap.walletAddress,hash:result.txHash,amount:formatUnits(snap.amountParsed,6),asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,status:'RECORDED',destination:snap.recipient});
     }
+    if(VEYRA_ENV==='mainnet'&&result.verified){
+      const intent=readSettlementIntent(snap.walletAddress);
+      if(intent.kind==='active'&&intent.value.phase==='PAYMENT'&&
+         intent.value.hash?.toLowerCase()===result.txHash.toLowerCase())
+        writeSettlementIntent({...intent.value,stage:'VERIFIED'});
+    }
     setStep(result.verified ? 'verified' : 'confirmed');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settleConfirmed, settleReceipt]);
@@ -805,6 +811,20 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
         return;
       }
     }
+    // Save the frozen payment intent BEFORE the wallet request is opened.
+    if(isMainnet&&snapshot.mode==='pay'){
+      if(settlementUnresolved(readSettlementIntent(address))){
+        setErrorMsg('An earlier Settlement request is unresolved. Check Activity before signing again.');
+        setStep('error');return;
+      }
+      const intent:SettlementIntent={owner:address,phase:'PAYMENT',
+       stage:'AWAITING_WALLET',recipient:snapshot.recipient,
+       amount:formatUnits(snapshot.amountParsed,6),ref:snapshot.ref,hash:null,createdAt:Date.now()};
+      if(!writeSettlementIntent(intent)){
+        setErrorMsg('Recovery storage unavailable. No wallet signature requested.');
+        setStep('error');return;
+      }
+    }
     // Revalidation passed — broadcast
     setStep('execute');
     try {
@@ -827,6 +847,9 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
       }
       // Capture the wallet-returned hash immediately, before the receipt exists.
       if(isMainnet && snapshot.mode==='pay'){
+        const intent=readSettlementIntent(address);
+        if(intent.kind==='active'&&!writeSettlementIntent({...intent.value,stage:'PENDING',hash}))
+          setErrorMsg('Payment broadcast but recovery storage failed. Preserve the original wallet transaction; do not resubmit.');
         const stored=recordLocalOperation({
           type:'Settlement',owner:snapshot.walletAddress,hash,
           amount:formatUnits(snapshot.amountParsed,6),asset:'USDC',
@@ -839,7 +862,16 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
       setSettleTxHash(hash);
       setStep('pending');
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : 'Transaction failed');
+      if(isMainnet&&snapshot.mode==='pay'){
+        const prior=readSettlementIntent(address);
+        if(prior.kind==='active'){
+          const code=typeof e==='object'&&e!==null&&'code' in e?e.code:undefined;
+          if(code===4001||code==='ACTION_REJECTED')clearSettlementIntent(address);
+          else writeSettlementIntent({...prior.value,stage:'UNKNOWN',hash:null});
+        }
+      }
+      setErrorMsg((e instanceof Error?e.message:'Wallet outcome unavailable')+
+       '. A wallet/RPC error does not prove the funds were not submitted. Do not resend.');
       setStep('error');
     }
   }
@@ -885,6 +917,14 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
 
       <div className="flex-1 px-4 py-6 space-y-5 max-w-2xl mx-auto w-full">
 
+        {isMainnet&&settlementUnresolved(intentState)&&<div role="alert"
+          className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+          <p className="font-semibold">Original wallet request needs checking</p>
+          <p className="mt-2 text-xs leading-5">Veyra will not repeat this approval or payment
+            while its result is unknown. A saved transaction hash is checked automatically.</p>
+          {intentState.kind==='active'&&intentState.value.hash&&
+            <p className="mt-2 break-all font-mono text-xs">{intentState.value.hash}</p>}
+        </div>}
         {/* Wallet connection */}
         {!isConnected && (
           <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] p-5 text-center space-y-3">
@@ -1269,8 +1309,9 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
                 <p className="text-xs text-red-400/70 mt-1 break-words">{errorMsg}</p>
               </div>
             </div>
-            <button onClick={reset} className="w-full py-2 text-sm text-white/40 hover:text-white/70">
-              ← Start again
+            <button onClick={reset} disabled={isMainnet&&settlementUnresolved(intentState)}
+              className="w-full py-2 text-sm text-white/40 hover:text-white/70 disabled:cursor-not-allowed disabled:opacity-30">
+              {isMainnet&&settlementUnresolved(intentState)?'Checking original request':'← Start again'}
             </button>
           </div>
         )}
