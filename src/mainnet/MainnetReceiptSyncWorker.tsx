@@ -5,7 +5,7 @@ import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {classifyReceiptSyncError,MainnetReceiptSyncError,saveVerifiedMainnetPayReceipt,
  type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
 import {receiptSyncRetryDelayMs} from './receiptSyncCandidates';
-import {readReceiptOutbox,updateReceiptOutbox,type ReceiptOutboxItem} from './receiptOutbox';
+import {readReceiptOutbox,receiptOutboxKey,updateReceiptOutbox,type ReceiptOutboxItem} from './receiptOutbox';
 
 type OutboxStorage=Pick<Storage,'getItem'|'setItem'|'removeItem'|'key'|'length'>;
 export type ReceiptTickResult='empty'|'synced'|'retry'|'sign-in'|'review'|'blocked'|'wrong-account';
@@ -34,7 +34,7 @@ export async function syncReceiptOutboxOnce(args:{
    throw new MainnetReceiptSyncError('review',200,'RECEIPT_OWNER_MISMATCH');
   const removed=updateReceiptOutbox(owner,item.hash,storage,()=>null);
   if(removed)try{window.dispatchEvent(new Event('veyra:mainnet:server-receipt'));}catch{/* no UI */ }
-  return removed?'synced':'blocked';
+  return removed||storage.getItem(receiptOutboxKey(owner,item.hash))===null?'synced':'blocked';
  }catch(e){
   if(signal.aborted)return 'empty';
   const failure=classifyReceiptSyncError(e);
