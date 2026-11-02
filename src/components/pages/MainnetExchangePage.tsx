@@ -177,7 +177,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
     const queued=readExchangeIntents(owner);
     setIntentBlocked(queued.kind==='blocked');
     setIntentPrior(queued.kind==='ready'?queued.items.find(x=>!
-     ['DESTINATION_VERIFIED','REFUNDED','CANCELLED_BEFORE_SOURCE'].includes(x.stage))??null:null);
+     ['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(x.stage))??null:null);
     if(existing){
      setFrom(existing.source);setTo(existing.destination);
     }
