@@ -59,12 +59,14 @@ import {
 } from 'wagmi';
 import {
   parseUnits, isAddress, formatUnits, erc20Abi,
-  decodeEventLog, encodeFunctionData, encodeDeployData, parseAbi, keccak256, type Log,
+  decodeEventLog, decodeFunctionData, encodeFunctionData, encodeDeployData, parseAbi, keccak256, type Log,
 } from 'viem';
 import { ConnectKitButton } from 'connectkit';
 import { AlertTriangle, CheckCircle, Clock, ExternalLink, Lock, Send, Unlock, Loader2 } from 'lucide-react';
 import { VEYRA_ENV } from '@/lib/env';
 import {recordLocalOperation,readLocalOperations} from '@/mainnet/localOperations';
+import {readSettlementIntent,writeSettlementIntent,clearSettlementIntent,settlementUnresolved,type SettlementIntent} from '@/mainnet/settlementJournal';
+import {inspectRecordedSettlement} from '@/mainnet/verifyRecordedSettlement';
 import { MainnetSettlementDeploy } from './MainnetSettlementDeploy';
 import { VEYRA_SETTLEMENT_CREATION_BYTECODE, VEYRA_SETTLEMENT_CREATION_KECCAK } from '@/generated/veyraSettlementCreation';
 import {
@@ -217,6 +219,17 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
   // lifecycle
   const [step, setStep] = useState<Step>('form');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [intentState,setIntentState]=useState<ReturnType<typeof readSettlementIntent>>({kind:'empty'});
+  useEffect(()=>{
+    const sync=()=>setIntentState(address?readSettlementIntent(address):{kind:'empty'});
+    sync();
+    window.addEventListener('veyra:mainnet:journal',sync);
+    window.addEventListener('focus',sync);
+    return()=>{
+      window.removeEventListener('veyra:mainnet:journal',sync);
+      window.removeEventListener('focus',sync);
+    };
+  },[address]);
   const [approveTxHash, setApproveTxHash] = useState<`0x${string}` | undefined>();
   const [settleTxHash, setSettleTxHash] = useState<`0x${string}` | undefined>();
 
@@ -449,8 +462,15 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
         .catch(() => undefined);
     }
     void refetchAllowance();
+    if(isMainnet&&address){
+      const journal=readSettlementIntent(address);
+      if(journal.kind==='active'&&journal.value.phase==='APPROVAL'&&
+         journal.value.stage==='PENDING'&&journal.value.hash?.toLowerCase()===approveTxHash.toLowerCase()){
+        writeSettlementIntent({...journal.value,stage:'VERIFIED'});
+      }
+    }
     setStep('review');
-  }, [approveConfirmed, step, approveTxHash, publicClient, refetchAllowance]);
+  }, [approveConfirmed, step, approveTxHash, publicClient, refetchAllowance, isMainnet, address]);
 
   // ── receipt verification (delegates to @/lib/settlementVerify) ───────────────
   useEffect(() => {
@@ -552,16 +572,24 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
 
   // ── reset ─────────────────────────────────────────────────────────────────────
   const reset = useCallback(() => {
+    if(address&&VEYRA_ENV==='mainnet'&&settlementUnresolved(readSettlementIntent(address))){
+      setErrorMsg('Your previous wallet request is unresolved. Check Activity and do not resubmit.');
+      setStep('error');return;
+    }
     setStep('form');
     setErrorMsg(null);
     setApproveTxHash(undefined);
     setSettleTxHash(undefined);
     setSnapshot(null);
     setVerResult(null);
-  }, []);
+  }, [address]);
 
   // ── review entry: load fees, lock snapshot ─────────────────────────────────────
   function handleReview() {
+    if(address&&VEYRA_ENV==='mainnet'&&settlementUnresolved(readSettlementIntent(address))){
+      setErrorMsg('An earlier payment or approval request is unresolved. Check the original wallet request before signing again.');
+      setStep('error');return;
+    }
     if (!mainnetRegistryVerified) { setErrorMsg('Mainnet contract verification has not passed.'); setStep('error'); return; }
     if (!liveFeesReady) { setStep('loading-fees'); return; }
     lockSnapshot();
@@ -627,6 +655,19 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
     if (!deployment || !address || !snapshot) return;
     if (!mainnetRegistryVerified) {setErrorMsg('Mainnet contract verification has not passed.');setStep('error');return;}
     if (isMainnet) {try{await validateMainnetDeployment();}catch(e){setErrorMsg(e instanceof Error?e.message:'Mainnet contract validation failed');setStep('error');return;}}
+    if(isMainnet){
+      if(settlementUnresolved(readSettlementIntent(address))){
+        setErrorMsg('Previous contract wallet request unresolved. Check its status before approving again.');
+        setStep('error');return;
+      }
+      const intent:SettlementIntent={owner:address,phase:'APPROVAL',stage:'AWAITING_WALLET',
+       recipient:snapshot.recipient,amount:formatUnits(snapshot.amountParsed,6),
+       ref:snapshot.ref,hash:null,createdAt:Date.now()};
+      if(!writeSettlementIntent(intent)){
+        setErrorMsg('Cannot save secure approval recovery. Wallet signature was not requested.');
+        setStep('error');return;
+      }
+    }
     setStep('approve');
     setErrorMsg(null);
     try {
@@ -636,9 +677,23 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
         functionName: 'approve',
         args: [snapshot.contractAddress, snapshot.amountParsed],
       });
+      if(isMainnet){
+        const current=readSettlementIntent(address);
+        if(current.kind==='active'&&!writeSettlementIntent({...current.value,stage:'PENDING',hash}))
+          setErrorMsg('Approval submitted but local recovery failed. Keep the original hash and do not repeat.');
+      }
       setApproveTxHash(hash);
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : 'Approval failed');
+      if(isMainnet){
+        const current=readSettlementIntent(address);
+        if(current.kind==='active'){
+          const code=typeof e==='object'&&e!==null&&'code' in e?e.code:undefined;
+          if(code===4001||code==='ACTION_REJECTED')clearSettlementIntent(address);
+          else writeSettlementIntent({...current.value,stage:'UNKNOWN',hash:null});
+        }
+      }
+      setErrorMsg((e instanceof Error?e.message:'Approval result unavailable')+
+       '. Check the original wallet request before trying again.');
       setStep('error');
     }
   }
