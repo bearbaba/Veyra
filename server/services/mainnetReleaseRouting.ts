@@ -18,6 +18,13 @@ export const MAINNET_RECEIPT_ROUTES=[
  '/api/social/friends',
  '/api/mainnet/pay/receipt/verify',
  '/api/mainnet/pay/receipts',
+ '/api/health/database',
+ '/api/social/friend/request',
+ '/api/social/friend/respond',
+ '/api/social/friend/status',
+ '/api/social/block',
+ '/api/social/unblock',
+ '/api/preferences/receive',
 ] as const;
 export function verifyProductionMainnetRouting(
  config:VercelRoutingConfig,mainnetBackendOrigin:string,

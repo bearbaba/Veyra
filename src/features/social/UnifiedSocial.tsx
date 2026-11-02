@@ -229,7 +229,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     // notifications from a pending transfer or a local balance change.
     const [f,n]=await Promise.allSettled([
       api<FriendsPage>('/api/social/friends?limit=20&offset=0','GET',s.token),
-      api<NoticesPage>('/api/notifications?limit=20&offset=0','GET',s.token),
+      VEYRA_ENV==='mainnet'?Promise.resolve<NoticesPage>({items:[],unreadCount:0,hasMore:false,nextOffset:null}):api<NoticesPage>('/api/notifications?limit=20&offset=0','GET',s.token),
     ]);
     // Never let an older refresh overwrite the newer Friends *or* notices
     // after a response delay, manual refresh or wallet/session replacement.
@@ -259,6 +259,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   // Only the signed BFF can independently verify inbound on-chain transfers.
   // Polling runs only in visible, authenticated browsers; NOT a 24/7 worker.
   const checkIncoming=useCallback(async()=>{
+    if(VEYRA_ENV==='mainnet'){setIncomingStatus('unavailable');return;}
     const s=session;
     if(!s||s.walletKey!==current.current||identityOrigin!=='ready'||
       incomingBusy.current||incomingUnavailable.current===s.walletKey||
@@ -282,7 +283,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     }finally{incomingBusy.current=false;}
   },[session,identityOrigin,refresh]);
   useEffect(()=>{
-    if(!session||identityOrigin!=='ready')return;
+    if(!session||identityOrigin!=='ready'||VEYRA_ENV==='mainnet')return;
     void checkIncoming();
     const timer=window.setInterval(()=>{
       if(document.visibilityState==='visible')void checkIncoming();
@@ -314,6 +315,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     }
   },[session,friendsNextOffset,busy]);
   const loadMoreNotices=useCallback(async()=>{
+    if(VEYRA_ENV==='mainnet')return;
     const s=session,offset=noticesNextOffset;
     if(!s||s.walletKey!==current.current||offset===null||busy||noticePageTicket.current)return;
     const key=s.walletKey,rev=generation.current,epoch=friendRefreshEpoch.current;
@@ -372,7 +374,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     token=>api('/api/social/friend/respond','POST',token,{veyraUserId:id,decision}),
     decision==='ACCEPT'?'Friend request accepted.':'Friend request declined.');
   const block=(id:string)=>mutate(token=>api('/api/social/block','POST',token,{veyraUserId:id}),'Friend blocked.');
-  const markRead=(id:string)=>mutate(token=>api('/api/notifications/read','POST',token,{notificationId:id}),'Notification marked as read.');
+  const markRead=(id:string)=>VEYRA_ENV==='mainnet'?Promise.resolve(false):mutate(token=>api('/api/notifications/read','POST',token,{notificationId:id}),'Notification marked as read.');
   const active=session?.walletKey===walletKey?session:null;
   return <SocialContext.Provider value={{session:active,friends:active?friends:[],notices:active?notices:[],
     friendsHasMore:active?friendsNextOffset!==null:false,loadingMoreFriends,loadMoreFriends,

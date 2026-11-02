@@ -52,6 +52,11 @@ describe('Budget-friendly Mainnet ID and receipt-only deployment boundary',()=>{
    ['DELETE','/api/profile/me'],['POST','/api/identity/register/challenge/../complete'],
   ])expect(isMainnetIdentityOnlyRouteAllowed(endpoint[0],endpoint[1])).toBe(false);
  });
+ it('never calls the Testnet notification service from Mainnet People',()=>{
+  const social=src('src/features/social/UnifiedSocial.tsx');
+  expect(social).toContain("VEYRA_ENV==='mainnet'?Promise.resolve<NoticesPage>");
+  expect(social).toContain("if(VEYRA_ENV==='mainnet'){setIncomingStatus('unavailable');return;}");
+ });
  it('keeps X OAuth disabled in Mainnet V1 without redirecting to another wallet site',()=>{
   const x=src('src/lib/api/identityApi.ts');
   const settings=src('src/components/pages/SettingsPage.tsx');

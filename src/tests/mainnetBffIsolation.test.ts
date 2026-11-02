@@ -2,14 +2,13 @@ import {describe,it,expect} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {MAINNET_RECEIPT_ROUTES,verifyProductionMainnetRouting,type VercelRoutingConfig} from '../../server/services/mainnetReleaseRouting';
 const read=(p:string)=>readFileSync(new URL('../../'+p,import.meta.url),'utf8');
-const bff='https://veyra-mainnet-internal.example.org';
+const bff='https://veyra-mainnet-v1-bff.onrender.com';
 describe('Veyra one official domain — isolated Mainnet API release gate',()=>{
- it('rejects current Mainnet app rewrites pointing at the legacy Testnet acceptance backend',()=>{
-  const deployed=JSON.parse(read('vercel.json')) as VercelRoutingConfig;
-  const result=verifyProductionMainnetRouting(deployed,bff);
-  expect(result.ok).toBe(false);
-  expect(result.issues.join(' ')).toContain('Unsafe API rewrite');
-  expect(result.issues.join(' ')).toContain('/api/mainnet/pay/receipts');
+ it('stages one official app behind the verified Mainnet BFF',()=>{
+  const staged=JSON.parse(read('vercel.json')) as VercelRoutingConfig & {buildCommand:string};
+  expect(verifyProductionMainnetRouting(staged,bff)).toEqual({ok:true,issues:[]});
+  expect(staged.buildCommand).toContain('VITE_VEYRA_EMERGENCY_READ_ONLY=1');
+  expect((staged.rewrites??[]).every(r=>r.destination.startsWith(bff+'/api/'))).toBe(true);
  });
  it('requires all critical endpoints to point to the same reviewed Mainnet BFF',()=>{
   const routes=MAINNET_RECEIPT_ROUTES.map(source=>({source,destination:bff+source}));
