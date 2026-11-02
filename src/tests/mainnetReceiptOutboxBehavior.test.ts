@@ -73,7 +73,7 @@ describe('M0 durable receipt outbox behavioral tests',()=>{
  });
  it('does not mix owners, identities or signed-out sessions',async()=>{
   const s=storage();writeMainnetJournal(journal(),s);enqueueVerifiedPay(journal(),s);
-  const submit=vi.fn(async()=>receipt);
+  const submit=vi.fn(()=>Promise.resolve(receipt));
   const aborted=new AbortController();
   const base={owner:a,userId:user,token:'signed-session',storage:s,submit,signal:aborted.signal};
   expect(await syncReceiptOutboxOnce({...base,userId:other})).toBe('wrong-account');
@@ -89,7 +89,7 @@ describe('M0 durable receipt outbox behavioral tests',()=>{
    [new MainnetReceiptSyncError('review',422,'EVIDENCE_INVALID'),'review'],
   ] as const){
    const s=storage();writeMainnetJournal(journal(),s);enqueueVerifiedPay(journal(),s);
-   const submit=vi.fn(async()=>{throw error;});
+   const submit=vi.fn(()=>Promise.reject(error));
    expect(classifyReceiptSyncError(error)).toBe(want);
    expect(await syncReceiptOutboxOnce({owner:a,userId:user,token:'signed-session',
     storage:s,submit,signal:new AbortController().signal,now:10000})).toBe(want);
