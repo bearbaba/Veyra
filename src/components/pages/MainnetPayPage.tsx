@@ -69,9 +69,10 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   const [completed,setCompleted]=useState<MainnetJournal|null>(null);
   const [outboxItem,setOutboxItem]=useState<ReceiptOutboxItem|null>(null);
   const [accountReceipt,setAccountReceipt]=useState<MainnetPayServerReceipt|null>(null);
+  const [receiptSessionScope,setReceiptSessionScope]=useState('');
 
   useEffect(()=>{
-    setReview(null);setAck(false);setReceipt(null);setCompleted(null);setOutboxItem(null);setAccountReceipt(null);setError(null);
+    setReview(null);setAck(false);setReceipt(null);setCompleted(null);setOutboxItem(null);setAccountReceipt(null);setReceiptSessionScope('');setError(null);
     if(!address){setJournal(null);setBlockedStorage(false);setLoadedFor(null);return;}
     const storage=storageForReceiptOutbox();
     const stored=readMainnetJournal(address,storage);
@@ -219,6 +220,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   useEffect(()=>{
     if(!address||!completed?.hash)return;
     let active=true;
+    setAccountReceipt(null);setReceiptSessionScope('');
     const controller=new AbortController();
     const wallet=address,hash=completed.hash;
     const session=social.session;
@@ -232,6 +234,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
         if(!active)return;
         setAccountReceipt(receipts.find(x=>x.txHash.toLowerCase()===hash?.toLowerCase()&&
          x.senderAddress.toLowerCase()===wallet.toLowerCase()&&x.direction==='sent')??null);
+        setReceiptSessionScope(wallet.toLowerCase()+':'+session.token);
       }).catch(()=>{/* The chain transfer stays verified; account history can be offline. */});
     };
     refresh();
@@ -247,12 +250,13 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
       if(journal.stage!=='REVERTED')return;
       if(!clearMainnetJournal(address,storageForMainnet())){setError('Cannot clear reverted payment lock.');return;}
     }else if(!completed)return;
-    setJournal(null);setCompleted(null);setOutboxItem(null);setReview(null);setReceipt(null);setAccountReceipt(null);
+    setJournal(null);setCompleted(null);setOutboxItem(null);setReview(null);setReceipt(null);setAccountReceipt(null);setReceiptSessionScope('');
     setRecipient('');setAmount('');setHashInput('');setError(null);
   }
   const shownJournal=journal?.from.toLowerCase()===address?.toLowerCase()?journal:null;
   const shownCompleted=!shownJournal&&completed?.from.toLowerCase()===address?.toLowerCase()?completed:null;
   const shownAccountReceipt=social.session?.token&&social.identityOrigin==='ready'&&!!accountReceipt&&
+   receiptSessionScope===address?.toLowerCase()+':'+social.session.token&&
    accountReceipt.senderAddress.toLowerCase()===address?.toLowerCase()&&
    accountReceipt.txHash.toLowerCase()===(shownCompleted?.hash??shownJournal?.hash)?.toLowerCase()?accountReceipt:null;
   const shownOutbox=shownCompleted?.hash===outboxItem?.hash&&
