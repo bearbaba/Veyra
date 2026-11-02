@@ -100,7 +100,9 @@ export function enqueueVerifiedPay(journal:MainnetJournal,storage:OutboxStorage)
     ...(journal.note?{note:journal.note}:{}),
     ...(journal.recipientLabel?{recipientLabel:journal.recipientLabel}:{}),
     ...(journal.recipientSnapshotId?{snapshotId:journal.recipientSnapshotId}:{}),
-    createdAt:Date.now(),attempts:0,nextAttemptAt:0,status:'pending',
+    createdAt:Date.now(),attempts:0,nextAttemptAt:0,
+    status:journal.senderUserId?'pending':'review',
+    ...(!journal.senderUserId?{problem:'ORIGINAL_ACCOUNT_NOT_BOUND'}:{}),
    };
    const raw=JSON.stringify(item);
    storage.setItem(key,raw);
