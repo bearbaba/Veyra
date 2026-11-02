@@ -15,7 +15,8 @@ import {getMainnetChain,CCTP_V2_MAINNET} from '@/config/mainnetCatalog';
 import {ARC_VERIFIED_ASSETS,assertArcSwapCandidate} from '@/config/arcVerifiedAssets';
 import {recordLocalOperation} from '@/mainnet/localOperations';
 import {recordExchangeActivity} from '@/mainnet/exchangeActivity';
-import {createExchangeIntent,advanceExchangeIntent,readExchangeIntents} from '@/mainnet/exchangeIntentJournal';
+import {advanceExchangeIntent,readExchangeIntents} from '@/mainnet/exchangeIntentJournal';
+import {reserveCircleExchangeBeforeSigning} from '@/mainnet/reserveCircleExchange';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked} from '@/mainnet/verifyCctpBridgeLink';
 import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
@@ -195,6 +196,10 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     mode==='bridge'&&quote.minimum!==minimum||Date.now()-quote.at>30000)
     throw Error('Payment route changed or quote expired. Review again.');
    if(localStorage.getItem(key(mode,address)))throw Error('Previous operation must be resolved first.');
+   const existingIntents=readExchangeIntents(owner);
+   if(existingIntents.kind!=='ready'||existingIntents.items.some(task=>
+    !['DESTINATION_VERIFIED','REFUNDED','CANCELLED_BEFORE_SOURCE'].includes(task.stage)))
+    throw Error('Unresolved Exchange intent or unreadable recovery storage. Inspect Activity first.');
    const {params:p}=await params();
    const fresh=mode==='swap'?
     await kit.estimateSwap(p as Parameters<AppKit['estimateSwap']>[0]):
@@ -208,17 +213,14 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    const intentId=crypto.randomUUID();
    const record:Recovery={owner,mode,amount,source:selectedSource,destination:selectedDest,
     fromToken,toToken,minimum:quote.minimum,status:'UNKNOWN',intentId};
-   localStorage.setItem(key(mode,address),JSON.stringify(record));
-   if(localStorage.getItem(key(mode,address))!==JSON.stringify(record))
-    throw Error('Cannot persist recovery lock.');
+   const intentTime=Date.now();
+   const reservation=reserveCircleExchangeBeforeSigning({legacyKey:key(mode,address),
+    recoveryRecord:JSON.stringify(record),storage:localStorage,
+    intent:{id:intentId,owner,provider:'Circle App Kit',mode,fromChainId:selectedSource,
+     toChainId:selectedDest,tokenIn:fromToken,tokenOut:toToken,amountIn:amount,
+     minimumOut:quote.minimum,createdAt:intentTime,updatedAt:intentTime,stage:'REVIEWED',steps:[]}});
+   if(reservation.kind!=='reserved')throw Error(reservation.message);
    saved=true;setRecovery(record);setQuote(null);
-   if(!createExchangeIntent({id:intentId,owner,provider:'Circle App Kit',
-    mode,fromChainId:selectedSource,toChainId:selectedDest,tokenIn:fromToken,tokenOut:toToken,
-    amountIn:amount,minimumOut:quote.minimum,createdAt:Date.now(),updatedAt:Date.now(),
-    stage:'REVIEWED',steps:[]}))
-    throw Error('Exchange task journal could not be saved. No wallet trade requested.');
-   if(!advanceExchangeIntent(owner,intentId,'AWAITING_WALLET',{}))
-    throw Error('Exchange task could not be locked. No wallet trade requested.');
    if(mode==='swap'){
     const result=await kit.swap(p as Parameters<AppKit['swap']>[0]);
     const hash=typeof result.txHash==='string'&&HASH.test(result.txHash)?result.txHash:undefined;
@@ -250,6 +252,16 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     }
    }
   }catch(e){
+   if(saved&&address){
+    // SDK may have broadcast before returning an error or timeout.
+    // This journal state can only be cleared by original evidence.
+    try{
+     const original=JSON.parse(localStorage.getItem(key(mode,address))??'null') as Recovery|null;
+     if(original?.intentId)
+      advanceExchangeIntent(owner,original.intentId,'SOURCE_UNKNOWN',{
+       message:'Provider outcome uncertain. Verify original wallet activity; do not repeat the source.'});
+    }catch{/* Original recovery lock stays in storage. */}
+   }
    setError((e instanceof Error?e.message:'Provider outcome uncertain.')+
     (saved?' Original operation remains locked. Do not sign again.':''));
   }finally{lock.current=false;setBusy(false);}
