@@ -7,7 +7,7 @@ import { ConnectKitButton } from 'connectkit';
 import { formatUnits } from 'viem';
 import { recordLocalOperation } from '@/mainnet/localOperations';
 import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
-import {enqueueVerifiedPay,readReceiptOutbox,type ReceiptOutboxItem} from '@/mainnet/receiptOutbox';
+import {enqueueVerifiedPay,readReceiptOutbox,storageForReceiptOutbox,type ReceiptOutboxItem} from '@/mainnet/receiptOutbox';
 import {preparePaymentRecipient,verifyPaymentRecipient} from '@/lib/api/identityApi';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {isSameVerifiedPaymentReceiver,type VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
@@ -73,7 +73,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   useEffect(()=>{
     setReview(null);setAck(false);setReceipt(null);setCompleted(null);setOutboxItem(null);setAccountReceipt(null);setError(null);
     if(!address){setJournal(null);setBlockedStorage(false);setLoadedFor(null);return;}
-    const storage=storageForMainnet();
+    const storage=storageForReceiptOutbox();
     const stored=readMainnetJournal(address,storage);
     const outbox=readReceiptOutbox(address,storage);
     setJournal(stored.kind==='active'?stored.value:null);
@@ -206,13 +206,13 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   // An UNKNOWN/PENDING original transaction never releases the wallet journal.
   useEffect(()=>{
     if(!address||!journal||journal.stage!=='VERIFIED'||!journal.hash||lock.current)return;
-    const result=enqueueVerifiedPay(journal,storageForMainnet());
+    const result=enqueueVerifiedPay(journal,storageForReceiptOutbox());
     if(result.kind!=='queued'){
       setError(result.reason??'Could not preserve verified receipt. Keep original payment locked.');
       return;
     }
     setCompleted(journal);setJournal(null);setReview(null);setAck(false);
-    const latest=readReceiptOutbox(address,storageForMainnet());
+    const latest=readReceiptOutbox(address,storageForReceiptOutbox());
     if(latest.kind==='ready')setOutboxItem(latest.items.find(v=>v.hash.toLowerCase()===journal.hash?.toLowerCase())??null);
   },[address,journal?.hash,journal?.stage,journal?.from,journal?.to,journal?.amount]);
   // Read the receipt that the global worker has written, for the same owner and hash.
@@ -223,7 +223,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     const wallet=address,hash=completed.hash;
     const session=social.session;
     const refresh=()=>{
-      const queue=readReceiptOutbox(wallet,storageForMainnet());
+      const queue=readReceiptOutbox(wallet,storageForReceiptOutbox());
       if(queue.kind==='ready')setOutboxItem(queue.items.find(x=>x.hash===hash?.toLowerCase())??null);
       if(!session?.token||session.walletKey!==(wallet.toLowerCase()+':'+(connector?.uid??''))||social.identityOrigin!=='ready'){
         setAccountReceipt(null);return;
@@ -356,11 +356,9 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
           Previous transaction record unreadable. Signing blocked. Check wallet history.
         </p>:journal&&<>
           <p className="text-sm" style={{color:'var(--muted)'}}>
-            {journal.stage==='VERIFIED'?'Money sent · original transfer verified':
-              journal.stage==='REVERTED'?'Transaction reverted':
+            {journal.stage==='REVERTED'?'Transaction reverted':
               'Transaction pending or uncertain. Do not submit a second payment.'}
           </p>
-          {journal.stage==='VERIFIED'&&<CheckCircle2 className="size-5" style={{color:'var(--success)'}}/>}
           {journal.hash&&<details className="text-xs" style={{color:'var(--muted)'}}>
             <summary className="cursor-pointer">Original transaction details</summary>
             <a className="mt-2 inline-flex items-center gap-2 break-all" href={mainnetExplorerTx(journal.hash)}
