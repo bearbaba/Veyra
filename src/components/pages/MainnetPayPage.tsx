@@ -6,7 +6,7 @@ import { useAccount, useSwitchChain } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { formatUnits } from 'viem';
 import { recordLocalOperation } from '@/mainnet/localOperations';
-import {saveVerifiedMainnetPayReceipt} from '@/lib/api/mainnetPayReceipts';
+import {saveVerifiedMainnetPayReceipt,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
 import {receiptSyncRetryDelayMs} from '@/mainnet/receiptSyncCandidates';
 import {preparePaymentRecipient,verifyPaymentRecipient} from '@/lib/api/identityApi';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
@@ -68,9 +68,10 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   const [error,setError] = useState<string|null>(null);
   const [syncNonce,setSyncNonce]=useState(0);
   const [receiptSync,setReceiptSync]=useState<'idle'|'saving'|'saved'|'unavailable'>('idle');
+  const [accountReceipt,setAccountReceipt]=useState<MainnetPayServerReceipt|null>(null);
 
   useEffect(()=>{
-    setReview(null);setAck(false);setReceipt(null);setError(null);
+    setReview(null);setAck(false);setReceipt(null);setAccountReceipt(null);setReceiptSync('idle');setError(null);
     if(!address){setJournal(null);setBlockedStorage(false);setLoadedFor(null);return;}
     const stored=readMainnetJournal(address,storageForMainnet());
     setJournal(stored.kind==='active'?stored.value:null);
@@ -206,8 +207,8 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
       if(!active||inFlight)return;
       inFlight=true;setReceiptSync('saving');
       try{
-        await saveVerifiedMainnetPayReceipt(token,original);
-        if(active){setReceiptSync('saved');window.dispatchEvent(new Event('veyra:mainnet:server-receipt'));}
+        const saved=await saveVerifiedMainnetPayReceipt(token,original);
+        if(active){setAccountReceipt(saved);setReceiptSync('saved');window.dispatchEvent(new Event('veyra:mainnet:server-receipt'));}
       }catch{
         if(active){
           setReceiptSync('unavailable');
@@ -233,7 +234,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   function reset(){
     if(!address||!journal||!['VERIFIED','REVERTED'].includes(journal.stage)||lock.current)return;
     if(!clearMainnetJournal(address,storageForMainnet())){setError('Cannot clear payment lock.');return;}
-    setJournal(null);setReview(null);setReceipt(null);setRecipient('');setAmount('');setHashInput('');
+    setJournal(null);setReview(null);setReceipt(null);setAccountReceipt(null);setReceiptSync('idle');setRecipient('');setAmount('');setHashInput('');
   }
   return <div className={embedded?'space-y-4':'mx-auto w-full max-w-2xl space-y-5 px-4 py-7 md:px-7 md:py-9'}>
     {!embedded&&<div>
@@ -260,6 +261,22 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
           <button type="button" className="ml-2 font-semibold" style={{color:'var(--accent)'}}
             onClick={()=>setSyncNonce(n=>n+1)}>Sync now (no wallet signature)</button>}
       </div>}
+    {journal?.stage==='VERIFIED'&&accountReceipt&&accountReceipt.direction==='sent'&&
+     accountReceipt.txHash.toLowerCase()===journal.hash?.toLowerCase()&&
+     accountReceipt.senderAddress.toLowerCase()===address?.toLowerCase()&&
+      <section aria-label="Verified USDC receipt" className={box+' space-y-3'}
+       style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
+        <div className="flex items-center gap-2"><CheckCircle2 className="size-5" style={{color:'var(--success)'}}/>
+         <strong className="text-base">Sent · {formatUnits(BigInt(accountReceipt.amountRaw),6)} USDC</strong></div>
+        <p className="text-sm">To {accountReceipt.recipientLabel??accountReceipt.recipientAddress}</p>
+        <p className="text-xs" style={{color:'var(--muted)'}}>Paid {new Date(accountReceipt.paidAt).toLocaleString()} · verified on Arc Mainnet</p>
+        <details className="text-xs" style={{color:'var(--muted)'}}><summary className="cursor-pointer">Receipt details</summary>
+         <p className="mt-2 break-all">Receiving wallet: {accountReceipt.recipientAddress}</p>
+         <p className="mt-2">Block {accountReceipt.blockNumber} · network fee {accountReceipt.feeWei} wei</p>
+         <a className="mt-2 inline-flex items-center gap-2 break-all" href={mainnetExplorerTx(accountReceipt.txHash)}
+          style={{color:'var(--accent)'}} target="_blank" rel="noreferrer">Original transaction <ExternalLink className="size-4"/></a>
+        </details>
+      </section>}
     {idSelection&&<div role="status" className={box} style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
       <p className="text-sm font-semibold">{'Send to @'+idSelection.veyraHandle+'.veyra'}</p>
       <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Verified recipient snapshot · address will be rechecked by the backend before signing.</p>
@@ -323,9 +340,12 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
               'Transaction pending or uncertain. Do not submit a second payment.'}
           </p>
           {journal.stage==='VERIFIED'&&<CheckCircle2 className="size-5" style={{color:'var(--success)'}}/>}
-          {journal.hash&&<a className="flex items-center gap-2 break-all text-xs" href={mainnetExplorerTx(journal.hash)}
-            style={{color:'var(--accent)'}} target="_blank" rel="noreferrer">
-            {journal.hash}<ExternalLink className="size-4"/></a>}
+          {journal.hash&&<details className="text-xs" style={{color:'var(--muted)'}}>
+            <summary className="cursor-pointer">Original transaction details</summary>
+            <a className="mt-2 inline-flex items-center gap-2 break-all" href={mainnetExplorerTx(journal.hash)}
+              style={{color:'var(--accent)'}} target="_blank" rel="noreferrer">
+              {journal.hash}<ExternalLink className="size-4"/></a>
+          </details>}
           {!journal.hash&&<details className="rounded-xl border p-3" style={{borderColor:'var(--border)'}}>
             <summary className="cursor-pointer text-xs" style={{color:'var(--muted)'}}>Advanced recovery · only if the wallet did not return a hash</summary>
             <p className="my-2 text-xs" style={{color:'var(--warning)'}}>
