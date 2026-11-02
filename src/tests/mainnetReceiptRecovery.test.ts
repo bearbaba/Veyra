@@ -46,7 +46,7 @@ describe('Home keeps one human-facing wallet site and one verified history',()=>
   expect(source).toContain('listVerifiedMainnetPayReceipts');
   expect(source).toContain("social.session&&social.identityOrigin==='ready'");
   expect(source).toContain('knownHashes.has(x.hash.toLowerCase())');
-  expect(source).toContain('Verified by Veyra backend');
+  expect(source).toContain("Verified · {x.recipientLabel??'Arc Mainnet'}");
   expect(source).toContain('{receive&&<section');
   expect(source).not.toContain('Show wallet address');
  });
