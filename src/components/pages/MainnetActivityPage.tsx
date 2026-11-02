@@ -11,6 +11,7 @@ import {ConnectKitButton} from 'connectkit';
 import {CheckCircle2,Clock3,ExternalLink,RefreshCw} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
 import {readLocalOperations,recordLocalOperation,type LocalOperation} from '@/mainnet/localOperations';
+import {readExchangeActivities,type ExchangeActivity} from '@/mainnet/exchangeActivity';
 import {inspectRecordedOperation,type OperationInspection} from '@/mainnet/inspectRecordedOperation';
 import {readSettlementIntent,writeSettlementIntent} from '@/mainnet/settlementJournal';
 import type {VeyraPage} from '../layout/AppShell';
@@ -37,14 +38,15 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const [states,setStates]=useState<Record<string,OperationInspection>>({});
  const [syncing,setSyncing]=useState(false);
  const [unknownSettlement,setUnknownSettlement]=useState(false);
- const [filter,setFilter]=useState<'All'|'Send'|'Swap'|'Bridge'>('All');
+ const [filter,setFilter]=useState<'All'|'Send'|'Exchange'>('All');
+ const [exchangeActivities,setExchangeActivities]=useState<ExchangeActivity[]>([]);
  const verifiedCache=useRef(new Map<string,{checked:number;state:OperationInspection}>());
  const [queuedReceipts,setQueuedReceipts]=useState<ReceiptOutboxItem[]>([]);
  const [queuedOwner,setQueuedOwner]=useState('');
  const [outboxBlocked,setOutboxBlocked]=useState(false);
  useEffect(()=>{
   let active=true,working=false;
-  verifiedCache.current.clear();setLocalOwner('');setEntries([]);setStates({});setUnknownSettlement(false);
+  verifiedCache.current.clear();setLocalOwner('');setEntries([]);setExchangeActivities([]);setStates({});setUnknownSettlement(false);
   if(!address)return;
   const owner=address;
   async function update(){
@@ -70,7 +72,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       !contract.value.hash&&['AWAITING_WALLET','UNKNOWN'].includes(contract.value.stage));
     const list=readLocalOperations(owner);
     if(!active)return;
-    setEntries(list);setLocalOwner(owner.toLowerCase());
+    setEntries(list);setExchangeActivities(readExchangeActivities(owner));setLocalOwner(owner.toLowerCase());
     for(let i=0;i<list.length&&active;i+=3){
      const batch=list.slice(i,i+3);
      const outcome=await Promise.all(batch.map(async v=>{
@@ -104,7 +106,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       }
      }
     }
-    if(active)setEntries(readLocalOperations(owner));
+    if(active){setEntries(readLocalOperations(owner));setExchangeActivities(readExchangeActivities(owner));}
    }finally{working=false;if(active)setSyncing(false);}
   }
   void update();
@@ -112,9 +114,11 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
   const onChange=()=>void update();
   window.addEventListener('focus',onChange);
   window.addEventListener('veyra:mainnet:operation',onChange);
+  window.addEventListener('veyra:mainnet:exchange-activity',onChange);
   return()=>{active=false;window.clearInterval(timer);
    window.removeEventListener('focus',onChange);
-   window.removeEventListener('veyra:mainnet:operation',onChange);};
+   window.removeEventListener('veyra:mainnet:operation',onChange);
+   window.removeEventListener('veyra:mainnet:exchange-activity',onChange);};
  },[address]);
  useEffect(()=>{
   setServerReceipts([]);setServerReceiptScope('');setServerHistoryStatus('unavailable');
@@ -170,6 +174,10 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const scopedReceipts=address&&social.session?.token&&
    serverReceiptScope===address.toLowerCase()+':'+social.session.token?serverReceipts:[];
  const scopedEntries=address&&localOwner===address.toLowerCase()?entries:[];
+ const scopedExchange=address&&localOwner===address.toLowerCase()?exchangeActivities:[];
+ const exchangeShown=filter==='All'||filter==='Exchange'?scopedExchange:[];
+ const groupedHashes=new Set(scopedExchange.flatMap(x=>[x.originalHash.toLowerCase(),
+  ...(x.destinationHash?[x.destinationHash.toLowerCase()]:[])]));
  const scopedStates=address&&localOwner===address.toLowerCase()?states:{};
  const scopedQueue=address&&queuedOwner===address.toLowerCase()?queuedReceipts:[];
  const scopedOutboxBlocked=address&&queuedOwner===address.toLowerCase()?outboxBlocked:false;
@@ -177,14 +185,16 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const remoteHashes=new Set(scopedReceipts.map(r=>r.txHash.toLowerCase()));
  // Server-verified payment appears ONCE, even when there is a browser journal pointer.
  const shown=scopedEntries.filter(v=>!((v.type==='Pay')&&remoteHashes.has(v.hash.toLowerCase()))&&
-   (filter==='All'||(filter==='Send'?(v.type==='Pay'||v.type==='Settlement'):v.type===filter)));
+   !((v.type==='Swap'||v.type==='Bridge')&&groupedHashes.has(v.hash.toLowerCase()))&&
+   (filter==='All'||(filter==='Send'?(v.type==='Pay'||v.type==='Settlement'):
+    (v.type==='Swap'||v.type==='Bridge'))));
  return <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
   <header className="flex flex-wrap items-center justify-between gap-3">
    <div>
     <span className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Arc Mainnet · 5042</span>
     <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Activity</h1>
     <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>
-     Veyra records original transactions. Wallet Pay receipts are checked onchain; Swap and Bridge still require their route tracking.
+     One Exchange request can include multiple network steps. Pay receipts are backend-verified; Exchange proof links remain local until shared receipt indexing is available.
     </p>
    </div>
    {address&&<span className="flex items-center gap-2 text-xs" style={{color:'var(--muted)'}}>
@@ -202,7 +212,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
   </section>:<>
    <div className="flex flex-wrap items-center justify-between gap-3">
     <div className="flex flex-wrap gap-2" aria-label="Filter transactions">
-     {(['All','Send','Swap','Bridge'] as const).map(v=><button type="button" key={v}
+     {(['All','Send','Exchange'] as const).map(v=><button type="button" key={v}
       aria-pressed={filter===v} onClick={()=>setFilter(v)} className="rounded-lg border px-3 py-2 text-xs font-semibold"
       style={{borderColor:'var(--border)',background:filter===v?'var(--accent-muted)':'var(--surface)',
        color:filter===v?'var(--accent)':'var(--muted)'}}>{v}</button>)}
@@ -251,7 +261,42 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       </details>
      </article>)}
    </section>}
-   {shown.length===0&&verifiedRemote.length===0?<section className="rounded-2xl border p-7 text-center" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+   {exchangeShown.length>0&&<section aria-label="Exchange activities" className="overflow-hidden rounded-2xl border"
+     style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+    {exchangeShown.map(x=><article key={x.originalHash} className="border-b p-4 last:border-0 sm:p-5"
+     style={{borderColor:'var(--border)'}}>
+     <div className="flex items-start gap-3">
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-xl"
+       style={{background:'var(--surface-raised)'}}><Clock3 className="size-5" style={{color:'var(--accent)'}}/></div>
+      <div className="min-w-0 flex-1">
+       <p className="font-semibold" style={{color:'var(--ink)'}}>Exchange · {x.amountIn} {x.tokenIn} → {x.tokenOut}</p>
+       <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
+        {x.source===8453?'Base':'Arc'} → {x.destination===8453?'Base':'Arc'} · {x.mode==='swap'?'Swap':'Bridge'}
+       </p>
+       <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>
+        {x.status==='DESTINATION_VERIFIED'?'Destination verified by Exchange · browser-local receipt reference':
+         'Original operation submitted · follow its outcome in Exchange. Do not resubmit.'}
+       </p>
+       <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
+        Started {new Date(x.createdAt).toLocaleString()}{x.verifiedAt?' · Checked '+new Date(x.verifiedAt).toLocaleString():''}
+       </p>
+       <details className="mt-3 text-xs" style={{color:'var(--muted)'}}>
+        <summary className="cursor-pointer">One receipt · source and destination proofs</summary>
+        <p className="mt-2">Reviewed minimum received: {x.minOut} {x.tokenOut}</p>
+        <a href={(x.source===8453?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+x.originalHash}
+         target="_blank" rel="noreferrer" className="mt-2 block break-all underline" style={{color:'var(--accent)'}}>
+         Original transaction · {x.originalHash}</a>
+        {x.destinationHash&&<a href={(x.destination===8453?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+x.destinationHash}
+         target="_blank" rel="noreferrer" className="mt-2 block break-all underline" style={{color:'var(--accent)'}}>
+         Destination proof · {x.destinationHash}</a>}
+       </details>
+       <button type="button" onClick={()=>onNavigate('convert')} className="mt-3 text-xs font-semibold"
+        style={{color:'var(--accent)'}}>Open Exchange tracking</button>
+      </div>
+     </div>
+    </article>)}
+   </section>}
+   {shown.length===0&&verifiedRemote.length===0&&exchangeShown.length===0?<section className="rounded-2xl border p-7 text-center" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
      <Clock3 className="mx-auto mb-3 size-6" style={{color:'var(--muted)'}}/>
      <p className="font-semibold" style={{color:'var(--ink)'}}>No {filter==='All'?'transactions':filter+' transactions'} recorded yet</p>
      <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Veyra saves the original transaction automatically when your wallet returns its hash.</p>
@@ -287,8 +332,8 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
          className="mt-2 inline-flex items-center gap-1 font-semibold" style={{color:'var(--accent)'}}>
          View original transaction <ExternalLink className="size-3.5"/></a>
        </details>
-       {(v.type==='Swap'||v.type==='Bridge')&&<button type="button" onClick={()=>onNavigate(v.type==='Swap'?'convert':'bridge')}
-        className="ml-12 mt-3 text-xs font-semibold" style={{color:'var(--accent)'}}>Open {v.type} tracking</button>}
+       {(v.type==='Swap'||v.type==='Bridge')&&<button type="button" onClick={()=>onNavigate('convert')}
+        className="ml-12 mt-3 text-xs font-semibold" style={{color:'var(--accent)'}}>Open Exchange tracking</button>}
       </article>;
      })}
     </section>}
