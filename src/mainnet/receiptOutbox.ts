@@ -13,6 +13,15 @@ export type ReceiptOutboxItem={
  status:ReceiptOutboxStatus;problem?:string;
 };
 type OutboxStorage=Pick<Storage,'getItem'|'setItem'|'removeItem'|'key'|'length'>;
+/** Same browser store as the payment journal, with a fail-closed inaccessible fallback. */
+export function storageForReceiptOutbox():OutboxStorage{
+ try{return window.localStorage;}catch{
+  return {get length(){throw Error('Storage inaccessible');},key(){throw Error('Storage inaccessible');},
+   getItem(){throw Error('Storage inaccessible');},setItem(){throw Error('Storage inaccessible');},
+   removeItem(){throw Error('Storage inaccessible');}};
+ }
+}
+
 const WALLET=/^0x[0-9a-f]{40}$/i;
 const HASH=/^0x[0-9a-f]{64}$/i;
 const USER=/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/;
