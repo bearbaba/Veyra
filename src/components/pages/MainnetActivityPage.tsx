@@ -5,7 +5,8 @@ import {useEffect,useRef,useState} from 'react';
 import {useAccount} from 'wagmi';
 import {formatUnits} from 'viem';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
-import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
+import {listVerifiedMainnetPayReceipts,saveVerifiedMainnetPayReceipt,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
+import {verifiedLocalPayMissingFromAccount} from '@/mainnet/receiptSyncCandidates';
 import {ConnectKitButton} from 'connectkit';
 import {CheckCircle2,Clock3,ExternalLink,RefreshCw} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
@@ -36,6 +37,9 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const [unknownSettlement,setUnknownSettlement]=useState(false);
  const [filter,setFilter]=useState<'All'|'Send'|'Swap'|'Bridge'>('All');
  const verifiedCache=useRef(new Map<string,{checked:number;state:OperationInspection}>());
+ const syncAttempted=useRef(new Set<string>());
+ const [receiptSyncEpoch,setReceiptSyncEpoch]=useState(0);
+ const [receiptSyncWarning,setReceiptSyncWarning]=useState(false);
  useEffect(()=>{
   let active=true,working=false;
   verifiedCache.current.clear();setEntries([]);setStates({});setUnknownSettlement(false);
@@ -130,6 +134,36 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
   return()=>{active=false;controller.abort();window.removeEventListener('focus',onChange);
    window.removeEventListener('veyra:mainnet:server-receipt',onChange);};
  },[address,social.session?.token,social.identityOrigin]);
+ // Repair lost Pay-page receipt writes after a user returns to Activity or signs in.
+ // This only rechecks the already verified original transaction hash; it never
+ // generates a wallet request. A failed RPC/backend sync stays visible locally.
+ useEffect(()=>{
+  const token=social.session?.token;
+  if(!address||!token||social.identityOrigin!=='ready'||serverHistoryStatus!=='ready')return;
+  const hashes=new Set(serverReceipts.map(v=>v.txHash.toLowerCase()));
+  const pending=verifiedLocalPayMissingFromAccount(entries,
+   Object.fromEntries(Object.entries(states).map(([k,v])=>[k,v.status])),
+   hashes,address,3)
+   .filter(v=>!syncAttempted.current.has(address.toLowerCase()+':'+token+':'+v.hash.toLowerCase()));
+  if(!pending.length)return;
+  let active=true;
+  for(const v of pending)syncAttempted.current.add(address.toLowerCase()+':'+token+':'+v.hash.toLowerCase());
+  void Promise.all(pending.map(async v=>{
+   try{
+    await saveVerifiedMainnetPayReceipt(token,{hash:v.hash,note:v.note});
+    return true;
+   }catch{return false;}
+  })).then(results=>{
+   if(!active)return;
+   if(results.some(Boolean)){
+    window.dispatchEvent(new Event('veyra:mainnet:server-receipt'));
+   }
+   if(results.some(v=>!v))setReceiptSyncWarning(true);
+   else setReceiptSyncWarning(false);
+  });
+  return()=>{active=false;};
+ },[address,entries,states,serverReceipts,serverHistoryStatus,social.session?.token,
+   social.identityOrigin,receiptSyncEpoch]);
  const verifiedRemote=filter==='All'||filter==='Send'?serverReceipts:[];
  const remoteHashes=new Set(serverReceipts.map(r=>r.txHash.toLowerCase()));
  // Server-verified payment appears ONCE, even when there is a browser journal pointer.
@@ -167,10 +201,15 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     <button type="button" onClick={onPay} className="rounded-xl px-4 py-2 text-xs font-bold"
      style={{background:'var(--accent)',color:'#0d1b2f'}}>New payment</button>
    </div>
-   {social.session&&<p className="text-xs" style={{color:'var(--muted)'}}>
-     Veyra account history: {serverHistoryStatus==='ready'?'server verified':
-      serverHistoryStatus==='checking'?'loading':'not available; local history remains visible'}
-   </p>}
+   {social.session&&<div className="flex flex-wrap items-center justify-between gap-2 text-xs"
+     style={{color:'var(--muted)'}}>
+     <span>Veyra account history: {serverHistoryStatus==='ready'?'server verified':
+      serverHistoryStatus==='checking'?'loading':'not available; local history remains visible'}</span>
+     {receiptSyncWarning&&<button type="button" className="font-semibold"
+       style={{color:'var(--accent)'}} onClick={()=>{
+        syncAttempted.current.clear();setReceiptSyncWarning(false);setReceiptSyncEpoch(x=>x+1);
+       }}>Retry receipt sync (no wallet signature)</button>}
+   </div>}
    {verifiedRemote.length>0&&<section aria-label="Verified Veyra account receipts"
       className="overflow-hidden rounded-2xl border" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
     {verifiedRemote.map(v=><article key={v.txHash} className="border-b p-4 last:border-0" style={{borderColor:'var(--border)'}}>
