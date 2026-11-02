@@ -31,11 +31,12 @@ describe('Mainnet Direct Pay persistent receipt input boundaries',()=>{
  it('returns sender-only notes without exposing them to the receiver',()=>{
   const row={txHash:hash,chainId:5042,senderAddress:address,recipientAddress:address,
    senderUserId:'usr_sender',recipientUserId:'usr_receiver',recipientLabel:'@alice.veyra',
-   amountRaw:'500000',feeWei:'999',blockNumber:123,createdAt:new Date('2026-11-02'),
+   amountRaw:'500000',feeWei:'999',blockNumber:123,paidAt:new Date('2026-11-01T12:00:00Z'),createdAt:new Date('2026-11-02'),
    verifiedAt:new Date('2026-11-02'),senderPrivateNote:'Dinner'} as unknown as VerifiedPayRow;
   expect(visiblePayReceipt(row,'usr_sender')).toMatchObject({direction:'sent',privateNote:'Dinner'});
   const receiver=visiblePayReceipt(row,'usr_receiver');
   expect(receiver.direction).toBe('received');
+  expect(receiver.paidAt.toISOString()).toBe('2026-11-01T12:00:00.000Z');
   expect(receiver).not.toHaveProperty('privateNote');
  });
  it('server writes are owner scoped, idempotent, read-only from chain and two-sided',()=>{
@@ -54,22 +55,24 @@ describe('Mainnet Direct Pay persistent receipt input boundaries',()=>{
   expect(server).toContain('onConflictDoNothing()');
   expect(server).toContain('SENDER_REQUIRED_FOR_METADATA');
   expect(db).toContain("senderPrivateNote:text('sender_private_note')");
+  expect(migration).toContain('paid_at timestamptz NOT NULL');
   expect(migration).toContain('CHECK (chain_id=5042)');
  });
 });
 describe('Mainnet signed history browser client',()=>{
  it('refuses an HTML fallback and mismatched receipt hash',async()=>{
   vi.stubGlobal('fetch',vi.fn(()=>Promise.resolve({
-   ...json(200,{ok:true,receipt:{chainId:5042,txHash:hash}}),
+   ...json(200,{ok:true,receipt:{chainId:5042,txHash:hash,paidAt:'2026-11-01T12:00:00.000Z',verifiedAt:'2026-11-02T12:00:00.000Z'}}),
    headers:{get:()=> 'text/html'},
   })));
   await expect(saveVerifiedMainnetPayReceipt('signed.session',{hash})).rejects.toThrow('not configured');
-  vi.stubGlobal('fetch',vi.fn(()=>Promise.resolve(json(200,{ok:true,receipt:{chainId:5042,txHash:'0x'+'b'.repeat(64)}}))));
+  vi.stubGlobal('fetch',vi.fn(()=>Promise.resolve(json(200,{ok:true,receipt:{chainId:5042,txHash:'0x'+'b'.repeat(64),paidAt:'2026-11-01T12:00:00.000Z',verifiedAt:'2026-11-02T12:00:00.000Z'}}))));
   await expect(saveVerifiedMainnetPayReceipt('signed.session',{hash})).rejects.toThrow('does not match');
  });
  it('passes bearer session and refuses invalid list evidence',async()=>{
   const mocked=vi.fn((_path:string,_opts?:RequestInit)=>Promise.resolve(json(200,{ok:true,receipts:[{
    txHash:hash,chainId:5042,amountRaw:'250000',direction:'received',
+   paidAt:'2026-11-01T12:00:00.000Z',verifiedAt:'2026-11-02T12:00:00.000Z',
    senderAddress:address,recipientAddress:address,
   },{txHash:'invalid',chainId:5042,amountRaw:'250000',direction:'received'}]})));
   vi.stubGlobal('fetch',mocked);

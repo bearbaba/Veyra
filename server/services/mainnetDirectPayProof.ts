@@ -15,10 +15,10 @@ export type ChainPayReceipt={
  gasUsed:bigint;effectiveGasPrice:bigint;
  logs:ReadonlyArray<{address:string;topics:readonly string[];data:Hex}>;
 };
-export type ChainPayBlock={number:bigint;hash:string};
+export type ChainPayBlock={number:bigint;hash:string;timestamp:bigint};
 export type CanonicalDirectPayProof={
  txHash:string;sender:string;recipient:string;chainId:5042;
- token:typeof ARC_MAINNET_USDC;amountRaw:string;blockNumber:string;feeWei:string;
+ token:typeof ARC_MAINNET_USDC;amountRaw:string;blockNumber:string;blockTimeSeconds:string;feeWei:string;
 };
 export class DirectPayProofError extends Error{
  constructor(public readonly code:string){super(code);this.name='DirectPayProofError';}
@@ -40,6 +40,7 @@ export function verifyCanonicalDirectPay(
     block.hash.toLowerCase()!==receipt.blockHash.toLowerCase()||
     block.number!==receipt.blockNumber)deny('NONCANONICAL_PAYMENT_RECEIPT');
  if(receipt.status!=='success')deny('PAYMENT_REVERTED');
+ if(block.timestamp<=0n||block.timestamp>8640000000000n)deny('INVALID_CANONICAL_BLOCK_TIME');
  const confirmations=input.minConfirmations??2;
  if(!Number.isSafeInteger(confirmations)||confirmations<1||confirmations>100||
     receipt.blockNumber>input.tipBlockNumber||
@@ -61,6 +62,6 @@ export function verifyCanonicalDirectPay(
  if(matches.length!==1)deny('USDC_TRANSFER_LOG_MISMATCH');
  return {txHash:tx.hash.toLowerCase(),sender:getAddress(tx.from),recipient:getAddress(recipient),
   chainId:5042,token:ARC_MAINNET_USDC,amountRaw:amount.toString(),
-  blockNumber:receipt.blockNumber.toString(),
+  blockNumber:receipt.blockNumber.toString(),blockTimeSeconds:block.timestamp.toString(),
   feeWei:(receipt.gasUsed*receipt.effectiveGasPrice).toString()};
 }

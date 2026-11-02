@@ -224,11 +224,12 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       {v.direction==='sent'&&v.privateNote&&
        <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Your private note: {v.privateNote}</p>}
       <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
-       Verified {new Date(v.verifiedAt).toLocaleString()} · Arc Mainnet
+       Paid {new Date(v.paidAt).toLocaleString()} · Arc Mainnet
       </p>
       <details className="mt-3 text-xs" style={{color:'var(--muted)'}}>
        <summary className="cursor-pointer">Receipt details</summary>
-       <p className="mt-2">Block {v.blockNumber} · network fee {v.feeWei} wei</p>
+       <p className="mt-2">Verified by Veyra: {new Date(v.verifiedAt).toLocaleString()}</p>
+       <p className="mt-1">Block {v.blockNumber} · network fee {v.feeWei} wei</p>
        <a href={'https://explorer.arc.io/tx/'+v.txHash} target="_blank" rel="noreferrer"
         className="mt-2 inline-flex items-center gap-1" style={{color:'var(--accent)'}}>
         Original transaction <ExternalLink className="size-3.5"/>

@@ -144,7 +144,7 @@ export function MainnetPayHub({
      onChange={e=>changeDraft({note:e.target.value})}
      placeholder="e.g. Dinner with Alex" className="mt-2 w-full rounded-lg border px-3 py-2 text-sm"
      style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
-    <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Saved with your browser receipt once submitted; never sent onchain or to the recipient.</p>
+    <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Private to you. Saved on this device first, then to your account after verified receipt sync. Never onchain or shared with the recipient.</p>
    </div>
   </section>
   <section className="rounded-xl border p-3 sm:p-4" style={{background:'var(--surface)',borderColor:'var(--border)'}}>

@@ -58,7 +58,7 @@ export async function readCanonicalMainnetPayProof(
     transactionHash:receipt.transactionHash,blockHash:receipt.blockHash,blockNumber:receipt.blockNumber,
     status:receipt.status,gasUsed:receipt.gasUsed,effectiveGasPrice:receipt.effectiveGasPrice,
     logs:receipt.logs.map(l=>({address:l.address,topics:l.topics,data:l.data})),
-   },block:{number:block.number,hash:block.hash??''},tipBlockNumber:tip,minConfirmations:2,
+   },block:{number:block.number,hash:block.hash??'',timestamp:block.timestamp},tipBlockNumber:tip,minConfirmations:2,
   });
   if(proof.txHash!==hash.toLowerCase())return reject('TRANSACTION_HASH_MISMATCH');
   return proof;
@@ -90,6 +90,7 @@ export function visiblePayReceipt(row:VerifiedPayRow,userId:string){
   recipientAddress:row.recipientAddress,recipientLabel:row.recipientLabel,
   senderUserId:row.senderUserId,recipientUserId:row.recipientUserId,
   amountRaw:row.amountRaw,feeWei:row.feeWei,blockNumber:row.blockNumber,
+  paidAt:row.paidAt,
   createdAt:row.createdAt,verifiedAt:row.verifiedAt,
   direction:row.senderUserId===userId?'sent':'received',
   ...(row.senderUserId===userId&&row.senderPrivateNote?{privateNote:row.senderPrivateNote}:{}),
@@ -181,6 +182,7 @@ export async function indexVerifiedDirectPay(
   senderUserId:sender?.userId??null,recipientUserId:receiver?.userId??null,
   recipientSnapshotId:snapshotId,recipientLabel:label,
   amountRaw:proof.amountRaw,feeWei:proof.feeWei,blockNumber:Number(proof.blockNumber),
+  paidAt:new Date(Number(proof.blockTimeSeconds)*1000),
   senderPrivateNote:sender?.userId===userId?(input.note?.trim()||null):null};
  await db.insert(mainnetDirectPayReceipts).values(values).onConflictDoNothing();
  const rows=await db.select().from(mainnetDirectPayReceipts)
@@ -189,7 +191,8 @@ export async function indexVerifiedDirectPay(
  if(!saved)return reject('RECEIPT_PERSISTENCE_UNAVAILABLE',503);
  // Concurrent receipt indexers must not be able to overwrite canonical data.
  if(saved.senderAddress!==values.senderAddress||saved.recipientAddress!==values.recipientAddress||
-    saved.amountRaw!==values.amountRaw||saved.blockNumber!==values.blockNumber)
+    saved.amountRaw!==values.amountRaw||saved.blockNumber!==values.blockNumber||
+    saved.paidAt.getTime()!==values.paidAt.getTime())
   return reject('RECEIPT_EVIDENCE_CONFLICT',409);
  if(saved.senderUserId!==userId&&saved.recipientUserId!==userId)
   return reject('RECEIPT_NOT_OWNED',403);
@@ -200,6 +203,6 @@ export async function listVerifiedDirectPays(db:DbClient,userId:string,limit=50)
  const rows=await db.select().from(mainnetDirectPayReceipts)
   .where(or(eq(mainnetDirectPayReceipts.senderUserId,userId),
             eq(mainnetDirectPayReceipts.recipientUserId,userId)))
-  .orderBy(desc(mainnetDirectPayReceipts.createdAt)).limit(count);
+  .orderBy(desc(mainnetDirectPayReceipts.paidAt)).limit(count);
  return rows.map(r=>visiblePayReceipt(r,userId));
 }

@@ -15,13 +15,13 @@ function fixture(){
   gasUsed:45000n,effectiveGasPrice:1000000000n,
   logs:[{address:token,topics:[toEventSelector('Transfer(address,address,uint256)'),pad(alice),pad(bob)],
    data:('0x'+value.toString(16).padStart(64,'0')) as Hex}]};
- return {chainId:5042,transaction:tx,receipt,block:{number:100n,hash:blockHash},
+ return {chainId:5042,transaction:tx,receipt,block:{number:100n,hash:blockHash,timestamp:1793610000n},
   tipBlockNumber:101n,expectedSender:alice};
 }
 describe('Canonical Arc Mainnet Pay receipt proof (no wallet signing)',()=>{
  it('confirms exactly the sender, recipient, amount, token, event and canonical block',()=>{
   expect(verifyCanonicalDirectPay(fixture())).toMatchObject({txHash:hash,sender:alice,recipient:bob,
-   token,chainId:5042,amountRaw:'120000',blockNumber:'100',feeWei:'45000000000000'});
+   token,chainId:5042,amountRaw:'120000',blockNumber:'100',blockTimeSeconds:'1793610000',feeWei:'45000000000000'});
  });
  it('refuses wrong wallet, chain, USDC address, signature calldata and zero amount',()=>{
   const f=fixture();
@@ -40,6 +40,10 @@ describe('Canonical Arc Mainnet Pay receipt proof (no wallet signing)',()=>{
    logs:[{...f.receipt.logs[0],topics:[toEventSelector('Transfer(address,address,uint256)'),pad(alice),pad(alice)]}]}}))
    .toThrow('USDC_TRANSFER_LOG_MISMATCH');
   expect(()=>verifyCanonicalDirectPay({...f,block:{...f.block,hash:'0x'+'c'.repeat(64)}})).toThrow('NONCANONICAL_PAYMENT_RECEIPT');
+ });
+ it('rejects blocks without a canonical transaction time',()=>{
+  const f=fixture();
+  expect(()=>verifyCanonicalDirectPay({...f,block:{...f.block,timestamp:0n}})).toThrow('INVALID_CANONICAL_BLOCK_TIME');
  });
  it('does not call unconfirmed or unfetched receipts verified',()=>{
   const f=fixture();

@@ -196,7 +196,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
         {x.direction==='sent'?'Sent':'Received'} · {formatUnits(BigInt(x.amountRaw),6)} USDC
        </p>
        <p className="mt-1 text-xs" style={{color:'var(--success)'}}>
-        Verified by Veyra backend · {x.recipientLabel??'Arc Mainnet'}
+        Verified · {x.recipientLabel??'Arc Mainnet'} · {new Date(x.paidAt).toLocaleDateString()}
        </p>
       </div>
       <button type="button" onClick={()=>onNavigate('activity')} className="text-xs font-semibold"

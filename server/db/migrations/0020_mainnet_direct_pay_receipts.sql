@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS mainnet_direct_pay_receipts (
  amount_raw text NOT NULL CHECK (amount_raw ~ '^[0-9]+$'),
  fee_wei text NOT NULL CHECK (fee_wei ~ '^[0-9]+$'),
  block_number bigint NOT NULL CHECK (block_number > 0),
+ paid_at timestamptz NOT NULL, -- chain block time; not backend indexing time
  sender_private_note text CHECK (char_length(sender_private_note)<=120),
  created_at timestamptz NOT NULL DEFAULT now(),
  verified_at timestamptz NOT NULL DEFAULT now(),

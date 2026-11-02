@@ -14,6 +14,7 @@ export const mainnetDirectPayReceipts=pgTable('mainnet_direct_pay_receipts',{
  amountRaw:text('amount_raw').notNull(),
  feeWei:text('fee_wei').notNull(),
  blockNumber:bigint('block_number',{mode:'number'}).notNull(),
+ paidAt:timestamp('paid_at',{withTimezone:true}).notNull(),
  senderPrivateNote:text('sender_private_note'),
  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
  verifiedAt:timestamp('verified_at',{withTimezone:true}).notNull().defaultNow(),
