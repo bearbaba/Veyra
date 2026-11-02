@@ -15,8 +15,8 @@ const id=(v:LocalOperation)=>v.type+':'+v.chainId+':'+v.hash.toLowerCase();
 const explorer=(v:LocalOperation)=>(v.chainId===8453?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+v.hash;
 function label(x:OperationInspection|undefined){
  if(!x)return 'Checking onchain…';
- return ({VERIFIED:'Verified onchain',REVERTED:'Reverted',PENDING:'Processing',
-  UNKNOWN:'Check unavailable',UNVERIFIED:'Not verified',PROVIDER:'Provider tracking'} as const)[x.status];
+ return ({VERIFIED:'Completed · verified',REVERTED:'Reverted · not delivered',PENDING:'Sent · processing',
+  UNKNOWN:'Status unknown · checking',UNVERIFIED:'Needs verification',PROVIDER:'Checking destination proof'} as const)[x.status];
 }
 function color(x:OperationInspection|undefined){
  return x?.status==='VERIFIED'?'var(--success)':
@@ -28,7 +28,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const [states,setStates]=useState<Record<string,OperationInspection>>({});
  const [syncing,setSyncing]=useState(false);
  const [unknownSettlement,setUnknownSettlement]=useState(false);
- const [filter,setFilter]=useState<'All'|'Pay'|'Settlement'|'Swap'|'Bridge'>('All');
+ const [filter,setFilter]=useState<'All'|'Send'|'Swap'|'Bridge'>('All');
  const verifiedCache=useRef(new Map<string,{checked:number;state:OperationInspection}>());
  useEffect(()=>{
   let active=true,working=false;
@@ -103,7 +103,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
    window.removeEventListener('focus',onChange);
    window.removeEventListener('veyra:mainnet:operation',onChange);};
  },[address]);
- const shown=entries.filter(v=>filter==='All'||v.type===filter);
+ const shown=entries.filter(v=>filter==='All'||(filter==='Send'?(v.type==='Pay'||v.type==='Settlement'):v.type===filter));
  return <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
   <header className="flex flex-wrap items-center justify-between gap-3">
    <div>
@@ -128,7 +128,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
   </section>:<>
    <div className="flex flex-wrap items-center justify-between gap-3">
     <div className="flex flex-wrap gap-2" aria-label="Filter transactions">
-     {(['All','Pay','Settlement','Swap','Bridge'] as const).map(v=><button type="button" key={v}
+     {(['All','Send','Swap','Bridge'] as const).map(v=><button type="button" key={v}
       aria-pressed={filter===v} onClick={()=>setFilter(v)} className="rounded-lg border px-3 py-2 text-xs font-semibold"
       style={{borderColor:'var(--border)',background:filter===v?'var(--accent-muted)':'var(--surface)',
        color:filter===v?'var(--accent)':'var(--muted)'}}>{v}</button>)}
@@ -150,16 +150,20 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
          {proof?.status==='VERIFIED'?<CheckCircle2 className="size-5" style={{color:ink}}/>:<Clock3 className="size-5" style={{color:ink}}/>}
         </div>
         <div className="min-w-0 flex-1 space-y-1">
-         <p className="font-semibold" style={{color:'var(--ink)'}}>{v.type} · {v.amount} {v.asset}</p>
+         <p className="font-semibold" style={{color:'var(--ink)'}}>{v.type==='Pay'||v.type==='Settlement'?'Send':v.type} · {v.amount} {v.asset}</p>
          <p className="text-xs" style={{color:ink}}>{label(proof)}</p>
          {v.destination&&<p className="break-all text-xs" style={{color:'var(--muted)'}}>Recipient: {v.destination}</p>}
          <p className="text-xs" style={{color:'var(--muted)'}}>
-          {v.chainId===8453?'Base':'Arc'} Mainnet · {new Date(v.updatedAt).toLocaleString()}</p>
+          {v.chainId===8453?'Base':'Arc'} Mainnet · last updated {new Date(v.updatedAt).toLocaleString()}</p>
         </div>
-        <a href={explorer(v)} rel="noreferrer" target="_blank" className="inline-flex items-center gap-1 text-xs font-semibold"
-         style={{color:'var(--accent)'}}>Explorer <ExternalLink className="size-3.5"/></a>
        </div>
-       {proof&&<p className="ml-12 mt-3 break-words text-xs leading-5" style={{color:'var(--muted)'}}>{proof.detail}</p>}
+       <details className="ml-12 mt-3 text-xs" style={{color:'var(--muted)'}}>
+        <summary className="cursor-pointer">Receipt and technical details</summary>
+        {proof&&<p className="mt-2 break-words leading-5">{proof.detail}</p>}
+        <a href={explorer(v)} rel="noreferrer" target="_blank"
+         className="mt-2 inline-flex items-center gap-1 font-semibold" style={{color:'var(--accent)'}}>
+         View original transaction <ExternalLink className="size-3.5"/></a>
+       </details>
        {(v.type==='Swap'||v.type==='Bridge')&&<button type="button" onClick={()=>onNavigate(v.type==='Swap'?'convert':'bridge')}
         className="ml-12 mt-3 text-xs font-semibold" style={{color:'var(--accent)'}}>Open {v.type} tracking</button>}
       </article>;
@@ -167,7 +171,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     </section>}
    <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
     Only Veyra-origin transactions recorded in this browser are listed. This is not yet a full cross-device indexer.
-    Direct Pay and Settlement are checked against Arc receipts. Circle operations retain their provider-specific tracking;
+    Direct Pay and Settlement are checked against Arc receipts. Swap and Bridge still need a shared task proof in Activity;
     a saved browser record is never proof of success.
    </p>
   </>}
