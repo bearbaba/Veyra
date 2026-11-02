@@ -161,6 +161,18 @@
     {
       "source": "/api/mainnet/pay/receipts",
       "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/mainnet/pay/receipts"
+    },
+    {
+      "source": "/api/mainnet/exchange/across/capability",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/mainnet/exchange/across/capability"
+    },
+    {
+      "source": "/api/mainnet/exchange/across/quote",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/mainnet/exchange/across/quote"
+    },
+    {
+      "source": "/api/mainnet/exchange/across/status",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/mainnet/exchange/across/status"
     }
   ]
 }
