@@ -43,6 +43,7 @@ import {
 import { evaluateBrowserOrigin } from './middleware/browserOriginPolicy.js';
 import {isMainnetIdentityOnlyRouteAllowed} from './services/mainnetIdentityOnlyRoutes.js';
 import {quoteAcrossBaseWethToArcUsdc,AcrossQuoteError,isAcrossConfigured,
+ authorizeAcrossQuoteWallet,validateAcrossQuoteRequest,
  validateAcrossTrackingResponse} from './services/acrossExchangeQuoteService.js';
 import { validateIntentResponse } from '../src/core/intent/intentSchema';
 import { createFallbackAgentResponse, validateAgentChatResponse, type AgentHistoryMessage } from '../src/core/agent/agentV2';
@@ -55,7 +56,8 @@ import { getAuthenticatedVeyraUserId, issueSessionToken } from './auth/session.j
 import {clearBrowserRestoreCookie,issueBrowserRestoreCookie,verifyBrowserRestoreCookie} from './auth/browserRestoreSession.js';
 import {resolveTrustedLoginOrigin,resolveTrustedLoginOriginForEnv} from './services/walletLoginService.js';
 import {evaluateMainnetIdentityAuthority} from './services/mainnetIdentityCapability.js';
-import {indexVerifiedDirectPay,listVerifiedDirectPays,parseDirectPayReceiptRequest,PayReceiptApiError} from './services/mainnetPayReceiptService.js';
+import {indexVerifiedDirectPay,listVerifiedDirectPays,parseDirectPayReceiptRequest,PayReceiptApiError,
+ mainnetActiveBinding} from './services/mainnetPayReceiptService.js';
 import {sql} from 'drizzle-orm';
 import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } from './services/friendInboxService.js';
 import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
@@ -298,11 +300,18 @@ app.post('/api/mainnet/exchange/across/quote', IDENTITY_RATE, async(req:Request,
  if(runtimeConfig.environment!=='mainnet'){
   res.status(503).json({ok:false,error:'MAINNET_EXCHANGE_ONLY'});return;
  }
- if(!getAuthenticatedVeyraUserId(req)){
+ const signedUserId=getAuthenticatedVeyraUserId(req);
+ if(!signedUserId){
   res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;
  }
  try{
-  const quote=await quoteAcrossBaseWethToArcUsdc(req.body);
+  const input=validateAcrossQuoteRequest(req.body);
+  const {db}=await import('./db/client.js');
+  const binding=await mainnetActiveBinding(db,input.owner);
+  if(!authorizeAcrossQuoteWallet(input.owner,signedUserId,binding)){
+   res.status(403).json({ok:false,error:'EXCHANGE_WALLET_NOT_OWNED'});return;
+  }
+  const quote=await quoteAcrossBaseWethToArcUsdc(input);
   res.json({ok:true,quote});
  }catch(err){
   if(err instanceof AcrossQuoteError){res.status(err.httpStatus).json({ok:false,error:err.code,message:err.message});return;}
