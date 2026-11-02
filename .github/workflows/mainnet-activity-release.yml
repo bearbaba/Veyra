@@ -41,6 +41,7 @@ jobs:
           src/tests/mainnetPeopleFlow.test.ts
           src/tests/mainnetIdentityAuthority.test.ts
           src/tests/mainnetDirectPayProof.test.ts
+          src/tests/mainnetPersistentReceipt.test.ts
           src/tests/phase11BrowserRestoreSession.test.ts
           src/tests/phase9jTrustedWalletLoginOrigin.test.ts
           src/tests/phase9xIdentityOriginUx.test.ts
