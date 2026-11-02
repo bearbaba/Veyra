@@ -8,21 +8,30 @@ import {MAINNET_CHAIN_CATALOG} from '@/config/mainnetCatalog';
 export type ExchangeAsset={
  chainId:number;contractAddress:`0x${string}`;
  name:string;symbol:string;decimals:number;network:string;
- sourceUrl:string;verification:'issuer-address-reviewed';logo:'usdc'|'eurc';
+ sourceUrl:string;verification:'reference-address-reviewed';logo:'usdc'|'eurc'|'weth';
 };
 const arc=[ARC_VERIFIED_ASSETS.USDC,ARC_VERIFIED_ASSETS.EURC].map(asset=>({
  chainId:asset.chainId,contractAddress:asset.contractAddress,name:asset.name,
  symbol:asset.symbol,decimals:asset.decimals,network:'Arc',
- sourceUrl:asset.sourceUrl,verification:'issuer-address-reviewed' as const,
+ sourceUrl:asset.sourceUrl,verification:'reference-address-reviewed' as const,
  logo:asset.symbol==='EURC'?'eurc' as const:'usdc' as const,
 }));
 const others=MAINNET_CHAIN_CATALOG.filter(c=>c.chainId!==5042).map(chain=>({
  chainId:chain.chainId,contractAddress:chain.usdc,name:'USD Coin',symbol:'USDC',
  decimals:6,network:chain.name,
  sourceUrl:'https://developers.circle.com/stablecoins/usdc-contract-addresses',
- verification:'issuer-address-reviewed' as const,logo:'usdc' as const,
+ verification:'reference-address-reviewed' as const,logo:'usdc' as const,
 }));
-export const EXCHANGE_ASSETS:readonly ExchangeAsset[]=[...arc,...others];
+const weth:readonly ExchangeAsset[]=[
+ {chainId:1,contractAddress:'0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',network:'Ethereum'},
+ {chainId:8453,contractAddress:'0x4200000000000000000000000000000000000006',network:'Base'},
+ {chainId:42161,contractAddress:'0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',network:'Arbitrum'},
+ {chainId:10,contractAddress:'0x4200000000000000000000000000000000000006',network:'OP Mainnet'},
+ {chainId:137,contractAddress:'0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619',network:'Polygon PoS'},
+].map(a=>({...a,name:'Wrapped Ether',symbol:'WETH',decimals:18,
+ sourceUrl:'https://www.weth.io/weth-contract-address/',
+ verification:'reference-address-reviewed' as const,logo:'weth' as const}));
+export const EXCHANGE_ASSETS:readonly ExchangeAsset[]=[...arc,...others,...weth];
 export const exchangeAssetId=(asset:Pick<ExchangeAsset,'chainId'|'contractAddress'>)=>
  asset.chainId+':'+asset.contractAddress.toLowerCase();
 export function exchangeAsset(chainId:number,address:string):ExchangeAsset|null{
