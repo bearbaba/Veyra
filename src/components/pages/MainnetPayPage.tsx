@@ -78,7 +78,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     const outbox=readReceiptOutbox(address,storage);
     setJournal(stored.kind==='active'?stored.value:null);
     setBlockedStorage(stored.kind==='blocked'||outbox.kind==='blocked');
-    if(outbox.kind==='ready'&&outbox.items.length){
+    if(stored.kind!=='active'&&outbox.kind==='ready'&&outbox.items.length){
       const item=outbox.items[outbox.items.length-1];
       setCompleted({from:item.owner,to:item.to,amount:item.amount,stage:'VERIFIED',hash:item.hash,
        note:item.note,recipientLabel:item.recipientLabel,recipientSnapshotId:item.snapshotId,senderUserId:item.senderUserId});
@@ -250,6 +250,13 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     setJournal(null);setCompleted(null);setOutboxItem(null);setReview(null);setReceipt(null);setAccountReceipt(null);
     setRecipient('');setAmount('');setHashInput('');setError(null);
   }
+  const shownJournal=journal?.from.toLowerCase()===address?.toLowerCase()?journal:null;
+  const shownCompleted=!shownJournal&&completed?.from.toLowerCase()===address?.toLowerCase()?completed:null;
+  const shownAccountReceipt=social.session?.token&&social.identityOrigin==='ready'&&
+   accountReceipt?.senderAddress.toLowerCase()===address?.toLowerCase()&&
+   accountReceipt.txHash.toLowerCase()===(shownCompleted?.hash??shownJournal?.hash)?.toLowerCase()?accountReceipt:null;
+  const shownOutbox=shownCompleted?.hash===outboxItem?.hash&&
+   shownCompleted?.from.toLowerCase()===outboxItem?.owner.toLowerCase()?outboxItem:null;
   return <div className={embedded?'space-y-4':'mx-auto w-full max-w-2xl space-y-5 px-4 py-7 md:px-7 md:py-9'}>
     {!embedded&&<div>
       <span className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Arc Mainnet · 5042</span>
@@ -265,36 +272,36 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
           If it remains pending, Veyra checks the existing transaction rather than sending again.</p>
       </div>
     </div>
-    {(completed||journal?.stage==='VERIFIED')&&
+    {(shownCompleted||shownJournal?.stage==='VERIFIED')&&
       <section aria-label="USDC payment receipt" className={box+' space-y-3'}
        style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
         <div className="flex items-center gap-2">
          <CheckCircle2 className="size-5" style={{color:'var(--success)'}}/>
-         <strong>Sent · {accountReceipt?formatUnits(BigInt(accountReceipt.amountRaw),6):
-          (completed??journal)?.amount} USDC</strong>
+         <strong>Sent · {shownAccountReceipt?formatUnits(BigInt(shownAccountReceipt.amountRaw),6):
+          (shownCompleted??shownJournal)?.amount} USDC</strong>
         </div>
-        <p className="text-sm">To {accountReceipt?.recipientLabel??completed?.recipientLabel??
-          completed?.to??journal?.to}</p>
+        <p className="text-sm">To {shownAccountReceipt?.recipientLabel??shownCompleted?.recipientLabel??
+          shownCompleted?.to??shownJournal?.to}</p>
         <p role="status" className="text-xs" style={{color:'var(--muted)'}}>
-         {accountReceipt?'Receipt saved to Veyra · '+new Date(accountReceipt.paidAt).toLocaleString():
+         {shownAccountReceipt?'Receipt saved to Veyra · '+new Date(shownAccountReceipt.paidAt).toLocaleString():
           !social.session?.token||social.identityOrigin!=='ready'?
            'Money sent · sign in to save the receipt to your account.':
-          outboxItem?.status==='review'?'Money sent · receipt needs review. No second transfer.':
-          outboxItem?.status==='sign-in'?'Money sent · sign in again to sync the receipt.':
+          shownOutbox?.status==='review'?'Money sent · receipt needs review. No second transfer.':
+          shownOutbox?.status==='sign-in'?'Money sent · sign in again to sync the receipt.':
           'Money sent · syncing receipt. No second transfer.'}
         </p>
-        {outboxItem?.problem&&outboxItem.status==='review'&&
-          <p className="text-xs" style={{color:'var(--warning)'}}>Receipt review: {outboxItem.problem}</p>}
+        {shownOutbox?.problem&&shownOutbox.status==='review'&&
+          <p className="text-xs" style={{color:'var(--warning)'}}>Receipt review: {shownOutbox.problem}</p>}
         <details className="text-xs" style={{color:'var(--muted)'}}>
          <summary className="cursor-pointer">Receipt and transaction details</summary>
          <p className="mt-2">Arc Mainnet · 5042</p>
-         {accountReceipt&&<p className="mt-1">Paid {new Date(accountReceipt.paidAt).toLocaleString()} · Block {accountReceipt.blockNumber}</p>}
-         <p className="mt-2 break-all">Recipient wallet: {(completed??journal)?.to}</p>
-         {(completed??journal)?.hash&&<a className="mt-2 inline-flex items-center gap-2 break-all"
-          href={mainnetExplorerTx((completed??journal)!.hash!)}
+         {shownAccountReceipt&&<p className="mt-1">Paid {new Date(shownAccountReceipt.paidAt).toLocaleString()} · Block {shownAccountReceipt.blockNumber}</p>}
+         <p className="mt-2 break-all">Recipient wallet: {(shownCompleted??shownJournal)?.to}</p>
+         {(shownCompleted??shownJournal)?.hash&&<a className="mt-2 inline-flex items-center gap-2 break-all"
+          href={mainnetExplorerTx((shownCompleted??shownJournal)!.hash!)}
           style={{color:'var(--accent)'}} target="_blank" rel="noreferrer">View original transaction <ExternalLink className="size-4"/></a>}
         </details>
-        {!journal&&completed&&<button type="button" onClick={reset}
+        {!shownJournal&&shownCompleted&&<button type="button" onClick={reset}
          className="w-full rounded-xl border px-4 py-3 text-sm font-semibold"
          style={{borderColor:'var(--border)',color:'var(--accent)'}}>Start another payment</button>}
       </section>}
@@ -317,7 +324,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
         <button className="mt-3 rounded-xl px-4 py-2 text-sm font-semibold"
           style={{background:'var(--accent)',color:'#fff'}} onClick={()=>switchChain({chainId:5042})}>Switch to Arc Mainnet</button>
       </div>}
-      {!completed&&<div className={box+' space-y-4'} style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+      {!shownCompleted&&<div className={box+' space-y-4'} style={{background:'var(--surface)',borderColor:'var(--border)'}}>
         {!embedded&&<><div><label className="text-sm font-semibold" style={{color:'var(--ink)'}}>Recipient wallet</label>
           <input className={field+' mt-2'} style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}
             value={recipient} maxLength={42} autoComplete="off" spellCheck={false} placeholder="0x…"
@@ -327,10 +334,10 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
             value={amount} inputMode="decimal" placeholder="0.01" disabled={blocked}
             onChange={e=>{setAmount(e.target.value);onDraftChange?.({amount:e.target.value});setReview(null);setAck(false);}}/></div>
         </>}
-        {!review&&!journal&&<button className="w-full rounded-xl px-4 py-3 text-sm font-bold disabled:opacity-40"
+        {!review&&!shownJournal&&<button className="w-full rounded-xl px-4 py-3 text-sm font-bold disabled:opacity-40"
           disabled={blocked} style={{background:'var(--accent)',color:'#fff'}}
           onClick={()=>void prepare()}>{busy?'Checking…':'Review payment'}</button>}
-        {review&&!journal&&<div className="space-y-3 rounded-xl border p-4 text-sm"
+        {review&&!shownJournal&&<div className="space-y-3 rounded-xl border p-4 text-sm"
           style={{borderColor:'var(--border)',color:'var(--ink)'}}>
           <strong>Arc Mainnet · Review before signing</strong>
           <p className="break-all text-xs">From: {review.plan.from}</p>
@@ -349,23 +356,23 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
           <button className="w-full py-2 text-xs" onClick={()=>{setReview(null);setAck(false);}}>Edit details</button>
         </div>}
       </div>}
-      {(journal?.stage!=='VERIFIED'&&(journal||blockedStorage))&&<div className={box+' space-y-3'} role="status"
+      {(shownJournal?.stage!=='VERIFIED'&&(shownJournal||blockedStorage))&&<div className={box+' space-y-3'} role="status"
         style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
         <h2 className="text-lg font-semibold">Payment status</h2>
         {blockedStorage?<p className="text-sm" style={{color:'var(--warning)'}}>
           Previous transaction record unreadable. Signing blocked. Check wallet history.
-        </p>:journal&&<>
+        </p>:shownJournal&&<>
           <p className="text-sm" style={{color:'var(--muted)'}}>
-            {journal.stage==='REVERTED'?'Transaction reverted':
+            {shownJournal.stage==='REVERTED'?'Transaction reverted':
               'Transaction pending or uncertain. Do not submit a second payment.'}
           </p>
-          {journal.hash&&<details className="text-xs" style={{color:'var(--muted)'}}>
+          {shownJournal.hash&&<details className="text-xs" style={{color:'var(--muted)'}}>
             <summary className="cursor-pointer">Original transaction details</summary>
-            <a className="mt-2 inline-flex items-center gap-2 break-all" href={mainnetExplorerTx(journal.hash)}
+            <a className="mt-2 inline-flex items-center gap-2 break-all" href={mainnetExplorerTx(shownJournal.hash)}
               style={{color:'var(--accent)'}} target="_blank" rel="noreferrer">
-              {journal.hash}<ExternalLink className="size-4"/></a>
+              {shownJournal.hash}<ExternalLink className="size-4"/></a>
           </details>}
-          {!journal.hash&&<details className="rounded-xl border p-3" style={{borderColor:'var(--border)'}}>
+          {!shownJournal.hash&&<details className="rounded-xl border p-3" style={{borderColor:'var(--border)'}}>
             <summary className="cursor-pointer text-xs" style={{color:'var(--muted)'}}>Advanced recovery · only if the wallet did not return a hash</summary>
             <p className="my-2 text-xs" style={{color:'var(--warning)'}}>
               The original wallet request has an uncertain outcome. Do not send again. Normally Veyra recovers automatically; only use this fallback if your wallet can identify the exact original transaction.
@@ -374,11 +381,11 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
               value={hashInput} style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}
               onChange={e=>setHashInput(e.target.value)}/>
           </details>}
-          {!['VERIFIED','REVERTED'].includes(journal.stage)&&
+          {!['VERIFIED','REVERTED'].includes(shownJournal.stage)&&
             <button className="rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-40"
-              disabled={busy||!(journal.hash||hashInput)} style={{background:'var(--accent)',color:'#fff'}}
+              disabled={busy||!(shownJournal.hash||hashInput)} style={{background:'var(--accent)',color:'#fff'}}
               onClick={()=>void verify()}>Check original receipt</button>}
-          {journal.stage==='REVERTED'&&<button className="rounded-xl px-4 py-2 text-sm font-semibold"
+          {shownJournal.stage==='REVERTED'&&<button className="rounded-xl px-4 py-2 text-sm font-semibold"
               style={{background:'var(--accent)',color:'#fff'}} onClick={reset}>Start a different payment</button>}
         </>}
       </div>}
