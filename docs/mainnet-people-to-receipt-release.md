@@ -49,6 +49,18 @@ On the **Mainnet BFF** Environment page, configure:
 Leave `RELAY_PRIVATE_KEY`, signer/KMS, Circle API credentials and X OAuth private keys
 **unset** in identity-only mode. Never paste these credentials into support threads.
 
+For environments where the hosted connector cannot open a Render shell, a **one-time**
+bootstrap can be explicitly selected by setting
+`VEYRA_MAINNET_BOOTSTRAP_SCHEMA=1` and
+`VEYRA_MAINNET_MIGRATE_CONFIRM=veyra_mainnet_v1_db` in the Render Mainnet BFF
+Environment, then manually deploying the reviewed commit. The BFF checks the
+**exact new Render Postgres host and name**, uses a Postgres advisory lock,
+and runs the recorded migrations **only against an empty database**. A partial,
+unexpected, or already populated schema is never overwritten. After successful
+migration, set `VEYRA_MAINNET_BOOTSTRAP_SCHEMA=0` and clear
+`VEYRA_MAINNET_MIGRATE_CONFIRM`. Never leave a migration trigger enabled
+for future releases. Do not send database credentials to ChatGPT or GitHub.
+
 **Only after configuring the internal DATABASE_URL and taking a backup**, use the Mainnet
 Render BFF Shell (never a client machine) to run:
 ```bash

@@ -46,6 +46,7 @@ jobs:
           src/tests/mainnetBffIsolation.test.ts
           src/tests/mainnetIdentityOnlyMode.test.ts
           src/tests/mainnetPilotMigrationGate.test.ts
+          src/tests/mainnetPilotBootstrap.test.ts
           src/tests/phase11BrowserRestoreSession.test.ts
           src/tests/phase9jTrustedWalletLoginOrigin.test.ts
           src/tests/phase9xIdentityOriginUx.test.ts

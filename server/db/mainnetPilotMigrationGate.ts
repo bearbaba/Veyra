@@ -7,6 +7,7 @@ export function assertMainnetPilotMigrationTarget(env:NodeJS.ProcessEnv):string{
   env.VEYRA_MAINNET_IDENTITY_ONLY!=='1'||
   env.VEYRA_MAINNET_MIGRATE_CONFIRM!==name)
   throw Error('MAINNET_MIGRATION_NOT_EXPLICITLY_APPROVED');
+ // Require the exact newly-created DB instance; don't trust only a DB name.
  const raw=env.DATABASE_URL;
  if(!raw)throw Error('MAINNET_DATABASE_URL_MISSING');
  let target:URL;
