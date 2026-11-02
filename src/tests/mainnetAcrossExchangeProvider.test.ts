@@ -75,6 +75,14 @@ describe('Across candidate: server-only live quote without token impersonation o
   expect(common).toMatchObject({signing:'not-accepted',
    expectedOutputRaw:'1999000',minimumOutputRaw:'1985000',walletConfirmations:2});
  });
+ it('accepts a different quote router without providing executable transaction calldata',()=>{
+  const input=validateAcrossQuoteRequest(selection);
+  const quote=normalizeAcrossQuote({...payload,
+   swapTx:{...payload.swapTx,to:'0x2222222222222222222222222222222222222222'}},input,now);
+  expect(quote.executionReady).toBe(false);
+  expect(JSON.stringify(quote)).not.toContain('swapTx');
+  expect(JSON.stringify(quote)).not.toContain('0x2222222222222222222222222222222222222222');
+ });
  it('fails closed on expired, wrong-chain, reverted simulation or impossible output',()=>{
   const requested=validateAcrossQuoteRequest(selection);
   for(const mutate of [
@@ -83,7 +91,7 @@ describe('Across candidate: server-only live quote without token impersonation o
    {swapTx:{...payload.swapTx,simulationSuccess:false}},
    {inputToken:{...payload.inputToken,chainId:5042}},
    {outputToken:{...payload.outputToken,address:ACROSS_BASE_WETH}},
-   {swapTx:{...payload.swapTx,to:'0x2222222222222222222222222222222222222222'}},
+   {swapTx:{...payload.swapTx,to:'not-an-address'}},
    {steps:{originSwap:{}}},{inputAmount:'900000000000000'},
   ])expect(()=>normalizeAcrossQuote({...payload,...mutate},requested,now)).toThrow(AcrossQuoteError);
  });
