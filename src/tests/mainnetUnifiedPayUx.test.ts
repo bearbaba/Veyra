@@ -15,7 +15,7 @@ describe('Mainnet single Pay surface, wallet review and identity safety',()=>{
   expect(hub).toContain('Wallet transfer');
   expect(hub).toContain('Contract payment');
   expect(hub).toContain('aria-pressed');
-  expect(hub).toContain('MainnetPayPage embedded');
+  expect(hub).toContain('MainnetPayPage key={owner} embedded');
   expect(hub).toContain('<SettlementPage embedded');
  });
  it('only exposes one top-level Mainnet Send entry, with People nearby',()=>{
