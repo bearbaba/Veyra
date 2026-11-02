@@ -16,10 +16,10 @@ function mockBrowserLocks(){
 }
 describe('Mainnet financial operations are single-flight across browser tabs',()=>{
  it('rejects invalid wallet and browsers without a supported concurrency lock',async()=>{
-  await expect(withMainnetWalletSigningLock('not wallet',async()=>true))
+  await expect(withMainnetWalletSigningLock('not wallet',()=>Promise.resolve(true)))
    .rejects.toMatchObject({code:'INVALID_WALLET'});
   vi.stubGlobal('navigator',{});
-  await expect(withMainnetWalletSigningLock(a,async()=>true))
+  await expect(withMainnetWalletSigningLock(a,()=>Promise.resolve(true)))
    .rejects.toMatchObject({code:'LOCK_UNAVAILABLE'});
  });
  it('serializes Pay and Exchange for one wallet even when each tab passes its own React guard',async()=>{
@@ -30,30 +30,28 @@ describe('Mainnet financial operations are single-flight across browser tabs',()
   const pay=withMainnetWalletSigningLock(a,async()=>{
    entered++;await gate;return 'payment sent once';
   });
-  await expect(withMainnetWalletSigningLock(a,async()=>{
-   entered++;return 'second signature requested';
-  })).rejects.toMatchObject({code:'WALLET_BUSY'});
+  await expect(withMainnetWalletSigningLock(a,()=>{entered++;return Promise.resolve('second signature requested');})).rejects.toMatchObject({code:'WALLET_BUSY'});
   expect(entered).toBe(1);
   release();
   expect(await pay).toBe('payment sent once');
   expect(events.filter(x=>x.startsWith('acquire:'))).toHaveLength(1);
-  expect(await withMainnetWalletSigningLock(a,async()=>true)).toBe(true);
+  expect(await withMainnetWalletSigningLock(a,()=>Promise.resolve(true))).toBe(true);
  });
  it('permits independent wallets without leaking one wallet lock into another',async()=>{
   mockBrowserLocks();
   let release:()=>void=()=>{};
   const gate=new Promise<void>(resolve=>{release=resolve;});
   const first=withMainnetWalletSigningLock(a,async()=>{await gate;return 'A';});
-  expect(await withMainnetWalletSigningLock(b,async()=> 'B')).toBe('B');
+  expect(await withMainnetWalletSigningLock(b,()=>Promise.resolve('B'))).toBe('B');
   release();expect(await first).toBe('A');
   expect(mainnetWalletLockName(a.toUpperCase().replace('0X','0x')))
    .toBe(mainnetWalletLockName(a));
  });
  it('releases the lock when the wallet rejects or the action throws',async()=>{
   mockBrowserLocks();
-  await expect(withMainnetWalletSigningLock(a,async()=>{throw Error('wallet rejected');}))
+  await expect(withMainnetWalletSigningLock(a,()=>Promise.reject(new Error('wallet rejected'))))
    .rejects.toThrow('wallet rejected');
-  expect(await withMainnetWalletSigningLock(a,async()=> 'safe to review again')).toBe('safe to review again');
+  expect(await withMainnetWalletSigningLock(a,()=>Promise.resolve('safe to review again'))).toBe('safe to review again');
   expect(new MainnetWalletLockError('WALLET_BUSY','busy').code).toBe('WALLET_BUSY');
  });
 });
