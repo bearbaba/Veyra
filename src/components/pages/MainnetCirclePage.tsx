@@ -14,6 +14,7 @@ import {ArrowLeftRight,Route,ShieldCheck,AlertTriangle,ExternalLink,RefreshCw} f
 import {getMainnetChain,CCTP_V2_MAINNET} from '@/config/mainnetCatalog';
 import { recordLocalOperation } from '@/mainnet/localOperations';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
+import {assertCctpBridgeLinked} from '@/mainnet/verifyCctpBridgeLink';
 
 const kit=new AppKit();
 const ARC=5042,BASE=8453;
@@ -206,6 +207,7 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
    const receivedToken=mode==='swap'?TOKENS[recovery.toToken]:getMainnetChain(recovery.destination)?.usdc;
    if(!destinationClient||!receivedToken||await destinationClient.getChainId()!==recovery.destination)
     throw Error('Destination RPC or token unavailable.');
+   let burnEvidence:{sourceHash:string;receipt:Awaited<ReturnType<NonNullable<typeof arc>['getTransactionReceipt']>>}|null=null;
    if(mode==='bridge'){
     const sourceHash=recovery.burnHash||manualSource;
     if(!HASH.test(sourceHash))throw Error('Supply source burn hash before checking destination.');
@@ -217,6 +219,7 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
     if(sourceTx.from.toLowerCase()!==owner)throw Error('Source burn sender differs from the reviewed wallet.');
     if(!burn.logs.some(log=>log.address.toLowerCase()===CCTP_V2_MAINNET.tokenMessengerV2.toLowerCase()))
      throw Error('Canonical CCTP source burn event missing.');
+    burnEvidence={sourceHash,receipt:burn};
    }
    const receipt=await destinationClient.getTransactionReceipt({hash:hash as Hash});
    if(mode==='swap'){
@@ -231,9 +234,11 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
     throw Error('Destination transaction reverted. Check Circle status before any new request.');
    }
    if(receipt.status!=='success')throw Error('Receipt not confirmed.');
-   if(mode==='bridge'&&!receipt.logs.some(log=>
-    [CCTP_V2_MAINNET.messageTransmitterV2.toLowerCase(),CCTP_V2_MAINNET.tokenMinterV2.toLowerCase()].includes(log.address.toLowerCase())))
-    throw Error('Canonical CCTP destination mint evidence missing.');
+   if(mode==='bridge'){
+    if(!burnEvidence)throw Error('Original CCTP burn missing.');
+    await assertCctpBridgeLinked(recovery.source,recovery.destination,
+     burnEvidence.sourceHash,hash,burnEvidence.receipt,receipt);
+   }
    const amountOut=transferSum(receipt,receivedToken,address);
    if(amountOut<parseUnits(recovery.minimum,6))throw Error('Destination Transfer amount below reviewed minimum or mint not found.');
    const r:Recovery={...recovery,status:'VERIFIED',...(mode==='swap'?{hash}:{mintHash:hash})};
