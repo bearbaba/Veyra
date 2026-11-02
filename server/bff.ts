@@ -322,7 +322,7 @@ app.get('/api/mainnet/exchange/across/status', IDENTITY_RATE, async(req:Request,
  }
  try{
   const r=await fetch('https://app.across.to/api/deposit/status?'+
-   new URLSearchParams({depositTxnRef:hash}),{headers:{Authorization:'Bearer '+process.env.ACROSS_API_KEY!},
+   new URLSearchParams({depositTxnRef:hash,integratorId:process.env.ACROSS_INTEGRATOR_ID!}),{headers:{Authorization:'Bearer '+process.env.ACROSS_API_KEY!},
     signal:AbortSignal.timeout(8000),cache:'no-store'});
   if(!r.ok){res.status(503).json({ok:false,error:'ACROSS_STATUS_UNAVAILABLE'});return;}
   const evidence=validateAcrossTrackingResponse(await r.json());
