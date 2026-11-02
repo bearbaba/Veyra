@@ -130,13 +130,17 @@ export async function indexVerifiedDirectPay(
       eq(mainnetDirectPayReceipts.senderUserId,userId),
       isNull(mainnetDirectPayReceipts.senderPrivateNote)));
   if(input.snapshotId&&existing.recipientSnapshotId===null){
-   const verified=await verifyRecipientSnapshotForReceipt(
-    db,input.snapshotId,existing.recipientAddress,existing.recipientUserId);
-   await db.update(mainnetDirectPayReceipts)
-    .set({recipientSnapshotId:verified.snapshotId,recipientLabel:verified.label})
-    .where(and(eq(mainnetDirectPayReceipts.txHash,input.hash),
-      eq(mainnetDirectPayReceipts.senderUserId,userId),
-      isNull(mainnetDirectPayReceipts.recipientSnapshotId)));
+   // A stale/rotated ID must not erase or prevent an already proven transfer.
+   // Identity metadata is optional; canonical payment proof stays immutable.
+   try{
+    const verified=await verifyRecipientSnapshotForReceipt(
+     db,input.snapshotId,existing.recipientAddress,existing.recipientUserId);
+    await db.update(mainnetDirectPayReceipts)
+     .set({recipientSnapshotId:verified.snapshotId,recipientLabel:verified.label})
+     .where(and(eq(mainnetDirectPayReceipts.txHash,input.hash),
+       eq(mainnetDirectPayReceipts.senderUserId,userId),
+       isNull(mainnetDirectPayReceipts.recipientSnapshotId)));
+   }catch(e){if(!(e instanceof PayReceiptApiError))throw e;}
   }
   const [latest]=await db.select().from(mainnetDirectPayReceipts)
     .where(eq(mainnetDirectPayReceipts.txHash,input.hash)).limit(1);
@@ -164,9 +168,13 @@ export async function indexVerifiedDirectPay(
  // use the UI's untrusted recipientLabel as an authoritative name.
  let snapshotId:string|null=null,label:string|null=null;
  if(input.snapshotId&&sender?.userId===userId){
-  const verified=await verifyRecipientSnapshotForReceipt(
-   db,input.snapshotId,proof.recipient,receiver?.userId??null);
-  snapshotId=verified.snapshotId;label=verified.label;
+  try{
+   const verified=await verifyRecipientSnapshotForReceipt(
+    db,input.snapshotId,proof.recipient,receiver?.userId??null);
+   snapshotId=verified.snapshotId;label=verified.label;
+  }catch(e){if(!(e instanceof PayReceiptApiError))throw e;}
+  // Expired or mismatched snapshots are NEVER attached to a receipt.
+  // A canonical USDC transfer itself can still be indexed without an ID.
  }
  const values={txHash:proof.txHash,chainId:5042,senderAddress:getAddress(proof.sender).toLowerCase(),
   recipientAddress:getAddress(proof.recipient).toLowerCase(),
