@@ -33,6 +33,15 @@ describe('Exchange selects assets first; routes are proof-gated',()=>{
   if(combined.kind==='unavailable')expect(combined.reason).toContain('Bridge + Swap');
   expect(resolveExchangeRoute(selected(5042,'USDC'),selected(1,'USDC')).kind).toBe('unavailable');
  });
+ it('includes wrapped Ether by chain-specific contract without claiming a supported route',()=>{
+  const baseWeth=selected(8453,'WETH'),ethWeth=selected(1,'WETH');
+  expect(baseWeth.contractAddress.toLowerCase()).not.toBe(ethWeth.contractAddress.toLowerCase());
+  expect(baseWeth.decimals).toBe(18);
+  expect(searchExchangeAssets('WETH',8453)).toHaveLength(1);
+  const route=resolveExchangeRoute(baseWeth,selected(5042,'USDC'));
+  expect(route.kind).toBe('unavailable');
+  if(route.kind==='unavailable')expect(route.reason).toContain('Bridge + Swap');
+ });
  it('rejects substituted contracts claiming the same symbol and network',()=>{
   const fake:ExchangeAsset={...selected(5042,'USDC'),
     contractAddress:'0x2222222222222222222222222222222222222222'};
