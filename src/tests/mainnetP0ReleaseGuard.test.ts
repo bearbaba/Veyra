@@ -1,5 +1,6 @@
 import {describe,it,expect,vi,afterEach} from 'vitest';
 import {assertMainnetSigningAllowed} from '../mainnet/releaseGates';
+import {buildMainnetPayPlan,reconcileMainnetCanary} from '../mainnet/arcMainnetPay';
 import {readSettlementIntent,writeSettlementIntent,settlementUnresolved,
   type SettlementIntent} from '../mainnet/settlementJournal';
 import {readMainnetJournal,writeMainnetJournal,mainnetJournalKey} from '../mainnet/arcMainnetJournal';
@@ -27,6 +28,13 @@ describe('read-only rollback and fault injection',()=>{
   expect(writeSettlementIntent(intent,storage)).toBe(false);
   // Caller must stop BEFORE requesting wallet signing when write fails.
   expect(storage.getItem('anything')).toBeNull();
+ });
+ it('fails closed if Arc RPC times out while inspecting an original hash',async()=>{
+  const plan=buildMainnetPayPlan(from,to,'0.1');
+  vi.stubGlobal('fetch',vi.fn(()=>{throw new Error('RPC_TIMEOUT_INJECTED');}));
+  await expect(reconcileMainnetCanary(plan,'0x'+'b'.repeat(64)))
+    .rejects.toThrow('RPC_TIMEOUT_INJECTED');
+  // No wallet signing or journal deletion is attempted by reconciliation.
  });
  it('preserves an unknown payment when its original hash is unavailable',()=>{
   const storage=new Map<string,string>();
