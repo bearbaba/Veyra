@@ -15,6 +15,7 @@ import {MainnetRecipientSearch} from '../identity/MainnetRecipientSearch';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
 import type {RecipientSearchResult} from '@/mainnet/recipientLookup';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
+import {isMainnetSessionForWallet} from '@/mainnet/signedWalletReceiptScope';
 import {SettlementPage} from './SettlementPage';
 import {MAINNET_EMERGENCY_READ_ONLY,MAINNET_CANARY_ONLY,MAINNET_CANARY_OWNER} from '@/mainnet/releaseGates';
 import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
@@ -28,8 +29,10 @@ export function MainnetPayHub({
  initialMethod?:Method;friendHandle?:string|null;recipientWallet?:string|null;
  verifiedRecipient?:VerifiedMainnetRecipient|null;onClearVerified?:()=>void;onRecipientUsed?:()=>void;
 }){
- const {address}=useAccount();
+ const {address,connector}=useAccount();
  const social=useUnifiedSocial();
+ const signedWallet=social.identityOrigin==='ready'&&
+  isMainnetSessionForWallet(social.session,address,connector?.uid);
  const owner=(address??'').toLowerCase();
  const {data:walletBalance,isError:balanceError,isLoading:balanceLoading}=useReadContract({
   address:ARC_MAINNET_USDC,abi:erc20Abi,functionName:'balanceOf',
@@ -43,9 +46,9 @@ export function MainnetPayHub({
  const [revision,setRevision]=useState(0);
  const [localVerified,setLocalVerified]=useState<VerifiedMainnetRecipient|null>(null);
  const draft=draftHolder.owner===owner?draftHolder.value:readPayDraft(owner);
- const selectedVerified=verifiedRecipient&&verifiedRecipient.owner.toLowerCase()===owner&&
+ const selectedVerified=signedWallet&&verifiedRecipient&&verifiedRecipient.owner.toLowerCase()===owner&&
   verifiedRecipient.wallet.toLowerCase()===draft.recipient.toLowerCase()?verifiedRecipient:
-  localVerified&&localVerified.owner.toLowerCase()===owner&&
+  signedWallet&&localVerified&&localVerified.owner.toLowerCase()===owner&&
   localVerified.wallet.toLowerCase()===draft.recipient.toLowerCase()?localVerified:null;
  useEffect(()=>{setLocalVerified(null);},[owner,social.session?.token]);
  useEffect(()=>{
@@ -148,7 +151,7 @@ export function MainnetPayHub({
     ({MAINNET_CANARY_OWNER.slice(0,6)}…{MAINNET_CANARY_OWNER.slice(-4)}) may send up to 0.01 USDC
     per transaction. Everyone else can review, but cannot sign. Contract/Swap/Bridge writes remain off.
   </p>}
-  {address&&(!social.session?.token||social.identityOrigin!=='ready')&&
+  {address&&!signedWallet&&
    <section aria-label="Sign in to send USDC"><VeyraIdentityAccess/></section>}
   {locked&&<p role="status" className="rounded-xl border p-3 text-sm"
    style={{borderColor:'var(--border)',color:'var(--warning)'}}>
@@ -167,7 +170,7 @@ export function MainnetPayHub({
        className="mt-3 text-xs font-semibold disabled:opacity-40" style={{color:'var(--accent)'}}>Change recipient</button>
      </div>:
      <>
-      <MainnetRecipientSearch key={owner} owner={address} sessionToken={social.session?.token} disabled={locked}
+      <MainnetRecipientSearch key={owner} owner={address} sessionToken={signedWallet?social.session?.token:undefined} disabled={locked}
        initialQuery="" label="Who are you paying?" onSelection={resolveSelected}
        onQueryEdit={()=>{
         if(!address||locked)return;
