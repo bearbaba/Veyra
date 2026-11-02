@@ -252,8 +252,8 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   }
   const shownJournal=journal?.from.toLowerCase()===address?.toLowerCase()?journal:null;
   const shownCompleted=!shownJournal&&completed?.from.toLowerCase()===address?.toLowerCase()?completed:null;
-  const shownAccountReceipt=social.session?.token&&social.identityOrigin==='ready'&&
-   accountReceipt?.senderAddress.toLowerCase()===address?.toLowerCase()&&
+  const shownAccountReceipt=social.session?.token&&social.identityOrigin==='ready'&&!!accountReceipt&&
+   accountReceipt.senderAddress.toLowerCase()===address?.toLowerCase()&&
    accountReceipt.txHash.toLowerCase()===(shownCompleted?.hash??shownJournal?.hash)?.toLowerCase()?accountReceipt:null;
   const shownOutbox=shownCompleted?.hash===outboxItem?.hash&&
    shownCompleted?.from.toLowerCase()===outboxItem?.owner.toLowerCase()?outboxItem:null;
