@@ -16,6 +16,7 @@ import { recordLocalOperation } from '@/mainnet/localOperations';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked} from '@/mainnet/verifyCctpBridgeLink';
 import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
+import {readBridgeQuoteAmounts} from '@/mainnet/bridgeQuoteGuard';
 
 const kit=new AppKit();
 const ARC=5042,BASE=8453;
@@ -103,7 +104,7 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
   try{setRecovery(parseSaved(localStorage.getItem(key(mode,address)),address,mode));setUnknownStorage(false);}
   catch{setRecovery(null);setUnknownStorage(true);}
  },[address,mode]);
- useEffect(()=>{setQuote(null);},[source,destination,fromToken,amount,minimum]);
+ useEffect(()=>{setQuote(null);},[source,destination,fromToken,amount]);
  const client=(id:number)=>id===ARC?arc:id===BASE?base:undefined;
  async function wallet(id:number):Promise<EIP1193Provider>{
   if(!address||!connector)throw Error('Connect your wallet first.');
@@ -135,8 +136,7 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
   try{
    if(!token||!destToken||!isAddress(address)||selectedSource===selectedDest&&mode==='bridge')
     throw Error('Choose valid supported Mainnet chains and tokens.');
-   if(mode==='bridge'&&(!validAmount(minimum)||parseUnits(minimum,6)>parseUnits(amount,6)))
-    throw Error('Enter a minimum acceptable destination amount.');
+
    const c=client(selectedSource);
    if(!c||await c.getChainId()!==selectedSource)throw Error('Mainnet RPC is not available.');
    const available=await c.readContract({address:getAddress(token),abi:erc20Abi,
@@ -146,8 +146,10 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
    const estimate=mode==='swap'?
     await kit.estimateSwap(p as Parameters<AppKit['estimateSwap']>[0]):
     await kit.estimateBridge(p as Parameters<AppKit['estimateBridge']>[0]);
-   const expected=mode==='swap'?String((estimate as Awaited<ReturnType<AppKit['estimateSwap']>>).estimatedOutput.amount):amount;
-   const min=mode==='swap'?String((estimate as Awaited<ReturnType<AppKit['estimateSwap']>>).stopLimit.amount):minimum;
+   const bridgeOutput=mode==='bridge'?readBridgeQuoteAmounts(estimate,amount):null;
+   const expected=mode==='swap'?String((estimate as Awaited<ReturnType<AppKit['estimateSwap']>>).estimatedOutput.amount):bridgeOutput!.expected;
+   const min=mode==='swap'?String((estimate as Awaited<ReturnType<AppKit['estimateSwap']>>).stopLimit.amount):bridgeOutput!.minimum;
+   if(mode==='bridge')setMinimum(min);
    if(!validAmount(min)||parseUnits(min,6)>parseUnits(expected,6)&&mode==='swap')
     throw Error('Provider did not return a usable minimum-output quote.');
    setQuote({owner,at:Date.now(),mode,amount,source:selectedSource,destination:selectedDest,
@@ -174,7 +176,8 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
     await kit.estimateSwap(p as Parameters<AppKit['estimateSwap']>[0]):
     await kit.estimateBridge(p as Parameters<AppKit['estimateBridge']>[0]);
    if(JSON.stringify(feeLines(fresh))!==JSON.stringify(quote.fees)||
-    mode==='swap'&&String((fresh as Awaited<ReturnType<AppKit['estimateSwap']>>).stopLimit.amount)!==quote.minimum)
+    mode==='swap'&&String((fresh as Awaited<ReturnType<AppKit['estimateSwap']>>).stopLimit.amount)!==quote.minimum||
+    mode==='bridge'&&readBridgeQuoteAmounts(fresh,amount).minimum!==quote.minimum)
     throw Error('Provider quote changed. Review it again before signing.');
    if(Date.now()-quote.at>30000)throw Error('Quote expired.');
    await wallet(selectedSource);
@@ -313,14 +316,10 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
      <span>Source wallet balance ({label(selectedSource)}): {sourceBalanceError?'Unavailable':sourceBalance!==undefined?formatUnits(sourceBalance,6)+' '+(mode==='swap'?fromToken:'USDC'):'Reading…'}</span>
      <button type="button" disabled={balanceLoading} onClick={()=>void refreshBalance()} className="underline">Refresh</button>
     </div>
-    {mode==='bridge'&&<>
-     <p className="text-xs" style={{color:'var(--muted)'}}>Destination wallet: {address} (same owner; forwarding service)</p>
-     <label className="block text-sm" style={{color:'var(--muted)'}}>Minimum receive (USDC)
-      <input className={input} value={minimum} disabled={!!recovery||busy} inputMode="decimal"
-       placeholder="Net amount after fees" onChange={e=>setMinimum(e.target.value)}
-       style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
-     </label>
-    </>}
+    {mode==='bridge'&&<p className="text-sm" style={{color:'var(--muted)'}}>
+      Destination: {address} · Standard CCTP transfer. Minimum received must come from the provider's quote.
+      If the provider gives no verifiable minimum, signing is unavailable.
+    </p>}
     {!quote&&!recovery&&<button type="button" disabled={busy||unknownStorage||!validAmount(amount)}
       className="w-full rounded-xl px-4 py-3 font-semibold disabled:opacity-40"
       style={{background:'var(--accent)',color:'#0d1b2f'}} onClick={()=>void quoteNow()}>
@@ -329,8 +328,10 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
     {quote&&!recovery&&<div className="space-y-2 rounded-xl border p-4 text-sm"
       style={{borderColor:'var(--border)',color:'var(--ink)'}}>
       <p className="font-bold">{label(quote.source)} {mode==='bridge'?'→ '+label(quote.destination):'Swap'}</p>
-      <p>{quote.amount} {quote.fromToken} → {quote.expected} {mode==='swap'?quote.toToken:'USDC'}</p>
-      <p>Minimum receive: {quote.minimum} {mode==='swap'?quote.toToken:'USDC'}</p>
+      <p>You pay: <strong>{quote.amount} {quote.fromToken}</strong></p>
+      <p>You receive (estimated): <strong>{quote.expected} {mode==='swap'?quote.toToken:'USDC'}</strong></p>
+      <p>Provider minimum: {quote.minimum} {mode==='swap'?quote.toToken:'USDC'}</p>
+      {mode==='swap'&&<p>Slippage limit: 1% · refresh quote if expired</p>}
       <p>Recipient: {address}</p>
       <p>Quote expires in 30 seconds · Real Mainnet assets</p>
       {quote.fees.map((fee,i)=><p key={i} className="text-xs">{fee}</p>)}

@@ -60,7 +60,7 @@ describe('Mainnet human-first navigation and transparent settlement',()=>{
   const contract=read('components/pages/SettlementPage.tsx');
   expect(pay).toContain('onDraftChange?.({recipient:e.target.value})');
   expect(contract).toContain("if(step==='review'||step==='loading-fees'){setSnapshot(null);setStep('form');}");
-  expect(contract).toContain('Two wallet confirmations');
+  expect(contract).toContain('2 confirmations: approve this amount');
   expect(contract).toContain('This is not escrow');
  });
 });

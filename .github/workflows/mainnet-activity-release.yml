@@ -37,6 +37,7 @@ jobs:
           src/tests/mainnetP0ReleaseGuard.test.ts
           src/tests/mainnetUnifiedPayUx.test.ts
           src/tests/mainnetHumanFirstUx.test.ts
+          src/tests/mainnetPeopleFlow.test.ts
           src/tests/mainnetProductAndActivity.test.ts
           src/tests/phase6ArcMainnetPay.test.ts
           src/tests/settlementGasAndVerification.test.ts

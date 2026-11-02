@@ -82,7 +82,13 @@ export function RuntimeStatusCard() {
           :summary}</p>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px]" style={{color:'var(--subtle)'}}>Environment: {environment}</p>
+        <div className="space-y-1 text-xs" style={{color:'var(--muted)'}}>
+          <p>Backend infrastructure: {status==='online'?'reachable':status==='loading'?'checking':status==='degraded'?'degraded':'unavailable'}</p>
+          <p>Veyra ID sign-in on this domain: {social.identityOrigin==='ready'?'origin allowed · wallet sign-in still required':
+            social.identityOrigin==='origin_blocked'?'not authorized':
+            social.identityOrigin==='checking'?'checking origin':'unavailable'}</p>
+          <p className="text-[11px]">Backend environment: {environment}</p>
+        </div>
         <button type="button" onClick={()=>setAttempt(n=>n+1)}
           className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold"
           style={{borderColor:'var(--border)',color:'var(--ink)'}}>
