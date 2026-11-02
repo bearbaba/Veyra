@@ -33,6 +33,7 @@ jobs:
           bunx vitest run
           src/tests/mainnetAutomaticHistory.test.ts
           src/tests/mainnetP0Reliability.test.ts
+          src/tests/mainnetP0ReleaseGuard.test.ts
           src/tests/mainnetUnifiedPayUx.test.ts
           src/tests/mainnetProductAndActivity.test.ts
           src/tests/phase6ArcMainnetPay.test.ts
