@@ -1,12 +1,12 @@
 # Veyra — Human-first USDC payments on Arc
 
 **Arc Microgrants: Built with Arc Studio · Submission evidence kit**  
-**Builder:** [bearbaba](https://github.com/bearbaba) · [X profile](https://x.com/Bearcrypto2021)  
+**Builder:** [bearbaba](https://github.com/bearbaba) · [X](https://x.com/Bearcrypto2021)  
 **Live wallet-connect app (ONE site):** https://veyra-seven-beta.vercel.app/  
 **Repository:** https://github.com/bearbaba/Veyra  
 **Arc Studio project:** https://ibb9vwyygkkct5eupl9ay.preview.studio.arc.io
 
-> **Submission status:** This file is a prepared package, not proof that a DoraHacks application was accepted. The publicly stated deadline was 2026-11-01; confirm the live form before submitting. This file does not certify an external audit, unreleased features, or a new successful wallet-to-wallet E2E on commit `112de2a`.
+> **Submission status:** This file is a prepared package, not proof that a DoraHacks application was accepted. The publicly stated deadline was 2026-11-01; confirm the live form before submitting. This file does not certify an external audit, unreleased features, or an independently accepted two-user Veyra ID Pay/receipt E2E on the latest release candidate.
 
 ## Short description (copy into application)
 

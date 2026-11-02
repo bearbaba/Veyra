@@ -12,6 +12,7 @@ import { ConnectKitButton } from 'connectkit';
 import { Check, ChevronDown, Copy, Link2, Loader2, ShieldCheck, SlidersHorizontal, Wallet, LogOut } from 'lucide-react';
 import { DEFAULT_VEYRA_POLICY } from '@/core/policy/policyEngine';
 import { VEYRA_ENV } from '@/lib/env';
+import { MAINNET_CANARY_ONLY,MAINNET_EMERGENCY_READ_ONLY } from '@/mainnet/releaseGates';
 import { beginXLink, finishXLink, probeXLinkReadiness } from '@/lib/api/identityApi';
 import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS } from '@/config/productRegistry';
@@ -218,7 +219,11 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
             <div>
               <h2 className="text-sm font-bold" style={{color:'var(--ink)'}}>Transaction protection</h2>
               <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
-                {VEYRA_ENV==='mainnet'?'Wallet Pay uses an explicit signature and checks the original USDC receipt. Swap and Bridge quotes are not transaction confirmations.':'Every payment is reviewed before wallet approval. Testnet funds only.'}
+                {VEYRA_ENV==='mainnet'
+                  ?MAINNET_EMERGENCY_READ_ONLY?'Financial signing is paused. You can still review onchain receipts safely.':
+                   MAINNET_CANARY_ONLY?'Mainnet pilot: direct Pay is limited to the project owner and 0.01 USDC per transfer. All other financial signing remains disabled.':
+                   'Wallet Pay requires one reviewed wallet signature and an onchain receipt. Quotes are not transaction confirmations.'
+                  :'Every payment is reviewed before wallet approval. Testnet funds only.'}
               </p>
             </div>
           </div>
@@ -251,7 +256,11 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-bold" style={{color:'var(--ink)'}}>Networks & assets</span>
             <span className="mt-1 block text-xs leading-5" style={{color:'var(--muted)'}}>
-              {VEYRA_ENV==='mainnet'?'Wallet Pay can request signing. Swap needs a live Circle quote; Bridge is quote-only on Production until proof approval. Gateway and Veyra ID Pay require verified backend readiness.':'Arc Testnet USDC is enabled. Other listings are not available for sending yet.'}
+              {VEYRA_ENV==='mainnet'
+               ?MAINNET_EMERGENCY_READ_ONLY?'Mainnet is read-only. Existing transactions and receipts can be checked; sending is disabled.':
+                MAINNET_CANARY_ONLY?'Arc USDC Pay is in a 0.01 USDC owner-only pilot. People and receipts use signed wallet identity. Swap, Bridge, Gateway and contract payments are not enabled for new signing.':
+                'Direct wallet Pay requires a separate wallet confirmation. Swap, Bridge and Gateway require independently verified routes.'
+               :'Arc Testnet USDC is enabled. Other listings are not available for sending yet.'}
             </span>
           </span>
           <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180"
