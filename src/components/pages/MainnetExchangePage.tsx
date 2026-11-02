@@ -121,6 +121,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
  const [picking,setPicking]=useState<Side|null>(null);
  const [prior,setPrior]=useState<ReturnType<typeof recordedExchange>>(null);
  const [unknownPrior,setUnknownPrior]=useState(false);
+ const [engineBusy,setEngineBusy]=useState(false);
  const owner=address?.toLowerCase()??'';
  const readable=EXCHANGE_ASSETS.filter(a=>[ARC,BASE].includes(a.chainId));
  const {data:walletBalances}=useReadContracts({
@@ -153,7 +154,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   window.addEventListener('storage',refresh);window.addEventListener('focus',refresh);
   return()=>{window.clearInterval(timer);window.removeEventListener('storage',refresh);window.removeEventListener('focus',refresh);};
  },[address,owner]);
- const locked=!!prior||unknownPrior;
+ const locked=!!prior||unknownPrior||engineBusy;
  const route=resolveExchangeRoute(from,to);
  const choose=(asset:ExchangeAsset)=>{
   if(locked)return;
@@ -224,7 +225,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    </p>}
   </section>
   {executable?<MainnetCirclePage key={route.kind+':'+exchangeAssetId(from)+':'+exchangeAssetId(to)}
-   embedded mode={route.kind} selection={selection}/>:
+   embedded mode={route.kind} selection={selection} onFinancialBusyChange={setEngineBusy}/>:
    !address?<ConnectKitButton/>:null}
   <p className="flex items-start gap-2 text-xs leading-5" style={{color:'var(--muted)'}}>
    <Wallet className="size-4 shrink-0"/>Wallet funds only. Unified Gateway deposits are separate and cannot fund this route directly.
