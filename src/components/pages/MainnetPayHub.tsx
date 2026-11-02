@@ -113,6 +113,36 @@ export function MainnetPayHub({
    style={{borderColor:'var(--border)',color:'var(--warning)'}}>
    Your original wallet request is still being checked. Veyra will not switch payment methods or submit it again.
   </p>}
+  <section aria-label="Payment details" className="space-y-4 rounded-xl border p-4 sm:p-5"
+    style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+   <div>
+    <label htmlFor="shared-send-recipient" className="text-sm font-semibold" style={{color:'var(--ink)'}}>Who are you paying?</label>
+    <input id="shared-send-recipient" value={draft.recipient} maxLength={42} autoComplete="off"
+     onChange={e=>changeDraft({recipient:e.target.value})} disabled={!address||locked}
+     placeholder="0x… receiving wallet" className="mt-2 w-full rounded-xl border px-4 py-3 text-sm"
+     style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
+    {verifiedRecipient&&draft.recipient.toLowerCase()===verifiedRecipient.wallet.toLowerCase()
+     ?<p className="mt-2 text-xs" style={{color:'var(--accent)'}}>
+       {'@'+verifiedRecipient.veyraHandle+'.veyra'} · server prepared; will be checked again before signing
+      </p>
+     :<p className="mt-2 text-xs" style={{color:'var(--muted)'}}>Confirm the full wallet address before sending.</p>}
+   </div>
+   <div>
+    <label htmlFor="shared-send-amount" className="text-sm font-semibold" style={{color:'var(--ink)'}}>Amount · USDC</label>
+    <input id="shared-send-amount" value={draft.amount} inputMode="decimal" maxLength={24}
+     onChange={e=>changeDraft({amount:e.target.value})} disabled={!address||locked}
+     placeholder="0.00" className="mt-2 w-full rounded-xl border px-4 py-3 text-lg font-semibold"
+     style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
+   </div>
+   <div>
+    <label className="text-xs font-semibold" htmlFor="pay-private-note" style={{color:'var(--muted)'}}>Your note (optional)</label>
+    <input id="pay-private-note" value={draft.note} maxLength={120} disabled={!address||locked}
+     onChange={e=>changeDraft({note:e.target.value})}
+     placeholder="e.g. Dinner with Alex" className="mt-2 w-full rounded-lg border px-3 py-2 text-sm"
+     style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
+    <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Saved with your browser receipt once submitted; never sent onchain or to the recipient.</p>
+   </div>
+  </section>
   <section className="rounded-xl border p-3 sm:p-4" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
    <div className="flex items-center justify-between gap-3">
     <div>
@@ -151,14 +181,6 @@ export function MainnetPayHub({
   {visited.contract&&<section aria-label="Contract payment" hidden={selected!=='contract'}>
    <SettlementPage key={owner} embedded sharedDraft={draft} onDraftChange={changeDraft}/>
   </section>}
-  <section className="rounded-xl border p-3 sm:p-4" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
-   <label className="text-xs font-medium" style={{color:'var(--muted)'}} htmlFor="pay-private-note">Private note (optional)</label>
-   <input id="pay-private-note" value={draft.note} maxLength={120} disabled={!address||locked}
-    onChange={e=>changeDraft({note:e.target.value})}
-    placeholder="e.g. Dinner with Alex" className="mt-2 w-full rounded-lg border px-3 py-2 text-sm"
-    style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
-   <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>Only saved in this browser tab. The note is not sent onchain or shared with the recipient.</p>
-  </section>
   <p className="flex items-start gap-2 text-xs leading-5" style={{color:'var(--muted)'}}>
    <ArrowRight className="mt-0.5 size-4 shrink-0"/>
    Every payment uses an explicit wallet signature. Activity checks the original transaction, not a replacement.

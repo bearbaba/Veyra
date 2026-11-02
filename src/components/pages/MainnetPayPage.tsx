@@ -213,7 +213,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
           style={{background:'var(--accent)',color:'#fff'}} onClick={()=>switchChain({chainId:5042})}>Switch to Arc Mainnet</button>
       </div>}
       <div className={box+' space-y-4'} style={{background:'var(--surface)',borderColor:'var(--border)'}}>
-        <div><label className="text-sm font-semibold" style={{color:'var(--ink)'}}>Recipient wallet</label>
+        {!embedded&&<><div><label className="text-sm font-semibold" style={{color:'var(--ink)'}}>Recipient wallet</label>
           <input className={field+' mt-2'} style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}
             value={recipient} maxLength={42} autoComplete="off" spellCheck={false} placeholder="0x…"
             disabled={blocked} onChange={e=>{setRecipient(e.target.value);onDraftChange?.({recipient:e.target.value});setReview(null);setAck(false);}}/></div>
@@ -221,6 +221,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
           <input className={field+' mt-2'} style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}
             value={amount} inputMode="decimal" placeholder="0.01" disabled={blocked}
             onChange={e=>{setAmount(e.target.value);onDraftChange?.({amount:e.target.value});setReview(null);setAck(false);}}/></div>
+        </>}
         {!review&&!journal&&<button className="w-full rounded-xl px-4 py-3 text-sm font-bold disabled:opacity-40"
           disabled={blocked} style={{background:'var(--accent)',color:'#fff'}}
           onClick={()=>void prepare()}>{busy?'Checking…':'Review payment'}</button>}

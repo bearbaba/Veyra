@@ -1228,7 +1228,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
                 : 'Locks USDC in the contract. Recipient claims before timeout, or you refund after.'}
             </p>}
 
-            <div className="space-y-1.5">
+            {!embedded&&<><div className="space-y-1.5">
               <label className="text-xs font-medium text-white/50 uppercase tracking-wide">Recipient address</label>
               <input value={recipient} onChange={(e) => {setRecipient(e.target.value);onDraftChange?.({recipient:e.target.value});}}
                 placeholder="0x…"
@@ -1245,6 +1245,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
                 className="w-full rounded-xl bg-white/[0.06] border border-white/[0.08] px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/20" />
             </div>
 
+            </>}
             {isMainnet&&<details className="text-xs text-white/60">
               <summary className="cursor-pointer">Contract details</summary>
               <p className="mt-2">USDC is sent immediately with an onchain reference; no escrow, refund or purchase protection.</p>
