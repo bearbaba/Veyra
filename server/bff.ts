@@ -274,10 +274,28 @@ function maybeSetRestoreCookie(req:Request,res:Response,userId:string,walletAddr
 
 // Only the canonical production browser origin on a separately hosted Mainnet BFF
 // can advertise ID/recipient verification. Testnet and Preview are NOT Mainnet-ready.
-app.post('/api/identity/mainnet-capability', IDENTITY_RATE, (req:Request,res:Response):void=>{
+app.post('/api/identity/mainnet-capability', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
   const authority=evaluateMainnetIdentityAuthority(runtimeConfig,req.header('origin'));
   if(!authority){res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;}
-  res.json(authority);
+  try{
+    // A configured database URL is not evidence that identities and receipts
+    // are actually available. This endpoint is read-only: no wallet prompts.
+    const {db}=await import('./db/client.js');
+    const readiness=await db.execute(sql`
+      SELECT to_regclass('public.veyra_users') AS users,
+             to_regclass('public.wallet_bindings') AS wallets,
+             to_regclass('public.identity_snapshots') AS snapshots,
+             to_regclass('public.mainnet_direct_pay_receipts') AS receipts
+    `);
+    const row=readiness.rows[0] as Record<string,unknown>|undefined;
+    if(!row||['users','wallets','snapshots','receipts'].some(k=>!row[k])){
+      res.status(503).json({ok:false,error:'MAINNET_IDENTITY_SCHEMA_NOT_READY'});return;
+    }
+    res.setHeader('Cache-Control','no-store');
+    res.json(authority);
+  }catch{
+    res.status(503).json({ok:false,error:'MAINNET_IDENTITY_DATABASE_UNAVAILABLE'});
+  }
 });
 
 // ── Existing verified wallet login ──────────────────────────────────────────
