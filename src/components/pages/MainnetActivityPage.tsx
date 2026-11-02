@@ -5,8 +5,8 @@ import {useEffect,useRef,useState} from 'react';
 import {useAccount} from 'wagmi';
 import {formatUnits} from 'viem';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
-import {listVerifiedMainnetPayReceipts,saveVerifiedMainnetPayReceipt,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
-import {verifiedLocalPayMissingFromAccount,receiptSyncRetryDelayMs} from '@/mainnet/receiptSyncCandidates';
+import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
+import {readReceiptOutbox,storageForReceiptOutbox,type ReceiptOutboxItem} from '@/mainnet/receiptOutbox';
 import {ConnectKitButton} from 'connectkit';
 import {CheckCircle2,Clock3,ExternalLink,RefreshCw} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
@@ -37,15 +37,8 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const [unknownSettlement,setUnknownSettlement]=useState(false);
  const [filter,setFilter]=useState<'All'|'Send'|'Swap'|'Bridge'>('All');
  const verifiedCache=useRef(new Map<string,{checked:number;state:OperationInspection}>());
- const syncAttempted=useRef(new Map<string,number>());
- const syncFailures=useRef(new Map<string,number>());
- const syncedThisSession=useRef(new Set<string>());
- const [receiptSyncEpoch,setReceiptSyncEpoch]=useState(0);
- const [receiptSyncWarning,setReceiptSyncWarning]=useState(false);
- useEffect(()=>{
-  syncAttempted.current.clear();syncFailures.current.clear();syncedThisSession.current.clear();
-  setReceiptSyncWarning(false);
- },[address,social.session?.token]);
+ const [queuedReceipts,setQueuedReceipts]=useState<ReceiptOutboxItem[]>([]);
+ const [outboxBlocked,setOutboxBlocked]=useState(false);
  useEffect(()=>{
   let active=true,working=false;
   verifiedCache.current.clear();setEntries([]);setStates({});setUnknownSettlement(false);
@@ -145,53 +138,32 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
   return()=>{active=false;window.clearInterval(timer);controller.abort();window.removeEventListener('focus',onChange);
    window.removeEventListener('veyra:mainnet:server-receipt',onChange);};
  },[address,social.session?.token,social.identityOrigin]);
- // Re-index an independently verified ORIGINAL Pay hash. Never resubmit or sign.
- // GET history can be offline even when the idempotent receipt POST is available.
+ // Read-only outbox view. The app-scoped worker exclusively performs idempotent uploads.
  useEffect(()=>{
-  const token=social.session?.token;
-  if(!address||!token||social.identityOrigin!=='ready'||serverHistoryStatus==='checking')return;
-  const hashes=new Set(serverReceipts.map(v=>v.txHash.toLowerCase()));
-  const keyFor=(hash:string)=>address.toLowerCase()+':'+token+':'+hash.toLowerCase();
-  const now=Date.now();
-  const pending=verifiedLocalPayMissingFromAccount(entries,
-   Object.fromEntries(Object.entries(states).map(([k,v])=>[k,v.status])),
-   hashes,address,3).filter(v=>{
-    const key=keyFor(v.hash);
-    return !syncedThisSession.current.has(key)&&now>=(syncAttempted.current.get(key)??0);
-   });
-  if(!pending.length)return;
+  setQueuedReceipts([]);setOutboxBlocked(false);
+  if(!address)return;
   let active=true;
-  for(const v of pending)syncAttempted.current.set(keyFor(v.hash),now+receiptSyncRetryDelayMs(1));
-  void Promise.all(pending.map(async v=>{
-   const key=keyFor(v.hash);
-   try{
-    await saveVerifiedMainnetPayReceipt(token,{hash:v.hash,note:v.note,
-      ...(v.recipientSnapshotId?{snapshotId:v.recipientSnapshotId}:{})});
-    syncedThisSession.current.add(key);
-    syncAttempted.current.delete(key);syncFailures.current.delete(key);
-    return true;
-   }catch{
-    const failures=(syncFailures.current.get(key)??0)+1;
-    syncFailures.current.set(key,failures);
-    syncAttempted.current.set(key,Date.now()+receiptSyncRetryDelayMs(failures));
-    return false;
-   }
-  })).then(results=>{
+  const owner=address;
+  const refresh=()=>{
+   const queue=readReceiptOutbox(owner,storageForReceiptOutbox());
    if(!active)return;
-   if(results.some(Boolean))window.dispatchEvent(new Event('veyra:mainnet:server-receipt'));
-   setReceiptSyncWarning(results.some(v=>!v));
-  });
-  return()=>{active=false;};
- },[address,entries,states,serverReceipts,serverHistoryStatus,social.session?.token,
-    social.identityOrigin,receiptSyncEpoch]);
- // Retry receipt-only upload on a bound timer and on reconnection, never a wallet action.
- useEffect(()=>{
-  if(!address||!social.session?.token||social.identityOrigin!=='ready')return;
-  const timer=window.setInterval(()=>setReceiptSyncEpoch(v=>v+1),15000);
-  const resume=()=>setReceiptSyncEpoch(v=>v+1);
-  window.addEventListener('online',resume);
-  return()=>{window.clearInterval(timer);window.removeEventListener('online',resume);};
- },[address,social.session?.token,social.identityOrigin]);
+   setQueuedReceipts(queue.kind==='ready'?queue.items:[]);
+   setOutboxBlocked(queue.kind==='blocked');
+  };
+  refresh();
+  const interval=window.setInterval(refresh,15000);
+  window.addEventListener('veyra:mainnet:outbox',refresh);
+  window.addEventListener('veyra:mainnet:server-receipt',refresh);
+  window.addEventListener('focus',refresh);
+  const storageChange=(event:StorageEvent)=>{
+   if(event.key?.startsWith('veyra:arc-mainnet-5042-receipt-outbox:v1:'+owner.toLowerCase()+':'))refresh();
+  };
+  window.addEventListener('storage',storageChange);
+  return()=>{active=false;window.clearInterval(interval);
+   window.removeEventListener('veyra:mainnet:outbox',refresh);
+   window.removeEventListener('veyra:mainnet:server-receipt',refresh);
+   window.removeEventListener('focus',refresh);window.removeEventListener('storage',storageChange);};
+ },[address]);
  const verifiedRemote=filter==='All'||filter==='Send'?serverReceipts:[];
  const remoteHashes=new Set(serverReceipts.map(r=>r.txHash.toLowerCase()));
  // Server-verified payment appears ONCE, even when there is a browser journal pointer.
@@ -229,15 +201,17 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     <button type="button" onClick={onPay} className="rounded-xl px-4 py-2 text-xs font-bold"
      style={{background:'var(--accent)',color:'#0d1b2f'}}>New payment</button>
    </div>
-   {social.session&&<div className="flex flex-wrap items-center justify-between gap-2 text-xs"
-     style={{color:'var(--muted)'}}>
-     <span>Veyra account history: {serverHistoryStatus==='ready'?'server verified':
-      serverHistoryStatus==='checking'?'loading':'not available; local history remains visible'}</span>
-     {receiptSyncWarning&&<button type="button" className="font-semibold"
-       style={{color:'var(--accent)'}} onClick={()=>{
-        syncAttempted.current.clear();syncFailures.current.clear();setReceiptSyncWarning(false);setReceiptSyncEpoch(x=>x+1);
-       }}>Retry receipt sync (no wallet signature)</button>}
-   </div>}
+   {(social.session||queuedReceipts.length>0||outboxBlocked)&&
+    <div className="flex flex-wrap items-center justify-between gap-2 text-xs" style={{color:'var(--muted)'}}>
+     <span>{outboxBlocked?'Local receipt recovery storage needs attention. Do not retry the original payment.':
+      queuedReceipts.some(x=>x.status==='review')?'Some verified transfers need receipt review; no new transfer required.':
+      queuedReceipts.length&&!social.session?.token?'Money sent · sign in to save the receipt to your account.':
+      queuedReceipts.length?'Money sent · syncing '+queuedReceipts.length+' receipt(s).':
+      'Veyra account history: '+(serverHistoryStatus==='ready'?'server verified':
+       serverHistoryStatus==='checking'?'loading':'offline; local history stays visible')}</span>
+     {queuedReceipts.length>0&&<button type="button" onClick={onPay}
+      className="font-semibold" style={{color:'var(--accent)'}}>View payment receipt</button>}
+    </div>}
    {verifiedRemote.length>0&&<section aria-label="Verified Veyra account receipts"
       className="overflow-hidden rounded-2xl border" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
     {verifiedRemote.map(v=><article key={v.txHash} className="border-b p-4 last:border-0" style={{borderColor:'var(--border)'}}>
@@ -276,6 +250,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     <section className="overflow-hidden rounded-2xl border" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
      {shown.map(v=>{
       const proof=states[id(v)],ink=color(proof);
+      const queued=queuedReceipts.find(x=>x.hash.toLowerCase()===v.hash.toLowerCase());
       return <article key={id(v)} className="border-b p-4 sm:p-5 last:border-0" style={{borderColor:'var(--border)'}}>
        <div className="flex flex-wrap items-start gap-3">
         <div className="flex size-9 shrink-0 items-center justify-center rounded-xl" style={{background:'var(--surface-raised)'}}>
@@ -284,7 +259,11 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
         <div className="min-w-0 flex-1 space-y-1">
          <p className="font-semibold" style={{color:'var(--ink)'}}>{v.type==='Pay'||v.type==='Settlement'?'Send':v.type} · {v.amount} {v.asset}</p>
          <p className="text-xs" style={{color:ink}}>{v.type==='Pay'&&proof?.status==='VERIFIED'?
-          'Money sent · syncing receipt with your Veyra account':label(proof)}</p>
+          !social.session?.token||social.identityOrigin!=='ready'?
+           'Money sent · sign in to save receipt to your account':
+          queued?.status==='sign-in'?'Money sent · sign in again to sync receipt':
+          queued?.status==='review'?'Money sent · receipt needs review (do not resend)':
+          queued?'Money sent · syncing receipt':'Money sent · open receipt history for account sync':label(proof)}</p>
          {v.recipientLabel&&<p className="text-sm" style={{color:'var(--ink)'}}>{v.recipientLabel} · label saved at review (this browser only)</p>}
          {v.destination&&<p className="break-all text-xs" style={{color:'var(--muted)'}}>Recipient wallet: {v.destination}</p>}
          {v.note&&<p className="text-sm" style={{color:'var(--muted)'}}>Your note: {v.note}</p>}
