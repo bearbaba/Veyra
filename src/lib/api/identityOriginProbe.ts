@@ -11,9 +11,36 @@
  * This probe NEVER signs, creates an identity, calls an OAuth provider or
  * accesses user data. An unexpected response never enables signing.
  */
+import {VEYRA_ENV} from '../env';
+
+const OFFICIAL_ORIGIN='https://veyra-seven-beta.vercel.app';
+export function isMainnetIdentityCapability(value:unknown):boolean{
+ if(!value||typeof value!=='object'||Array.isArray(value))return false;
+ const v=value as Record<string,unknown>;
+ return v.ok===true&&v.environment==='mainnet'&&v.origin===OFFICIAL_ORIGIN&&
+  v.chainId===5042&&v.walletLogin===true&&v.recipientSnapshots===true&&v.cookieRestore===true;
+}
+export async function probeMainnetIdentityOrigin(
+ signal?:AbortSignal,origin=typeof window==='undefined'?'':window.location.origin,
+):Promise<'ready'|'origin_blocked'|'offline'>{
+ if(origin!==OFFICIAL_ORIGIN)return 'origin_blocked';
+ try{
+  const response=await fetch('/api/identity/mainnet-capability',{
+   method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
+   body:'{}',credentials:'same-origin',cache:'no-store',
+   signal:signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000),
+  });
+  if(!(response.headers.get('content-type')??'').toLowerCase().includes('application/json'))return 'offline';
+  const payload:unknown=await response.json();
+  if(response.status===403&&payload&&typeof payload==='object'&&'error' in payload&&
+     payload.error==='ORIGIN_NOT_ALLOWED')return 'origin_blocked';
+  return response.status===200&&isMainnetIdentityCapability(payload)?'ready':'offline';
+ }catch{return 'offline';}
+}
 export type IdentityOriginStatus = 'checking' | 'ready' | 'origin_blocked' | 'offline';
 
 export async function probeIdentityOrigin(signal?: AbortSignal): Promise<Exclude<IdentityOriginStatus, 'checking'>> {
+  if(VEYRA_ENV==='mainnet')return probeMainnetIdentityOrigin(signal);
   try {
     const response = await fetch('/api/identity/register/complete', {
       method: 'POST',

@@ -6,6 +6,7 @@ on:
       - review/mainnet-activity-readonly-verification
       - fix/mainnet-p0-journal-cctp-link
       - feature/mainnet-human-first-ux
+      - feature/mainnet-identity-authority
       - arc-studio/settlement-mainnet-preview
   workflow_dispatch:
 
@@ -38,6 +39,10 @@ jobs:
           src/tests/mainnetUnifiedPayUx.test.ts
           src/tests/mainnetHumanFirstUx.test.ts
           src/tests/mainnetPeopleFlow.test.ts
+          src/tests/mainnetIdentityAuthority.test.ts
+          src/tests/phase11BrowserRestoreSession.test.ts
+          src/tests/phase9jTrustedWalletLoginOrigin.test.ts
+          src/tests/phase9xIdentityOriginUx.test.ts
           src/tests/mainnetProductAndActivity.test.ts
           src/tests/phase6ArcMainnetPay.test.ts
           src/tests/settlementGasAndVerification.test.ts
