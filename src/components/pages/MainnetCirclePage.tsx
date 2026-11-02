@@ -15,6 +15,7 @@ import {getMainnetChain,CCTP_V2_MAINNET} from '@/config/mainnetCatalog';
 import {ARC_VERIFIED_ASSETS,assertArcSwapCandidate} from '@/config/arcVerifiedAssets';
 import {recordLocalOperation} from '@/mainnet/localOperations';
 import {recordExchangeActivity} from '@/mainnet/exchangeActivity';
+import {createExchangeIntent,advanceExchangeIntent,readExchangeIntents} from '@/mainnet/exchangeIntentJournal';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked} from '@/mainnet/verifyCctpBridgeLink';
 import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
@@ -33,7 +34,7 @@ type Mode='swap'|'bridge';
 type Token='USDC'|'EURC';
 export type ExchangeExecutionSelection={fromChainId:number;toChainId:number;fromToken:Token;toToken:Token};
 type Quote={owner:string;at:number;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;expected:string;fees:string[]};
-type Recovery={owner:string;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;status:'UNKNOWN'|'PENDING'|'VERIFIED'|'REVERTED';hash?:string;burnHash?:string;mintHash?:string};
+type Recovery={owner:string;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;status:'UNKNOWN'|'PENDING'|'VERIFIED'|'REVERTED';hash?:string;burnHash?:string;mintHash?:string;intentId?:string};
 const key=(mode:Mode,owner:string)=>'veyra:mainnet:circle:v1:'+mode+':'+owner.toLowerCase();
 const label=(id:number)=>id===ARC?'Arc Mainnet':'Base Mainnet';
 const sdkChain=(id:number)=>id===ARC?'Arc' as const:'Base' as const;
@@ -204,17 +205,28 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     throw Error('Provider quote changed. Review it again before signing.');
    if(Date.now()-quote.at>30000)throw Error('Quote expired.');
    await wallet(selectedSource);
+   const intentId=crypto.randomUUID();
    const record:Recovery={owner,mode,amount,source:selectedSource,destination:selectedDest,
-    fromToken,toToken,minimum:quote.minimum,status:'UNKNOWN'};
+    fromToken,toToken,minimum:quote.minimum,status:'UNKNOWN',intentId};
    localStorage.setItem(key(mode,address),JSON.stringify(record));
    if(localStorage.getItem(key(mode,address))!==JSON.stringify(record))
     throw Error('Cannot persist recovery lock.');
    saved=true;setRecovery(record);setQuote(null);
+   if(!createExchangeIntent({id:intentId,owner,provider:'Circle App Kit',
+    mode,fromChainId:selectedSource,toChainId:selectedDest,tokenIn:fromToken,tokenOut:toToken,
+    amountIn:amount,minimumOut:quote.minimum,createdAt:Date.now(),updatedAt:Date.now(),
+    stage:'REVIEWED',steps:[]}))
+    throw Error('Exchange task journal could not be saved. No wallet trade requested.');
+   if(!advanceExchangeIntent(owner,intentId,'AWAITING_WALLET',{}))
+    throw Error('Exchange task could not be locked. No wallet trade requested.');
    if(mode==='swap'){
     const result=await kit.swap(p as Parameters<AppKit['swap']>[0]);
     const hash=typeof result.txHash==='string'&&HASH.test(result.txHash)?result.txHash:undefined;
     const next:Recovery={...record,status:'PENDING',...(hash?{hash}:{})};
     localStorage.setItem(key(mode,address),JSON.stringify(next));setRecovery(next);
+    advanceExchangeIntent(owner,intentId,hash?'SOURCE_SUBMITTED':'SOURCE_UNKNOWN',
+     hash?{sourceHash:hash,steps:[{stage:'source',chainId:ARC,token:fromToken,
+      status:'submitted',hash}]}:{message:'Wallet returned no original hash. Check wallet; do not re-sign.'});
     if(hash){
      recordLocalOperation({type:'Swap',hash,owner:address,amount,asset:fromToken,chainId:ARC,status:'SUBMITTED'});
      recordExchangeActivity({owner,mode:'swap',source:ARC,destination:ARC,tokenIn:fromToken,
@@ -226,6 +238,10 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     const steps=getAppKitBridgeSteps(result);
     const next:Recovery={...record,status:'PENDING',...steps};
     localStorage.setItem(key(mode,address),JSON.stringify(next));setRecovery(next);
+    advanceExchangeIntent(owner,intentId,steps.burnHash?'SOURCE_SUBMITTED':'SOURCE_UNKNOWN',
+     steps.burnHash?{sourceHash:steps.burnHash,steps:[{stage:'source',chainId:selectedSource,
+      token:'USDC',status:'submitted',hash:steps.burnHash}]}:
+      {message:'Provider returned no original source burn. Do not create a new transfer.'});
     if(steps.burnHash){
      recordLocalOperation({type:'Bridge',hash:steps.burnHash,owner:address,amount,asset:'USDC',chainId:selectedSource,status:'SUBMITTED'});
      recordExchangeActivity({owner,mode:'bridge',source:selectedSource,destination:selectedDest,
@@ -263,6 +279,13 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     if(!burn.logs.some(log=>log.address.toLowerCase()===CCTP_V2_MAINNET.tokenMessengerV2.toLowerCase()))
      throw Error('Canonical CCTP source burn event missing.');
     burnEvidence={sourceHash,receipt:burn};
+    if(recovery.intentId){
+     const task=readExchangeIntents(owner);
+     const status=task.kind==='ready'?task.items.find(v=>v.id===recovery.intentId)?.stage:undefined;
+     if(status==='SOURCE_UNKNOWN')
+      advanceExchangeIntent(owner,recovery.intentId,'SOURCE_SUBMITTED',{sourceHash});
+     advanceExchangeIntent(owner,recovery.intentId,'SOURCE_CONFIRMED',{sourceHash});
+    }
    }
    const receipt=await destinationClient.getTransactionReceipt({hash:hash as Hash});
    if(mode==='swap'){
@@ -270,6 +293,12 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     if(submitted.from.toLowerCase()!==owner)throw Error('Swap transaction sender differs from the connected wallet.');
    }
    if(receipt.status==='reverted'){
+    if(mode==='bridge'&&recovery.intentId&&burnEvidence){
+     advanceExchangeIntent(owner,recovery.intentId,'PARTIAL',{
+      sourceHash:burnEvidence.sourceHash,destinationHash:hash,holdingChainId:recovery.source,
+      holdingToken:'USDC burned in CCTP; destination not credited',
+      message:'Destination receipt reverted. Inspect CCTP recovery or refund; never repeat the source burn.'});
+    }
     if(mode==='swap'){
      const r:Recovery={...recovery,status:'REVERTED',hash};
      localStorage.setItem(key(mode,address),JSON.stringify(r));setRecovery(r);
@@ -284,6 +313,21 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    }
    const amountOut=transferSum(receipt,receivedToken,address);
    if(amountOut<parseUnits(recovery.minimum,6))throw Error('Destination Transfer amount below reviewed minimum or mint not found.');
+   if(recovery.intentId){
+    const pending=readExchangeIntents(owner);
+    const current=pending.kind==='ready'?pending.items.find(v=>v.id===recovery.intentId):null;
+    if(current?.stage==='SOURCE_UNKNOWN')
+     advanceExchangeIntent(owner,recovery.intentId,'SOURCE_SUBMITTED',{sourceHash:mode==='swap'?hash:recovery.burnHash});
+    if(current&&['SOURCE_SUBMITTED','SOURCE_UNKNOWN'].includes(current.stage))
+     advanceExchangeIntent(owner,recovery.intentId,'SOURCE_CONFIRMED',{
+      sourceHash:mode==='swap'?hash:recovery.burnHash});
+    advanceExchangeIntent(owner,recovery.intentId,'DESTINATION_VERIFIED',{
+     destinationHash:hash,
+     steps:[{stage:'source',chainId:recovery.source,token:recovery.fromToken,status:'verified',
+      hash:mode==='swap'?hash:recovery.burnHash},
+      {stage:'destination',chainId:recovery.destination,token:recovery.toToken,
+       status:'verified',hash}]});
+   }
    const r:Recovery={...recovery,status:'VERIFIED',...(mode==='swap'?{hash}:{mintHash:hash})};
    localStorage.setItem(key(mode,address),JSON.stringify(r));setRecovery(r);
    setProof('Destination verified: '+formatUnits(amountOut,6)+' '+(mode==='swap'?recovery.toToken:'USDC'));
