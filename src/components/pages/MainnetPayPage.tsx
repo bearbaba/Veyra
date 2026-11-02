@@ -6,6 +6,7 @@ import { useAccount, useSwitchChain } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { formatUnits } from 'viem';
 import { recordLocalOperation } from '@/mainnet/localOperations';
+import {saveVerifiedMainnetPayReceipt} from '@/lib/api/mainnetPayReceipts';
 import {verifyPaymentRecipient} from '@/lib/api/identityApi';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {validVerifiedRecipient,type VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
@@ -55,6 +56,9 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   const [hashInput,setHashInput] = useState('');
   const [receipt,setReceipt] = useState<MainnetReconciliation|null>(null);
   const [error,setError] = useState<string|null>(null);
+  const [syncNonce,setSyncNonce]=useState(0);
+  const [receiptSync,setReceiptSync]=useState<'idle'|'saving'|'saved'|'unavailable'>('idle');
+  const syncedFor=useRef<string|null>(null);
 
   useEffect(()=>{
     setReview(null);setAck(false);setReceipt(null);setError(null);
@@ -177,6 +181,28 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     const timer=window.setInterval(()=>void poll(),10000);
     return()=>{live=false;window.clearInterval(timer);};
   },[address,journal?.hash,journal?.stage,journal?.from,journal?.to,journal?.amount]);
+  // Only after the original wallet transaction is independently VERIFIED.
+  // Backend verifies the exact same onchain evidence again and never signs/retries.
+  // A network failure here does not invalidate the wallet receipt or unlock a send.
+  useEffect(()=>{
+    const token=social.session?.token;
+    if(!address||!token||social.identityOrigin!=='ready'||journal?.stage!=='VERIFIED'||!journal.hash)return;
+    if(journal.from.toLowerCase()!==address.toLowerCase())return;
+    const key=journal.hash.toLowerCase()+':'+token+':'+syncNonce;
+    if(syncedFor.current===key)return;
+    syncedFor.current=key;setReceiptSync('saving');
+    let active=true;
+    void saveVerifiedMainnetPayReceipt(token,{
+      hash:journal.hash,note:journal.note,
+      ...(idSelection?.snapshotId?{snapshotId:idSelection.snapshotId}:{}),
+    }).then(()=>{
+      if(!active)return;
+      setReceiptSync('saved');
+      window.dispatchEvent(new Event('veyra:mainnet:server-receipt'));
+    }).catch(()=>{if(active)setReceiptSync('unavailable');});
+    return()=>{active=false;};
+  },[address,social.session?.token,social.identityOrigin,journal?.hash,journal?.stage,journal?.note,
+      journal?.from,idSelection?.snapshotId,syncNonce]);
   function reset(){
     if(!address||!journal||!['VERIFIED','REVERTED'].includes(journal.stage)||lock.current)return;
     if(!clearMainnetJournal(address,storageForMainnet())){setError('Cannot clear payment lock.');return;}
@@ -197,6 +223,16 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
           If it remains pending, Veyra checks the existing transaction rather than sending again.</p>
       </div>
     </div>
+    {journal?.stage==='VERIFIED'&&social.session?.token&&
+      <div role="status" className="rounded-lg border p-3 text-sm"
+        style={{borderColor:'var(--border)',color:'var(--muted)'}}>
+        {receiptSync==='saved'?'Verified receipt saved to your Veyra account.':
+         receiptSync==='saving'?'Saving your verified receipt to Veyra…':
+         'Onchain payment verified. Account receipt is not synced yet.'}
+        {receiptSync==='unavailable'&&
+          <button type="button" className="ml-2 font-semibold" style={{color:'var(--accent)'}}
+            onClick={()=>setSyncNonce(n=>n+1)}>Retry receipt sync</button>}
+      </div>}
     {idSelection&&<div role="status" className={box} style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
       <p className="text-sm font-semibold">{'Send to @'+idSelection.veyraHandle+'.veyra'}</p>
       <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Verified recipient snapshot · address will be rechecked by the backend before signing.</p>

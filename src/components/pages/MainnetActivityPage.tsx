@@ -3,6 +3,9 @@
  */
 import {useEffect,useRef,useState} from 'react';
 import {useAccount} from 'wagmi';
+import {formatUnits} from 'viem';
+import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
+import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
 import {ConnectKitButton} from 'connectkit';
 import {CheckCircle2,Clock3,ExternalLink,RefreshCw} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
@@ -24,6 +27,9 @@ function color(x:OperationInspection|undefined){
 }
 export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigate:(page:VeyraPage)=>void}){
  const {address}=useAccount();
+ const social=useUnifiedSocial();
+ const [serverReceipts,setServerReceipts]=useState<MainnetPayServerReceipt[]>([]);
+ const [serverHistoryStatus,setServerHistoryStatus]=useState<'unavailable'|'checking'|'ready'>('unavailable');
  const [entries,setEntries]=useState<LocalOperation[]>([]);
  const [states,setStates]=useState<Record<string,OperationInspection>>({});
  const [syncing,setSyncing]=useState(false);
@@ -103,7 +109,32 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
    window.removeEventListener('focus',onChange);
    window.removeEventListener('veyra:mainnet:operation',onChange);};
  },[address]);
- const shown=entries.filter(v=>filter==='All'||(filter==='Send'?(v.type==='Pay'||v.type==='Settlement'):v.type===filter));
+ useEffect(()=>{
+  setServerReceipts([]);setServerHistoryStatus('unavailable');
+  const token=social.session?.token;
+  if(!address||!token||social.identityOrigin!=='ready')return;
+  const controller=new AbortController();
+  let active=true;
+  async function reload(){
+   if(!active)return;
+   setServerHistoryStatus('checking');
+   try{
+    const records=await listVerifiedMainnetPayReceipts(token!,controller.signal);
+    if(active){setServerReceipts(records);setServerHistoryStatus('ready');}
+   }catch{if(active)setServerHistoryStatus('unavailable');}
+  }
+  void reload();
+  const onChange=()=>void reload();
+  window.addEventListener('focus',onChange);
+  window.addEventListener('veyra:mainnet:server-receipt',onChange);
+  return()=>{active=false;controller.abort();window.removeEventListener('focus',onChange);
+   window.removeEventListener('veyra:mainnet:server-receipt',onChange);};
+ },[address,social.session?.token,social.identityOrigin]);
+ const verifiedRemote=filter==='All'||filter==='Send'?serverReceipts:[];
+ const remoteHashes=new Set(serverReceipts.map(r=>r.txHash.toLowerCase()));
+ // Server-verified payment appears ONCE, even when there is a browser journal pointer.
+ const shown=entries.filter(v=>!((v.type==='Pay')&&remoteHashes.has(v.hash.toLowerCase()))&&
+   (filter==='All'||(filter==='Send'?(v.type==='Pay'||v.type==='Settlement'):v.type===filter)));
  return <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
   <header className="flex flex-wrap items-center justify-between gap-3">
    <div>
@@ -136,7 +167,37 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     <button type="button" onClick={onPay} className="rounded-xl px-4 py-2 text-xs font-bold"
      style={{background:'var(--accent)',color:'#0d1b2f'}}>New payment</button>
    </div>
-   {shown.length===0?<section className="rounded-2xl border p-7 text-center" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+   {social.session&&<p className="text-xs" style={{color:'var(--muted)'}}>
+     Veyra account history: {serverHistoryStatus==='ready'?'server verified':
+      serverHistoryStatus==='checking'?'loading':'not available; local history remains visible'}
+   </p>}
+   {verifiedRemote.length>0&&<section aria-label="Verified Veyra account receipts"
+      className="overflow-hidden rounded-2xl border" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+    {verifiedRemote.map(v=><article key={v.txHash} className="border-b p-4 last:border-0" style={{borderColor:'var(--border)'}}>
+      <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>
+       {v.direction==='sent'?'Sent':'Received'} · {formatUnits(BigInt(v.amountRaw),6)} USDC
+      </p>
+      <p className="mt-1 text-sm" style={{color:'var(--success)'}}>Completed · independently verified by Veyra backend</p>
+      {v.recipientLabel&&<p className="text-sm" style={{color:'var(--ink)'}}>{v.recipientLabel}</p>}
+      <p className="mt-1 break-all text-xs" style={{color:'var(--muted)'}}>
+       {v.direction==='sent'?'To: '+v.recipientAddress:'From: '+v.senderAddress}
+      </p>
+      {v.direction==='sent'&&v.privateNote&&
+       <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Your private note: {v.privateNote}</p>}
+      <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+       Verified {new Date(v.verifiedAt).toLocaleString()} · Arc Mainnet
+      </p>
+      <details className="mt-3 text-xs" style={{color:'var(--muted)'}}>
+       <summary className="cursor-pointer">Receipt details</summary>
+       <p className="mt-2">Block {v.blockNumber} · network fee {v.feeWei} wei</p>
+       <a href={'https://explorer.arc.io/tx/'+v.txHash} target="_blank" rel="noreferrer"
+        className="mt-2 inline-flex items-center gap-1" style={{color:'var(--accent)'}}>
+        Original transaction <ExternalLink className="size-3.5"/>
+       </a>
+      </details>
+     </article>)}
+   </section>}
+   {shown.length===0&&verifiedRemote.length===0?<section className="rounded-2xl border p-7 text-center" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
      <Clock3 className="mx-auto mb-3 size-6" style={{color:'var(--muted)'}}/>
      <p className="font-semibold" style={{color:'var(--ink)'}}>No {filter==='All'?'transactions':filter+' transactions'} recorded yet</p>
      <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Veyra saves the original transaction automatically when your wallet returns its hash.</p>
@@ -172,7 +233,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
      })}
     </section>}
    <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
-    Only Veyra-origin transactions recorded in this browser are listed; local notes and labels are not authenticated server receipts or shared with recipients.
+    Signed-in accounts show backend-verified USDC transfers where available; other transactions remain browser-local. Private notes are sender-only and never shared with recipients.
     Direct Pay and Settlement are checked against Arc receipts. Swap and Bridge still need a shared task proof in Activity;
     a saved browser record is never proof of success.
    </p>
