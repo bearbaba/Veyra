@@ -10,6 +10,7 @@ import { encodeDeployData, formatUnits, getAddress, isAddress, keccak256, parseA
 import { AlertTriangle, CheckCircle2, ExternalLink, ShieldCheck, Copy, RefreshCw } from 'lucide-react';
 import { VEYRA_SETTLEMENT_CREATION_BYTECODE, VEYRA_SETTLEMENT_CREATION_KECCAK } from '@/generated/veyraSettlementCreation';
 import { ARC_MAINNET_USDC } from '@/config/veyraSettlement';
+import {assertMainnetSigningAllowed,MAINNET_CANARY_ONLY,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
 
 const CHAIN = 5042;
 // Only the wallet already demonstrated by the project owner may execute public deployment setup.
@@ -75,7 +76,8 @@ export function MainnetSettlementDeploy(){
 
   const owner = address ? getAddress(address) : null;
   const allowedOwner = !!owner && owner.toLowerCase()===OWNER_DEPLOYER.toLowerCase();
-  const canReview = isConnected && allowedOwner && owner && chainId===CHAIN && !!publicClient && !record && !blocked && !busy;
+  const canReview = isConnected && allowedOwner && owner && chainId===CHAIN && !!publicClient &&
+     !record && !blocked && !busy && !MAINNET_CANARY_ONLY && !MAINNET_EMERGENCY_READ_ONLY;
 
   async function checkPreflight(){
     if(!canReview || !owner || !publicClient || lock.current)return;
@@ -142,6 +144,8 @@ export function MainnetSettlementDeploy(){
     lock.current=true;setBusy(true);setMessage('');
     let pending:RecordState|null=null;
     try{
+      // Owner-only 0.01 USDC Pay pilot must never unlock contract deployments.
+      assertMainnetSigningAllowed();
       if(Date.now()-review.reviewedAt>90_000)throw Error('Gas estimate expired. Review again.');
       if(review.owner!==owner)throw Error('Connected wallet changed after Review.');
       if(read(owner))throw Error('A deployment record already exists. Do not send another.');

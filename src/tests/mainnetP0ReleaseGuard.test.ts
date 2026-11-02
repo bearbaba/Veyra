@@ -20,6 +20,10 @@ describe('read-only rollback and fault injection',()=>{
   expect(()=>assertMainnetCanarySigningAllowed('0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb',10_000n,false,true)).not.toThrow();
   expect(()=>assertMainnetCanarySigningAllowed('0x1111111111111111111111111111111111111111',10_000n,false,true)).toThrow('authorized canary wallet');
   expect(()=>assertMainnetCanarySigningAllowed('0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb',10_000n,true,true)).toThrow('read-only recovery mode');
+  // Contract deployment, Settlement approvals and Circle routes remain closed.
+  const deploy=readFileSync(new URL('../components/pages/MainnetSettlementDeploy.tsx',import.meta.url),'utf8');
+  expect(deploy).toContain('assertMainnetSigningAllowed();');
+  expect(deploy).toContain('!MAINNET_CANARY_ONLY && !MAINNET_EMERGENCY_READ_ONLY');
   const m=new Map<string,string>();
   const store={getItem:(k:string)=>m.get(k)??null,setItem:(k:string,v:string)=>{m.set(k,v);},
     removeItem:(k:string)=>{m.delete(k);}};
