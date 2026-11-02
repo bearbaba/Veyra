@@ -17,6 +17,7 @@ import {recordLocalOperation} from '@/mainnet/localOperations';
 import {recordExchangeActivity} from '@/mainnet/exchangeActivity';
 import {advanceExchangeIntent,readExchangeIntents} from '@/mainnet/exchangeIntentJournal';
 import {reserveCircleExchangeBeforeSigning} from '@/mainnet/reserveCircleExchange';
+import {withMainnetWalletSigningLock} from '@/mainnet/mainnetWalletSigningLock';
 import {recordVerifiedExchangeProof,recordVerifiedSourceRevert} from '@/mainnet/recordVerifiedExchangeProof';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked} from '@/mainnet/verifyCctpBridgeLink';
@@ -182,6 +183,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
   lock.current=true;setBusy(true);setError('');setProof('');
   let saved=false;
   try{
+   await withMainnetWalletSigningLock(address,async()=>{
    if(__VEYRA_RELEASE_ENV__!=='production')
     throw Error('Preview is read-only for real Mainnet Exchange. No wallet signature requested.');
    assertMainnetSigningAllowed();
@@ -252,6 +254,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
       originalHash:steps.burnHash,destinationHash:steps.mintHash,status:'SUBMITTED',createdAt:Date.now()});
     }
    }
+   });
   }catch(e){
    if(saved&&address){
     // SDK may have broadcast before returning an error or timeout.
