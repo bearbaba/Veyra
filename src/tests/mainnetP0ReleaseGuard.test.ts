@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import {describe,it,expect,vi,afterEach} from 'vitest';
 import {assertMainnetSigningAllowed,assertMainnetCanarySigningAllowed,canSignMainnetCanary} from '../mainnet/releaseGates';
 import {buildMainnetPayPlan,reconcileMainnetCanary} from '../mainnet/arcMainnetPay';
