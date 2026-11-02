@@ -10,6 +10,7 @@ import {readSettlementIntent,settlementUnresolved} from '@/mainnet/settlementJou
 import {readPayDraft,writePayDraft,type MainnetPayDraft} from '@/mainnet/payDraft';
 import {MainnetPayPage} from './MainnetPayPage';
 import {MainnetRecipientSearch} from '../identity/MainnetRecipientSearch';
+import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
 import type {RecipientSearchResult} from '@/mainnet/recipientLookup';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {SettlementPage} from './SettlementPage';
@@ -140,6 +141,8 @@ export function MainnetPayHub({
     ({MAINNET_CANARY_OWNER.slice(0,6)}…{MAINNET_CANARY_OWNER.slice(-4)}) may send up to 0.01 USDC
     per transaction. Everyone else can review, but cannot sign. Contract/Swap/Bridge writes remain off.
   </p>}
+  {address&&(!social.session?.token||social.identityOrigin!=='ready')&&
+   <section aria-label="Sign in to send USDC"><VeyraIdentityAccess/></section>}
   {locked&&<p role="status" className="rounded-xl border p-3 text-sm"
    style={{borderColor:'var(--border)',color:'var(--warning)'}}>
    Your original wallet request is still being checked. Veyra will not switch payment methods or submit it again.
