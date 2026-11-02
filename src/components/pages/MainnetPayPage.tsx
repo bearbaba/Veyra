@@ -6,8 +6,8 @@ import { useAccount, useSwitchChain } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { formatUnits } from 'viem';
 import { recordLocalOperation } from '@/mainnet/localOperations';
-import {saveVerifiedMainnetPayReceipt,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
-import {receiptSyncRetryDelayMs} from '@/mainnet/receiptSyncCandidates';
+import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
+import {enqueueVerifiedPay,readReceiptOutbox,type ReceiptOutboxItem} from '@/mainnet/receiptOutbox';
 import {preparePaymentRecipient,verifyPaymentRecipient} from '@/lib/api/identityApi';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {isSameVerifiedPaymentReceiver,type VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
@@ -66,16 +66,24 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   const [hashInput,setHashInput] = useState('');
   const [receipt,setReceipt] = useState<MainnetReconciliation|null>(null);
   const [error,setError] = useState<string|null>(null);
-  const [syncNonce,setSyncNonce]=useState(0);
-  const [receiptSync,setReceiptSync]=useState<'idle'|'saving'|'saved'|'unavailable'>('idle');
+  const [completed,setCompleted]=useState<MainnetJournal|null>(null);
+  const [outboxItem,setOutboxItem]=useState<ReceiptOutboxItem|null>(null);
   const [accountReceipt,setAccountReceipt]=useState<MainnetPayServerReceipt|null>(null);
 
   useEffect(()=>{
-    setReview(null);setAck(false);setReceipt(null);setAccountReceipt(null);setReceiptSync('idle');setError(null);
+    setReview(null);setAck(false);setReceipt(null);setCompleted(null);setOutboxItem(null);setAccountReceipt(null);setError(null);
     if(!address){setJournal(null);setBlockedStorage(false);setLoadedFor(null);return;}
-    const stored=readMainnetJournal(address,storageForMainnet());
+    const storage=storageForMainnet();
+    const stored=readMainnetJournal(address,storage);
+    const outbox=readReceiptOutbox(address,storage);
     setJournal(stored.kind==='active'?stored.value:null);
-    setBlockedStorage(stored.kind==='blocked');
+    setBlockedStorage(stored.kind==='blocked'||outbox.kind==='blocked');
+    if(outbox.kind==='ready'&&outbox.items.length){
+      const item=outbox.items[outbox.items.length-1];
+      setCompleted({from:item.owner,to:item.to,amount:item.amount,stage:'VERIFIED',hash:item.hash,
+       note:item.note,recipientLabel:item.recipientLabel,recipientSnapshotId:item.snapshotId,senderUserId:item.senderUserId});
+      setOutboxItem(item);
+    }
     setLoadedFor(address.toLowerCase());
   },[address]);
   useEffect(()=>{setReview(null);setAck(false);},[chainId,connector]);
@@ -118,6 +126,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     lock.current=true;setBusy(true);setError(null);
     let initial:MainnetJournal={from:review.plan.from,to:review.plan.to,amount:review.plan.amount,hash:null,stage:'AWAITING_WALLET',
       note:sharedDraft?.note?.trim().slice(0,120)||undefined,
+      senderUserId:social.session?.profile.veyraUserId,
       recipientLabel:idSelection?'@'+idSelection.veyraHandle+'.veyra':undefined};
     let requested=false,wroteJournal=false;
     try {
@@ -193,48 +202,53 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     const timer=window.setInterval(()=>void poll(),10000);
     return()=>{live=false;window.clearInterval(timer);};
   },[address,journal?.hash,journal?.stage,journal?.from,journal?.to,journal?.amount]);
-  // After canonical chain verification, retry ONLY the original receipt POST.
-  // Never call a wallet provider or release the financial journal on persistence failure.
+  // ONLY when independently verified and durably stored, hand off to an outbox.
+  // An UNKNOWN/PENDING original transaction never releases the wallet journal.
   useEffect(()=>{
-    const token=social.session?.token;
-    if(!address||!token||social.identityOrigin!=='ready'||journal?.stage!=='VERIFIED'||!journal.hash)return;
-    if(journal.from.toLowerCase()!==address.toLowerCase())return;
-    let active=true,inFlight=false,failures=0;
-    let timer:number|null=null;
-    const original={hash:journal.hash,note:journal.note,
-      ...(journal.recipientSnapshotId?{snapshotId:journal.recipientSnapshotId}:{})};
-    const retry=async()=>{
-      if(!active||inFlight)return;
-      inFlight=true;setReceiptSync('saving');
-      try{
-        const saved=await saveVerifiedMainnetPayReceipt(token,original);
-        if(active){setAccountReceipt(saved);setReceiptSync('saved');window.dispatchEvent(new Event('veyra:mainnet:server-receipt'));}
-      }catch{
-        if(active){
-          setReceiptSync('unavailable');
-          timer=window.setTimeout(()=>{timer=null;void retry();},receiptSyncRetryDelayMs(++failures));
-        }
-      }finally{inFlight=false;}
+    if(!address||!journal||journal.stage!=='VERIFIED'||!journal.hash||lock.current)return;
+    const result=enqueueVerifiedPay(journal,storageForMainnet());
+    if(result.kind!=='queued'){
+      setError(result.reason??'Could not preserve verified receipt. Keep original payment locked.');
+      return;
+    }
+    setCompleted(journal);setJournal(null);setReview(null);setAck(false);
+    const latest=readReceiptOutbox(address,storageForMainnet());
+    if(latest.kind==='ready')setOutboxItem(latest.items.find(v=>v.hash.toLowerCase()===journal.hash?.toLowerCase())??null);
+  },[address,journal?.hash,journal?.stage,journal?.from,journal?.to,journal?.amount]);
+  // Read the receipt that the global worker has written, for the same owner and hash.
+  useEffect(()=>{
+    if(!address||!completed?.hash)return;
+    let active=true;
+    const controller=new AbortController();
+    const wallet=address,hash=completed.hash;
+    const session=social.session;
+    const refresh=()=>{
+      const queue=readReceiptOutbox(wallet,storageForMainnet());
+      if(queue.kind==='ready')setOutboxItem(queue.items.find(x=>x.hash===hash?.toLowerCase())??null);
+      if(!session?.token||session.walletKey!==(wallet.toLowerCase()+':'+(connector?.uid??''))||social.identityOrigin!=='ready'){
+        setAccountReceipt(null);return;
+      }
+      void listVerifiedMainnetPayReceipts(session.token,controller.signal).then(receipts=>{
+        if(!active)return;
+        setAccountReceipt(receipts.find(x=>x.txHash.toLowerCase()===hash?.toLowerCase()&&
+         x.senderAddress.toLowerCase()===wallet.toLowerCase()&&x.direction==='sent')??null);
+      }).catch(()=>{/* The chain transfer stays verified; account history can be offline. */});
     };
-    const retryOnReconnect=()=>{
-      if(!active||inFlight||timer===null)return;
-      window.clearTimeout(timer);timer=null;void retry();
-    };
-    void retry();
-    window.addEventListener('online',retryOnReconnect);
-    window.addEventListener('focus',retryOnReconnect);
-    return()=>{
-      active=false;
-      if(timer!==null)window.clearTimeout(timer);
-      window.removeEventListener('online',retryOnReconnect);
-      window.removeEventListener('focus',retryOnReconnect);
-    };
-  },[address,social.session?.token,social.identityOrigin,journal?.hash,journal?.stage,
-      journal?.note,journal?.recipientSnapshotId,journal?.from,syncNonce]);
+    refresh();
+    window.addEventListener('veyra:mainnet:server-receipt',refresh);
+    window.addEventListener('veyra:mainnet:outbox',refresh);
+    window.addEventListener('focus',refresh);
+    return()=>{active=false;controller.abort();window.removeEventListener('veyra:mainnet:server-receipt',refresh);
+      window.removeEventListener('veyra:mainnet:outbox',refresh);window.removeEventListener('focus',refresh);};
+  },[address,completed?.hash,social.session?.token,social.session?.walletKey,connector?.uid,social.identityOrigin]);
   function reset(){
-    if(!address||!journal||!['VERIFIED','REVERTED'].includes(journal.stage)||lock.current)return;
-    if(!clearMainnetJournal(address,storageForMainnet())){setError('Cannot clear payment lock.');return;}
-    setJournal(null);setReview(null);setReceipt(null);setAccountReceipt(null);setReceiptSync('idle');setRecipient('');setAmount('');setHashInput('');
+    if(!address||lock.current)return;
+    if(journal){
+      if(journal.stage!=='REVERTED')return;
+      if(!clearMainnetJournal(address,storageForMainnet())){setError('Cannot clear reverted payment lock.');return;}
+    }else if(!completed)return;
+    setJournal(null);setCompleted(null);setOutboxItem(null);setReview(null);setReceipt(null);setAccountReceipt(null);
+    setRecipient('');setAmount('');setHashInput('');setError(null);
   }
   return <div className={embedded?'space-y-4':'mx-auto w-full max-w-2xl space-y-5 px-4 py-7 md:px-7 md:py-9'}>
     {!embedded&&<div>
@@ -251,31 +265,38 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
           If it remains pending, Veyra checks the existing transaction rather than sending again.</p>
       </div>
     </div>
-    {journal?.stage==='VERIFIED'&&
-      <div role="status" className="rounded-lg border p-3 text-sm"
-        style={{borderColor:'var(--border)',color:'var(--muted)'}}>
-        {receiptSync==='saved'?'Money sent · verified receipt saved to your Veyra account.':
-         social.session?.token&&social.identityOrigin==='ready'?'Money sent · syncing receipt. Do not send again.':
-         'Money sent · sign in to your Veyra ID to sync the receipt. Do not send again.'}
-        {receiptSync==='unavailable'&&
-          <button type="button" className="ml-2 font-semibold" style={{color:'var(--accent)'}}
-            onClick={()=>setSyncNonce(n=>n+1)}>Sync now (no wallet signature)</button>}
-      </div>}
-    {journal?.stage==='VERIFIED'&&accountReceipt&&accountReceipt.direction==='sent'&&
-     accountReceipt.txHash.toLowerCase()===journal.hash?.toLowerCase()&&
-     accountReceipt.senderAddress.toLowerCase()===address?.toLowerCase()&&
-      <section aria-label="Verified USDC receipt" className={box+' space-y-3'}
+    {(completed||journal?.stage==='VERIFIED')&&
+      <section aria-label="USDC payment receipt" className={box+' space-y-3'}
        style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
-        <div className="flex items-center gap-2"><CheckCircle2 className="size-5" style={{color:'var(--success)'}}/>
-         <strong className="text-base">Sent · {formatUnits(BigInt(accountReceipt.amountRaw),6)} USDC</strong></div>
-        <p className="text-sm">To {accountReceipt.recipientLabel??accountReceipt.recipientAddress}</p>
-        <p className="text-xs" style={{color:'var(--muted)'}}>Paid {new Date(accountReceipt.paidAt).toLocaleString()} · verified on Arc Mainnet</p>
-        <details className="text-xs" style={{color:'var(--muted)'}}><summary className="cursor-pointer">Receipt details</summary>
-         <p className="mt-2 break-all">Receiving wallet: {accountReceipt.recipientAddress}</p>
-         <p className="mt-2">Block {accountReceipt.blockNumber} · network fee {accountReceipt.feeWei} wei</p>
-         <a className="mt-2 inline-flex items-center gap-2 break-all" href={mainnetExplorerTx(accountReceipt.txHash)}
-          style={{color:'var(--accent)'}} target="_blank" rel="noreferrer">Original transaction <ExternalLink className="size-4"/></a>
+        <div className="flex items-center gap-2">
+         <CheckCircle2 className="size-5" style={{color:'var(--success)'}}/>
+         <strong>Sent · {accountReceipt?formatUnits(BigInt(accountReceipt.amountRaw),6):
+          (completed??journal)?.amount} USDC</strong>
+        </div>
+        <p className="text-sm">To {accountReceipt?.recipientLabel??completed?.recipientLabel??
+          completed?.to??journal?.to}</p>
+        <p role="status" className="text-xs" style={{color:'var(--muted)'}}>
+         {accountReceipt?'Receipt saved to Veyra · '+new Date(accountReceipt.paidAt).toLocaleString():
+          !social.session?.token||social.identityOrigin!=='ready'?
+           'Money sent · sign in to save the receipt to your account.':
+          outboxItem?.status==='review'?'Money sent · receipt needs review. No second transfer.':
+          outboxItem?.status==='sign-in'?'Money sent · sign in again to sync the receipt.':
+          'Money sent · syncing receipt. No second transfer.'}
+        </p>
+        {outboxItem?.problem&&outboxItem.status==='review'&&
+          <p className="text-xs" style={{color:'var(--warning)'}}>Receipt review: {outboxItem.problem}</p>}
+        <details className="text-xs" style={{color:'var(--muted)'}}>
+         <summary className="cursor-pointer">Receipt and transaction details</summary>
+         <p className="mt-2">Arc Mainnet · 5042</p>
+         {accountReceipt&&<p className="mt-1">Paid {new Date(accountReceipt.paidAt).toLocaleString()} · Block {accountReceipt.blockNumber}</p>}
+         <p className="mt-2 break-all">Recipient wallet: {(completed??journal)?.to}</p>
+         {(completed??journal)?.hash&&<a className="mt-2 inline-flex items-center gap-2 break-all"
+          href={mainnetExplorerTx((completed??journal)!.hash!)}
+          style={{color:'var(--accent)'}} target="_blank" rel="noreferrer">View original transaction <ExternalLink className="size-4"/></a>}
         </details>
+        {!journal&&completed&&<button type="button" onClick={reset}
+         className="w-full rounded-xl border px-4 py-3 text-sm font-semibold"
+         style={{borderColor:'var(--border)',color:'var(--accent)'}}>Start another payment</button>}
       </section>}
     {idSelection&&<div role="status" className={box} style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
       <p className="text-sm font-semibold">{'Send to @'+idSelection.veyraHandle+'.veyra'}</p>
@@ -296,7 +317,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
         <button className="mt-3 rounded-xl px-4 py-2 text-sm font-semibold"
           style={{background:'var(--accent)',color:'#fff'}} onClick={()=>switchChain({chainId:5042})}>Switch to Arc Mainnet</button>
       </div>}
-      <div className={box+' space-y-4'} style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+      {!completed&&<div className={box+' space-y-4'} style={{background:'var(--surface)',borderColor:'var(--border)'}}>
         {!embedded&&<><div><label className="text-sm font-semibold" style={{color:'var(--ink)'}}>Recipient wallet</label>
           <input className={field+' mt-2'} style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}
             value={recipient} maxLength={42} autoComplete="off" spellCheck={false} placeholder="0x…"
@@ -327,8 +348,8 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
           </button>
           <button className="w-full py-2 text-xs" onClick={()=>{setReview(null);setAck(false);}}>Edit details</button>
         </div>}
-      </div>
-      {(journal||blockedStorage)&&<div className={box+' space-y-3'} role="status"
+      </div>}
+      {(journal?.stage!=='VERIFIED'&&(journal||blockedStorage))&&<div className={box+' space-y-3'} role="status"
         style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
         <h2 className="text-lg font-semibold">Payment status</h2>
         {blockedStorage?<p className="text-sm" style={{color:'var(--warning)'}}>
@@ -359,12 +380,8 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
             <button className="rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-40"
               disabled={busy||!(journal.hash||hashInput)} style={{background:'var(--accent)',color:'#fff'}}
               onClick={()=>void verify()}>Check original receipt</button>}
-          {['VERIFIED','REVERTED'].includes(journal.stage)&&
-            <button className="rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-40"
-              disabled={journal.stage==='VERIFIED'&&receiptSync!=='saved'}
-              style={{background:'var(--accent)',color:'#fff'}} onClick={reset}>
-              {journal.stage==='VERIFIED'&&receiptSync!=='saved'?'Syncing receipt before new payment':'Start a different payment'}
-            </button>}
+          {journal.stage==='REVERTED'&&<button className="rounded-xl px-4 py-2 text-sm font-semibold"
+              style={{background:'var(--accent)',color:'#fff'}} onClick={reset}>Start a different payment</button>}
         </>}
       </div>}
     </>}
