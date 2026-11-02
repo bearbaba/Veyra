@@ -51,6 +51,7 @@ import { freezeSnapshot, resolveRecipient, verifySnapshot, IdentityResolutionErr
 import { getAuthenticatedVeyraUserId, issueSessionToken } from './auth/session.js';
 import {clearBrowserRestoreCookie,issueBrowserRestoreCookie,verifyBrowserRestoreCookie} from './auth/browserRestoreSession.js';
 import {resolveTrustedLoginOrigin,resolveTrustedLoginOriginForEnv} from './services/walletLoginService.js';
+import {evaluateMainnetIdentityAuthority} from './services/mainnetIdentityCapability.js';
 import {sql} from 'drizzle-orm';
 import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } from './services/friendInboxService.js';
 import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
@@ -256,14 +257,27 @@ function identityError(res: Response, err: unknown): void {
 // Cookie issuance is restricted to the exact approved Testnet browser Origins.
 // A Set-Cookie header is scoped to /api/auth and is never accepted directly by
 // existing bearer-protected finance/social endpoints.
-function maybeSetRestoreCookie(req:Request,res:Response,userId:string,walletAddress:string):void{
+function maybeSetRestoreCookie(req:Request,res:Response,userId:string,walletAddress:string,chainId:number):void{
   const origin=req.header('origin');
-  if(runtimeConfig.environment!=='testnet'||!runtimeConfig.hostedBackend||
-    !origin||![runtimeConfig.appOrigin,runtimeConfig.testnetSecondaryAppOrigin].includes(origin))return;
+  if(!runtimeConfig.hostedBackend||!origin)return;
+  if(runtimeConfig.environment==='mainnet'){
+    if(chainId!==5042||!evaluateMainnetIdentityAuthority(runtimeConfig,origin))return;
+  }else if(runtimeConfig.environment==='testnet'){
+    if(chainId!==5042002||
+       ![runtimeConfig.appOrigin,runtimeConfig.testnetSecondaryAppOrigin].includes(origin))return;
+  }else return;
   const secret=process.env.VEYRA_SESSION_SECRET;
   if(!secret)return;
-  res.setHeader('Set-Cookie',issueBrowserRestoreCookie(userId,walletAddress,origin,secret));
+  res.setHeader('Set-Cookie',issueBrowserRestoreCookie(userId,walletAddress,origin,secret,Date.now(),chainId));
 }
+
+// Only the canonical production browser origin on a separately hosted Mainnet BFF
+// can advertise ID/recipient verification. Testnet and Preview are NOT Mainnet-ready.
+app.post('/api/identity/mainnet-capability', IDENTITY_RATE, (req:Request,res:Response):void=>{
+  const authority=evaluateMainnetIdentityAuthority(runtimeConfig,req.header('origin'));
+  if(!authority){res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;}
+  res.json(authority);
+});
 
 // ── Existing verified wallet login ──────────────────────────────────────────
 // Sign in is NOT the wallet-binding proof or an on-chain financial approval.
@@ -287,7 +301,7 @@ app.post('/api/auth/wallet-login/complete', IDENTITY_RATE, async (req: Request, 
     const signature = typeof body.signature === 'string' ? body.signature : '';
     const { db } = await import('./db/client.js');
     const login = await completeWalletLogin(db, challengeId, signature, body.appOrigin, req.header('origin'));
-    maybeSetRestoreCookie(req,res,login.veyraUserId,login.walletAddress);
+    maybeSetRestoreCookie(req,res,login.veyraUserId,login.walletAddress,login.chainId);
     res.setHeader('Cache-Control', 'no-store');
     res.json({ ok: true, ...login });
   } catch (err) { identityError(res, err); }
@@ -306,14 +320,19 @@ app.post('/api/auth/session/restore', IDENTITY_RATE, async(req:Request,res:Respo
     const address=typeof body.walletAddress==='string'?body.walletAddress:'';
     const secret=process.env.VEYRA_SESSION_SECRET??'';
     const claims=verifyBrowserRestoreCookie(req.header('cookie'),secret,origin,address);
-    if(!claims){res.status(401).json({ok:false,error:'SESSION_REAUTH_REQUIRED'});return;}
+    const requiredChainId=runtimeConfig.environment==='mainnet'?5042:5042002;
+    if(!claims||(runtimeConfig.environment==='mainnet'&&
+      (!evaluateMainnetIdentityAuthority(runtimeConfig,origin)||claims.chainId!==5042))||
+      (claims.chainId!==undefined&&claims.chainId!==requiredChainId)){
+      res.status(401).json({ok:false,error:'SESSION_REAUTH_REQUIRED'});return;
+    }
     const {db}=await import('./db/client.js');
     const matching=await db.execute(sql`
       SELECT wb.veyr_user_id AS "userId" FROM wallet_bindings wb
       JOIN veyra_users u ON u.veyr_user_id=wb.veyr_user_id
       WHERE wb.veyr_user_id=${claims.sub}
         AND lower(wb.wallet_address)=${claims.wallet}
-        AND wb.chain_id IN (5042002, 5042) AND wb.status='ACTIVE'
+        AND wb.chain_id = ${requiredChainId} AND wb.status='ACTIVE'
         AND wb.revoked_at IS NULL AND u.status='ACTIVE'
         AND u.deleted_at IS NULL LIMIT 1
     `);
