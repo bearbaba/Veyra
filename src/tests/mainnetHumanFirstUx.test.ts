@@ -58,7 +58,9 @@ describe('Mainnet human-first navigation and transparent settlement',()=>{
  it('rechecks a contract review when the shared recipient or amount changes',()=>{
   const pay=read('components/pages/MainnetPayPage.tsx');
   const contract=read('components/pages/SettlementPage.tsx');
-  expect(pay).toContain('onDraftChange?.({recipient:e.target.value})');
+  const hub=read('components/pages/MainnetPayHub.tsx');
+  expect(hub).toContain('onQueryEdit');
+  expect(pay).toContain('reverifySelectedIdentity');
   expect(contract).toContain("if(step==='review'||step==='loading-fees'){setSnapshot(null);setStep('form');}");
   expect(contract).toContain('2 confirmations: approve this amount');
   expect(contract).toContain('no escrow, refund or purchase protection.');
