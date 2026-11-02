@@ -6,10 +6,10 @@ import {Search,ShieldCheck,Wallet,ExternalLink} from 'lucide-react';
 import {lookupMainnetRecipient,createRecipientSearchGuard,type RecipientSearchResult} from '@/mainnet/recipientLookup';
 
 export function MainnetRecipientSearch({
- owner,sessionToken,initialQuery='',onSelection,onQueryEdit,label='Find a recipient',
+ owner,sessionToken,initialQuery='',onSelection,onQueryEdit,label='Find a recipient',disabled=false,
 }:{
  owner:string|null|undefined;sessionToken?:string;initialQuery?:string;
- onSelection:(result:RecipientSearchResult|null)=>void;onQueryEdit?:()=>void;label?:string;
+ onSelection:(result:RecipientSearchResult|null)=>void;onQueryEdit?:()=>void;label?:string;disabled?:boolean;
 }){
  const [value,setValue]=useState(initialQuery);
  const [busy,setBusy]=useState(false);
@@ -24,6 +24,7 @@ export function MainnetRecipientSearch({
  },[owner,sessionToken]);
  useEffect(()=>{setValue(initialQuery);guard.current.invalid();setResult(null);setError(null);setBusy(false);},[initialQuery]);
  async function search(raw=value){
+  if(disabled)return;
   const ticket=guard.current.start();setBusy(true);setError(null);setResult(null);
   current.current(null);
   try{
@@ -43,12 +44,12 @@ export function MainnetRecipientSearch({
   <label className="block text-sm font-semibold" style={{color:'var(--ink)'}}>{label}</label>
   <div className="flex min-w-0 flex-wrap gap-2">
    <input aria-label={label} autoComplete="off" spellCheck={false} value={value}
-    maxLength={90} onChange={e=>edit(e.target.value)}
+    maxLength={90} disabled={disabled} onChange={e=>edit(e.target.value)}
     onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();void search();}}}
     placeholder="@person.veyra · @Xhandle · 0x…"
     className="min-w-0 flex-1 rounded-xl border px-4 py-3 text-sm"
     style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
-   <button type="button" disabled={busy||!value.trim()} onClick={()=>void search()}
+   <button type="button" disabled={disabled||busy||!value.trim()} onClick={()=>void search()}
     className="inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-40"
     style={{background:'var(--accent)',color:'#0d1b2f'}}>
     <Search className="size-4"/>{busy?'Finding…':'Find'}
