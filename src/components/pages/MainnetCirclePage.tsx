@@ -308,7 +308,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     if(mode==='bridge'&&recovery.intentId&&burnEvidence){
      advanceExchangeIntent(owner,recovery.intentId,'PARTIAL',{
       sourceHash:burnEvidence.sourceHash,destinationHash:hash,holdingChainId:recovery.source,
-      holdingToken:'USDC burned in CCTP; destination not credited',
+      holdingToken:'CCTP burn confirmed; destination receipt reverted · funds not verified spendable',
       message:'Destination receipt reverted. Inspect CCTP recovery or refund; never repeat the source burn.'});
     }
     if(mode==='swap'){
