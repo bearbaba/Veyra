@@ -114,7 +114,7 @@ describe('CCTP V2 independently linked burn and mint receipts',()=>{
   expect(matchCctpLinkedMessages(sourceDomain,destDomain,burn,differentBody,signedMessage,nonce)).toBe(false);
  });
  it('requires Circle Iris to map the exact original burn to its destination',async()=>{
-  const fetchMock=vi.fn(async()=>({ok:true,json:async()=>({
+  const fetchMock=vi.fn(async(_url:unknown)=>({ok:true,json:async()=>({
    messages:[{status:'complete',eventNonce:nonce,message:signedMessage,
     sourceTxHash:burnHash,destinationMintTxHash:mintHash}],
   })}));

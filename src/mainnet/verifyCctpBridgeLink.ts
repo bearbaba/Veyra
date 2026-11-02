@@ -16,7 +16,7 @@ const events=parseAbi([
  'event MessageSent(bytes message)',
  'event MessageReceived(address indexed caller,uint32 sourceDomain,bytes32 indexed nonce,bytes32 sender,uint32 indexed finalityThresholdExecuted,bytes messageBody)',
 ]);
-type Log={address:string;data:Hex;topics:readonly Hex[]};
+type Log={address:string;data:Hex;topics:readonly (Hex|null)[]};
 type Receipt={logs:readonly Log[]};
 type IrisMessage={status?:unknown;message?:unknown;eventNonce?:unknown;
  destinationMintTxHash?:unknown;sourceTxHash?:unknown};
@@ -39,6 +39,7 @@ export function matchCctpLinkedMessages(
  for(const log of source.logs){
   if(log.address.toLowerCase()!==CCTP_V2_MAINNET.messageTransmitterV2.toLowerCase())continue;
   try{
+   if(log.topics.some(topic=>topic===null))continue;
    const result=decodeEventLog({abi:events,data:log.data,topics:log.topics as [Hex,...Hex[]]});
    if(result.eventName==='MessageSent')sourceMessages.push(result.args.message.toLowerCase());
   }catch{/* Not a CCTP MessageSent event. */}

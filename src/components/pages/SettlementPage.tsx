@@ -585,19 +585,20 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
       if(!live||checking||!address)return;
       const saved=readSettlementIntent(address);
       if(saved.kind!=='active'||saved.value.stage!=='PENDING'||!saved.value.hash)return;
+      const originalHash=saved.value.hash;
       checking=true;
       try{
         const intent=saved.value;
         if(intent.phase==='PAYMENT'){
-          const evidence=await inspectRecordedSettlement(intent.hash,address,intent.amount,intent.recipient);
+          const evidence=await inspectRecordedSettlement(originalHash,address,intent.amount,intent.recipient);
           if(live&&(evidence.status==='VERIFIED'||evidence.status==='REVERTED')){
             writeSettlementIntent({...intent,stage:evidence.status});
-            recordLocalOperation({type:'Settlement',owner:address,hash:intent.hash,
+            recordLocalOperation({type:'Settlement',owner:address,hash:originalHash,
               amount:intent.amount,asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,
               status:evidence.status==='VERIFIED'?'RECORDED':'REVERTED',destination:intent.recipient});
           }
         }else if(chainId===ARC_MAINNET_CHAIN_ID&&publicClient&&deployment){
-          const hash=intent.hash as Parameters<typeof publicClient.getTransaction>[0]['hash'];
+          const hash=originalHash as `0x${string}`;
           const tx=await publicClient.getTransaction({hash});
           const receipt=await publicClient.getTransactionReceipt({hash});
           if(!live||tx.from.toLowerCase()!==address.toLowerCase()||
