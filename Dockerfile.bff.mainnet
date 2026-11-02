@@ -11,6 +11,7 @@ WORKDIR /app
 ENV NODE_ENV=production \
     VEYRA_ENV=mainnet \
     VEYRA_HOSTED_BACKEND=1 \
+    VEYRA_MAINNET_IDENTITY_ONLY=1 \
     BFF_PORT=3001
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --chown=bun:bun package.json .bun-version ./

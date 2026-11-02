@@ -41,6 +41,7 @@ import {
  markStableFxFundingSent,StableFxOwnershipError,
 } from './services/stableFxTradeOwnership.js';
 import { evaluateBrowserOrigin } from './middleware/browserOriginPolicy.js';
+import {isMainnetIdentityOnlyRouteAllowed} from './services/mainnetIdentityOnlyRoutes.js';
 import { validateIntentResponse } from '../src/core/intent/intentSchema';
 import { createFallbackAgentResponse, validateAgentChatResponse, type AgentHistoryMessage } from '../src/core/agent/agentV2';
 import { MANIFEST_CONSTANTS } from '../src/providers/registry/providerManifest';
@@ -168,6 +169,17 @@ app.use((req: Request, res: Response, next: NextFunction): void => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Veyra-User-Id, X-Request-Id');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
+  next();
+});
+
+// Restricted Mainnet V1 backend: wallet-authenticated identity and receipt
+// indexing ONLY. Frontend Pay remains wallet-signed and independently gated.
+// Disallow ALL other backend financial/X/Agent endpoints without exceptions.
+app.use('/api', (req:Request,res:Response,next:NextFunction):void=>{
+  if(runtimeConfig.environment==='mainnet'&&process.env.VEYRA_MAINNET_IDENTITY_ONLY==='1'&&
+     !isMainnetIdentityOnlyRouteAllowed(req.method,req.originalUrl.split('?')[0]??'')){
+    res.status(503).json({ok:false,error:'MAINNET_V1_ROUTE_NOT_ENABLED'});return;
+  }
   next();
 });
 
