@@ -50,6 +50,7 @@ export function recordExchangeActivity(input:ExchangeActivity,storage?:Store):bo
   const s=storage??window.localStorage;
   const key=exchangeActivityKey(input.owner,input.originalHash);
   const old=s.getItem(key);
+  let createdAt=input.createdAt;
   if(old){
    const prior:unknown=JSON.parse(old);
    if(!valid(prior,input.owner)||prior.mode!==input.mode||
@@ -57,8 +58,9 @@ export function recordExchangeActivity(input:ExchangeActivity,storage?:Store):bo
       prior.amountIn!==input.amountIn||prior.tokenIn!==input.tokenIn||prior.tokenOut!==input.tokenOut||
       prior.minOut!==input.minOut||prior.status==='DESTINATION_VERIFIED'&&input.status!=='DESTINATION_VERIFIED')
     return false;
+   createdAt=prior.createdAt;
   }
-  const encoded=JSON.stringify({...input,owner:input.owner.toLowerCase(),
+  const encoded=JSON.stringify({...input,createdAt,owner:input.owner.toLowerCase(),
    originalHash:input.originalHash.toLowerCase(),
    ...(input.destinationHash?{destinationHash:input.destinationHash.toLowerCase()}:{})});
   s.setItem(key,encoded);
