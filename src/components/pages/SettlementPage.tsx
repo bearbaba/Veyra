@@ -1144,7 +1144,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
         )}
 
         {/* Contract badge */}
-        {deployment && (
+        {deployment && !isMainnet && (
           <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
@@ -1214,29 +1214,19 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
                   </button>
                 ))}
               </div>
-            ) : (
-              <div className="rounded-xl bg-white/[0.04] border border-white/[0.08] px-4 py-3 space-y-1">
-                <p className="text-xs text-white/70 font-medium flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-white/40" />Onchain reference payment
-                </p>
-                <p className="text-xs text-white/40 leading-relaxed">
-                  Sends USDC immediately and records an onchain payment reference. This is not escrow,
-                  purchase protection or a refundable transfer. Approval may be required first.
-                </p>
-              </div>
-            )}
+            ) : null}
 
-            {isMainnet&&<p role="status" className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-xs text-white/75">
-              {currentAllowance===undefined?'Checking whether USDC approval is required…':
-                needsApproval?'Two wallet confirmations: first allow contract use of the reviewed USDC amount, then pay.':
-                'One wallet confirmation: existing allowance covers the reviewed amount.'}
+            {isMainnet&&amountParsed>0n&&recipientValid&&<p role="status" className="rounded-lg border border-white/10 px-3 py-2 text-sm text-white/75">
+              {currentAllowance===undefined?'Checking allowance for the entered amount…':
+                needsApproval?'2 confirmations: approve this amount, then pay.':
+                '1 confirmation: existing allowance covers this amount.'}
             </p>}
 
-            <p className="text-xs text-white/40 px-1">
+            {!isMainnet&&<p className="text-xs text-white/40 px-1">
               {effectiveMode === 'pay'
                 ? 'Immediately transfers USDC to recipient via the settlement contract. Instant and final.'
                 : 'Locks USDC in the contract. Recipient claims before timeout, or you refund after.'}
-            </p>
+            </p>}
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-white/50 uppercase tracking-wide">Recipient address</label>
@@ -1255,6 +1245,11 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
                 className="w-full rounded-xl bg-white/[0.06] border border-white/[0.08] px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/20" />
             </div>
 
+            {isMainnet&&<details className="text-xs text-white/60">
+              <summary className="cursor-pointer">Contract details</summary>
+              <p className="mt-2">USDC is sent immediately with an onchain reference; no escrow, refund or purchase protection.</p>
+              {deployment&&<a className="text-emerald-300" href={deployment.explorerUrl} target="_blank" rel="noreferrer">Verified contract</a>}
+            </details>}
             {effectiveMode === 'escrow' && (
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-white/50 uppercase tracking-wide">Escrow timeout (hours)</label>

@@ -7,7 +7,7 @@ const actions:{route:MainnetRoute;icon:React.ReactNode}[]=[
  {route:'pay',icon:<SendHorizontal className="size-4"/>},
  {route:'swap',icon:<ArrowLeftRight className="size-4"/>},
  {route:'bridge',icon:<Route className="size-4"/>},
- {route:'settlement',icon:<ShieldCheck className="size-4"/>},
+
 ];
 export function MainnetAgentLauncher({onNavigate,compact=false}:{
  onNavigate:(page:VeyraPage)=>void;compact?:boolean;
@@ -19,7 +19,7 @@ export function MainnetAgentLauncher({onNavigate,compact=false}:{
     Tell Veyra what you need, or choose a route to review in the same Mainnet transaction form.
    </p>
   </div>}
-  <div className="grid gap-2 sm:grid-cols-2">
+  <div className="grid gap-2 sm:grid-cols-3">
    {actions.map(({route,icon})=>{
     const cap=MAINNET_ROUTES[route];
     return <button key={route} type="button" onClick={()=>onNavigate(cap.destination)}
@@ -28,7 +28,6 @@ export function MainnetAgentLauncher({onNavigate,compact=false}:{
       <span className="flex items-center gap-2 text-sm font-bold" style={{color:'var(--ink)'}}>{icon}{cap.title}
        <ArrowRight className="ml-auto size-4" style={{color:'var(--muted)'}}/></span>
       <span className="mt-2 text-xs" style={{color:'var(--muted)'}}>{cap.network} · {routeLabel(route)}</span>
-      <span className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>{cap.summary}</span>
      </button>;
    })}
   </div>

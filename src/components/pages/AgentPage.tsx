@@ -332,11 +332,16 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
             style={{borderColor:'var(--border-strong)'}}>View Activity</button>
         </div>
       )}
-      <section aria-label="Your USDC balances" className="mt-3 rounded-xl border p-3"
+      <details aria-label="Your USDC balances" className="mt-3 rounded-xl border p-3"
         style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+        <summary className="cursor-pointer text-sm font-semibold" style={{color:'var(--muted)'}}>Balances and funding sources</summary>
         <AgentUnifiedBalances />
-      </section>
+      </details>
 
+      {VEYRA_ENV==='mainnet'&&messages.length===0&&<div className="mt-4 flex flex-wrap gap-2">
+        {['Send to a friend','Check a transaction','Swap USDC'].map(value=><button key={value} type="button" onClick={()=>setInput(value)}
+          className="rounded-lg border px-3 py-2 text-sm" style={{borderColor:'var(--border)',color:'var(--ink)'}}>{value}</button>)}
+      </div>}
       <div className="grid min-w-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
         <div className="order-2 flex min-w-0 flex-col lg:order-1">
       <div className="flex-1 overflow-y-auto py-6">
@@ -426,7 +431,7 @@ function ScopedAgentPage({ onNavigate, historyScope, friends, signedIn, currentW
                 void sendMessage();
               }
             }}
-            placeholder="Message Veyra in any language…"
+            placeholder={VEYRA_ENV==='mainnet'?'What would you like to do with your USDC?':'Message Veyra in any language…'}
             rows={2}
             maxLength={2000}
             className="w-full resize-none bg-transparent px-3 pt-2 text-sm leading-6 outline-none"

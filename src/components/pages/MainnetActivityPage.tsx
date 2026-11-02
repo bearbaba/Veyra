@@ -16,7 +16,7 @@ const explorer=(v:LocalOperation)=>(v.chainId===8453?'https://basescan.org/tx/':
 function label(x:OperationInspection|undefined){
  if(!x)return 'Checking onchain…';
  return ({VERIFIED:'Completed · verified',REVERTED:'Reverted · not delivered',PENDING:'Sent · processing',
-  UNKNOWN:'Status unknown · checking',UNVERIFIED:'Needs verification',PROVIDER:'Checking destination proof'} as const)[x.status];
+  UNKNOWN:'Status unknown · checking',UNVERIFIED:'Needs verification',PROVIDER:'Not verified in Activity · open tracking'} as const)[x.status];
 }
 function color(x:OperationInspection|undefined){
  return x?.status==='VERIFIED'?'var(--success)':
@@ -110,11 +110,11 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     <span className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Arc Mainnet · 5042</span>
     <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Activity</h1>
     <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>
-     Transactions made in Veyra appear automatically. Receipts are checked onchain; no hash entry or wallet signature is needed.
+     Veyra records original transactions. Wallet Pay receipts are checked onchain; Swap and Bridge still require their route tracking.
     </p>
    </div>
    {address&&<span className="flex items-center gap-2 text-xs" style={{color:'var(--muted)'}}>
-    {syncing&&<RefreshCw className="size-4 animate-spin"/>}{syncing?'Checking receipts…':'Auto-sync on'}
+    {syncing&&<RefreshCw className="size-4 animate-spin"/>}{syncing?'Checking wallet receipts…':'Wallet payments auto-checked'}
    </span>}
   </header>
   {address&&unknownSettlement&&<div role="alert" className="rounded-xl border p-4 text-sm"
