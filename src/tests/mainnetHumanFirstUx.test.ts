@@ -61,6 +61,6 @@ describe('Mainnet human-first navigation and transparent settlement',()=>{
   expect(pay).toContain('onDraftChange?.({recipient:e.target.value})');
   expect(contract).toContain("if(step==='review'||step==='loading-fees'){setSnapshot(null);setStep('form');}");
   expect(contract).toContain('2 confirmations: approve this amount');
-  expect(contract).toContain('This is not escrow');
+  expect(contract).toContain('no escrow, refund or purchase protection.');
  });
 });
