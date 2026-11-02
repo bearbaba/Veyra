@@ -11,7 +11,7 @@ import {preparePaymentRecipient,verifyPaymentRecipient} from '@/lib/api/identity
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {isSameVerifiedPaymentReceiver,type VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 import type {MainnetPayDraft} from '@/mainnet/payDraft';
-import {assertMainnetSigningAllowed,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
+import {assertMainnetCanarySigningAllowed,canSignMainnetCanary,MAINNET_EMERGENCY_READ_ONLY,MAINNET_CANARY_ONLY} from '@/mainnet/releaseGates';
 import { AlertTriangle, ExternalLink, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import {
   buildMainnetPayPlan, mainnetPreflight, requestMainnetCanaryTransfer,
@@ -113,7 +113,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   }
   async function send(){
     if(!address||!review||!ack||blocked||lock.current)return;
-    try{assertMainnetSigningAllowed();}catch(e){setError(msg(e));return;}
+    try{assertMainnetCanarySigningAllowed(review.plan.from,review.plan.units);}catch(e){setError(msg(e));return;}
     lock.current=true;setBusy(true);setError(null);
     let initial:MainnetJournal={from:review.plan.from,to:review.plan.to,amount:review.plan.amount,hash:null,stage:'AWAITING_WALLET',
       note:sharedDraft?.note?.trim().slice(0,120)||undefined,
@@ -230,7 +230,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     <div className={box} style={{background:'var(--surface)',borderColor:'var(--border)'}}>
       <div className="flex items-start gap-3 text-sm" style={{color:'var(--muted)'}}>
         <ShieldCheck className="size-5 shrink-0" style={{color:'var(--accent)'}}/>
-        <p><strong style={{color:'var(--ink)'}}>Direct wallet transfer · limit 1 USDC.</strong> Your wallet confirms this payment once; no token spending permission is granted.
+        <p><strong style={{color:'var(--ink)'}}>Direct wallet transfer · {MAINNET_CANARY_ONLY?'pilot limit 0.01 USDC.':'limit 1 USDC.'}</strong> Your wallet confirms this payment once; no token spending permission is granted.
           If it remains pending, Veyra checks the existing transaction rather than sending again.</p>
       </div>
     </div>
@@ -288,7 +288,8 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
             <span>I verified network, recipient, amount and real-money risk.</span>
           </label>
           <button className="w-full rounded-xl px-4 py-3 font-bold disabled:opacity-40"
-            disabled={!ack||busy||MAINNET_EMERGENCY_READ_ONLY} style={{background:'var(--accent)',color:'#fff'}} onClick={()=>void send()}>
+            disabled={!ack||busy||MAINNET_EMERGENCY_READ_ONLY||
+              MAINNET_CANARY_ONLY&&!canSignMainnetCanary(address,review.plan.units)} style={{background:'var(--accent)',color:'#fff'}} onClick={()=>void send()}>
             Confirm in wallet
           </button>
           <button className="w-full py-2 text-xs" onClick={()=>{setReview(null);setAck(false);}}>Edit details</button>

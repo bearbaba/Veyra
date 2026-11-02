@@ -1,5 +1,5 @@
 import {describe,it,expect,vi,afterEach} from 'vitest';
-import {assertMainnetSigningAllowed} from '../mainnet/releaseGates';
+import {assertMainnetSigningAllowed,assertMainnetCanarySigningAllowed,canSignMainnetCanary} from '../mainnet/releaseGates';
 import {buildMainnetPayPlan,reconcileMainnetCanary} from '../mainnet/arcMainnetPay';
 import {readSettlementIntent,writeSettlementIntent,settlementUnresolved,
   type SettlementIntent} from '../mainnet/settlementJournal';
@@ -14,6 +14,12 @@ describe('read-only rollback and fault injection',()=>{
  it('denies new wallet signing when read-only yet leaves original journal unchanged',()=>{
   expect(()=>assertMainnetSigningAllowed(true)).toThrow('read-only recovery mode');
   expect(()=>assertMainnetSigningAllowed(false)).not.toThrow();
+  expect(canSignMainnetCanary('0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb',10_000n)).toBe(true);
+  expect(canSignMainnetCanary('0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb',10_001n)).toBe(false);
+  expect(canSignMainnetCanary('0x1111111111111111111111111111111111111111',10_000n)).toBe(false);
+  expect(()=>assertMainnetCanarySigningAllowed('0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb',10_000n,false,true)).not.toThrow();
+  expect(()=>assertMainnetCanarySigningAllowed('0x1111111111111111111111111111111111111111',10_000n,false,true)).toThrow('authorized canary wallet');
+  expect(()=>assertMainnetCanarySigningAllowed('0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb',10_000n,true,true)).toThrow('read-only recovery mode');
   const m=new Map<string,string>();
   const store={getItem:(k:string)=>m.get(k)??null,setItem:(k:string,v:string)=>{m.set(k,v);},
     removeItem:(k:string)=>{m.delete(k);}};

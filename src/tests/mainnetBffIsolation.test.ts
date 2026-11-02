@@ -7,7 +7,7 @@ describe('Veyra one official domain — isolated Mainnet API release gate',()=>{
  it('stages one official app behind the verified Mainnet BFF',()=>{
   const staged=JSON.parse(read('vercel.json')) as VercelRoutingConfig & {buildCommand:string};
   expect(verifyProductionMainnetRouting(staged,bff)).toEqual({ok:true,issues:[]});
-  expect(staged.buildCommand).toContain('VITE_VEYRA_EMERGENCY_READ_ONLY=1');
+  expect(staged.buildCommand).toContain('VITE_VEYRA_EMERGENCY_READ_ONLY=0 VITE_VEYRA_CANARY_ONLY=1');
   expect((staged.rewrites??[]).every(r=>r.destination.startsWith(bff+'/api/'))).toBe(true);
  });
  it('requires all critical endpoints to point to the same reviewed Mainnet BFF',()=>{

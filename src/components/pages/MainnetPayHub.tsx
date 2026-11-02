@@ -10,7 +10,7 @@ import {readSettlementIntent,settlementUnresolved} from '@/mainnet/settlementJou
 import {readPayDraft,writePayDraft,type MainnetPayDraft} from '@/mainnet/payDraft';
 import {MainnetPayPage} from './MainnetPayPage';
 import {SettlementPage} from './SettlementPage';
-import {MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
+import {MAINNET_EMERGENCY_READ_ONLY,MAINNET_CANARY_ONLY,MAINNET_CANARY_OWNER} from '@/mainnet/releaseGates';
 import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 
 declare const __VEYRA_RELEASE_SHA__:string;
@@ -105,9 +105,14 @@ export function MainnetPayHub({
       Build {__VEYRA_RELEASE_SHA__.slice(0,12)} · {__VEYRA_RELEASE_ENV__}
      </details>}
   </header>
-  {MAINNET_EMERGENCY_READ_ONLY&&<p role="alert" className="rounded-xl border p-3 text-sm"
+  {MAINNET_EMERGENCY_READ_ONLY?<p role="alert" className="rounded-xl border p-3 text-sm"
    style={{borderColor:'var(--border)',color:'var(--warning)'}}>
-    Read-only recovery mode. New transfers and approvals are disabled; existing receipts remain available in Activity.
+    Emergency read-only mode. New transfers and approvals are disabled; existing receipts remain in Activity.
+  </p>:MAINNET_CANARY_ONLY&&<p role="status" className="rounded-xl border p-3 text-sm"
+   style={{borderColor:'var(--border)',color:'var(--muted)'}}>
+    Mainnet acceptance pilot: only the approved owner wallet
+    ({MAINNET_CANARY_OWNER.slice(0,6)}…{MAINNET_CANARY_OWNER.slice(-4)}) may send up to 0.01 USDC
+    per transaction. Everyone else can review, but cannot sign. Contract/Swap/Bridge writes remain off.
   </p>}
   {locked&&<p role="status" className="rounded-xl border p-3 text-sm"
    style={{borderColor:'var(--border)',color:'var(--warning)'}}>

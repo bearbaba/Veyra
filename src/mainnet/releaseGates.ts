@@ -1,12 +1,26 @@
-/**
- * Emergency rollback: read-only by default when this release profile is enabled.
- * All signing entrypoints must call the guard BEFORE opening a wallet request.
- * Browsers may still read and verify existing onchain receipts and local journals.
+/** A hard emergency shutdown ALWAYS wins. During the first Hackathon release,
+ * direct Arc USDC may be canary-enabled for exactly one publicly identified
+ * owner wallet, capped at 0.01 USDC. Other money features remain off.
  */
 export const MAINNET_EMERGENCY_READ_ONLY =
   import.meta.env.VITE_VEYRA_EMERGENCY_READ_ONLY === '1';
-
-export function assertMainnetSigningAllowed(readOnly=MAINNET_EMERGENCY_READ_ONLY):void{
-  if(readOnly)throw new Error(
-    'Veyra is in read-only recovery mode. Existing transactions can be checked, but no new wallet signing is permitted.');
+export const MAINNET_CANARY_ONLY = import.meta.env.VITE_VEYRA_CANARY_ONLY === '1';
+export const MAINNET_CANARY_OWNER = '0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb';
+export const MAINNET_CANARY_MAX_UNITS = 10_000n;
+export function assertMainnetSigningAllowed(
+ readOnly = MAINNET_EMERGENCY_READ_ONLY||MAINNET_CANARY_ONLY,
+):void{
+ if(readOnly)throw new Error(
+  'Veyra is in read-only recovery mode. Existing transactions can be checked, but no new wallet signing is permitted.');
+}
+export function canSignMainnetCanary(address:string|undefined,units:bigint):boolean{
+ return !!address&&address.toLowerCase()===MAINNET_CANARY_OWNER.toLowerCase()&&
+  units>0n&&units<=MAINNET_CANARY_MAX_UNITS;
+}
+export function assertMainnetCanarySigningAllowed(
+ address:string,units:bigint,emergency=MAINNET_EMERGENCY_READ_ONLY,canary=MAINNET_CANARY_ONLY,
+):void{
+ if(emergency)assertMainnetSigningAllowed(true);
+ if(canary&&!canSignMainnetCanary(address,units))
+  throw new Error('Mainnet pilot signing is limited to the authorized canary wallet and 0.01 USDC. No transaction started.');
 }
