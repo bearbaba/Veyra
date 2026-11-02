@@ -67,6 +67,7 @@ import { VEYRA_ENV } from '@/lib/env';
 import {recordLocalOperation,readLocalOperations} from '@/mainnet/localOperations';
 import {readSettlementIntent,writeSettlementIntent,clearSettlementIntent,settlementUnresolved,type SettlementIntent} from '@/mainnet/settlementJournal';
 import {inspectRecordedSettlement} from '@/mainnet/verifyRecordedSettlement';
+import type {MainnetPayDraft} from '@/mainnet/payDraft';
 import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
 import { MainnetSettlementDeploy } from './MainnetSettlementDeploy';
 import { VEYRA_SETTLEMENT_CREATION_BYTECODE, VEYRA_SETTLEMENT_CREATION_KECCAK } from '@/generated/veyraSettlementCreation';
@@ -206,7 +207,7 @@ function buildRef(): `0x${string}` {
 
 // ─── component ─────────────────────────────────────────────────────────────────
 
-export function SettlementPage({embedded=false}:{embedded?:boolean}) {
+export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void}) {
   const { address, isConnected, chainId } = useAccount();
   const { switchChain } = useSwitchChain();
   const publicClient = usePublicClient({ chainId });
@@ -219,6 +220,17 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
 
   // lifecycle
   const [step, setStep] = useState<Step>('form');
+  useEffect(()=>{
+    if(!sharedDraft)return;
+    // Recompute contract fee and approval review when a shared visible draft changes.
+    // A mounted form in a signed/pending step is NEVER reset by tab state.
+    if(step==='form'||step==='review'||step==='loading-fees'||step==='error'){
+      setRecipient(sharedDraft.recipient);setAmount(sharedDraft.amount);
+      if(step==='review'||step==='loading-fees'){setSnapshot(null);setStep('form');}
+    }
+  // Draft edits are the only trigger; changing the lifecycle is not a draft edit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[sharedDraft?.recipient,sharedDraft?.amount]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [intentState,setIntentState]=useState<ReturnType<typeof readSettlementIntent>>({kind:'empty'});
   const [recoveryBusy,setRecoveryBusy]=useState(false);
@@ -1205,14 +1217,20 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
             ) : (
               <div className="rounded-xl bg-white/[0.04] border border-white/[0.08] px-4 py-3 space-y-1">
                 <p className="text-xs text-white/70 font-medium flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-white/40" />Direct Pay only on Mainnet
+                  <Lock className="w-3.5 h-3.5 text-white/40" />Onchain reference payment
                 </p>
                 <p className="text-xs text-white/40 leading-relaxed">
-                  Escrow is not available in this application on Arc Mainnet pending a live canary test.
-                  Note: escrow functions remain callable directly on-chain (application-level gate only).
+                  Sends USDC immediately and records an onchain payment reference. This is not escrow,
+                  purchase protection or a refundable transfer. Approval may be required first.
                 </p>
               </div>
             )}
+
+            {isMainnet&&<p role="status" className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-xs text-white/75">
+              {currentAllowance===undefined?'Checking whether USDC approval is required…':
+                needsApproval?'Two wallet confirmations: first allow contract use of the reviewed USDC amount, then pay.':
+                'One wallet confirmation: existing allowance covers the reviewed amount.'}
+            </p>}
 
             <p className="text-xs text-white/40 px-1">
               {effectiveMode === 'pay'
@@ -1222,7 +1240,7 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-white/50 uppercase tracking-wide">Recipient address</label>
-              <input value={recipient} onChange={(e) => setRecipient(e.target.value)}
+              <input value={recipient} onChange={(e) => {setRecipient(e.target.value);onDraftChange?.({recipient:e.target.value});}}
                 placeholder="0x…"
                 className="w-full rounded-xl bg-white/[0.06] border border-white/[0.08] px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/20" />
               {recipient && !recipientValid && (
@@ -1232,7 +1250,7 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-white/50 uppercase tracking-wide">Amount (USDC)</label>
-              <input value={amount} onChange={(e) => setAmount(e.target.value)}
+              <input value={amount} onChange={(e) => {setAmount(e.target.value);onDraftChange?.({amount:e.target.value});}}
                 placeholder="0.00" inputMode="decimal"
                 className="w-full rounded-xl bg-white/[0.06] border border-white/[0.08] px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/20" />
             </div>
