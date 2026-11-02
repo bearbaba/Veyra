@@ -6,7 +6,6 @@ import {and,desc,eq,isNull,or,sql} from 'drizzle-orm';
 import type {DbClient} from '../db/client.js';
 import {mainnetDirectPayReceipts} from '../db/schema/mainnetDirectPay.js';
 import {identitySnapshots} from '../db/schema/snapshots.js';
-import {verifySnapshot} from './identityResolver.js';
 import {verifyCanonicalDirectPay,type CanonicalDirectPayProof} from './mainnetDirectPayProof.js';
 const HASH=/^0x[0-9a-fA-F]{64}$/;
 const ARC=5042;
@@ -96,15 +95,34 @@ export function visiblePayReceipt(row:VerifiedPayRow,userId:string){
   ...(row.senderUserId===userId&&row.senderPrivateNote?{privateNote:row.senderPrivateNote}:{}),
  };
 }
+/** Historical receipt identity is proved by a server-verified snapshot at
+ * signing, not by today's 30-second expiry or any user-supplied label.
+ * A chain payment too far from that review must not inherit the identity.
+ */
+export function snapshotWasVerifiedForPayment(
+ snapshot:{frozenAt:Date;expiresAt:Date;verifiedAt:Date|null;invalidatedAt:Date|null},
+ paidAt:Date,
+):boolean{
+ const verified=snapshot.verifiedAt?.getTime();
+ const paid=paidAt.getTime();
+ if(verified===undefined||!Number.isFinite(verified)||!Number.isFinite(paid))return false;
+ return verified>=snapshot.frozenAt.getTime()&&verified<snapshot.expiresAt.getTime()&&
+   // Some chains timestamp a block slightly behind the API clock.
+   paid>=verified-30_000&&paid<=verified+15*60_000&&
+   (snapshot.invalidatedAt===null||snapshot.invalidatedAt.getTime()>paid);
+}
 async function verifyRecipientSnapshotForReceipt(
- db:DbClient,snapshotId:string,recipient:string,recipientUserId:string|null,
+ db:DbClient,snapshotId:string,recipient:string,recipientUserId:string|null,paidAt:Date,
 ):Promise<{snapshotId:string;label:string}>{
- const result=await verifySnapshot(db,snapshotId);
- if(!result.ok)return reject('RECIPIENT_SNAPSHOT_NOT_VERIFIED');
+ // Snapshots are immutable in owner/recipient/wallet. The server had to have
+ // independently verified this snapshot BEFORE the original onchain payment.
+ // We do not re-verify the already expired 30s snapshot after settlement.
+
  const [snap]=await db.select().from(identitySnapshots)
   .where(eq(identitySnapshots.snapshotId,snapshotId)).limit(1);
  const wallets=Array.isArray(snap?.resolvedWallets)?snap.resolvedWallets as Array<Record<string,unknown>>:[];
- if(!snap||snap.veyraUserId!==recipientUserId||!wallets.some(w=>
+ if(!snap||!snapshotWasVerifiedForPayment(snap,paidAt)||
+   snap.veyraUserId!==recipientUserId||!wallets.some(w=>
   typeof w.walletAddress==='string'&&w.walletAddress.toLowerCase()===recipient.toLowerCase()&&
   w.chainId===5042))
   return reject('RECIPIENT_SNAPSHOT_MISMATCH');
@@ -135,7 +153,7 @@ export async function indexVerifiedDirectPay(
    // Identity metadata is optional; canonical payment proof stays immutable.
    try{
     const verified=await verifyRecipientSnapshotForReceipt(
-     db,input.snapshotId,existing.recipientAddress,existing.recipientUserId);
+     db,input.snapshotId,existing.recipientAddress,existing.recipientUserId,existing.paidAt);
     await db.update(mainnetDirectPayReceipts)
      .set({recipientSnapshotId:verified.snapshotId,recipientLabel:verified.label})
      .where(and(eq(mainnetDirectPayReceipts.txHash,input.hash),
@@ -171,10 +189,11 @@ export async function indexVerifiedDirectPay(
  if(input.snapshotId&&sender?.userId===userId){
   try{
    const verified=await verifyRecipientSnapshotForReceipt(
-    db,input.snapshotId,proof.recipient,receiver?.userId??null);
+    db,input.snapshotId,proof.recipient,receiver?.userId??null,
+    new Date(Number(proof.blockTimeSeconds)*1000));
    snapshotId=verified.snapshotId;label=verified.label;
   }catch(e){if(!(e instanceof PayReceiptApiError))throw e;}
-  // Expired or mismatched snapshots are NEVER attached to a receipt.
+  // Snapshots not verified at signing time are NEVER attached to a receipt.
   // A canonical USDC transfer itself can still be indexed without an ID.
  }
  const values={txHash:proof.txHash,chainId:5042,senderAddress:getAddress(proof.sender).toLowerCase(),

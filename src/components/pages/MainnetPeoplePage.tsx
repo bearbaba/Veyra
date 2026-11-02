@@ -16,7 +16,9 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
  const [name,setName]=useState(''),[busy,setBusy]=useState(false);
  const [error,setError]=useState<string|null>(null);
  const [selected,setSelected]=useState<VerifiedMainnetRecipient|null>(null);
- useEffect(()=>{setSelected(null);setError(null);},[address,social.session?.token]);
+ const [friendActionBusy,setFriendActionBusy]=useState(false);
+ const [friendActionError,setFriendActionError]=useState<string|null>(null);
+ useEffect(()=>{setSelected(null);setError(null);setFriendActionError(null);},[address,social.session?.token]);
  const ready=!!address&&social.identityOrigin==='ready'&&!!social.session?.token;
  async function find(value=name){
   if(!ready||!address||!social.session?.token||busy)return;
@@ -41,6 +43,25 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
   }catch(e){setError((e instanceof Error?e.message:'Veyra recipient unavailable')+
     ' No recipient was selected or money sent. Mainnet ID Pay requires an approved backend.');}
   finally{setBusy(false);}
+ }
+ const relation=selected?social.friends.find(x=>x.veyraUserId===selected.veyraUserId):undefined;
+ async function connectSelected(){
+  if(!selected||!ready||friendActionBusy||relation)return;
+  setFriendActionBusy(true);setFriendActionError(null);
+  try{
+   if(!await social.invite('@'+selected.veyraHandle+'.veyra'))
+    throw Error('Friend invitation was not confirmed. Try again.');
+  }catch(e){setFriendActionError(e instanceof Error?e.message:'Could not send invitation.');}
+  finally{setFriendActionBusy(false);}
+ }
+ async function acceptFriend(userId:string,decision:'ACCEPT'|'REJECT'){
+  if(!ready||friendActionBusy)return;
+  setFriendActionBusy(true);setFriendActionError(null);
+  try{
+   if(!await social.respond(userId,decision))
+    throw Error('Friend response was not confirmed.');
+  }catch(e){setFriendActionError(e instanceof Error?e.message:'Could not respond to friend request.');}
+  finally{setFriendActionBusy(false);}
  }
  return <main className="mx-auto w-full max-w-4xl space-y-5 px-4 py-7 md:px-7 md:py-9">
   <header>
@@ -78,16 +99,36 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
     <div className="mt-3 flex flex-wrap gap-2">
      <button type="button" onClick={()=>onPayVerified(selected)} className="flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
       style={{background:'var(--accent)',color:'#0d1b2f'}}><Send className="size-4"/>Send USDC</button>
-     <button type="button" disabled className="rounded-lg border px-4 py-3 text-sm opacity-50" style={{borderColor:'var(--border)',color:'var(--muted)'}}>Request · coming later</button>
+     {selected.veyraUserId!==social.session?.profile.veyraUserId&&
+      <button type="button" disabled={friendActionBusy||!!relation}
+       onClick={()=>void connectSelected()} className="rounded-lg border px-4 py-3 text-sm font-semibold disabled:opacity-50"
+       style={{borderColor:'var(--border)',color:'var(--ink)'}}>
+       {relation?.state==='CONNECTED'?'Friends':relation?.state==='OUTGOING_PENDING'?'Invitation sent':
+        relation?.state==='INCOMING_PENDING'?'Respond below':'Add friend'}
+      </button>}
     </div>
    </div>}
+   {friendActionError&&<p role="alert" className="mt-3 text-sm" style={{color:'var(--warning)'}}>{friendActionError}</p>}
    <div className="mt-5 border-t pt-4" style={{borderColor:'var(--border)'}}>
     <div className="flex items-center justify-between">
      <h3 className="text-sm font-semibold" style={{color:'var(--ink)'}}>Friends</h3>
      <button type="button" onClick={()=>void social.refresh()} className="text-xs" style={{color:'var(--accent)'}}>Refresh</button>
     </div>
+    {social.friends.some(x=>x.state==='INCOMING_PENDING')&&<div className="mt-3 space-y-2">
+     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>Friend invitations</p>
+     {social.friends.filter(x=>x.state==='INCOMING_PENDING').map(x=><div key={x.veyraUserId}
+       className="flex flex-wrap items-center gap-2 rounded-lg border p-3" style={{borderColor:'var(--border)'}}>
+       <span className="min-w-0 flex-1 text-sm font-medium" style={{color:'var(--ink)'}}>{friendLabel(x)}</span>
+       <button type="button" disabled={friendActionBusy} onClick={()=>void acceptFriend(x.veyraUserId,'ACCEPT')}
+        className="rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50"
+        style={{background:'var(--accent)',color:'#0d1b2f'}}>Accept</button>
+       <button type="button" disabled={friendActionBusy} onClick={()=>void acceptFriend(x.veyraUserId,'REJECT')}
+        className="rounded-lg border px-3 py-2 text-xs disabled:opacity-50"
+        style={{borderColor:'var(--border)',color:'var(--muted)'}}>Decline</button>
+      </div>)}
+    </div>}
     {social.friends.filter(x=>x.state==='CONNECTED').length===0?
-      <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>No connected friends yet. Search a verified Veyra ID to send.</p>:
+      <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>No connected friends yet. Find a Veyra ID and send an invitation.</p>:
       <div className="mt-2 space-y-2">{social.friends.filter(x=>x.state==='CONNECTED').map(x=><button key={x.veyraUserId}
        onClick={()=>{const id=friendLabel(x);setName(id);void find(id);}} type="button"
        className="flex w-full items-center justify-between rounded-lg border px-3 py-3 text-sm"

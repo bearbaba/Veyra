@@ -1,6 +1,6 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
-import {parseDirectPayReceiptRequest,mainnetRpcUrl,visiblePayReceipt,type VerifiedPayRow} from '../../server/services/mainnetPayReceiptService';
+import {parseDirectPayReceiptRequest,mainnetRpcUrl,visiblePayReceipt,snapshotWasVerifiedForPayment,type VerifiedPayRow} from '../../server/services/mainnetPayReceiptService';
 import {listVerifiedMainnetPayReceipts,saveVerifiedMainnetPayReceipt} from '../lib/api/mainnetPayReceipts';
 const hash='0x'+'a'.repeat(64);
 const address='0x1111111111111111111111111111111111111111';
@@ -38,6 +38,17 @@ describe('Mainnet Direct Pay persistent receipt input boundaries',()=>{
   expect(receiver.direction).toBe('received');
   expect(receiver.paidAt.toISOString()).toBe('2026-11-01T12:00:00.000Z');
   expect(receiver).not.toHaveProperty('privateNote');
+ });
+ it('keeps an authentic recipient label after the short snapshot TTL, never from an unreviewed label',()=>{
+  const snap={frozenAt:new Date('2026-11-02T10:00:00Z'),
+    expiresAt:new Date('2026-11-02T10:00:30Z'),
+    verifiedAt:new Date('2026-11-02T10:00:10Z'),invalidatedAt:null};
+  const settled=new Date('2026-11-02T10:02:00Z');
+  expect(snapshotWasVerifiedForPayment(snap,settled)).toBe(true);
+  expect(snapshotWasVerifiedForPayment({...snap,verifiedAt:null},settled)).toBe(false);
+  expect(snapshotWasVerifiedForPayment({...snap,verifiedAt:new Date('2026-11-02T10:00:35Z')},settled)).toBe(false);
+  expect(snapshotWasVerifiedForPayment({...snap,invalidatedAt:new Date('2026-11-02T10:01:00Z')},settled)).toBe(false);
+  expect(snapshotWasVerifiedForPayment(snap,new Date('2026-11-02T11:00:00Z'))).toBe(false);
  });
  it('server writes are owner scoped, idempotent, read-only from chain and two-sided',()=>{
   const server=read('server/services/mainnetPayReceiptService.ts');

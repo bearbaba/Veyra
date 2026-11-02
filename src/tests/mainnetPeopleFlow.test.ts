@@ -39,6 +39,9 @@ describe('Server-verifiable Veyra ID send safety',()=>{
   expect(people).toContain('social.identityOrigin');
   expect(people).toContain('verifyPaymentRecipient');
   expect(people).toContain('Local wallet contacts (not verified Veyra IDs)');
+  expect(people).toContain("social.invite('@'+selected.veyraHandle+'.veyra')");
+  expect(people).toContain("social.respond(userId,decision)");
+  expect(people).toContain('Friend invitations');
  });
  it('keeps a note and reviewed label with the original browser receipt after status update',()=>{
   const map=new Map<string,string>();
