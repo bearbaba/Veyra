@@ -45,6 +45,13 @@ describe('Server-verifiable Veyra ID send safety',()=>{
   expect(people).toContain('searchEpoch.current++');
   expect(people).toContain('if(epoch===searchEpoch.current)setSelected(verified)');
   expect(people).toContain('disabled={!x.veyraHandle}');
+  // A slow lookup must not replace a newer recipient or leave the spinner stuck.
+  expect(people).toContain('if(epoch===searchEpoch.current)setBusy(false)');
+  expect(people).toContain('searchEpoch.current++;setBusy(false);setName(e.target.value)');
+  // Friend pagination must be available without a reload or a second website.
+  expect(people).toContain('social.friendsHasMore');
+  expect(people).toContain('social.loadMoreFriends()');
+  expect(people).toContain('disabled={social.loadingMoreFriends}');
  });
  it('keeps a note and reviewed label with the original browser receipt after status update',()=>{
   const map=new Map<string,string>();
