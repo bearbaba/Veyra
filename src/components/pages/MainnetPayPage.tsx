@@ -29,8 +29,6 @@ type Review = {plan: MainnetPlan; preflight: MainnetPreflight};
 export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,embedded=false,sharedDraft,onDraftChange,verifiedRecipient}:{friendHandle?:string|null;recipientWallet?:string|null;onRecipientUsed?:()=>void;embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void;verifiedRecipient?:VerifiedMainnetRecipient|null}) {
   const {address, chainId, connector, isConnected} = useAccount();
   const social=useUnifiedSocial();
-  const idSelection=verifiedRecipient&&address&&recipient.toLowerCase()===verifiedRecipient.wallet.toLowerCase()
-    &&verifiedRecipient.owner.toLowerCase()===address.toLowerCase()?verifiedRecipient:null;
   async function reverifySelectedIdentity(plan:MainnetPlan){
     if(!idSelection)return;
     if(!validVerifiedRecipient(idSelection,plan.from,plan.to))
@@ -42,6 +40,8 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   }
   const {switchChain} = useSwitchChain();
   const [recipient,setRecipient] = useState('');
+  const idSelection=verifiedRecipient&&address&&recipient.toLowerCase()===verifiedRecipient.wallet.toLowerCase()
+    &&verifiedRecipient.owner.toLowerCase()===address.toLowerCase()?verifiedRecipient:null;
   const [amount,setAmount] = useState('');
   const [review,setReview] = useState<Review|null>(null);
   const [ack,setAck] = useState(false);
