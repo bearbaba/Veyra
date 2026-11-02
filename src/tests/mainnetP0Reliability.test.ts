@@ -123,6 +123,21 @@ describe('CCTP V2 independently linked burn and mint receipts',()=>{
   expect(matchCctpLinkedMessages(sourceDomain,destDomain,burn,mint,signedMessage,nonce,
    {burnToken,mintRecipient:recipient,amount})).toBe(false);
  });
+ it('fails closed on Circle Iris 429 without treating the destination mint as verified',async()=>{
+  vi.stubGlobal('fetch',vi.fn(()=>({ok:false,status:429})));
+  await expect(assertCctpBridgeLinked(5042,8453,burnHash,mintHash,burn,mint,owner,amount))
+   .rejects.toThrow('attestation unavailable');
+ });
+ it('fails closed on Circle Iris network timeout or CORS rejection',async()=>{
+  vi.stubGlobal('fetch',vi.fn(()=>{throw new Error('NetworkError: Failed to fetch');}));
+  await expect(assertCctpBridgeLinked(5042,8453,burnHash,mintHash,burn,mint,owner,amount))
+   .rejects.toThrow('Failed to fetch');
+ });
+ it('rejects malformed Circle attestation JSON and does not accept a random mint',async()=>{
+  vi.stubGlobal('fetch',vi.fn(()=>({ok:true,json:()=>({messages:[]})})));
+  await expect(assertCctpBridgeLinked(5042,8453,burnHash,mintHash,burn,mint,owner,amount))
+   .rejects.toThrow('could not be linked');
+ });
  it('requires Circle Iris to map the exact original burn to its destination',async()=>{
   const fetchMock=vi.fn((_url:unknown)=>({ok:true,json:()=>({
    messages:[{status:'complete',eventNonce:nonce,message:signedMessage,
