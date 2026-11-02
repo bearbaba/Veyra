@@ -27,6 +27,9 @@ const allowed=new Set([
  'PATCH /api/preferences/receive',
  'POST /api/mainnet/pay/receipt/verify',
  'GET /api/mainnet/pay/receipts',
+ 'POST /api/mainnet/exchange/across/quote',
+ 'GET /api/mainnet/exchange/across/capability',
+ 'GET /api/mainnet/exchange/across/status',
  'POST /api/auth/x/capability',
 ]);
 export function isMainnetIdentityOnlyRouteAllowed(method:string,path:string):boolean{
