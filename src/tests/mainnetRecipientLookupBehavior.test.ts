@@ -59,7 +59,7 @@ describe('M0 People and Pay use the same fail-closed recipient resolver',()=>{
   }
   expect(verify).not.toHaveBeenCalled();
  });
- it('invalidates older async searches even when their response arrives last',async()=>{
+ it('invalidates older async searches even when their response arrives last',()=>{
   const guard=createRecipientSearchGuard();
   const first=guard.start();
   const second=guard.start();
