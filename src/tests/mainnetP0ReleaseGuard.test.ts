@@ -33,7 +33,7 @@ describe('read-only rollback and fault injection',()=>{
   const plan=buildMainnetPayPlan(from,to,'0.1');
   vi.stubGlobal('fetch',vi.fn(()=>{throw new Error('RPC_TIMEOUT_INJECTED');}));
   await expect(reconcileMainnetCanary(plan,'0x'+'b'.repeat(64)))
-    .rejects.toThrow('RPC_TIMEOUT_INJECTED');
+    .rejects.toThrow('Arc Mainnet RPC request failed. Do not retry');
   // No wallet signing or journal deletion is attempted by reconciliation.
  });
  it('preserves an unknown payment when its original hash is unavailable',()=>{
