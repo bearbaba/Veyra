@@ -8,6 +8,7 @@ import {CheckCircle2,Clock3,ExternalLink,RefreshCw} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
 import {readLocalOperations,recordLocalOperation,type LocalOperation} from '@/mainnet/localOperations';
 import {inspectRecordedOperation,type OperationInspection} from '@/mainnet/inspectRecordedOperation';
+import {readSettlementIntent,writeSettlementIntent} from '@/mainnet/settlementJournal';
 import type {VeyraPage} from '../layout/AppShell';
 
 const id=(v:LocalOperation)=>v.type+':'+v.chainId+':'+v.hash.toLowerCase();
@@ -26,11 +27,12 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const [entries,setEntries]=useState<LocalOperation[]>([]);
  const [states,setStates]=useState<Record<string,OperationInspection>>({});
  const [syncing,setSyncing]=useState(false);
+ const [unknownSettlement,setUnknownSettlement]=useState(false);
  const [filter,setFilter]=useState<'All'|'Pay'|'Settlement'|'Swap'|'Bridge'>('All');
  const verifiedCache=useRef(new Map<string,{checked:number;state:OperationInspection}>());
  useEffect(()=>{
   let active=true,working=false;
-  verifiedCache.current.clear();setEntries([]);setStates({});
+  verifiedCache.current.clear();setEntries([]);setStates({});setUnknownSettlement(false);
   if(!address)return;
   const owner=address;
   async function update(){
@@ -44,6 +46,15 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       recordLocalOperation({owner,hash:p.hash!,type:'Pay',amount:p.amount,asset:'USDC',
        chainId:5042,destination:p.to,status:'SUBMITTED'});
     }
+    const contract=readSettlementIntent(owner);
+    if(contract.kind==='active'&&contract.value.phase==='PAYMENT'&&contract.value.hash){
+      const tx=contract.value;
+      if(!readLocalOperations(owner).some(v=>v.type==='Settlement'&&v.hash.toLowerCase()===tx.hash?.toLowerCase()))
+        recordLocalOperation({owner,hash:tx.hash,type:'Settlement',amount:tx.amount,
+          asset:'USDC',chainId:5042,destination:tx.recipient,status:'SUBMITTED'});
+    }
+    if(active)setUnknownSettlement(contract.kind==='blocked'||contract.kind==='active'&&
+      !contract.value.hash&&['AWAITING_WALLET','UNKNOWN'].includes(contract.value.stage));
     const list=readLocalOperations(owner);
     if(!active)return;
     setEntries(list);
@@ -70,6 +81,13 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       if((v.type==='Pay'||v.type==='Settlement')&&(state.status==='VERIFIED'||state.status==='REVERTED')){
        const target=state.status==='VERIFIED'?'RECORDED':'REVERTED';
        if(v.status!==target)recordLocalOperation({...v,status:target});
+       if(v.type==='Settlement'){
+        const latest=readSettlementIntent(owner);
+        if(latest.kind==='active'&&latest.value.phase==='PAYMENT'&&
+         latest.value.hash?.toLowerCase()===v.hash.toLowerCase()&&latest.value.stage!==state.status){
+         writeSettlementIntent({...latest.value,stage:state.status});
+        }
+       }
       }
      }
     }
@@ -99,6 +117,11 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     {syncing&&<RefreshCw className="size-4 animate-spin"/>}{syncing?'Checking receipts…':'Auto-sync on'}
    </span>}
   </header>
+  {address&&unknownSettlement&&<div role="alert" className="rounded-xl border p-4 text-sm"
+     style={{borderColor:'var(--border)',color:'var(--warning)'}}>
+     A previous contract wallet request has no returned transaction hash. Its outcome is unknown.
+     Veyra will not resubmit the payment automatically. Check the original request in your wallet.
+  </div>}
   {!address?<section className="rounded-2xl border p-6" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
    <p className="mb-3 text-sm" style={{color:'var(--muted)'}}>Connect your wallet to see its Veyra history.</p>
    <ConnectKitButton/>
