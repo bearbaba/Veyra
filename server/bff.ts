@@ -387,7 +387,7 @@ app.post('/api/identity/register/complete', IDENTITY_RATE, async (req: Request, 
     const { db } = await import('./db/client.js');
     const registration = await completeIdentityRegistration(db, { claimToken, signature: signature as `0x${string}` });
     const profile = await getProfile(db, registration.veyraUserId);
-    maybeSetRestoreCookie(req,res,registration.veyraUserId,registration.walletAddress);
+    maybeSetRestoreCookie(req,res,registration.veyraUserId,registration.walletAddress,registration.chainId);
     res.status(201).json({ ok: true, registration, profile, sessionToken: registration.sessionToken });
   } catch (err) {
     identityError(res, err);
