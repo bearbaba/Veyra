@@ -245,10 +245,13 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
        {v.direction==='sent'?'Sent':'Received'} · {formatUnits(BigInt(v.amountRaw),6)} USDC
       </p>
       <p className="mt-1 text-sm" style={{color:'var(--success)'}}>Completed · independently verified by Veyra backend</p>
-      {v.recipientLabel&&<p className="text-sm" style={{color:'var(--ink)'}}>{v.recipientLabel}</p>}
-      <p className="mt-1 break-all text-xs" style={{color:'var(--muted)'}}>
-       {v.direction==='sent'?'To: '+v.recipientAddress:'From: '+v.senderAddress}
+      <p className="text-sm" style={{color:'var(--ink)'}}>
+       {v.direction==='sent'?'To '+(v.recipientLabel??v.recipientAddress):
+        'From wallet '+v.senderAddress.slice(0,8)+'…'+v.senderAddress.slice(-6)}
       </p>
+      <details className="text-xs" style={{color:'var(--muted)'}}><summary className="cursor-pointer">Counterparty wallet</summary>
+       <p className="mt-2 break-all">{v.direction==='sent'?v.recipientAddress:v.senderAddress}</p>
+      </details>
       {v.direction==='sent'&&v.privateNote&&
        <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Your private note: {v.privateNote}</p>}
       <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
