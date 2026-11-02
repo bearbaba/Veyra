@@ -58,7 +58,8 @@ export default function App() {
         return <AgentPage onNavigate={setPage} />;
       case 'pay':
         return VEYRA_ENV === 'mainnet' ? <MainnetPayHub initialMethod="wallet" friendHandle={friendPayment} recipientWallet={contactRecipient}
-          verifiedRecipient={verifiedRecipient} onRecipientUsed={() => setContactRecipient(null)} /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
+          verifiedRecipient={verifiedRecipient} onClearVerified={()=>setVerifiedRecipient(null)}
+          onRecipientUsed={() => setContactRecipient(null)} /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
       case 'convert':
         return VEYRA_ENV === 'mainnet' ? <MainnetCirclePage mode="swap" /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="convert" /> : <ConvertPage />;
       case 'bridge':

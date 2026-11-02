@@ -30,6 +30,8 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   const {address, chainId, connector, isConnected} = useAccount();
   const social=useUnifiedSocial();
   async function reverifySelectedIdentity(plan:MainnetPlan){
+    if(verifiedRecipient&&!idSelection)
+      throw Error('Recipient differs from the reviewed Veyra ID. Change person or verify again in People.');
     if(!idSelection)return;
     if(!validVerifiedRecipient(idSelection,plan.from,plan.to))
       throw Error('Recipient Veyra ID snapshot expired. Return to People to verify the current wallet.');
@@ -100,7 +102,9 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     if(!address||!review||!ack||blocked||lock.current)return;
     try{assertMainnetSigningAllowed();}catch(e){setError(msg(e));return;}
     lock.current=true;setBusy(true);setError(null);
-    const initial:MainnetJournal={from:review.plan.from,to:review.plan.to,amount:review.plan.amount,hash:null,stage:'AWAITING_WALLET'};
+    const initial:MainnetJournal={from:review.plan.from,to:review.plan.to,amount:review.plan.amount,hash:null,stage:'AWAITING_WALLET',
+      note:sharedDraft?.note?.trim().slice(0,120)||undefined,
+      recipientLabel:idSelection?'@'+idSelection.veyraHandle+'.veyra':undefined};
     let requested=false;
     try {
       await reverifySelectedIdentity(review.plan);

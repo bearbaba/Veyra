@@ -17,10 +17,10 @@ declare const __VEYRA_RELEASE_SHA__:string;
 declare const __VEYRA_RELEASE_ENV__:string;
 type Method='wallet'|'contract';
 export function MainnetPayHub({
- initialMethod='wallet',friendHandle,recipientWallet,verifiedRecipient,onRecipientUsed,
+ initialMethod='wallet',friendHandle,recipientWallet,verifiedRecipient,onClearVerified,onRecipientUsed,
 }:{
  initialMethod?:Method;friendHandle?:string|null;recipientWallet?:string|null;
- verifiedRecipient?:VerifiedMainnetRecipient|null;onRecipientUsed?:()=>void;
+ verifiedRecipient?:VerifiedMainnetRecipient|null;onClearVerified?:()=>void;onRecipientUsed?:()=>void;
 }){
  const {address}=useAccount();
  const owner=(address??'').toLowerCase();
@@ -82,7 +82,7 @@ export function MainnetPayHub({
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[verifiedRecipient?.snapshotId,owner]);
  function changeDraft(patch:Partial<MainnetPayDraft>){
-  if(!address||locked)return;
+  if(!address||locked||verifiedRecipient&&patch.recipient!==undefined)return;
   const next={...draft,...patch};
   setDraftHolder({owner,value:next});
   writePayDraft(owner,next);
@@ -118,7 +118,7 @@ export function MainnetPayHub({
    <div>
     <label htmlFor="shared-send-recipient" className="text-sm font-semibold" style={{color:'var(--ink)'}}>Who are you paying?</label>
     <input id="shared-send-recipient" value={draft.recipient} maxLength={42} autoComplete="off"
-     onChange={e=>changeDraft({recipient:e.target.value})} disabled={!address||locked}
+     onChange={e=>changeDraft({recipient:e.target.value})} disabled={!address||locked||!!verifiedRecipient}
      placeholder="0x… receiving wallet" className="mt-2 w-full rounded-xl border px-4 py-3 text-sm"
      style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
     {verifiedRecipient&&draft.recipient.toLowerCase()===verifiedRecipient.wallet.toLowerCase()
@@ -126,6 +126,10 @@ export function MainnetPayHub({
        {'@'+verifiedRecipient.veyraHandle+'.veyra'} · server prepared; will be checked again before signing
       </p>
      :<p className="mt-2 text-xs" style={{color:'var(--muted)'}}>Confirm the full wallet address before sending.</p>}
+    {verifiedRecipient&&<button type="button" disabled={locked} onClick={onClearVerified}
+      className="mt-2 text-xs font-semibold disabled:opacity-40" style={{color:'var(--accent)'}}>
+      Change person / enter a different wallet
+    </button>}
    </div>
    <div>
     <label htmlFor="shared-send-amount" className="text-sm font-semibold" style={{color:'var(--ink)'}}>Amount · USDC</label>
