@@ -50,7 +50,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     if(contract.kind==='active'&&contract.value.phase==='PAYMENT'&&contract.value.hash){
       const tx=contract.value;
       if(!readLocalOperations(owner).some(v=>v.type==='Settlement'&&v.hash.toLowerCase()===tx.hash?.toLowerCase()))
-        recordLocalOperation({owner,hash:tx.hash,type:'Settlement',amount:tx.amount,
+        recordLocalOperation({owner,hash:tx.hash!,type:'Settlement',amount:tx.amount,
           asset:'USDC',chainId:5042,destination:tx.recipient,status:'SUBMITTED'});
     }
     if(active)setUnknownSettlement(contract.kind==='blocked'||contract.kind==='active'&&
