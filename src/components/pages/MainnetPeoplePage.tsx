@@ -21,12 +21,15 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
  const [friendActionError,setFriendActionError]=useState<string|null>(null);
  useEffect(()=>{
   // A wallet/session change invalidates any previous async recipient lookup.
-  searchEpoch.current++;setSelected(null);setError(null);setFriendActionError(null);
+  searchEpoch.current++;setBusy(false);setSelected(null);setError(null);setFriendActionError(null);
  },[address,social.session?.token]);
  const ready=!!address&&social.identityOrigin==='ready'&&!!social.session?.token;
  async function find(value=name){
-  if(!ready||!address||!social.session?.token||busy)return;
-  if(!HANDLE.test(value.trim())){setError('Enter a complete Veyra ID such as @alex.veyra.');return;}
+  if(!ready||!address||!social.session?.token)return;
+  if(!HANDLE.test(value.trim())){
+   searchEpoch.current++;setBusy(false);setSelected(null);
+   setError('Enter a complete Veyra ID such as @alex.veyra.');return;
+  }
   const epoch=++searchEpoch.current;
   setBusy(true);setSelected(null);setError(null);
   try{
@@ -48,7 +51,7 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
    if(epoch===searchEpoch.current)setSelected(verified);
   }catch(e){if(epoch===searchEpoch.current)setError((e instanceof Error?e.message:'Veyra recipient unavailable')+
     ' No recipient was selected or money sent. Mainnet ID Pay requires an approved backend.');}
-  finally{setBusy(false);}
+  finally{if(epoch===searchEpoch.current)setBusy(false);}
  }
  const relation=selected?social.friends.find(x=>x.veyraUserId===selected.veyraUserId):undefined;
  async function connectSelected(){
@@ -88,7 +91,7 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
   {ready&&<section className="rounded-xl border p-4 sm:p-5" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
    <h2 className="text-base font-semibold" style={{color:'var(--ink)'}}>Find by Veyra ID</h2>
    <div className="mt-3 flex flex-wrap gap-2">
-    <input aria-label="Find Veyra ID" value={name} onChange={e=>{searchEpoch.current++;setName(e.target.value);setSelected(null);setError(null);}}
+    <input aria-label="Find Veyra ID" value={name} onChange={e=>{searchEpoch.current++;setBusy(false);setName(e.target.value);setSelected(null);setError(null);}}
      placeholder="@friend.veyra" maxLength={40} autoComplete="off"
      className="min-w-0 flex-1 rounded-xl border px-3 py-3 text-sm"
      style={{borderColor:'var(--border)',background:'var(--surface-raised)',color:'var(--ink)'}}/>
@@ -134,7 +137,7 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
       </div>)}
     </div>}
     {social.friends.filter(x=>x.state==='CONNECTED').length===0?
-      <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>No connected friends yet. Find a Veyra ID and send an invitation.</p>:
+      <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>{social.friendsHasMore?'No connected friends on this page. Load more to find your contacts.':'No connected friends yet. Find a Veyra ID and send an invitation.'}</p>:
       <div className="mt-2 space-y-2">{social.friends.filter(x=>x.state==='CONNECTED').map(x=><button key={x.veyraUserId}
        onClick={()=>{if(!x.veyraHandle)return;const id=friendLabel(x);searchEpoch.current++;setName(id);void find(id);}}
        disabled={!x.veyraHandle} type="button"
@@ -142,6 +145,12 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
        style={{borderColor:'var(--border)',color:'var(--ink)'}}>{friendLabel(x)}<span style={{color:'var(--accent)'}}>
         {x.veyraHandle?'Verify to send':'No verified handle'}
        </span></button>)}</div>}
+    {social.friendsHasMore&&<button type="button" disabled={social.loadingMoreFriends}
+     onClick={()=>void social.loadMoreFriends()}
+     className="mt-3 w-full rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-50"
+     style={{borderColor:'var(--border)',color:'var(--accent)'}}>
+      {social.loadingMoreFriends?'Loading friends…':'Load more friends'}
+    </button>}
    </div>
   </section>}
   {social.identityOrigin!=='ready'&&<p className="flex items-start gap-2 text-xs" style={{color:'var(--muted)'}}>
