@@ -8,11 +8,11 @@ import {MainnetContactsPage} from './MainnetContactsPage';
 import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 import {MainnetRecipientSearch} from '../identity/MainnetRecipientSearch';
 import type {RecipientSearchResult} from '@/mainnet/recipientLookup';
-export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
- onPayVerified:(value:VerifiedMainnetRecipient)=>void;onPayWallet:(wallet:string)=>void;
+export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
+ onPayVerified:(value:VerifiedMainnetRecipient)=>void;onPayWallet:(wallet:string)=>void;initialQuery?:string;
 }){
  const {address}=useAccount(),social=useUnifiedSocial();
- const [friendLookup,setFriendLookup]=useState('');
+ const [friendLookup,setFriendLookup]=useState(initialQuery);
  const [selected,setSelected]=useState<VerifiedMainnetRecipient|null>(null);
  const [walletTarget,setWalletTarget]=useState<string|null>(null);
  const [friendActionBusy,setFriendActionBusy]=useState(false);
