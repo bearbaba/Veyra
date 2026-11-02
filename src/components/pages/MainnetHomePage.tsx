@@ -19,6 +19,8 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  const social=useUnifiedSocial();
  const signedWallet=isMainnetSessionForWallet(social.session,address,connector?.uid);
  const [accountReceipts,setAccountReceipts]=useState<MainnetPayServerReceipt[]>([]);
+ const [accountScope,setAccountScope]=useState('');
+ const [localScope,setLocalScope]=useState('');
  const [receive,setReceive]=useState(false);
  const [copied,setCopied]=useState(false);
  const [copyError,setCopyError]=useState(false);
@@ -31,8 +33,9 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
   query:{enabled:!!address&&!!usdc,staleTime:8000,refetchInterval:15000},
  });
  useEffect(()=>{
+  setLocalScope('');
   if(!address){setOperations([]);setExchangeIntents([]);return;}
-  const update=()=>{setOperations(readLocalOperations(address));
+  const update=()=>{setOperations(readLocalOperations(address));setLocalScope(address.toLowerCase());
    const items=readExchangeIntents(address);
    setExchangeIntents(items.kind==='ready'?items.items:[]);};
   update();
@@ -42,7 +45,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
   return()=>{window.removeEventListener('focus',update);window.removeEventListener('storage',update);window.clearInterval(timer);};
  },[address]);
  useEffect(()=>{
-  setAccountReceipts([]);
+  setAccountReceipts([]);setAccountScope('');
   const token=social.session?.token;
   if(!address||!token||social.identityOrigin!=='ready'||!signedWallet)return;
   const controller=new AbortController();
@@ -50,7 +53,8 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
   async function reload(){
    try{
     const items=await listVerifiedMainnetPayReceipts(token!,controller.signal);
-    if(active)setAccountReceipts(scopedMainnetReceipts(items,address).slice(0,10));
+    if(active){setAccountReceipts(scopedMainnetReceipts(items,address).slice(0,10));
+     setAccountScope(address.toLowerCase()+':'+token);}
    }catch{/* Offline identity history falls back to local transactions without fake receipts. */}
   }
   void reload();
@@ -61,17 +65,21 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
    window.removeEventListener('focus',handle);
    window.removeEventListener('veyra:mainnet:server-receipt',handle);};
  },[address,connector?.uid,social.session?.token,social.session?.walletKey,social.identityOrigin,signedWallet]);
- const recentVerified=accountReceipts.slice(0,3);
- const knownHashes=new Set(accountReceipts.map(x=>x.txHash.toLowerCase()));
- const exchangeHashes=new Set(exchangeIntents.flatMap(task=>[
+ const scopedServer=signedWallet&&address&&social.session?.token&&
+  accountScope===address.toLowerCase()+':'+social.session.token?accountReceipts:[];
+ const scopedLocal=address&&localScope===address.toLowerCase()?operations:[];
+ const scopedExchange=address&&localScope===address.toLowerCase()?exchangeIntents:[];
+ const recentVerified=scopedServer.slice(0,3);
+ const knownHashes=new Set(scopedServer.map(x=>x.txHash.toLowerCase()));
+ const exchangeHashes=new Set(scopedExchange.flatMap(task=>[
   ...(task.sourceHash?[task.sourceHash.toLowerCase()]:[]),
   ...(task.destinationHash?[task.destinationHash.toLowerCase()]:[])]));
- const localRecent=operations.filter(x=>!(x.type==='Pay'&&knownHashes.has(x.hash.toLowerCase()))&&
+ const localRecent=scopedLocal.filter(x=>!(x.type==='Pay'&&knownHashes.has(x.hash.toLowerCase()))&&
   !((x.type==='Swap'||x.type==='Bridge')&&exchangeHashes.has(x.hash.toLowerCase())));
- const recentExchange=exchangeIntents.slice(0,3);
+ const recentExchange=scopedExchange.slice(0,3);
  const wrong=isConnected&&chainId!==ARC;
  const available=!address?'—':isError?'Unavailable':data!==undefined?formatUnits(data,6):'Reading…';
- const pending=operations.filter(x=>x.status==='SUBMITTED');
+ const pending=scopedLocal.filter(x=>x.status==='SUBMITTED');
  const actions:{id:'send'|'receive'|'people'|'activity';label:string;icon:React.ReactNode}[]=[
   {id:'send',label:'Send',icon:<ArrowUpRight className="size-5"/>},
   {id:'receive',label:'Receive',icon:<ArrowDownLeft className="size-5"/>},
