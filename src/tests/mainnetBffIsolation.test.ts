@@ -7,7 +7,12 @@ describe('Veyra one official domain — isolated Mainnet API release gate',()=>{
  it('stages one official app behind the verified Mainnet BFF',()=>{
   const staged=JSON.parse(read('vercel.json')) as VercelRoutingConfig & {buildCommand:string};
   expect(verifyProductionMainnetRouting(staged,bff)).toEqual({ok:true,issues:[]});
-  expect(staged.buildCommand).toContain('VITE_VEYRA_EMERGENCY_READ_ONLY=0 VITE_VEYRA_CANARY_ONLY=1');
+  expect(staged.buildCommand).toBe('bun run typecheck && bun scripts/build-mainnet-pilot.ts');
+  const release=read('scripts/build-mainnet-pilot.ts');
+  expect(release).toContain("VITE_VEYRA_EMERGENCY_READ_ONLY:'0'");
+  expect(release).toContain("VITE_VEYRA_CANARY_ONLY:'1'");
+  expect(release).toContain("VITE_VEYRA_MAINNET_PAY:'1'");
+  expect(release).toContain("VITE_VEYRA_TESTNET_PAY:'0'");
   const settings=read('src/components/pages/SettingsPage.tsx');
   expect(settings).toContain('MAINNET_CANARY_ONLY?');
   expect(settings).toContain('0.01 USDC per transfer');

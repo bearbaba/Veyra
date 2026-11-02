@@ -57,5 +57,5 @@ jobs:
           src/tests/arcAppKitBridge.test.ts
           src/tests/arcAppKitSwap.test.ts
       - name: Build exact full Mainnet release profile (matches vercel.json)
-        run: VITE_VEYRA_ENV=mainnet VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_TESTNET_PAY=0 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=1 VITE_VEYRA_IDENTITY_BETA=0 VITE_VEYRA_UNIFIED_STAGING=0 bun run build
+        run: bun scripts/build-mainnet-pilot.ts
       - run: bun run check:prod-bundle
