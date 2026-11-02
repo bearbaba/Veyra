@@ -3,7 +3,9 @@
  * Signing is still gated by the separate wallet journals and canonical receipt checks.
  */
 import {useEffect,useState} from 'react';
-import {useAccount} from 'wagmi';
+import {useAccount,useReadContract} from 'wagmi';
+import {erc20Abi,formatUnits} from 'viem';
+import {ARC_MAINNET_USDC} from '@/mainnet/arcMainnetPay';
 import {ArrowRight,ChevronDown,Wallet,ShieldCheck} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
 import {readSettlementIntent,settlementUnresolved} from '@/mainnet/settlementJournal';
@@ -29,6 +31,11 @@ export function MainnetPayHub({
  const {address}=useAccount();
  const social=useUnifiedSocial();
  const owner=(address??'').toLowerCase();
+ const {data:walletBalance,isError:balanceError,isLoading:balanceLoading}=useReadContract({
+  address:ARC_MAINNET_USDC,abi:erc20Abi,functionName:'balanceOf',
+  args:address?[address]:undefined,chainId:5042,
+  query:{enabled:!!address,staleTime:10000},
+ });
  const [method,setMethod]=useState<Method>(initialMethod);
  const [optionsOpen,setOptionsOpen]=useState(initialMethod==='contract');
  const [visited,setVisited]=useState({wallet:initialMethod==='wallet',contract:initialMethod==='contract'});
@@ -176,8 +183,13 @@ export function MainnetPayHub({
     <label htmlFor="shared-send-amount" className="text-sm font-semibold" style={{color:'var(--ink)'}}>Amount · USDC</label>
     <input id="shared-send-amount" value={draft.amount} inputMode="decimal" maxLength={24}
      onChange={e=>changeDraft({amount:e.target.value})} disabled={!address||locked}
-     placeholder="0.00" className="mt-2 w-full rounded-xl border px-4 py-3 text-lg font-semibold"
+     placeholder="0.00" className="mt-2 w-full rounded-xl border px-4 py-3 text-2xl font-semibold tabular-nums"
      style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
+    <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+     Wallet available · Arc Mainnet: {balanceError?'Unavailable':walletBalance!==undefined?
+      formatUnits(walletBalance,6)+' USDC':balanceLoading?'Checking…':'—'}
+     {' · Gateway deposits are separate'}
+    </p>
    </div>
    <div>
     <label className="text-xs font-semibold" htmlFor="pay-private-note" style={{color:'var(--muted)'}}>Your note (optional)</label>
