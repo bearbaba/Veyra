@@ -9,6 +9,9 @@ import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal'
 import {readSettlementIntent,settlementUnresolved} from '@/mainnet/settlementJournal';
 import {readPayDraft,writePayDraft,type MainnetPayDraft} from '@/mainnet/payDraft';
 import {MainnetPayPage} from './MainnetPayPage';
+import {MainnetRecipientSearch} from '../identity/MainnetRecipientSearch';
+import type {RecipientSearchResult} from '@/mainnet/recipientLookup';
+import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {SettlementPage} from './SettlementPage';
 import {MAINNET_EMERGENCY_READ_ONLY,MAINNET_CANARY_ONLY,MAINNET_CANARY_OWNER} from '@/mainnet/releaseGates';
 import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
@@ -23,13 +26,20 @@ export function MainnetPayHub({
  verifiedRecipient?:VerifiedMainnetRecipient|null;onClearVerified?:()=>void;onRecipientUsed?:()=>void;
 }){
  const {address}=useAccount();
+ const social=useUnifiedSocial();
  const owner=(address??'').toLowerCase();
  const [method,setMethod]=useState<Method>(initialMethod);
  const [optionsOpen,setOptionsOpen]=useState(initialMethod==='contract');
  const [visited,setVisited]=useState({wallet:initialMethod==='wallet',contract:initialMethod==='contract'});
  const [draftHolder,setDraftHolder]=useState<{owner:string;value:MainnetPayDraft}>(()=>({owner,value:readPayDraft(owner)}));
  const [revision,setRevision]=useState(0);
+ const [localVerified,setLocalVerified]=useState<VerifiedMainnetRecipient|null>(null);
  const draft=draftHolder.owner===owner?draftHolder.value:readPayDraft(owner);
+ const selectedVerified=verifiedRecipient&&verifiedRecipient.owner.toLowerCase()===owner&&
+  verifiedRecipient.wallet.toLowerCase()===draft.recipient.toLowerCase()?verifiedRecipient:
+  localVerified&&localVerified.owner.toLowerCase()===owner&&
+  localVerified.wallet.toLowerCase()===draft.recipient.toLowerCase()?localVerified:null;
+ useEffect(()=>{setLocalVerified(null);},[owner,social.session?.token]);
  useEffect(()=>{
   const sync=()=>setRevision(i=>i+1);
   window.addEventListener('veyra:mainnet:journal',sync);
@@ -82,13 +92,29 @@ export function MainnetPayHub({
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[verifiedRecipient?.snapshotId,owner]);
  function changeDraft(patch:Partial<MainnetPayDraft>){
-  if(!address||locked||verifiedRecipient&&patch.recipient!==undefined)return;
+  if(!address||locked||selectedVerified&&patch.recipient!==undefined)return;
   const next={...draft,...patch};
   setDraftHolder({owner,value:next});
   writePayDraft(owner,next);
  }
+ function resolveSelected(result:RecipientSearchResult|null){
+  if(!result||!address||locked)return;
+  if(result.kind==='x-unavailable')return;
+  onClearVerified?.();
+  const wallet=result.kind==='veyra'?result.person.wallet:result.wallet;
+  const next={...readPayDraft(owner),recipient:wallet,amount:''};
+  setDraftHolder({owner,value:next});writePayDraft(owner,next);
+  setLocalVerified(result.kind==='veyra'?result.person:null);
+  setMethod('wallet');setVisited(v=>({...v,wallet:true}));
+ }
+ function clearChosen(){
+  if(locked)return;
+  onClearVerified?.();setLocalVerified(null);
+  const next={...draft,recipient:'',amount:''};
+  setDraftHolder({owner,value:next});writePayDraft(owner,next);
+ }
  function choose(next:Method){
-  if(locked||next==='contract'&&verifiedRecipient)return;
+  if(locked||next==='contract'&&selectedVerified)return;
   setMethod(next);
   setVisited(v=>v[next]?v:{...v,[next]:true});
   setOptionsOpen(false);
@@ -121,20 +147,23 @@ export function MainnetPayHub({
   <section aria-label="Payment details" className="space-y-4 rounded-xl border p-4 sm:p-5"
     style={{background:'var(--surface)',borderColor:'var(--border)'}}>
    <div>
-    <label htmlFor="shared-send-recipient" className="text-sm font-semibold" style={{color:'var(--ink)'}}>Who are you paying?</label>
-    <input id="shared-send-recipient" value={draft.recipient} maxLength={42} autoComplete="off"
-     onChange={e=>changeDraft({recipient:e.target.value})} disabled={!address||locked||!!verifiedRecipient}
-     placeholder="0x… receiving wallet" className="mt-2 w-full rounded-xl border px-4 py-3 text-sm"
-     style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
-    {verifiedRecipient&&draft.recipient.toLowerCase()===verifiedRecipient.wallet.toLowerCase()
-     ?<p className="mt-2 text-xs" style={{color:'var(--accent)'}}>
-       {'@'+verifiedRecipient.veyraHandle+'.veyra'} · server prepared; will be checked again before signing
-      </p>
-     :<p className="mt-2 text-xs" style={{color:'var(--muted)'}}>Confirm the full wallet address before sending.</p>}
-    {verifiedRecipient&&<button type="button" disabled={locked} onClick={onClearVerified}
-      className="mt-2 text-xs font-semibold disabled:opacity-40" style={{color:'var(--accent)'}}>
-      Change person / enter a different wallet
-    </button>}
+    {selectedVerified?<div className="rounded-xl border p-4" style={{borderColor:'var(--border)',color:'var(--ink)'}}>
+      <p className="text-sm font-semibold">{selectedVerified.displayName||'Veyra recipient'} · @{selectedVerified.veyraHandle}.veyra</p>
+      <p className="mt-1 text-xs" style={{color:'var(--accent)'}}>Verified Veyra ID · receiving wallet rechecked before signature</p>
+      <details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+       <summary className="cursor-pointer">Receiving wallet</summary><p className="mt-2 break-all font-mono">{selectedVerified.wallet}</p>
+      </details>
+      <button type="button" disabled={locked} onClick={clearChosen}
+       className="mt-3 text-xs font-semibold disabled:opacity-40" style={{color:'var(--accent)'}}>Change recipient</button>
+     </div>:
+     <>
+      <MainnetRecipientSearch key={owner} owner={address} sessionToken={social.session?.token}
+       initialQuery={draft.recipient} label="Who are you paying?"
+       onSelection={resolveSelected}/>
+      {draft.recipient&&<p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+        Recipient: {draft.recipient.slice(0,10)}…{draft.recipient.slice(-6)} · direct wallet transfer (not a verified Veyra ID)
+       </p>}
+     </>}
    </div>
    <div>
     <label htmlFor="shared-send-amount" className="text-sm font-semibold" style={{color:'var(--ink)'}}>Amount · USDC</label>
@@ -174,7 +203,7 @@ export function MainnetPayHub({
      <span className="flex items-center gap-2 text-sm font-semibold"><Wallet className="size-4"/> Wallet transfer</span>
      <span className="mt-1 block text-xs" style={{color:'var(--muted)'}}>Everyday payments · direct to recipient</span>
     </button>
-    <button type="button" disabled={locked||!!verifiedRecipient} aria-pressed={selected==='contract'} onClick={()=>choose('contract')}
+    <button type="button" disabled={locked||!!selectedVerified} aria-pressed={selected==='contract'} onClick={()=>choose('contract')}
      className="rounded-lg border p-3 text-left disabled:opacity-40"
      style={{borderColor:selected==='contract'?'var(--accent)':'var(--border)',background:selected==='contract'?'var(--accent-muted)':'transparent',color:'var(--ink)'}}>
      <span className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck className="size-4"/> Contract payment</span>
@@ -184,7 +213,7 @@ export function MainnetPayHub({
   </section>
   {/* Both forms stay mounted after first visit. Their visible drafts share owner-scoped fields. */}
   {visited.wallet&&<section aria-label="Wallet transfer" hidden={selected!=='wallet'}>
-   <MainnetPayPage key={owner} embedded friendHandle={friendHandle} verifiedRecipient={verifiedRecipient}
+   <MainnetPayPage key={owner} embedded friendHandle={friendHandle} verifiedRecipient={selectedVerified}
     sharedDraft={draft} onDraftChange={changeDraft}/>
   </section>}
   {visited.contract&&<section aria-label="Contract payment" hidden={selected!=='contract'}>
