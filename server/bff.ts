@@ -52,6 +52,7 @@ import { getAuthenticatedVeyraUserId, issueSessionToken } from './auth/session.j
 import {clearBrowserRestoreCookie,issueBrowserRestoreCookie,verifyBrowserRestoreCookie} from './auth/browserRestoreSession.js';
 import {resolveTrustedLoginOrigin,resolveTrustedLoginOriginForEnv} from './services/walletLoginService.js';
 import {evaluateMainnetIdentityAuthority} from './services/mainnetIdentityCapability.js';
+import {indexVerifiedDirectPay,listVerifiedDirectPays,parseDirectPayReceiptRequest,PayReceiptApiError} from './services/mainnetPayReceiptService.js';
 import {sql} from 'drizzle-orm';
 import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } from './services/friendInboxService.js';
 import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
@@ -2164,6 +2165,44 @@ app.post('/api/receipts/cctp/resolve-source-revert', IDENTITY_RATE, async (req: 
     console.error('[BFF] /api/receipts/cctp/resolve-source-revert error:', err);
     res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
   }
+});
+
+// Arc Mainnet Direct Pay never uses the Testnet receipt write API.
+// POST is idempotent and verifies the original transaction from trusted RPC.
+// A missing hash, RPC failure, unauthenticated user, unbound wallet or stale
+// source proof MUST NOT be converted into a completed payment.
+app.post('/api/mainnet/pay/receipt/verify', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
+ const authority=evaluateMainnetIdentityAuthority(runtimeConfig,req.header('origin'));
+ if(!authority){res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;}
+ const userId=getAuthenticatedVeyraUserId(req);
+ if(!userId){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+ try{
+  const input=parseDirectPayReceiptRequest(req.body);
+  const {db}=await import('./db/client.js');
+  const receipt=await indexVerifiedDirectPay(db,userId,input);
+  res.setHeader('Cache-Control','no-store');
+  res.status(200).json({ok:true,receipt});
+ }catch(e){
+  if(e instanceof PayReceiptApiError){res.status(e.httpStatus).json({ok:false,error:e.code});return;}
+  console.error('[BFF] Mainnet Pay receipt indexer:',e instanceof Error?e.message:'unknown');
+  res.status(503).json({ok:false,error:'RECEIPT_PERSISTENCE_UNAVAILABLE'});
+ }
+});
+app.get('/api/mainnet/pay/receipts', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
+ if(!evaluateMainnetIdentityAuthority(runtimeConfig,runtimeConfig.appOrigin)){
+  res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;
+ }
+ const userId=getAuthenticatedVeyraUserId(req);
+ if(!userId){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+ try{
+  const {db}=await import('./db/client.js');
+  const receipts=await listVerifiedDirectPays(db,userId,50);
+  res.setHeader('Cache-Control','no-store');
+  res.json({ok:true,receipts});
+ }catch(e){
+  console.error('[BFF] Mainnet Pay receipt history:',e instanceof Error?e.message:'unknown');
+  res.status(503).json({ok:false,error:'RECEIPT_HISTORY_UNAVAILABLE'});
+ }
 });
 
 app.get('/api/receipts', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {
