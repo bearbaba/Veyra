@@ -71,6 +71,19 @@ describe('M0 durable receipt outbox behavioral tests',()=>{
   expect(enqueueVerifiedPay(journal(),broken).kind).toBe('blocked');
   expect(readMainnetJournal(a,s).kind).toBe('active');
  });
+ it('quarantines a legacy signed-out receipt rather than attaching private notes to another ID',async()=>{
+  const s=storage();const unbound=journal();delete unbound.senderUserId;
+  expect(writeMainnetJournal(unbound,s)).toBe(true);
+  expect(enqueueVerifiedPay(unbound,s).kind).toBe('queued');
+  const entries=readReceiptOutbox(a,s).items;
+  expect(entries).toHaveLength(1);
+  expect(entries[0]).toMatchObject({status:'review',problem:'ORIGINAL_ACCOUNT_NOT_BOUND'});
+  const submit=vi.fn(()=>Promise.resolve(receipt));
+  expect(await syncReceiptOutboxOnce({owner:a,userId:other,token:'signed-session',
+   storage:s,submit,signal:new AbortController().signal})).toBe('wrong-account');
+  expect(submit).not.toHaveBeenCalled();
+  expect(readReceiptOutbox(a,s).items[0].note).toBe('Private lunch');
+ });
  it('does not mix owners, identities or signed-out sessions',async()=>{
   const s=storage();writeMainnetJournal(journal(),s);enqueueVerifiedPay(journal(),s);
   const submit=vi.fn(()=>Promise.resolve(receipt));
