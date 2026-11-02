@@ -25,9 +25,10 @@ function valid(value:unknown,owner:string,hash:string):value is ReceiptOutboxIte
  if(!value||typeof value!=='object'||Array.isArray(value))return false;
  const x=value as Partial<ReceiptOutboxItem>;
  if(x.owner?.toLowerCase()!==owner.toLowerCase()||x.hash?.toLowerCase()!==hash.toLowerCase()||
-    x.chainId!==5042||!WALLET.test(x.to??'')||typeof x.amount!=='string'||!x.amount||
-    !Number.isFinite(x.createdAt)||!Number.isFinite(x.nextAttemptAt)||
-    !Number.isSafeInteger(x.attempts)||x.attempts!<0||
+    x.chainId!==5042||typeof x.to!=='string'||!WALLET.test(x.to)||typeof x.amount!=='string'||!x.amount||
+    typeof x.createdAt!=='number'||!Number.isFinite(x.createdAt)||
+    typeof x.nextAttemptAt!=='number'||!Number.isFinite(x.nextAttemptAt)||
+    typeof x.attempts!=='number'||!Number.isSafeInteger(x.attempts)||x.attempts<0||
     !['pending','sign-in','review'].includes(x.status??'')||
     x.senderUserId!==undefined&&!USER.test(x.senderUserId)||
     x.snapshotId!==undefined&&!SNAP.test(x.snapshotId)||
@@ -63,6 +64,10 @@ export function enqueueVerifiedPay(journal:MainnetJournal,storage:OutboxStorage)
  {kind:'queued'|'blocked';reason?:string}{
  if(journal.stage!=='VERIFIED'||!journal.hash||!WALLET.test(journal.from)||!HASH.test(journal.hash))
   return {kind:'blocked',reason:'Original transaction is not verified.'};
+ // Durable verified journal must exist before a new payment can be unlocked.
+ let diskStage:string|undefined;
+ try{diskStage=(JSON.parse(storage.getItem('veyra:arc-mainnet-5042-payment:v1:'+journal.from.toLowerCase())??'null') as MainnetJournal|null)?.stage;}catch{/* blocked */}
+ if(diskStage!=='VERIFIED')return {kind:'blocked',reason:'Verified payment journal was not persisted.'};
  const current=readMainnetJournal(journal.from,storage);
  if(current.kind!=='active'||current.value.hash?.toLowerCase()!==journal.hash.toLowerCase()||
     current.value.to.toLowerCase()!==journal.to.toLowerCase()||current.value.amount!==journal.amount)
@@ -101,6 +106,7 @@ export function enqueueVerifiedPay(journal:MainnetJournal,storage:OutboxStorage)
    return {kind:'blocked',reason:'Payment journal changed during receipt handoff.'};
   if(!clearMainnetJournal(journal.from,storage))
    return {kind:'blocked',reason:'Receipt queued but payment lock could not be released.'};
+  try{window.dispatchEvent(new Event('veyra:mainnet:outbox'));}catch{/* durable item already saved */}
   return {kind:'queued'};
  }catch{return {kind:'blocked',reason:'Receipt storage unavailable. Do not send another payment.'};}
 }
