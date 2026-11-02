@@ -6,10 +6,10 @@ import {Search,ShieldCheck,Wallet,ExternalLink} from 'lucide-react';
 import {lookupMainnetRecipient,createRecipientSearchGuard,type RecipientSearchResult} from '@/mainnet/recipientLookup';
 
 export function MainnetRecipientSearch({
- owner,sessionToken,initialQuery='',onSelection,label='Find a recipient',
+ owner,sessionToken,initialQuery='',onSelection,onQueryEdit,label='Find a recipient',
 }:{
  owner:string|null|undefined;sessionToken?:string;initialQuery?:string;
- onSelection:(result:RecipientSearchResult|null)=>void;label?:string;
+ onSelection:(result:RecipientSearchResult|null)=>void;onQueryEdit?:()=>void;label?:string;
 }){
  const [value,setValue]=useState(initialQuery);
  const [busy,setBusy]=useState(false);
@@ -35,7 +35,7 @@ export function MainnetRecipientSearch({
   }finally{if(guard.current.isCurrent(ticket))setBusy(false);}
  }
  function edit(next:string){
-  guard.current.invalid();setValue(next);setResult(null);setError(null);setBusy(false);current.current(null);
+  guard.current.invalid();setValue(next);setResult(null);setError(null);setBusy(false);current.current(null);onQueryEdit?.();
  }
  const address=result?.kind==='wallet'?result.wallet:result?.kind==='veyra'?result.person.wallet:null;
  return <div className="space-y-3">
