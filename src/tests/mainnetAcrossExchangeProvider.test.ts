@@ -48,7 +48,7 @@ describe('Across candidate: server-only live quote without token impersonation o
   expect(fetcher).not.toHaveBeenCalled();
  });
  it('requests an actual provider quote with server-only credentials and no calldata returned',async()=>{
-  const fetcher=vi.fn(()=>Promise.resolve(new Response(JSON.stringify(payload),{
+  const fetcher=vi.fn((_url:RequestInfo|URL)=>Promise.resolve(new Response(JSON.stringify(payload),{
    status:200,headers:{'content-type':'application/json'}})));
   const quote=await quoteAcrossBaseWethToArcUsdc(selection,env,fetcher,now);
   expect(quote).toMatchObject({provider:'Across',executionReady:false,
