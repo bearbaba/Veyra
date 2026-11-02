@@ -6,6 +6,7 @@ import { useAccount, useSwitchChain } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { formatUnits } from 'viem';
 import { recordLocalOperation } from '@/mainnet/localOperations';
+import {assertMainnetSigningAllowed,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
 import { AlertTriangle, ExternalLink, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import {
   buildMainnetPayPlan, mainnetPreflight, requestMainnetCanaryTransfer,
@@ -74,6 +75,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   }
   async function send(){
     if(!address||!review||!ack||blocked||lock.current)return;
+    try{assertMainnetSigningAllowed();}catch(e){setError(msg(e));return;}
     lock.current=true;setBusy(true);setError(null);
     const initial:MainnetJournal={from:review.plan.from,to:review.plan.to,amount:review.plan.amount,hash:null,stage:'AWAITING_WALLET'};
     let requested=false;
@@ -202,7 +204,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
             <span>I verified network, recipient, amount and real-money risk.</span>
           </label>
           <button className="w-full rounded-xl px-4 py-3 font-bold disabled:opacity-40"
-            disabled={!ack||busy} style={{background:'var(--accent)',color:'#fff'}} onClick={()=>void send()}>
+            disabled={!ack||busy||MAINNET_EMERGENCY_READ_ONLY} style={{background:'var(--accent)',color:'#fff'}} onClick={()=>void send()}>
             Confirm in wallet
           </button>
           <button className="w-full py-2 text-xs" onClick={()=>{setReview(null);setAck(false);}}>Edit details</button>

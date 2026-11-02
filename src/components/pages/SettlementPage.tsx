@@ -59,12 +59,15 @@ import {
 } from 'wagmi';
 import {
   parseUnits, isAddress, formatUnits, erc20Abi,
-  decodeEventLog, encodeFunctionData, encodeDeployData, parseAbi, keccak256, type Log,
+  decodeEventLog, decodeFunctionData, encodeFunctionData, encodeDeployData, parseAbi, parseAbiItem, keccak256, type Log,
 } from 'viem';
 import { ConnectKitButton } from 'connectkit';
 import { AlertTriangle, CheckCircle, Clock, ExternalLink, Lock, Send, Unlock, Loader2 } from 'lucide-react';
 import { VEYRA_ENV } from '@/lib/env';
 import {recordLocalOperation,readLocalOperations} from '@/mainnet/localOperations';
+import {readSettlementIntent,writeSettlementIntent,clearSettlementIntent,settlementUnresolved,type SettlementIntent} from '@/mainnet/settlementJournal';
+import {inspectRecordedSettlement} from '@/mainnet/verifyRecordedSettlement';
+import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
 import { MainnetSettlementDeploy } from './MainnetSettlementDeploy';
 import { VEYRA_SETTLEMENT_CREATION_BYTECODE, VEYRA_SETTLEMENT_CREATION_KECCAK } from '@/generated/veyraSettlementCreation';
 import {
@@ -217,6 +220,19 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
   // lifecycle
   const [step, setStep] = useState<Step>('form');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [intentState,setIntentState]=useState<ReturnType<typeof readSettlementIntent>>({kind:'empty'});
+  const [recoveryBusy,setRecoveryBusy]=useState(false);
+  const [recoveryNotice,setRecoveryNotice]=useState<string|null>(null);
+  useEffect(()=>{
+    const sync=()=>setIntentState(address?readSettlementIntent(address):{kind:'empty'});
+    sync();
+    window.addEventListener('veyra:mainnet:journal',sync);
+    window.addEventListener('focus',sync);
+    return()=>{
+      window.removeEventListener('veyra:mainnet:journal',sync);
+      window.removeEventListener('focus',sync);
+    };
+  },[address]);
   const [approveTxHash, setApproveTxHash] = useState<`0x${string}` | undefined>();
   const [settleTxHash, setSettleTxHash] = useState<`0x${string}` | undefined>();
 
@@ -435,13 +451,23 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
   const { writeContractAsync: writeApprove, isPending: approving } = useWriteContract();
   const { writeContractAsync: writeSettle, isPending: settling } = useWriteContract();
 
-  const { isSuccess: approveConfirmed } = useWaitForTransactionReceipt({ hash: approveTxHash });
+  const { data: approveReceipt, isSuccess: approveConfirmed } = useWaitForTransactionReceipt({ hash: approveTxHash });
   const { data: settleReceipt, isSuccess: settleConfirmed } =
     useWaitForTransactionReceipt({ hash: settleTxHash });
 
   // ── approve auto-advance + gas price refresh ─────────────────────────────────
   useEffect(() => {
-    if (!approveConfirmed || step !== 'approve' || !approveTxHash) return;
+    if (!approveConfirmed || !approveReceipt || step !== 'approve' || !approveTxHash) return;
+    if(approveReceipt.status!=='success'){
+      if(isMainnet&&address){
+        const journal=readSettlementIntent(address);
+        if(journal.kind==='active'&&journal.value.phase==='APPROVAL'&&
+           journal.value.hash?.toLowerCase()===approveTxHash.toLowerCase())
+          writeSettlementIntent({...journal.value,stage:'REVERTED'});
+      }
+      setErrorMsg('The original token approval reverted. No payment was submitted.');
+      setStep('error');return;
+    }
     // Refresh gas price after approval so pay-step estimate reflects current price
     if (publicClient) {
       publicClient.getGasPrice()
@@ -449,8 +475,15 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
         .catch(() => undefined);
     }
     void refetchAllowance();
+    if(isMainnet&&address){
+      const journal=readSettlementIntent(address);
+      if(journal.kind==='active'&&journal.value.phase==='APPROVAL'&&
+         journal.value.stage==='PENDING'&&journal.value.hash?.toLowerCase()===approveTxHash.toLowerCase()){
+        writeSettlementIntent({...journal.value,stage:'VERIFIED'});
+      }
+    }
     setStep('review');
-  }, [approveConfirmed, step, approveTxHash, publicClient, refetchAllowance]);
+  }, [approveConfirmed, approveReceipt, step, approveTxHash, publicClient, refetchAllowance, isMainnet, address]);
 
   // ── receipt verification (delegates to @/lib/settlementVerify) ───────────────
   useEffect(() => {
@@ -546,22 +579,176 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
     if(result.verified && VEYRA_ENV==='mainnet' && result.txHash){
       recordLocalOperation({type:'Settlement',owner:snap.walletAddress,hash:result.txHash,amount:formatUnits(snap.amountParsed,6),asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,status:'RECORDED',destination:snap.recipient});
     }
+    if(VEYRA_ENV==='mainnet'&&result.verified){
+      const intent=readSettlementIntent(snap.walletAddress);
+      if(intent.kind==='active'&&intent.value.phase==='PAYMENT'&&
+         intent.value.hash?.toLowerCase()===result.txHash.toLowerCase())
+        writeSettlementIntent({...intent.value,stage:'VERIFIED'});
+    }
     setStep(result.verified ? 'verified' : 'confirmed');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settleConfirmed, settleReceipt]);
 
+
+  // Restore a signed transaction after reload without re-opening the wallet.
+  useEffect(()=>{
+    if(!address||VEYRA_ENV!=='mainnet')return;
+    let live=true,checking=false;
+    async function poll(){
+      if(!live||checking||!address)return;
+      const saved=readSettlementIntent(address);
+      if(saved.kind!=='active'||saved.value.stage!=='PENDING'||!saved.value.hash)return;
+      const originalHash=saved.value.hash;
+      checking=true;
+      try{
+        const intent=saved.value;
+        if(intent.phase==='PAYMENT'){
+          const evidence=await inspectRecordedSettlement(originalHash,address,intent.amount,intent.recipient);
+          if(live&&(evidence.status==='VERIFIED'||evidence.status==='REVERTED')){
+            writeSettlementIntent({...intent,stage:evidence.status});
+            recordLocalOperation({type:'Settlement',owner:address,hash:originalHash,
+              amount:intent.amount,asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,
+              status:evidence.status==='VERIFIED'?'RECORDED':'REVERTED',destination:intent.recipient});
+          }
+        }else if(chainId===ARC_MAINNET_CHAIN_ID&&publicClient&&deployment){
+          const hash=originalHash as `0x${string}`;
+          const tx=await publicClient.getTransaction({hash});
+          const receipt=await publicClient.getTransactionReceipt({hash});
+          if(!live||tx.from.toLowerCase()!==address.toLowerCase()||
+              tx.to?.toLowerCase()!==activeUsdcAddress.toLowerCase())return;
+          const decoded=decodeFunctionData({abi:erc20Abi,data:tx.input});
+          if(decoded.functionName!=='approve'||decoded.args[0].toLowerCase()!==deployment.address.toLowerCase()||
+             decoded.args[1]!==parseUnits(intent.amount,6))return;
+          if(receipt.status==='success'||receipt.status==='reverted')
+            writeSettlementIntent({...intent,stage:receipt.status==='success'?'VERIFIED':'REVERTED'});
+        }
+      }catch{/* Missing receipt or RPC failure is not evidence of a failed payment. */}
+      finally{checking=false;}
+    }
+    void poll();
+    const interval=window.setInterval(()=>void poll(),15000);
+    return()=>{live=false;window.clearInterval(interval);};
+  },[address,chainId,publicClient,deployment?.address,activeUsdcAddress]);
+
+
+  // Recover hashless requests by indexed canonical events, never by assuming absence.
+  async function checkOriginalRequest(){
+    if(!address||!publicClient||!deployment||!isMainnet||recoveryBusy)return;
+    setRecoveryBusy(true);setRecoveryNotice(null);
+    try{
+      const saved=readSettlementIntent(address);
+      if(saved.kind!=='active'){setRecoveryNotice('No active request found.');return;}
+      const intent=saved.value;
+      if(intent.hash){
+        if(intent.phase==='PAYMENT'){
+          const proof=await inspectRecordedSettlement(intent.hash,address,intent.amount,intent.recipient);
+          if(proof.status==='VERIFIED'||proof.status==='REVERTED'){
+            writeSettlementIntent({...intent,stage:proof.status});
+            recordLocalOperation({type:'Settlement',owner:address,hash:intent.hash,
+              amount:intent.amount,asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,
+              status:proof.status==='VERIFIED'?'RECORDED':'REVERTED',destination:intent.recipient});
+            setRecoveryNotice(proof.status==='VERIFIED'?'Original payment verified.':'Original payment reverted.');
+          }else setRecoveryNotice('Original payment is pending or unverified. No new transfer was sent.');
+        }else{
+          const tx=await publicClient.getTransaction({hash:intent.hash as `0x${string}`});
+          const receipt=await publicClient.getTransactionReceipt({hash:intent.hash as `0x${string}`});
+          const call=decodeFunctionData({abi:erc20Abi,data:tx.input});
+          if(tx.from.toLowerCase()!==address.toLowerCase()||
+             tx.to?.toLowerCase()!==activeUsdcAddress.toLowerCase()||
+             call.functionName!=='approve'||call.args[0].toLowerCase()!==deployment.address.toLowerCase()||
+             call.args[1]!==parseUnits(intent.amount,6))
+            throw Error('Original approval does not match the reviewed wallet, token or amount.');
+          writeSettlementIntent({...intent,stage:receipt.status==='success'?'VERIFIED':'REVERTED'});
+          setRecoveryNotice(receipt.status==='success'?'Original approval confirmed.':'Original approval reverted.');
+        }
+        return;
+      }
+      if(!intent.fromBlock){
+        setRecoveryNotice('This older wallet request has no transaction hash or saved starting block. Check your wallet history before deciding whether to send again.');
+        return;
+      }
+      if(await publicClient.getChainId()!==ARC_MAINNET_CHAIN_ID)
+        throw Error('Arc Mainnet RPC could not be confirmed.');
+      const latest=await publicClient.getBlockNumber();
+      const finalized=latest>2n?latest-2n:0n;
+      const start=BigInt(intent.scanCursor??intent.fromBlock);
+      if(start>finalized){
+        setRecoveryNotice('No new confirmed block range to check. The original request remains protected.');
+        return;
+      }
+      const end=start+999n<finalized?start+999n:finalized;
+      let located:string|null=null;
+      if(intent.phase==='PAYMENT'){
+        const event=parseAbiItem('event PaymentSettled(bytes32 indexed paymentId,address indexed payer,address indexed recipient,uint256 amount,uint256 fee,bytes32 ref)');
+        const logs=await publicClient.getLogs({address:deployment.address,event,
+          args:{payer:address,recipient:intent.recipient as `0x${string}`},
+          fromBlock:start,toBlock:end});
+        const matching=logs.filter(x=>x.args.ref?.toLowerCase()===intent.ref.toLowerCase()&&
+          x.args.amount===parseUnits(intent.amount,6));
+        if(matching.length>1)throw Error('More than one matching settlement event; manual review required.');
+        if(matching.length===1)located=matching[0].transactionHash;
+        if(located){
+          const proof=await inspectRecordedSettlement(located,address,intent.amount,intent.recipient);
+          if(proof.status==='VERIFIED'){
+            writeSettlementIntent({...intent,hash:located,stage:'VERIFIED',scanCursor:(end+1n).toString()});
+            recordLocalOperation({type:'Settlement',owner:address,hash:located,amount:intent.amount,
+              asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,status:'RECORDED',destination:intent.recipient});
+            setRecoveryNotice('Original payment located and verified onchain. No retry was submitted.');
+            return;
+          }
+          setRecoveryNotice('A matching payment event was found but could not be fully verified. Signing remains locked.');
+          return;
+        }
+      }else{
+        const event=parseAbiItem('event Approval(address indexed owner,address indexed spender,uint256 value)');
+        const logs=await publicClient.getLogs({address:activeUsdcAddress,event,
+          args:{owner:address,spender:deployment.address},fromBlock:start,toBlock:end});
+        for(const log of logs){
+          if(log.args.value!==parseUnits(intent.amount,6))continue;
+          const tx=await publicClient.getTransaction({hash:log.transactionHash});
+          const receipt=await publicClient.getTransactionReceipt({hash:log.transactionHash});
+          if(receipt.status!=='success'||tx.from.toLowerCase()!==address.toLowerCase()||
+             tx.to?.toLowerCase()!==activeUsdcAddress.toLowerCase())continue;
+          const call=decodeFunctionData({abi:erc20Abi,data:tx.input});
+          if(call.functionName!=='approve'||call.args[0].toLowerCase()!==deployment.address.toLowerCase()||
+             call.args[1]!==parseUnits(intent.amount,6))continue;
+          located=log.transactionHash;break;
+        }
+        if(located){
+          writeSettlementIntent({...intent,hash:located,stage:'VERIFIED',scanCursor:(end+1n).toString()});
+          setRecoveryNotice('Original approval found onchain. No second approval was sent.');
+          return;
+        }
+      }
+      writeSettlementIntent({...intent,scanCursor:(end+1n).toString()});
+      setRecoveryNotice('Checked Arc blocks '+start.toString()+'–'+end.toString()+
+        '. No matching confirmed event. This is NOT proof that the original transaction failed.');
+    }catch(e){
+      setRecoveryNotice('Cannot confirm the original request: '+
+       (e instanceof Error?e.message:'RPC unavailable')+'. No second payment was sent.');
+    }finally{setRecoveryBusy(false);}
+  }
+
   // ── reset ─────────────────────────────────────────────────────────────────────
   const reset = useCallback(() => {
+    if(address&&VEYRA_ENV==='mainnet'&&settlementUnresolved(readSettlementIntent(address))){
+      setErrorMsg('Your previous wallet request is unresolved. Check Activity and do not resubmit.');
+      setStep('error');return;
+    }
     setStep('form');
     setErrorMsg(null);
     setApproveTxHash(undefined);
     setSettleTxHash(undefined);
     setSnapshot(null);
     setVerResult(null);
-  }, []);
+  }, [address]);
 
   // ── review entry: load fees, lock snapshot ─────────────────────────────────────
   function handleReview() {
+    if(address&&VEYRA_ENV==='mainnet'&&settlementUnresolved(readSettlementIntent(address))){
+      setErrorMsg('An earlier payment or approval request is unresolved. Check the original wallet request before signing again.');
+      setStep('error');return;
+    }
     if (!mainnetRegistryVerified) { setErrorMsg('Mainnet contract verification has not passed.'); setStep('error'); return; }
     if (!liveFeesReady) { setStep('loading-fees'); return; }
     lockSnapshot();
@@ -625,8 +812,33 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
   // ── approve ──────────────────────────────────────────────────────────────────
   async function handleApprove() {
     if (!deployment || !address || !snapshot) return;
+    try{assertMainnetSigningAllowed();}catch(e){
+      setErrorMsg(e instanceof Error?e.message:'New signing disabled.');
+      setStep('error');return;
+    }
     if (!mainnetRegistryVerified) {setErrorMsg('Mainnet contract verification has not passed.');setStep('error');return;}
     if (isMainnet) {try{await validateMainnetDeployment();}catch(e){setErrorMsg(e instanceof Error?e.message:'Mainnet contract validation failed');setStep('error');return;}}
+    if(isMainnet){
+      if(settlementUnresolved(readSettlementIntent(address))){
+        setErrorMsg('Previous contract wallet request unresolved. Check its status before approving again.');
+        setStep('error');return;
+      }
+      let fromBlock:string;
+      try{
+        if(!publicClient)throw Error('RPC unavailable');
+        fromBlock=(await publicClient.getBlockNumber()).toString();
+      }catch{
+        setErrorMsg('Cannot save the original approval block. No wallet signature requested.');
+        setStep('error');return;
+      }
+      const intent:SettlementIntent={owner:address,phase:'APPROVAL',stage:'AWAITING_WALLET',
+       recipient:snapshot.recipient,amount:formatUnits(snapshot.amountParsed,6),
+       ref:snapshot.ref,hash:null,createdAt:Date.now(),fromBlock};
+      if(!writeSettlementIntent(intent)){
+        setErrorMsg('Cannot save secure approval recovery. Wallet signature was not requested.');
+        setStep('error');return;
+      }
+    }
     setStep('approve');
     setErrorMsg(null);
     try {
@@ -636,9 +848,23 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
         functionName: 'approve',
         args: [snapshot.contractAddress, snapshot.amountParsed],
       });
+      if(isMainnet){
+        const current=readSettlementIntent(address);
+        if(current.kind==='active'&&!writeSettlementIntent({...current.value,stage:'PENDING',hash}))
+          setErrorMsg('Approval submitted but local recovery failed. Keep the original hash and do not repeat.');
+      }
       setApproveTxHash(hash);
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : 'Approval failed');
+      if(isMainnet){
+        const current=readSettlementIntent(address);
+        if(current.kind==='active'){
+          const code=typeof e==='object'&&e!==null&&'code' in e?e.code:undefined;
+          if(code===4001||code==='ACTION_REJECTED')clearSettlementIntent(address);
+          else writeSettlementIntent({...current.value,stage:'UNKNOWN',hash:null});
+        }
+      }
+      setErrorMsg((e instanceof Error?e.message:'Approval result unavailable')+
+       '. Check the original wallet request before trying again.');
       setStep('error');
     }
   }
@@ -646,6 +872,10 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
   // ── P0-3: pre-sign revalidation + broadcast ───────────────────────────────────
   async function handleSettle() {
     if (!deployment || !address || !snapshot || !publicClient) return;
+    try{assertMainnetSigningAllowed();}catch(e){
+      setErrorMsg(e instanceof Error?e.message:'New signing disabled.');
+      setStep('error');return;
+    }
     if (!mainnetRegistryVerified) {setErrorMsg('Mainnet contract verification has not passed.');setStep('error');return;}
     if (isMainnet) {try{await validateMainnetDeployment();}catch(e){setErrorMsg(e instanceof Error?e.message:'Mainnet contract validation failed');setStep('error');return;}}
     setStep('revalidating');
@@ -750,6 +980,26 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
         return;
       }
     }
+    // Save the frozen payment intent BEFORE the wallet request is opened.
+    if(isMainnet&&snapshot.mode==='pay'){
+      if(settlementUnresolved(readSettlementIntent(address))){
+        setErrorMsg('An earlier Settlement request is unresolved. Check Activity before signing again.');
+        setStep('error');return;
+      }
+      let fromBlock:string;
+      try{fromBlock=(await publicClient.getBlockNumber()).toString();}
+      catch{
+        setErrorMsg('Cannot save the original payment block. No wallet signature requested.');
+        setStep('error');return;
+      }
+      const intent:SettlementIntent={owner:address,phase:'PAYMENT',
+       stage:'AWAITING_WALLET',recipient:snapshot.recipient,
+       amount:formatUnits(snapshot.amountParsed,6),ref:snapshot.ref,hash:null,createdAt:Date.now(),fromBlock};
+      if(!writeSettlementIntent(intent)){
+        setErrorMsg('Recovery storage unavailable. No wallet signature requested.');
+        setStep('error');return;
+      }
+    }
     // Revalidation passed — broadcast
     setStep('execute');
     try {
@@ -772,6 +1022,9 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
       }
       // Capture the wallet-returned hash immediately, before the receipt exists.
       if(isMainnet && snapshot.mode==='pay'){
+        const intent=readSettlementIntent(address);
+        if(intent.kind==='active'&&!writeSettlementIntent({...intent.value,stage:'PENDING',hash}))
+          setErrorMsg('Payment broadcast but recovery storage failed. Preserve the original wallet transaction; do not resubmit.');
         const stored=recordLocalOperation({
           type:'Settlement',owner:snapshot.walletAddress,hash,
           amount:formatUnits(snapshot.amountParsed,6),asset:'USDC',
@@ -784,7 +1037,16 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
       setSettleTxHash(hash);
       setStep('pending');
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : 'Transaction failed');
+      if(isMainnet&&snapshot.mode==='pay'){
+        const prior=readSettlementIntent(address);
+        if(prior.kind==='active'){
+          const code=typeof e==='object'&&e!==null&&'code' in e?e.code:undefined;
+          if(code===4001||code==='ACTION_REJECTED')clearSettlementIntent(address);
+          else writeSettlementIntent({...prior.value,stage:'UNKNOWN',hash:null});
+        }
+      }
+      setErrorMsg((e instanceof Error?e.message:'Wallet outcome unavailable')+
+       '. A wallet/RPC error does not prove the funds were not submitted. Do not resend.');
       setStep('error');
     }
   }
@@ -830,6 +1092,19 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
 
       <div className="flex-1 px-4 py-6 space-y-5 max-w-2xl mx-auto w-full">
 
+        {isMainnet&&settlementUnresolved(intentState)&&<div role="alert"
+          className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+          <p className="font-semibold">Original wallet request needs checking</p>
+          <p className="mt-2 text-xs leading-5">Veyra will not repeat this approval or payment
+            while its result is unknown. A saved transaction hash is checked automatically.</p>
+          {intentState.kind==='active'&&intentState.value.hash&&
+            <p className="mt-2 break-all font-mono text-xs">{intentState.value.hash}</p>}
+          <button type="button" onClick={()=>void checkOriginalRequest()} disabled={recoveryBusy||!onArc}
+            className="mt-3 rounded-lg border border-amber-300/40 px-3 py-2 text-xs font-semibold disabled:opacity-50">
+            {recoveryBusy?'Checking Arc…':'Check original transaction again'}
+          </button>
+          {recoveryNotice&&<p role="status" className="mt-2 text-xs leading-5">{recoveryNotice}</p>}
+        </div>}
         {/* Wallet connection */}
         {!isConnected && (
           <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] p-5 text-center space-y-3">
@@ -1214,8 +1489,9 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
                 <p className="text-xs text-red-400/70 mt-1 break-words">{errorMsg}</p>
               </div>
             </div>
-            <button onClick={reset} className="w-full py-2 text-sm text-white/40 hover:text-white/70">
-              ← Start again
+            <button onClick={reset} disabled={isMainnet&&settlementUnresolved(intentState)}
+              className="w-full py-2 text-sm text-white/40 hover:text-white/70 disabled:cursor-not-allowed disabled:opacity-30">
+              {isMainnet&&settlementUnresolved(intentState)?'Checking original request':'← Start again'}
             </button>
           </div>
         )}

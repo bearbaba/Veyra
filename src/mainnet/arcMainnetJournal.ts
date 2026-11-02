@@ -49,12 +49,16 @@ export function writeMainnetJournal(value: MainnetJournal, storage: StorageLike)
   try {
     const serialized = JSON.stringify(value);
     storage.setItem(mainnetJournalKey(value.from), serialized);
-    return storage.getItem(mainnetJournalKey(value.from)) === serialized;
+    const saved=storage.getItem(mainnetJournalKey(value.from)) === serialized;
+    if(saved)try{window.dispatchEvent?.(new Event('veyra:mainnet:journal'));}catch{/* saved */}
+    return saved;
   } catch { return false; }
 }
 export function clearMainnetJournal(from: string, storage: StorageLike): boolean {
   try {
     storage.removeItem(mainnetJournalKey(from));
-    return storage.getItem(mainnetJournalKey(from)) === null;
+    const cleared=storage.getItem(mainnetJournalKey(from)) === null;
+    if(cleared)try{window.dispatchEvent?.(new Event('veyra:mainnet:journal'));}catch{/* cleared */}
+    return cleared;
   } catch { return false; }
 }

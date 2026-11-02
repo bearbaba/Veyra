@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - review/mainnet-activity-readonly-verification
+      - fix/mainnet-p0-journal-cctp-link
       - arc-studio/settlement-mainnet-preview
   workflow_dispatch:
 
@@ -31,11 +32,15 @@ jobs:
         run: >
           bunx vitest run
           src/tests/mainnetAutomaticHistory.test.ts
+          src/tests/mainnetP0Reliability.test.ts
+          src/tests/mainnetP0ReleaseGuard.test.ts
+          src/tests/mainnetUnifiedPayUx.test.ts
           src/tests/mainnetProductAndActivity.test.ts
           src/tests/phase6ArcMainnetPay.test.ts
           src/tests/settlementGasAndVerification.test.ts
           src/tests/phase3MainnetCatalog.test.ts
           src/tests/arcAppKitBridge.test.ts
           src/tests/arcAppKitSwap.test.ts
-      - run: VITE_VEYRA_ENV=mainnet VITE_VEYRA_MAINNET_MVP=1 VITE_VEYRA_MAINNET_PAY=1 bun run build
+      - name: Build exact full Mainnet release profile (matches vercel.json)
+        run: VITE_VEYRA_ENV=mainnet VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_TESTNET_PAY=0 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=1 VITE_VEYRA_IDENTITY_BETA=0 VITE_VEYRA_UNIFIED_STAGING=0 bun run build
       - run: bun run check:prod-bundle

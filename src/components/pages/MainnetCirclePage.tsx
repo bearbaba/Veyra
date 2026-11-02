@@ -14,6 +14,8 @@ import {ArrowLeftRight,Route,ShieldCheck,AlertTriangle,ExternalLink,RefreshCw} f
 import {getMainnetChain,CCTP_V2_MAINNET} from '@/config/mainnetCatalog';
 import { recordLocalOperation } from '@/mainnet/localOperations';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
+import {assertCctpBridgeLinked} from '@/mainnet/verifyCctpBridgeLink';
+import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
 
 const kit=new AppKit();
 const ARC=5042,BASE=8453;
@@ -21,6 +23,9 @@ const EURC='0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1' as const;
 const TOKENS={USDC:'0x3600000000000000000000000000000000000000',EURC} as const;
 const TRANSFER=parseAbi(['event Transfer(address indexed from,address indexed to,uint256 value)']);
 const HASH=/^0x[0-9a-fA-F]{64}$/;
+declare const __VEYRA_RELEASE_ENV__:string;
+const BRIDGE_WRITE_ENABLED=__VEYRA_RELEASE_ENV__==='preview' ||
+ (__VEYRA_RELEASE_ENV__==='production' && import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_WRITE_ENABLED==='1');
 type Mode='swap'|'bridge';
 type Token='USDC'|'EURC';
 type Quote={owner:string;at:number;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;expected:string;fees:string[]};
@@ -155,6 +160,9 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
   lock.current=true;setBusy(true);setError('');setProof('');
   let saved=false;
   try{
+   assertMainnetSigningAllowed();
+   if(mode==='bridge'&&!BRIDGE_WRITE_ENABLED)
+    throw Error('Bridge signing is paused on Production until source-to-destination proof is accepted.');
    if(quote.owner!==owner||quote.mode!==mode||quote.amount!==amount||
     quote.source!==selectedSource||quote.destination!==selectedDest||
     quote.fromToken!==fromToken||quote.toToken!==toToken||
@@ -206,6 +214,7 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
    const receivedToken=mode==='swap'?TOKENS[recovery.toToken]:getMainnetChain(recovery.destination)?.usdc;
    if(!destinationClient||!receivedToken||await destinationClient.getChainId()!==recovery.destination)
     throw Error('Destination RPC or token unavailable.');
+   let burnEvidence:{sourceHash:string;receipt:Awaited<ReturnType<NonNullable<typeof arc>['getTransactionReceipt']>>}|null=null;
    if(mode==='bridge'){
     const sourceHash=recovery.burnHash||manualSource;
     if(!HASH.test(sourceHash))throw Error('Supply source burn hash before checking destination.');
@@ -217,6 +226,7 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
     if(sourceTx.from.toLowerCase()!==owner)throw Error('Source burn sender differs from the reviewed wallet.');
     if(!burn.logs.some(log=>log.address.toLowerCase()===CCTP_V2_MAINNET.tokenMessengerV2.toLowerCase()))
      throw Error('Canonical CCTP source burn event missing.');
+    burnEvidence={sourceHash,receipt:burn};
    }
    const receipt=await destinationClient.getTransactionReceipt({hash:hash as Hash});
    if(mode==='swap'){
@@ -231,9 +241,11 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
     throw Error('Destination transaction reverted. Check Circle status before any new request.');
    }
    if(receipt.status!=='success')throw Error('Receipt not confirmed.');
-   if(mode==='bridge'&&!receipt.logs.some(log=>
-    [CCTP_V2_MAINNET.messageTransmitterV2.toLowerCase(),CCTP_V2_MAINNET.tokenMinterV2.toLowerCase()].includes(log.address.toLowerCase())))
-    throw Error('Canonical CCTP destination mint evidence missing.');
+   if(mode==='bridge'){
+    if(!burnEvidence)throw Error('Original CCTP burn missing.');
+    await assertCctpBridgeLinked(recovery.source,recovery.destination,
+     burnEvidence.sourceHash,hash,burnEvidence.receipt,receipt,address,parseUnits(recovery.amount,6));
+   }
    const amountOut=transferSum(receipt,receivedToken,address);
    if(amountOut<parseUnits(recovery.minimum,6))throw Error('Destination Transfer amount below reviewed minimum or mint not found.');
    const r:Recovery={...recovery,status:'VERIFIED',...(mode==='swap'?{hash}:{mintHash:hash})};
