@@ -12,7 +12,7 @@ export function reserveCircleExchangeBeforeSigning(args:{
  intent:ExchangeIntent;legacyKey:string;recoveryRecord:string;storage:RecoveryStorage;
 }):ReserveResult{
  const {intent,legacyKey,recoveryRecord,storage}=args;
- let created=false,legacySaved=false;
+ let created=false;
  try{
   if(storage.getItem(legacyKey)!==null)
    return {kind:'blocked',message:'Previous original Exchange operation must be resolved first.'};
@@ -22,20 +22,21 @@ export function reserveCircleExchangeBeforeSigning(args:{
   // No financial signing has happened; a failed local write is safe to roll back.
   storage.setItem(legacyKey,recoveryRecord);
   if(storage.getItem(legacyKey)!==recoveryRecord)throw Error('Recovery record could not be read back.');
-  legacySaved=true;
   if(!advanceExchangeIntent(intent.owner,intent.id,'AWAITING_WALLET',{},storage))
    throw Error('Exchange timeline could not be locked before wallet signing.');
   return {kind:'reserved'};
  }catch{
   // A failure to unlock safely leaves the legacy record intact, rather than
   // allowing an unknown second financial action.
-  let legacyCleared=!legacySaved;
-  if(legacySaved)try{
-   if(storage.getItem(legacyKey)===recoveryRecord){
+  let legacyCleared=false;
+  try{
+   const onDisk=storage.getItem(legacyKey);
+   if(onDisk===null)legacyCleared=true;
+   else if(onDisk===recoveryRecord){
     storage.removeItem(legacyKey);
     legacyCleared=storage.getItem(legacyKey)===null;
    }
-  }catch{/* fail closed */}
+  }catch{/* Never assume the previous operation is cleared. */}
   if(created&&legacyCleared){
    try{advanceExchangeIntent(intent.owner,intent.id,'CANCELLED_BEFORE_SOURCE',{},storage);}catch{/* fail closed */}
   }
