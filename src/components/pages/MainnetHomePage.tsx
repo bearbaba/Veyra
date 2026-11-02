@@ -98,7 +98,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
    </div>
    <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs" style={{color:'var(--muted)'}}>
     <span>Send: review and confirm in your wallet</span>
-    <span>Swap, Bridge and Gateway live under More</span>
+    <span>Swap and Bridge are under More · Gateway funds are not yet connected</span>
    </div>
   </section>
   <section className="rounded-xl" aria-label="Receive wallet USDC">
