@@ -48,13 +48,14 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
   setAccountReceipts([]);setAccountScope('');
   const token=social.session?.token;
   if(!address||!token||social.identityOrigin!=='ready'||!signedWallet)return;
+  const owner=address;
   const controller=new AbortController();
   let active=true;
   async function reload(){
    try{
     const items=await listVerifiedMainnetPayReceipts(token!,controller.signal);
-    if(active){setAccountReceipts(scopedMainnetReceipts(items,address).slice(0,10));
-     setAccountScope(address.toLowerCase()+':'+token);}
+    if(active){setAccountReceipts(scopedMainnetReceipts(items,owner).slice(0,10));
+     setAccountScope(owner.toLowerCase()+':'+token);}
    }catch{/* Offline identity history falls back to local transactions without fake receipts. */}
   }
   void reload();
