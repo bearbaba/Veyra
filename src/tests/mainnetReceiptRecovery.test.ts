@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {readFileSync} from 'node:fs';
-import {verifiedLocalPayMissingFromAccount,receiptSyncRetryDelayMs} from '../mainnet/receiptSyncCandidates';
+import {verifiedLocalPayMissingFromAccount} from '../mainnet/receiptSyncCandidates';
 import type {LocalOperation} from '../mainnet/localOperations';
 const a='0x1111111111111111111111111111111111111111';
 const b='0x2222222222222222222222222222222222222222';
@@ -33,55 +33,10 @@ describe('Receipt recovery never changes original financial signing',()=>{
   const records=['a','b','c','d','e'].map(n=>entry(hash(n)));
   const verified=Object.fromEntries(records.map(v=>[key(v),'VERIFIED']));
   expect(verifiedLocalPayMissingFromAccount(records,verified,new Set(),a)).toHaveLength(3);
-  const source=readFileSync(new URL('../components/pages/MainnetActivityPage.tsx',import.meta.url),'utf8');
-  expect(source).toContain('saveVerifiedMainnetPayReceipt(token,{hash:v.hash,note:v.note,');
-  expect(source).toContain('snapshotId:v.recipientSnapshotId');
-  expect(source).not.toContain('requestMainnetCanaryTransfer');
-  expect(source).toContain('Retry receipt sync (no wallet signature)');
+  // Queue processing is exercised with actual mocks in mainnetReceiptOutboxBehavior.test.ts.
  });
 });
 
-describe('M0 recipient receipt sync is independent of financial transfer',()=>{
- it('bounds retry delay without tight polling or unbounded waiting',()=>{
-  expect([1,2,3,4,5,6,50].map(receiptSyncRetryDelayMs))
-   .toEqual([5000,10000,20000,40000,60000,60000,60000]);
-  expect(receiptSyncRetryDelayMs(Number.NaN)).toBe(5000);
- });
- it('Pay retries the original verified hash without another wallet request',()=>{
-  const pay=readFileSync(new URL('../components/pages/MainnetPayPage.tsx',import.meta.url),'utf8');
-  const start=pay.indexOf('// After canonical chain verification, retry ONLY the original receipt POST.');
-  const stop=pay.indexOf('function reset()',start);
-  const recovery=pay.slice(start,stop);
-  expect(start).toBeGreaterThan(0);
-  expect(recovery).toContain('saveVerifiedMainnetPayReceipt(token,original)');
-  expect(recovery).toContain('receiptSyncRetryDelayMs(++failures)');
-  expect(recovery).toContain("window.addEventListener('online',retryOnReconnect)");
-  expect(recovery).not.toContain('requestMainnetCanaryTransfer');
-  expect(recovery).not.toContain('writeMainnetJournal');
-  expect(pay).toContain('Money sent · syncing receipt. Do not send again.');
-  expect(pay).toContain("disabled={journal.stage==='VERIFIED'&&receiptSync!=='saved'}");
- });
- it('renders a saved Sent receipt and correct Received counterparty without a duplicate payment',()=>{
-  const pay=readFileSync(new URL('../components/pages/MainnetPayPage.tsx',import.meta.url),'utf8');
-  const activity=readFileSync(new URL('../components/pages/MainnetActivityPage.tsx',import.meta.url),'utf8');
-  expect(pay).toContain('setAccountReceipt(saved)');
-  expect(pay).toContain('Verified USDC receipt');
-  expect(pay).toContain('Sent · {formatUnits(BigInt(accountReceipt.amountRaw),6)} USDC');
-  expect(pay).toContain('<summary className="cursor-pointer">Receipt details</summary>');
-  expect(pay).toContain('Original transaction details');
-  expect(activity).toContain("v.direction==='sent'?'Sent':'Received'");
-  expect(activity).toContain("'From wallet '+v.senderAddress.slice(0,8)");
-  expect(activity).toContain('Counterparty wallet');
- });
- it('Activity retries only independently verified original Pay and polls B account receipts',()=>{
-  const activity=readFileSync(new URL('../components/pages/MainnetActivityPage.tsx',import.meta.url),'utf8');
-  expect(activity).toContain("serverHistoryStatus==='checking')return");
-  expect(activity).toContain('receiptSyncRetryDelayMs(failures)');
-  expect(activity).toContain("window.setInterval(()=>void reload(),20000)");
-  expect(activity).toContain('Money sent · syncing receipt with your Veyra account');
-  expect(activity).not.toContain('requestMainnetCanaryTransfer');
- });
-});
 describe('Home keeps one human-facing wallet site and one verified history',()=>{
  it('shows server-verified account receipts without claiming local entries are verified',()=>{
   const source=readFileSync(new URL('../components/pages/MainnetHomePage.tsx',import.meta.url),'utf8');
