@@ -42,6 +42,9 @@ describe('Server-verifiable Veyra ID send safety',()=>{
   expect(people).toContain("social.invite('@'+selected.veyraHandle+'.veyra')");
   expect(people).toContain("social.respond(userId,decision)");
   expect(people).toContain('Friend invitations');
+  expect(people).toContain('searchEpoch.current++');
+  expect(people).toContain('if(epoch===searchEpoch.current)setSelected(verified)');
+  expect(people).toContain('disabled={!x.veyraHandle}');
  });
  it('keeps a note and reviewed label with the original browser receipt after status update',()=>{
   const map=new Map<string,string>();

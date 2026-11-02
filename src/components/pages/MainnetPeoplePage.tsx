@@ -1,5 +1,5 @@
 /** People is backed by signed identity; local contacts are never portrayed as verified. */
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {useAccount} from 'wagmi';
 import {isAddress} from 'viem';
 import {UserRoundCheck,Search,Send,ShieldAlert,RefreshCw} from 'lucide-react';
@@ -14,19 +14,25 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
 }){
  const {address}=useAccount(),social=useUnifiedSocial();
  const [name,setName]=useState(''),[busy,setBusy]=useState(false);
+ const searchEpoch=useRef(0);
  const [error,setError]=useState<string|null>(null);
  const [selected,setSelected]=useState<VerifiedMainnetRecipient|null>(null);
  const [friendActionBusy,setFriendActionBusy]=useState(false);
  const [friendActionError,setFriendActionError]=useState<string|null>(null);
- useEffect(()=>{setSelected(null);setError(null);setFriendActionError(null);},[address,social.session?.token]);
+ useEffect(()=>{
+  // A wallet/session change invalidates any previous async recipient lookup.
+  searchEpoch.current++;setSelected(null);setError(null);setFriendActionError(null);
+ },[address,social.session?.token]);
  const ready=!!address&&social.identityOrigin==='ready'&&!!social.session?.token;
  async function find(value=name){
   if(!ready||!address||!social.session?.token||busy)return;
   if(!HANDLE.test(value.trim())){setError('Enter a complete Veyra ID such as @alex.veyra.');return;}
+  const epoch=++searchEpoch.current;
   setBusy(true);setSelected(null);setError(null);
   try{
    const normalized='@'+value.trim().replace(/^@/,'').replace(/\.veyra$/i,'')+'.veyra';
    const data=await preparePaymentRecipient(normalized,5042,social.session.token);
+   if(epoch!==searchEpoch.current)return;
    if(data.kind!=='VEYRA_IDENTITY'||data.chainId!==5042||!data.snapshot||
        !isAddress(data.resolvedAddress))
     throw Error('This Veyra ID does not have a server-verified Arc Mainnet receiving wallet.');
@@ -39,8 +45,8 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
    // This call is read-only and rechecked again at payment review + before wallet signing.
    await verifyPaymentRecipient({snapshotId:verified.snapshotId,expectedWalletId:verified.walletId,
     expectedWalletAddress:verified.wallet,expectedChainId:5042,reviewToken:verified.reviewToken},social.session.token);
-   setSelected(verified);
-  }catch(e){setError((e instanceof Error?e.message:'Veyra recipient unavailable')+
+   if(epoch===searchEpoch.current)setSelected(verified);
+  }catch(e){if(epoch===searchEpoch.current)setError((e instanceof Error?e.message:'Veyra recipient unavailable')+
     ' No recipient was selected or money sent. Mainnet ID Pay requires an approved backend.');}
   finally{setBusy(false);}
  }
@@ -82,7 +88,7 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
   {ready&&<section className="rounded-xl border p-4 sm:p-5" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
    <h2 className="text-base font-semibold" style={{color:'var(--ink)'}}>Find by Veyra ID</h2>
    <div className="mt-3 flex flex-wrap gap-2">
-    <input aria-label="Find Veyra ID" value={name} onChange={e=>{setName(e.target.value);setSelected(null);setError(null);}}
+    <input aria-label="Find Veyra ID" value={name} onChange={e=>{searchEpoch.current++;setName(e.target.value);setSelected(null);setError(null);}}
      placeholder="@friend.veyra" maxLength={40} autoComplete="off"
      className="min-w-0 flex-1 rounded-xl border px-3 py-3 text-sm"
      style={{borderColor:'var(--border)',background:'var(--surface-raised)',color:'var(--ink)'}}/>
@@ -130,9 +136,12 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet}:{
     {social.friends.filter(x=>x.state==='CONNECTED').length===0?
       <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>No connected friends yet. Find a Veyra ID and send an invitation.</p>:
       <div className="mt-2 space-y-2">{social.friends.filter(x=>x.state==='CONNECTED').map(x=><button key={x.veyraUserId}
-       onClick={()=>{const id=friendLabel(x);setName(id);void find(id);}} type="button"
-       className="flex w-full items-center justify-between rounded-lg border px-3 py-3 text-sm"
-       style={{borderColor:'var(--border)',color:'var(--ink)'}}>{friendLabel(x)}<span style={{color:'var(--accent)'}}>Verify to send</span></button>)}</div>}
+       onClick={()=>{if(!x.veyraHandle)return;const id=friendLabel(x);searchEpoch.current++;setName(id);void find(id);}}
+       disabled={!x.veyraHandle} type="button"
+       className="flex w-full items-center justify-between rounded-lg border px-3 py-3 text-sm disabled:opacity-50"
+       style={{borderColor:'var(--border)',color:'var(--ink)'}}>{friendLabel(x)}<span style={{color:'var(--accent)'}}>
+        {x.veyraHandle?'Verify to send':'No verified handle'}
+       </span></button>)}</div>}
    </div>
   </section>}
   {social.identityOrigin!=='ready'&&<p className="flex items-start gap-2 text-xs" style={{color:'var(--muted)'}}>
