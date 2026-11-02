@@ -1,6 +1,7 @@
 /** People is backed by signed identity; local contacts are never portrayed as verified. */
 import {useEffect,useState} from 'react';
 import {useAccount} from 'wagmi';
+import {isMainnetSessionForWallet} from '@/mainnet/signedWalletReceiptScope';
 import {UserRoundCheck,Send,ShieldAlert,Copy} from 'lucide-react';
 import {useUnifiedSocial,friendLabel} from '../../features/social/UnifiedSocial';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
@@ -11,14 +12,15 @@ import type {RecipientSearchResult} from '@/mainnet/recipientLookup';
 export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
  onPayVerified:(value:VerifiedMainnetRecipient)=>void;onPayWallet:(wallet:string)=>void;initialQuery?:string;
 }){
- const {address}=useAccount(),social=useUnifiedSocial();
+ const {address,connector}=useAccount(),social=useUnifiedSocial();
  const [friendLookup,setFriendLookup]=useState(initialQuery);
  const [selected,setSelected]=useState<VerifiedMainnetRecipient|null>(null);
  const [walletTarget,setWalletTarget]=useState<string|null>(null);
  const [friendActionBusy,setFriendActionBusy]=useState(false);
  const [friendActionError,setFriendActionError]=useState<string|null>(null);
  useEffect(()=>{setSelected(null);setWalletTarget(null);setFriendActionError(null);},[address,social.session?.token]);
- const ready=!!address&&social.identityOrigin==='ready'&&!!social.session?.token;
+ const ready=!!address&&social.identityOrigin==='ready'&&!!social.session?.token&&
+  isMainnetSessionForWallet(social.session,address,connector?.uid);
  function select(result:RecipientSearchResult|null){
   setSelected(result?.kind==='veyra'?result.person:null);
   setWalletTarget(result?.kind==='wallet'?result.wallet:null);
@@ -48,7 +50,7 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
    <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Send money to people.</h1>
    <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>A verified Veyra ID shows the receiving wallet before you sign. Local contacts are separate.</p>
   </header>
-  {social.session&&social.identityOrigin==='ready'?<section className="rounded-xl border p-4" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+  {ready&&social.session?<section className="rounded-xl border p-4" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
    <div className="flex items-center gap-3">
     <div className="flex size-12 items-center justify-center rounded-full" style={{background:'var(--accent-muted)',color:'var(--accent)'}}><UserRoundCheck className="size-6"/></div>
     <div className="min-w-0 flex-1">
@@ -65,7 +67,7 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
    </div>
   </section>:<VeyraIdentityAccess/>}
   {ready&&<section className="rounded-xl border p-4 sm:p-5" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
-   <MainnetRecipientSearch owner={address} sessionToken={social.session?.token} initialQuery={friendLookup}
+   <MainnetRecipientSearch owner={address} sessionToken={ready?social.session?.token:undefined} initialQuery={friendLookup}
      label="Find a Veyra ID, X handle or wallet" onSelection={select}/>
    {(selected||walletTarget)&&<div className="mt-3 flex flex-wrap gap-2">
     {selected&&<button type="button" onClick={()=>onPayVerified(selected)}
@@ -118,7 +120,7 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
     </button>}
    </div>
   </section>}
-  {social.identityOrigin!=='ready'&&<p className="flex items-start gap-2 text-xs" style={{color:'var(--muted)'}}>
+  {!ready&&<p className="flex items-start gap-2 text-xs" style={{color:'var(--muted)'}}>
    <ShieldAlert className="size-4 shrink-0"/>Mainnet Veyra ID actions require server-origin approval. A reachable backend alone does not enable sign-in.
   </p>}
   <details className="rounded-xl border p-4" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
