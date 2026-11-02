@@ -6,7 +6,7 @@ import {useAccount} from 'wagmi';
 import {formatUnits} from 'viem';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {listVerifiedMainnetPayReceipts,saveVerifiedMainnetPayReceipt,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
-import {verifiedLocalPayMissingFromAccount} from '@/mainnet/receiptSyncCandidates';
+import {verifiedLocalPayMissingFromAccount,receiptSyncRetryDelayMs} from '@/mainnet/receiptSyncCandidates';
 import {ConnectKitButton} from 'connectkit';
 import {CheckCircle2,Clock3,ExternalLink,RefreshCw} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
@@ -37,9 +37,15 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const [unknownSettlement,setUnknownSettlement]=useState(false);
  const [filter,setFilter]=useState<'All'|'Send'|'Swap'|'Bridge'>('All');
  const verifiedCache=useRef(new Map<string,{checked:number;state:OperationInspection}>());
- const syncAttempted=useRef(new Set<string>());
+ const syncAttempted=useRef(new Map<string,number>());
+ const syncFailures=useRef(new Map<string,number>());
+ const syncedThisSession=useRef(new Set<string>());
  const [receiptSyncEpoch,setReceiptSyncEpoch]=useState(0);
  const [receiptSyncWarning,setReceiptSyncWarning]=useState(false);
+ useEffect(()=>{
+  syncAttempted.current.clear();syncFailures.current.clear();syncedThisSession.current.clear();
+  setReceiptSyncWarning(false);
+ },[address,social.session?.token]);
  useEffect(()=>{
   let active=true,working=false;
   verifiedCache.current.clear();setEntries([]);setStates({});setUnknownSettlement(false);
@@ -119,53 +125,73 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
   const token=social.session?.token;
   if(!address||!token||social.identityOrigin!=='ready')return;
   const controller=new AbortController();
-  let active=true;
+  let active=true,fetching=false;
   async function reload(){
-   if(!active)return;
-   setServerHistoryStatus('checking');
+   if(!active||fetching)return;
+   fetching=true;
+   setServerHistoryStatus(previous=>previous==='ready'?'ready':'checking');
    try{
     const records=await listVerifiedMainnetPayReceipts(token!,controller.signal);
     if(active){setServerReceipts(records);setServerHistoryStatus('ready');}
    }catch{if(active)setServerHistoryStatus('unavailable');}
+   finally{fetching=false;}
   }
   void reload();
+  // Receiver B gets a newly indexed original receipt without manually reloading.
+  const timer=window.setInterval(()=>void reload(),20000);
   const onChange=()=>void reload();
   window.addEventListener('focus',onChange);
   window.addEventListener('veyra:mainnet:server-receipt',onChange);
-  return()=>{active=false;controller.abort();window.removeEventListener('focus',onChange);
+  return()=>{active=false;window.clearInterval(timer);controller.abort();window.removeEventListener('focus',onChange);
    window.removeEventListener('veyra:mainnet:server-receipt',onChange);};
  },[address,social.session?.token,social.identityOrigin]);
- // Repair lost Pay-page receipt writes after a user returns to Activity or signs in.
- // This only rechecks the already verified original transaction hash; it never
- // generates a wallet request. A failed RPC/backend sync stays visible locally.
+ // Re-index an independently verified ORIGINAL Pay hash. Never resubmit or sign.
+ // GET history can be offline even when the idempotent receipt POST is available.
  useEffect(()=>{
   const token=social.session?.token;
-  if(!address||!token||social.identityOrigin!=='ready'||serverHistoryStatus!=='ready')return;
+  if(!address||!token||social.identityOrigin!=='ready'||serverHistoryStatus==='checking')return;
   const hashes=new Set(serverReceipts.map(v=>v.txHash.toLowerCase()));
+  const keyFor=(hash:string)=>address.toLowerCase()+':'+token+':'+hash.toLowerCase();
+  const now=Date.now();
   const pending=verifiedLocalPayMissingFromAccount(entries,
    Object.fromEntries(Object.entries(states).map(([k,v])=>[k,v.status])),
-   hashes,address,3)
-   .filter(v=>!syncAttempted.current.has(address.toLowerCase()+':'+token+':'+v.hash.toLowerCase()));
+   hashes,address,3).filter(v=>{
+    const key=keyFor(v.hash);
+    return !syncedThisSession.current.has(key)&&now>=(syncAttempted.current.get(key)??0);
+   });
   if(!pending.length)return;
   let active=true;
-  for(const v of pending)syncAttempted.current.add(address.toLowerCase()+':'+token+':'+v.hash.toLowerCase());
+  for(const v of pending)syncAttempted.current.set(keyFor(v.hash),now+receiptSyncRetryDelayMs(1));
   void Promise.all(pending.map(async v=>{
+   const key=keyFor(v.hash);
    try{
     await saveVerifiedMainnetPayReceipt(token,{hash:v.hash,note:v.note,
       ...(v.recipientSnapshotId?{snapshotId:v.recipientSnapshotId}:{})});
+    syncedThisSession.current.add(key);
+    syncAttempted.current.delete(key);syncFailures.current.delete(key);
     return true;
-   }catch{return false;}
+   }catch{
+    const failures=(syncFailures.current.get(key)??0)+1;
+    syncFailures.current.set(key,failures);
+    syncAttempted.current.set(key,Date.now()+receiptSyncRetryDelayMs(failures));
+    return false;
+   }
   })).then(results=>{
    if(!active)return;
-   if(results.some(Boolean)){
-    window.dispatchEvent(new Event('veyra:mainnet:server-receipt'));
-   }
-   if(results.some(v=>!v))setReceiptSyncWarning(true);
-   else setReceiptSyncWarning(false);
+   if(results.some(Boolean))window.dispatchEvent(new Event('veyra:mainnet:server-receipt'));
+   setReceiptSyncWarning(results.some(v=>!v));
   });
   return()=>{active=false;};
  },[address,entries,states,serverReceipts,serverHistoryStatus,social.session?.token,
-   social.identityOrigin,receiptSyncEpoch]);
+    social.identityOrigin,receiptSyncEpoch]);
+ // Retry receipt-only upload on a bound timer and on reconnection, never a wallet action.
+ useEffect(()=>{
+  if(!address||!social.session?.token||social.identityOrigin!=='ready')return;
+  const timer=window.setInterval(()=>setReceiptSyncEpoch(v=>v+1),15000);
+  const resume=()=>setReceiptSyncEpoch(v=>v+1);
+  window.addEventListener('online',resume);
+  return()=>{window.clearInterval(timer);window.removeEventListener('online',resume);};
+ },[address,social.session?.token,social.identityOrigin]);
  const verifiedRemote=filter==='All'||filter==='Send'?serverReceipts:[];
  const remoteHashes=new Set(serverReceipts.map(r=>r.txHash.toLowerCase()));
  // Server-verified payment appears ONCE, even when there is a browser journal pointer.
@@ -209,7 +235,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       serverHistoryStatus==='checking'?'loading':'not available; local history remains visible'}</span>
      {receiptSyncWarning&&<button type="button" className="font-semibold"
        style={{color:'var(--accent)'}} onClick={()=>{
-        syncAttempted.current.clear();setReceiptSyncWarning(false);setReceiptSyncEpoch(x=>x+1);
+        syncAttempted.current.clear();syncFailures.current.clear();setReceiptSyncWarning(false);setReceiptSyncEpoch(x=>x+1);
        }}>Retry receipt sync (no wallet signature)</button>}
    </div>}
    {verifiedRemote.length>0&&<section aria-label="Verified Veyra account receipts"
@@ -254,7 +280,8 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
         </div>
         <div className="min-w-0 flex-1 space-y-1">
          <p className="font-semibold" style={{color:'var(--ink)'}}>{v.type==='Pay'||v.type==='Settlement'?'Send':v.type} · {v.amount} {v.asset}</p>
-         <p className="text-xs" style={{color:ink}}>{label(proof)}</p>
+         <p className="text-xs" style={{color:ink}}>{v.type==='Pay'&&proof?.status==='VERIFIED'?
+          'Money sent · syncing receipt with your Veyra account':label(proof)}</p>
          {v.recipientLabel&&<p className="text-sm" style={{color:'var(--ink)'}}>{v.recipientLabel} · label saved at review (this browser only)</p>}
          {v.destination&&<p className="break-all text-xs" style={{color:'var(--muted)'}}>Recipient wallet: {v.destination}</p>}
          {v.note&&<p className="text-sm" style={{color:'var(--muted)'}}>Your note: {v.note}</p>}
