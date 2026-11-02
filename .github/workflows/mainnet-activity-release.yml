@@ -59,3 +59,5 @@ jobs:
       - name: Build exact full Mainnet release profile (matches vercel.json)
         run: bun scripts/build-mainnet-pilot.ts
       - run: bun run check:prod-bundle
+      - name: Read-only live Mainnet BFF health and identity schema smoke
+        run: bun scripts/smoke-mainnet-bff.ts
