@@ -13,7 +13,8 @@ import {decodeEventLog,erc20Abi,formatUnits,getAddress,isAddress,parseAbi,parseU
 import {ArrowLeftRight,Route,ShieldCheck,AlertTriangle,ExternalLink,RefreshCw} from 'lucide-react';
 import {getMainnetChain,CCTP_V2_MAINNET} from '@/config/mainnetCatalog';
 import {ARC_VERIFIED_ASSETS,assertArcSwapCandidate} from '@/config/arcVerifiedAssets';
-import { recordLocalOperation } from '@/mainnet/localOperations';
+import {recordLocalOperation} from '@/mainnet/localOperations';
+import {recordExchangeActivity} from '@/mainnet/exchangeActivity';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked} from '@/mainnet/verifyCctpBridgeLink';
 import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
@@ -205,13 +206,23 @@ export function MainnetCirclePage({mode,selection,embedded=false}:{mode:Mode;sel
     const hash=typeof result.txHash==='string'&&HASH.test(result.txHash)?result.txHash:undefined;
     const next:Recovery={...record,status:'PENDING',...(hash?{hash}:{})};
     localStorage.setItem(key(mode,address),JSON.stringify(next));setRecovery(next);
-    if(hash)recordLocalOperation({type:'Swap',hash,owner:address,amount,asset:fromToken,chainId:ARC,status:'SUBMITTED'});
+    if(hash){
+     recordLocalOperation({type:'Swap',hash,owner:address,amount,asset:fromToken,chainId:ARC,status:'SUBMITTED'});
+     recordExchangeActivity({owner,mode:'swap',source:ARC,destination:ARC,tokenIn:fromToken,
+      tokenOut:toToken,amountIn:amount,minOut:record.minimum,originalHash:hash,
+      status:'SUBMITTED',createdAt:Date.now()});
+    }
    }else{
     const result=await kit.bridge(p as Parameters<AppKit['bridge']>[0]);
     const steps=getAppKitBridgeSteps(result);
     const next:Recovery={...record,status:'PENDING',...steps};
     localStorage.setItem(key(mode,address),JSON.stringify(next));setRecovery(next);
-    if(steps.burnHash)recordLocalOperation({type:'Bridge',hash:steps.burnHash,owner:address,amount,asset:'USDC',chainId:selectedSource,status:'SUBMITTED'});
+    if(steps.burnHash){
+     recordLocalOperation({type:'Bridge',hash:steps.burnHash,owner:address,amount,asset:'USDC',chainId:selectedSource,status:'SUBMITTED'});
+     recordExchangeActivity({owner,mode:'bridge',source:selectedSource,destination:selectedDest,
+      tokenIn:'USDC',tokenOut:'USDC',amountIn:amount,minOut:record.minimum,
+      originalHash:steps.burnHash,destinationHash:steps.mintHash,status:'SUBMITTED',createdAt:Date.now()});
+    }
    }
   }catch(e){
    setError((e instanceof Error?e.message:'Provider outcome uncertain.')+
@@ -268,6 +279,11 @@ export function MainnetCirclePage({mode,selection,embedded=false}:{mode:Mode;sel
    localStorage.setItem(key(mode,address),JSON.stringify(r));setRecovery(r);
    setProof('Destination verified: '+formatUnits(amountOut,6)+' '+(mode==='swap'?recovery.toToken:'USDC'));
    recordLocalOperation({type:mode==='swap'?'Swap':'Bridge',hash,owner:address,amount:formatUnits(amountOut,6),asset:mode==='swap'?recovery.toToken:'USDC',chainId:recovery.destination,status:'RECORDED'});
+   const original=mode==='swap'?hash:(recovery.burnHash||manualSource);
+   if(HASH.test(original))recordExchangeActivity({owner,mode,source:recovery.source,destination:recovery.destination,
+    tokenIn:recovery.fromToken,tokenOut:recovery.toToken,amountIn:recovery.amount,
+    minOut:recovery.minimum,originalHash:original,destinationHash:hash,
+    status:'DESTINATION_VERIFIED',createdAt:Date.now(),verifiedAt:Date.now()});
   }catch(e){setError(e instanceof Error?e.message:'Destination receipt unverified.');}
   finally{lock.current=false;setBusy(false);}
  }
