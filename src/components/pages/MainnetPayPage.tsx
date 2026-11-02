@@ -6,6 +6,7 @@ import { useAccount, useSwitchChain } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { formatUnits } from 'viem';
 import { recordLocalOperation } from '@/mainnet/localOperations';
+import {withMainnetWalletSigningLock} from '@/mainnet/mainnetWalletSigningLock';
 import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
 import {enqueueVerifiedPay,readReceiptOutbox,storageForReceiptOutbox,type ReceiptOutboxItem} from '@/mainnet/receiptOutbox';
 import {preparePaymentRecipient,verifyPaymentRecipient} from '@/lib/api/identityApi';
@@ -136,6 +137,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
       recipientLabel:idSelection?'@'+idSelection.veyraHandle+'.veyra':undefined};
     let requested=false,wroteJournal=false;
     try {
+      await withMainnetWalletSigningLock(address,async()=>{
       const renewed=await reverifySelectedIdentity(review.plan);
       const queued=readReceiptOutbox(address,storageForReceiptOutbox());
       if(queued.kind!=='ready'||queued.items.length>=60)
@@ -156,6 +158,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
        recipientSnapshotId:initial.recipientSnapshotId});
       if(!writeMainnetJournal(next,storageForMainnet()))
         setError('Payment submitted but hash storage failed. Keep this hash and do not retry: '+hash);
+      });
     }catch(e){
       const rejected=typeof e==='object'&&e!==null&&'code' in e&&(e.code===4001||e.code==='ACTION_REJECTED');
       if(!requested||rejected){
