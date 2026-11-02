@@ -5,7 +5,7 @@
 export type ExchangeIntentStage=
  'REVIEWED'|'AWAITING_WALLET'|'SOURCE_UNKNOWN'|'SOURCE_SUBMITTED'|
  'SOURCE_CONFIRMED'|'DESTINATION_PENDING'|'PARTIAL'|'DESTINATION_VERIFIED'|
- 'REFUND_PENDING'|'REFUNDED'|'CANCELLED_BEFORE_SOURCE';
+ 'REFUND_PENDING'|'REFUNDED'|'SOURCE_REVERTED'|'CANCELLED_BEFORE_SOURCE';
 export type ExchangeStep={
  stage:'approval'|'source'|'destination'|'refund';chainId:number;token:string;
  status:'unknown'|'submitted'|'verified'|'needs-attention';
@@ -25,16 +25,16 @@ type Store=Pick<Storage,'getItem'|'setItem'|'removeItem'|'length'|'key'>;
 const PREFIX='veyra:mainnet:exchange-intent:v1:';
 const OWNER=/^0x[0-9a-f]{40}$/i,ID=/^[0-9a-f-]{36}$/i,HASH=/^0x[0-9a-f]{64}$/i;
 const stages:readonly ExchangeIntentStage[]=['REVIEWED','AWAITING_WALLET','SOURCE_UNKNOWN','SOURCE_SUBMITTED',
- 'SOURCE_CONFIRMED','DESTINATION_PENDING','PARTIAL','DESTINATION_VERIFIED','REFUND_PENDING','REFUNDED','CANCELLED_BEFORE_SOURCE'];
+ 'SOURCE_CONFIRMED','DESTINATION_PENDING','PARTIAL','DESTINATION_VERIFIED','REFUND_PENDING','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'];
 const NEXT:Record<ExchangeIntentStage,readonly ExchangeIntentStage[]>={
  REVIEWED:['AWAITING_WALLET','CANCELLED_BEFORE_SOURCE'],
  AWAITING_WALLET:['SOURCE_UNKNOWN','SOURCE_SUBMITTED','CANCELLED_BEFORE_SOURCE'],
- SOURCE_UNKNOWN:['SOURCE_SUBMITTED','PARTIAL'],
- SOURCE_SUBMITTED:['SOURCE_CONFIRMED','PARTIAL','REFUND_PENDING'],
+ SOURCE_UNKNOWN:['SOURCE_SUBMITTED','PARTIAL','SOURCE_REVERTED'],
+ SOURCE_SUBMITTED:['SOURCE_CONFIRMED','PARTIAL','REFUND_PENDING','SOURCE_REVERTED'],
  SOURCE_CONFIRMED:['DESTINATION_PENDING','DESTINATION_VERIFIED','PARTIAL','REFUND_PENDING'],
  DESTINATION_PENDING:['DESTINATION_VERIFIED','PARTIAL','REFUND_PENDING'],
  PARTIAL:['DESTINATION_PENDING','DESTINATION_VERIFIED','REFUND_PENDING','REFUNDED'],
- DESTINATION_VERIFIED:[],REFUND_PENDING:['REFUNDED','PARTIAL'],REFUNDED:[],
+ DESTINATION_VERIFIED:[],REFUND_PENDING:['REFUNDED','PARTIAL'],REFUNDED:[],SOURCE_REVERTED:[],
  CANCELLED_BEFORE_SOURCE:[],
 };
 const key=(owner:string,id:string)=>PREFIX+owner.toLowerCase()+':'+id.toLowerCase();
@@ -93,7 +93,7 @@ export function createExchangeIntent(intent:ExchangeIntent,s?:Store):boolean{
  try{
   const store=s??window.localStorage,all=readExchangeIntents(intent.owner,store);
   if(all.kind!=='ready'||all.items.length>=60||
-    all.items.some(v=>!['DESTINATION_VERIFIED','REFUNDED','CANCELLED_BEFORE_SOURCE'].includes(v.stage)))return false;
+    all.items.some(v=>!['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(v.stage)))return false;
   const k=key(intent.owner,intent.id);
   if(store.getItem(k)!==null)return false;
   const raw=JSON.stringify({...intent,owner:intent.owner.toLowerCase(),id:intent.id.toLowerCase()});
