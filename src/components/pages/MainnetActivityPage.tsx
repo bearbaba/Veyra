@@ -201,7 +201,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const remoteHashes=new Set(scopedReceipts.map(r=>r.txHash.toLowerCase()));
  // Server-verified payment appears ONCE, even when there is a browser journal pointer.
  const shown=scopedEntries.filter(v=>!((v.type==='Pay')&&remoteHashes.has(v.hash.toLowerCase()))&&
-   !((v.type==='Swap'||v.type==='Bridge')&&groupedHashes.has(v.hash.toLowerCase()))&&
+   !((v.type==='Swap'||v.type==='Bridge')&&(groupedHashes.has(v.hash.toLowerCase())||intentHashes.has(v.hash.toLowerCase())))&&
    (filter==='All'||(filter==='Send'?(v.type==='Pay'||v.type==='Settlement'):
     (v.type==='Swap'||v.type==='Bridge'))));
  return <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
@@ -292,14 +292,14 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
      <p className="mt-2 text-sm" style={{color:task.stage==='PARTIAL'?'var(--warning)':'var(--muted)'}}>
       {task.stage==='PARTIAL'?
        'Partial completion · source consumed; destination not credited. Check the existing route or refund before taking further action.':
-       task.stage==='DESTINATION_VERIFIED'?'Original destination checked onchain · one Exchange task':
+       task.stage==='DESTINATION_VERIFIED'?'Destination verification recorded by browser · reopen Exchange to recheck onchain':
        task.stage==='SOURCE_UNKNOWN'?'Wallet outcome uncertain · never resubmit the source transaction automatically':
        task.stage==='REFUND_PENDING'?'Refund processing · verify where funds return':
        task.stage==='REFUNDED'?'Refund recorded · inspect original proof':
        'Exchange task is being tracked · do not create a duplicate request.'}
      </p>
      {task.holdingToken&&<p className="mt-1 text-xs" style={{color:'var(--warning)'}}>
-      Recovery: {task.holdingToken} · last known chain {task.holdingChainId}
+      Recovery evidence: {task.holdingToken} · last verified source chain {task.holdingChainId} (not a confirmed spendable balance)
      </p>}
      {task.message&&<p className="mt-1 text-xs" style={{color:'var(--muted)'}}>{task.message}</p>}
      <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
