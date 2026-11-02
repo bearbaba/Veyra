@@ -199,7 +199,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    if(localStorage.getItem(key(mode,address)))throw Error('Previous operation must be resolved first.');
    const existingIntents=readExchangeIntents(owner);
    if(existingIntents.kind!=='ready'||existingIntents.items.some(task=>
-    !['DESTINATION_VERIFIED','REFUNDED','CANCELLED_BEFORE_SOURCE'].includes(task.stage)))
+    !['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(task.stage)))
     throw Error('Unresolved Exchange intent or unreadable recovery storage. Inspect Activity first.');
    const {params:p}=await params();
    const fresh=mode==='swap'?
