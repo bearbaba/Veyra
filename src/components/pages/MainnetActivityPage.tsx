@@ -12,6 +12,7 @@ import {CheckCircle2,Clock3,ExternalLink,RefreshCw} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
 import {readLocalOperations,recordLocalOperation,type LocalOperation} from '@/mainnet/localOperations';
 import {readExchangeActivities,type ExchangeActivity} from '@/mainnet/exchangeActivity';
+import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
 import {inspectRecordedOperation,type OperationInspection} from '@/mainnet/inspectRecordedOperation';
 import {readSettlementIntent,writeSettlementIntent} from '@/mainnet/settlementJournal';
 import type {VeyraPage} from '../layout/AppShell';
@@ -40,13 +41,15 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const [unknownSettlement,setUnknownSettlement]=useState(false);
  const [filter,setFilter]=useState<'All'|'Send'|'Exchange'>('All');
  const [exchangeActivities,setExchangeActivities]=useState<ExchangeActivity[]>([]);
+ const [exchangeIntents,setExchangeIntents]=useState<ExchangeIntent[]>([]);
+ const [exchangeIntentBlocked,setExchangeIntentBlocked]=useState(false);
  const verifiedCache=useRef(new Map<string,{checked:number;state:OperationInspection}>());
  const [queuedReceipts,setQueuedReceipts]=useState<ReceiptOutboxItem[]>([]);
  const [queuedOwner,setQueuedOwner]=useState('');
  const [outboxBlocked,setOutboxBlocked]=useState(false);
  useEffect(()=>{
   let active=true,working=false;
-  verifiedCache.current.clear();setLocalOwner('');setEntries([]);setExchangeActivities([]);setStates({});setUnknownSettlement(false);
+  verifiedCache.current.clear();setLocalOwner('');setEntries([]);setExchangeActivities([]);setExchangeIntents([]);setExchangeIntentBlocked(false);setStates({});setUnknownSettlement(false);
   if(!address)return;
   const owner=address;
   async function update(){
@@ -72,7 +75,10 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       !contract.value.hash&&['AWAITING_WALLET','UNKNOWN'].includes(contract.value.stage));
     const list=readLocalOperations(owner);
     if(!active)return;
-    setEntries(list);setExchangeActivities(readExchangeActivities(owner));setLocalOwner(owner.toLowerCase());
+    const tasks=readExchangeIntents(owner);
+    setEntries(list);setExchangeActivities(readExchangeActivities(owner));
+    setExchangeIntents(tasks.kind==='ready'?tasks.items:[]);
+    setExchangeIntentBlocked(tasks.kind==='blocked');setLocalOwner(owner.toLowerCase());
     for(let i=0;i<list.length&&active;i+=3){
      const batch=list.slice(i,i+3);
      const outcome=await Promise.all(batch.map(async v=>{
@@ -106,7 +112,10 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       }
      }
     }
-    if(active){setEntries(readLocalOperations(owner));setExchangeActivities(readExchangeActivities(owner));}
+    if(active){const tasks=readExchangeIntents(owner);
+     setEntries(readLocalOperations(owner));setExchangeActivities(readExchangeActivities(owner));
+     setExchangeIntents(tasks.kind==='ready'?tasks.items:[]);
+     setExchangeIntentBlocked(tasks.kind==='blocked');}
    }finally{working=false;if(active)setSyncing(false);}
   }
   void update();
@@ -115,6 +124,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
   window.addEventListener('focus',onChange);
   window.addEventListener('veyra:mainnet:operation',onChange);
   window.addEventListener('veyra:mainnet:exchange-activity',onChange);
+  window.addEventListener('focus',onChange);
   return()=>{active=false;window.clearInterval(timer);
    window.removeEventListener('focus',onChange);
    window.removeEventListener('veyra:mainnet:operation',onChange);
@@ -175,7 +185,13 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
    serverReceiptScope===address.toLowerCase()+':'+social.session.token?serverReceipts:[];
  const scopedEntries=address&&localOwner===address.toLowerCase()?entries:[];
  const scopedExchange=address&&localOwner===address.toLowerCase()?exchangeActivities:[];
- const exchangeShown=filter==='All'||filter==='Exchange'?scopedExchange:[];
+ const scopedIntents=address&&localOwner===address.toLowerCase()?exchangeIntents:[];
+ const intentHashes=new Set(scopedIntents.flatMap(x=>[
+  ...(x.sourceHash?[x.sourceHash.toLowerCase()]:[]),
+  ...(x.destinationHash?[x.destinationHash.toLowerCase()]:[])]));
+ const exchangeShown=filter==='All'||filter==='Exchange'?
+  scopedExchange.filter(x=>!intentHashes.has(x.originalHash.toLowerCase())):[];
+ const intentShown=filter==='All'||filter==='Exchange'?scopedIntents:[];
  const groupedHashes=new Set(scopedExchange.flatMap(x=>[x.originalHash.toLowerCase(),
   ...(x.destinationHash?[x.destinationHash.toLowerCase()]:[])]));
  const scopedStates=address&&localOwner===address.toLowerCase()?states:{};
@@ -261,6 +277,47 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       </details>
      </article>)}
    </section>}
+   {exchangeIntentBlocked&&<p role="alert" className="rounded-xl border p-4 text-sm"
+     style={{borderColor:'var(--border)',color:'var(--warning)'}}>
+    Exchange recovery journal cannot be read. Do not retry signing the original trade; inspect your wallet history.
+   </p>}
+   {intentShown.length>0&&<section aria-label="Exchange intent timeline" className="overflow-hidden rounded-2xl border"
+    style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+    {intentShown.map(task=><article key={task.id} className="border-b p-4 last:border-0 sm:p-5"
+     style={{borderColor:'var(--border)'}}>
+     <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>Exchange · {task.amountIn} {task.tokenIn} → {task.tokenOut}</p>
+     <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
+      Request {task.id.slice(0,8)} · {task.provider} · {task.stage.replaceAll('_',' ').toLowerCase()}
+     </p>
+     <p className="mt-2 text-sm" style={{color:task.stage==='PARTIAL'?'var(--warning)':'var(--muted)'}}>
+      {task.stage==='PARTIAL'?
+       'Partial completion · source consumed; destination not credited. Check the existing route or refund before taking further action.':
+       task.stage==='DESTINATION_VERIFIED'?'Original destination checked onchain · one Exchange task':
+       task.stage==='SOURCE_UNKNOWN'?'Wallet outcome uncertain · never resubmit the source transaction automatically':
+       task.stage==='REFUND_PENDING'?'Refund processing · verify where funds return':
+       task.stage==='REFUNDED'?'Refund recorded · inspect original proof':
+       'Exchange task is being tracked · do not create a duplicate request.'}
+     </p>
+     {task.holdingToken&&<p className="mt-1 text-xs" style={{color:'var(--warning)'}}>
+      Recovery: {task.holdingToken} · last known chain {task.holdingChainId}
+     </p>}
+     {task.message&&<p className="mt-1 text-xs" style={{color:'var(--muted)'}}>{task.message}</p>}
+     <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+      Created {new Date(task.createdAt).toLocaleString()} · last checked {new Date(task.updatedAt).toLocaleString()}
+     </p>
+     <details className="mt-3 text-xs" style={{color:'var(--muted)'}}>
+      <summary className="cursor-pointer">Original source and destination step details</summary>
+      {task.steps.map((step,i)=><div key={i} className="mt-2">
+       <p>{step.stage} · {step.status} · chain {step.chainId} · {step.token}</p>
+       {step.hash&&<a href={(step.chainId===8453?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+step.hash}
+        target="_blank" rel="noreferrer" className="break-all underline" style={{color:'var(--accent)'}}>
+        {step.hash}</a>}
+      </div>)}
+     </details>
+     <button type="button" onClick={()=>onNavigate('convert')}
+      className="mt-3 text-xs font-semibold" style={{color:'var(--accent)'}}>Open Exchange recovery</button>
+    </article>)}
+   </section>}
    {exchangeShown.length>0&&<section aria-label="Exchange activities" className="overflow-hidden rounded-2xl border"
      style={{background:'var(--surface)',borderColor:'var(--border)'}}>
     {exchangeShown.map(x=><article key={x.originalHash} className="border-b p-4 last:border-0 sm:p-5"
@@ -296,7 +353,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
      </div>
     </article>)}
    </section>}
-   {shown.length===0&&verifiedRemote.length===0&&exchangeShown.length===0?<section className="rounded-2xl border p-7 text-center" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+   {shown.length===0&&verifiedRemote.length===0&&exchangeShown.length===0&&intentShown.length===0?<section className="rounded-2xl border p-7 text-center" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
      <Clock3 className="mx-auto mb-3 size-6" style={{color:'var(--muted)'}}/>
      <p className="font-semibold" style={{color:'var(--ink)'}}>No {filter==='All'?'transactions':filter+' transactions'} recorded yet</p>
      <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Veyra saves the original transaction automatically when your wallet returns its hash.</p>
