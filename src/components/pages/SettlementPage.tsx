@@ -576,6 +576,46 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settleConfirmed, settleReceipt]);
 
+
+  // Restore a signed transaction after reload without re-opening the wallet.
+  useEffect(()=>{
+    if(!address||VEYRA_ENV!=='mainnet')return;
+    let live=true,checking=false;
+    async function poll(){
+      if(!live||checking||!address)return;
+      const saved=readSettlementIntent(address);
+      if(saved.kind!=='active'||saved.value.stage!=='PENDING'||!saved.value.hash)return;
+      checking=true;
+      try{
+        const intent=saved.value;
+        if(intent.phase==='PAYMENT'){
+          const evidence=await inspectRecordedSettlement(intent.hash,address,intent.amount,intent.recipient);
+          if(live&&(evidence.status==='VERIFIED'||evidence.status==='REVERTED')){
+            writeSettlementIntent({...intent,stage:evidence.status});
+            recordLocalOperation({type:'Settlement',owner:address,hash:intent.hash,
+              amount:intent.amount,asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,
+              status:evidence.status==='VERIFIED'?'RECORDED':'REVERTED',destination:intent.recipient});
+          }
+        }else if(chainId===ARC_MAINNET_CHAIN_ID&&publicClient&&deployment){
+          const hash=intent.hash as Parameters<typeof publicClient.getTransaction>[0]['hash'];
+          const tx=await publicClient.getTransaction({hash});
+          const receipt=await publicClient.getTransactionReceipt({hash});
+          if(!live||tx.from.toLowerCase()!==address.toLowerCase()||
+              tx.to?.toLowerCase()!==activeUsdcAddress.toLowerCase())return;
+          const decoded=decodeFunctionData({abi:erc20Abi,data:tx.input});
+          if(decoded.functionName!=='approve'||decoded.args[0].toLowerCase()!==deployment.address.toLowerCase()||
+             decoded.args[1]!==parseUnits(intent.amount,6))return;
+          if(receipt.status==='success'||receipt.status==='reverted')
+            writeSettlementIntent({...intent,stage:receipt.status==='success'?'VERIFIED':'REVERTED'});
+        }
+      }catch{/* Missing receipt or RPC failure is not evidence of a failed payment. */}
+      finally{checking=false;}
+    }
+    void poll();
+    const interval=window.setInterval(()=>void poll(),15000);
+    return()=>{live=false;window.clearInterval(interval);};
+  },[address,chainId,publicClient,deployment?.address,activeUsdcAddress]);
+
   // ── reset ─────────────────────────────────────────────────────────────────────
   const reset = useCallback(() => {
     if(address&&VEYRA_ENV==='mainnet'&&settlementUnresolved(readSettlementIntent(address))){
