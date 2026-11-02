@@ -6,6 +6,7 @@ import { useAccount, useSwitchChain } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { formatUnits } from 'viem';
 import { recordLocalOperation } from '@/mainnet/localOperations';
+import type {MainnetPayDraft} from '@/mainnet/payDraft';
 import {assertMainnetSigningAllowed,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
 import { AlertTriangle, ExternalLink, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import {
@@ -22,7 +23,7 @@ const box = 'rounded-2xl border p-5 sm:p-6';
 const field = 'w-full rounded-xl border px-4 py-3 text-sm';
 type Review = {plan: MainnetPlan; preflight: MainnetPreflight};
 
-export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,embedded=false}:{friendHandle?:string|null;recipientWallet?:string|null;onRecipientUsed?:()=>void;embedded?:boolean}) {
+export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,embedded=false,sharedDraft,onDraftChange}:{friendHandle?:string|null;recipientWallet?:string|null;onRecipientUsed?:()=>void;embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void}) {
   const {address, chainId, connector, isConnected} = useAccount();
   const {switchChain} = useSwitchChain();
   const [recipient,setRecipient] = useState('');
@@ -47,6 +48,12 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     setLoadedFor(address.toLowerCase());
   },[address]);
   useEffect(()=>{setReview(null);setAck(false);},[chainId,connector]);
+  useEffect(()=>{
+    if(!sharedDraft)return;
+    setRecipient(sharedDraft.recipient);
+    setAmount(sharedDraft.amount);
+    setReview(null);setAck(false);
+  },[sharedDraft?.recipient,sharedDraft?.amount]);
   useEffect(()=>{
     if(!recipientWallet)return;
     if(/^0x[0-9a-fA-F]{40}$/.test(recipientWallet)){
@@ -184,11 +191,11 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
         <div><label className="text-sm font-semibold" style={{color:'var(--ink)'}}>Recipient wallet</label>
           <input className={field+' mt-2'} style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}
             value={recipient} maxLength={42} autoComplete="off" spellCheck={false} placeholder="0x…"
-            disabled={blocked} onChange={e=>{setRecipient(e.target.value);setReview(null);setAck(false);}}/></div>
+            disabled={blocked} onChange={e=>{setRecipient(e.target.value);onDraftChange?.({recipient:e.target.value});setReview(null);setAck(false);}}/></div>
         <div><label className="text-sm font-semibold" style={{color:'var(--ink)'}}>Amount (USDC)</label>
           <input className={field+' mt-2'} style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}
             value={amount} inputMode="decimal" placeholder="0.01" disabled={blocked}
-            onChange={e=>{setAmount(e.target.value);setReview(null);setAck(false);}}/></div>
+            onChange={e=>{setAmount(e.target.value);onDraftChange?.({amount:e.target.value});setReview(null);setAck(false);}}/></div>
         {!review&&!journal&&<button className="w-full rounded-xl px-4 py-3 text-sm font-bold disabled:opacity-40"
           disabled={blocked} style={{background:'var(--accent)',color:'#fff'}}
           onClick={()=>void prepare()}>{busy?'Checking…':'Review payment'}</button>}
