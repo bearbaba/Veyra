@@ -4,7 +4,7 @@
 import {isAddress} from 'viem';
 export type VerifiedMainnetRecipient={
  owner:string;wallet:string;walletId:string;veyraUserId:string;veyraHandle:string;
- displayName:string;snapshotId:string;reviewToken:string;expiresAt:string;
+ displayName:string;avatarUrl?:string|null;snapshotId:string;reviewToken:string;expiresAt:string;
 };
 export function validVerifiedRecipient(v:VerifiedMainnetRecipient,owner:string,recipient:string,now=Date.now()):boolean{
  return isAddress(v.owner)&&v.owner.toLowerCase()===owner.toLowerCase()&&
