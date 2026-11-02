@@ -7,14 +7,16 @@ import {ArrowUpRight,ArrowDownLeft,Copy,RefreshCw,Users,Clock3,Wallet,LayoutList
 import {getUsdc} from '@/onchain-facts';
 import {readLocalOperations,type LocalOperation} from '@/mainnet/localOperations';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
+import {isMainnetSessionForWallet,scopedMainnetReceipts} from '@/mainnet/signedWalletReceiptScope';
 import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
 import type {VeyraPage} from '../layout/AppShell';
 
 const ARC=5042;
 const explorer=(hash:string,chain:number)=>chain===8453?'https://basescan.org/tx/'+hash:'https://explorer.arc.io/tx/'+hash;
 export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}){
- const {address,isConnected,chainId}=useAccount();
+ const {address,isConnected,chainId,connector}=useAccount();
  const social=useUnifiedSocial();
+ const signedWallet=isMainnetSessionForWallet(social.session,address,connector?.uid);
  const [accountReceipts,setAccountReceipts]=useState<MainnetPayServerReceipt[]>([]);
  const [receive,setReceive]=useState(false);
  const [copied,setCopied]=useState(false);
@@ -37,13 +39,13 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  useEffect(()=>{
   setAccountReceipts([]);
   const token=social.session?.token;
-  if(!address||!token||social.identityOrigin!=='ready')return;
+  if(!address||!token||social.identityOrigin!=='ready'||!signedWallet)return;
   const controller=new AbortController();
   let active=true;
   async function reload(){
    try{
     const items=await listVerifiedMainnetPayReceipts(token!,controller.signal);
-    if(active)setAccountReceipts(items.slice(0,10));
+    if(active)setAccountReceipts(scopedMainnetReceipts(items,address).slice(0,10));
    }catch{/* Offline identity history falls back to local transactions without fake receipts. */}
   }
   void reload();
@@ -53,7 +55,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
   return()=>{active=false;controller.abort();
    window.removeEventListener('focus',handle);
    window.removeEventListener('veyra:mainnet:server-receipt',handle);};
- },[address,social.session?.token,social.identityOrigin]);
+ },[address,connector?.uid,social.session?.token,social.session?.walletKey,social.identityOrigin,signedWallet]);
  const recentVerified=accountReceipts.slice(0,3);
  const knownHashes=new Set(accountReceipts.map(x=>x.txHash.toLowerCase()));
  const localRecent=operations.filter(x=>!(x.type==='Pay'&&knownHashes.has(x.hash.toLowerCase())));
@@ -163,7 +165,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
    </div>}
    <div className={card} style={cardStyle}>
     <p className="text-base font-bold" style={{color:'var(--ink)'}}>Your people</p>
-    {social.session&&social.identityOrigin==='ready'?<>
+    {signedWallet&&social.session&&social.identityOrigin==='ready'?<>
      <p className="mt-3 text-base font-semibold" style={{color:'var(--ink)'}}>
       {'@'+social.session.profile.veyraHandle+'.veyra'}
      </p>
