@@ -15,6 +15,7 @@ import {getMainnetChain,CCTP_V2_MAINNET} from '@/config/mainnetCatalog';
 import { recordLocalOperation } from '@/mainnet/localOperations';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked} from '@/mainnet/verifyCctpBridgeLink';
+import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
 
 const kit=new AppKit();
 const ARC=5042,BASE=8453;
@@ -159,6 +160,7 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
   lock.current=true;setBusy(true);setError('');setProof('');
   let saved=false;
   try{
+   assertMainnetSigningAllowed();
    if(mode==='bridge'&&!BRIDGE_WRITE_ENABLED)
     throw Error('Bridge signing is paused on Production until source-to-destination proof is accepted.');
    if(quote.owner!==owner||quote.mode!==mode||quote.amount!==amount||

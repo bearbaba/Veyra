@@ -67,6 +67,7 @@ import { VEYRA_ENV } from '@/lib/env';
 import {recordLocalOperation,readLocalOperations} from '@/mainnet/localOperations';
 import {readSettlementIntent,writeSettlementIntent,clearSettlementIntent,settlementUnresolved,type SettlementIntent} from '@/mainnet/settlementJournal';
 import {inspectRecordedSettlement} from '@/mainnet/verifyRecordedSettlement';
+import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
 import { MainnetSettlementDeploy } from './MainnetSettlementDeploy';
 import { VEYRA_SETTLEMENT_CREATION_BYTECODE, VEYRA_SETTLEMENT_CREATION_KECCAK } from '@/generated/veyraSettlementCreation';
 import {
@@ -811,6 +812,10 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
   // ── approve ──────────────────────────────────────────────────────────────────
   async function handleApprove() {
     if (!deployment || !address || !snapshot) return;
+    try{assertMainnetSigningAllowed();}catch(e){
+      setErrorMsg(e instanceof Error?e.message:'New signing disabled.');
+      setStep('error');return;
+    }
     if (!mainnetRegistryVerified) {setErrorMsg('Mainnet contract verification has not passed.');setStep('error');return;}
     if (isMainnet) {try{await validateMainnetDeployment();}catch(e){setErrorMsg(e instanceof Error?e.message:'Mainnet contract validation failed');setStep('error');return;}}
     if(isMainnet){
@@ -867,6 +872,10 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
   // ── P0-3: pre-sign revalidation + broadcast ───────────────────────────────────
   async function handleSettle() {
     if (!deployment || !address || !snapshot || !publicClient) return;
+    try{assertMainnetSigningAllowed();}catch(e){
+      setErrorMsg(e instanceof Error?e.message:'New signing disabled.');
+      setStep('error');return;
+    }
     if (!mainnetRegistryVerified) {setErrorMsg('Mainnet contract verification has not passed.');setStep('error');return;}
     if (isMainnet) {try{await validateMainnetDeployment();}catch(e){setErrorMsg(e instanceof Error?e.message:'Mainnet contract validation failed');setStep('error');return;}}
     setStep('revalidating');

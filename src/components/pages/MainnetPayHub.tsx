@@ -6,6 +6,7 @@ import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal'
 import {readSettlementIntent,settlementUnresolved} from '@/mainnet/settlementJournal';
 import {MainnetPayPage} from './MainnetPayPage';
 import {SettlementPage} from './SettlementPage';
+import {MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
 
 declare const __VEYRA_RELEASE_SHA__:string;
 declare const __VEYRA_RELEASE_ENV__:string;
@@ -68,6 +69,10 @@ export function MainnetPayHub({
       Build {__VEYRA_RELEASE_SHA__.slice(0,12)} · {__VEYRA_RELEASE_ENV__}
      </details>}
   </header>
+  {MAINNET_EMERGENCY_READ_ONLY&&<p role="alert" className="rounded-xl border p-3 text-sm"
+   style={{borderColor:'var(--border)',color:'var(--warning)'}}>
+    Read-only recovery mode. New transfers and approvals are disabled; existing receipts remain available in Activity.
+   </p>}
   <div className="grid grid-cols-2 gap-2" role="group" aria-label="Choose payment method">
    <button type="button" disabled={locked} aria-pressed={selected==='wallet'} onClick={()=>choose('wallet')}
     className="rounded-xl border p-3 text-left disabled:cursor-not-allowed disabled:opacity-50"
