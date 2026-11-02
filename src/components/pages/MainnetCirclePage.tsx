@@ -12,6 +12,7 @@ import {ConnectKitButton} from 'connectkit';
 import {decodeEventLog,erc20Abi,formatUnits,getAddress,isAddress,parseAbi,parseUnits,type EIP1193Provider,type Hash} from 'viem';
 import {ArrowLeftRight,Route,ShieldCheck,AlertTriangle,ExternalLink,RefreshCw} from 'lucide-react';
 import {getMainnetChain,CCTP_V2_MAINNET} from '@/config/mainnetCatalog';
+import {ARC_VERIFIED_ASSETS,assertArcSwapCandidate} from '@/config/arcVerifiedAssets';
 import { recordLocalOperation } from '@/mainnet/localOperations';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked} from '@/mainnet/verifyCctpBridgeLink';
@@ -20,8 +21,8 @@ import {readBridgeQuoteAmounts} from '@/mainnet/bridgeQuoteGuard';
 
 const kit=new AppKit();
 const ARC=5042,BASE=8453;
-const EURC='0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1' as const;
-const TOKENS={USDC:'0x3600000000000000000000000000000000000000',EURC} as const;
+const TOKENS={USDC:ARC_VERIFIED_ASSETS.USDC.contractAddress,
+ EURC:ARC_VERIFIED_ASSETS.EURC.contractAddress} as const;
 const TRANSFER=parseAbi(['event Transfer(address indexed from,address indexed to,uint256 value)']);
 const HASH=/^0x[0-9a-fA-F]{64}$/;
 declare const __VEYRA_RELEASE_ENV__:string;
@@ -136,6 +137,10 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
   try{
    if(!token||!destToken||!isAddress(address)||selectedSource===selectedDest&&mode==='bridge')
     throw Error('Choose valid supported Mainnet chains and tokens.');
+   if(mode==='swap'){
+    assertArcSwapCandidate(selectedSource,token);
+    assertArcSwapCandidate(selectedDest,destToken);
+   }
 
    const c=client(selectedSource);
    if(!c||await c.getChainId()!==selectedSource)throw Error('Mainnet RPC is not available.');
@@ -163,6 +168,10 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
   let saved=false;
   try{
    assertMainnetSigningAllowed();
+   if(mode==='swap'){
+    assertArcSwapCandidate(quote.source,TOKENS[quote.fromToken]);
+    assertArcSwapCandidate(quote.destination,TOKENS[quote.toToken]);
+   }
    if(mode==='bridge'&&!BRIDGE_WRITE_ENABLED)
     throw Error('Bridge signing is paused on Production until source-to-destination proof is accepted.');
    if(quote.owner!==owner||quote.mode!==mode||quote.amount!==amount||
@@ -307,6 +316,16 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
       style={{borderColor:'var(--border)',color:'var(--ink)'}}
       onClick={()=>setFromToken(t=>t==='USDC'?'EURC':'USDC')}><ArrowLeftRight className="inline size-4"/> Reverse</button>
     </div>}
+    {mode==='swap'&&<details className="text-xs" style={{color:'var(--muted)'}}>
+      <summary className="cursor-pointer">Verified asset details · trading availability</summary>
+      <p className="mt-2">Veyra verifies token contract identities; the Circle route and liquidity
+       must still be verified with a live quote. Listing does not guarantee safety or value.</p>
+      {[ARC_VERIFIED_ASSETS[fromToken],ARC_VERIFIED_ASSETS[toToken]].map(x=><p key={x.contractAddress}
+        className="mt-2 break-all">{x.symbol} · Arc {x.chainId} · {x.contractAddress} · {x.decimals} decimals · <a
+          href={x.sourceUrl} target="_blank" rel="noreferrer" className="underline">official source</a></p>)}
+      <p className="mt-2">Other tokens are not selectable until contract verification,
+       provider route validation, and verified output recovery have been integrated.</p>
+     </details>}
     <label className="block text-sm" style={{color:'var(--muted)'}}>Amount ({mode==='swap'?fromToken:'USDC'})
      <input className={input} value={amount} disabled={!!recovery||busy} inputMode="decimal"
       placeholder="0.01" onChange={e=>setAmount(e.target.value)}
