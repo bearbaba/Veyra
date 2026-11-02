@@ -36,7 +36,12 @@ interface NavItem {
   icon: React.ReactNode;
 }
 
-const PRIMARY_NAV: NavItem[] = [
+const PRIMARY_NAV: NavItem[] = VEYRA_ENV === 'mainnet' ? [
+  { id: 'home', label: 'Home', icon: <Home className="size-5" /> },
+  { id: 'pay', label: 'Pay', icon: <SendHorizontal className="size-5" /> },
+  { id: 'social', label: 'People', icon: <Users className="size-5" /> },
+  { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
+] : [
   { id: 'home', label: 'Home', icon: <Home className="size-5" /> },
   { id: 'pay', label: 'Pay', icon: <SendHorizontal className="size-5" /> },
   { id: 'convert', label: 'Swap', icon: <ArrowLeftRight className="size-5" /> },
@@ -44,13 +49,22 @@ const PRIMARY_NAV: NavItem[] = [
   { id: 'agent', label: 'Agent', icon: <Bot className="size-5" /> },
   { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
 ];
-const SECONDARY_NAV: NavItem[] = [
-  { id: 'social', label: VEYRA_ENV === 'mainnet' ? 'People' : 'Friends', icon: <Users className="size-5" /> },
-  ...(VEYRA_ENV === 'mainnet' ? [] : [{ id: 'settlement' as const, label: 'Settlement', icon: <Shield className="size-5" /> }]),
+const SECONDARY_NAV: NavItem[] = VEYRA_ENV === 'mainnet' ? [
+  { id: 'convert', label: 'Swap', icon: <ArrowLeftRight className="size-5" /> },
+  { id: 'bridge', label: 'Bridge', icon: <Route className="size-5" /> },
+  { id: 'agent', label: 'Agent', icon: <Bot className="size-5" /> },
+  { id: 'settings', label: 'Settings', icon: <Settings className="size-5" /> },
+] : [
+  { id: 'social', label: 'Friends', icon: <Users className="size-5" /> },
+  { id: 'settlement', label: 'Settlement', icon: <Shield className="size-5" /> },
   { id: 'settings', label: 'Settings', icon: <Settings className="size-5" /> },
 ];
-const MOBILE_NAV = PRIMARY_NAV.filter(item => ['home', 'pay', 'agent', 'activity'].includes(item.id));
-const MOBILE_MORE_NAV = [...PRIMARY_NAV.filter(item => item.id === 'convert' || item.id === 'bridge'), ...SECONDARY_NAV];
+const MOBILE_NAV = PRIMARY_NAV.filter(item => VEYRA_ENV === 'mainnet'
+  ? ['home', 'pay', 'social', 'activity'].includes(item.id)
+  : ['home', 'pay', 'agent', 'activity'].includes(item.id));
+const MOBILE_MORE_NAV = VEYRA_ENV === 'mainnet'
+  ? SECONDARY_NAV
+  : [...PRIMARY_NAV.filter(item => item.id === 'convert' || item.id === 'bridge'), ...SECONDARY_NAV];
 
 interface AppShellProps {
   page: VeyraPage;
@@ -91,6 +105,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
         ))}
 
         <div className="mt-4 border-t pt-3 space-y-1" style={{borderColor:'var(--border)'}}>
+          {VEYRA_ENV==='mainnet'&&<p className="px-3 pb-1 pt-1 text-xs font-semibold" style={{color:'var(--subtle)'}}>More</p>}
           {SECONDARY_NAV.map(item => (
             <NavButton key={item.id} item={item} active={page === item.id} onClick={() => navigate(item.id)} />
           ))}
