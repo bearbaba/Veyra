@@ -7,6 +7,10 @@ export const ACROSS_BASE_WETH='0x4200000000000000000000000000000000000006';
 export const ACROSS_ARC_USDC='0x3600000000000000000000000000000000000000';
 const INTEGER=/^(?:0|[1-9][0-9]{0,55})$/;
 const API='https://app.across.to/api';
+const BASE_ACROSS_EXECUTORS=new Set([
+ '0x09aea4b2242abc8bb4bb78d537a67a245a7bec64', // Base SpokePool
+ '0x97ccdbea4632140639ad5ea9b944aa034eb15fd4', // Base SpokePoolPeriphery
+]);
 export class AcrossQuoteError extends Error{
  constructor(public code:string,public httpStatus:number,message:string){super(message);}
 }
@@ -53,15 +57,25 @@ export function normalizeAcrossQuote(raw:unknown,requested:ReturnType<typeof val
   minimum=numberAmount(o.minOutputAmount);
  const expiry=o.quoteExpiryTimestamp;
  const tx=o.swapTx;
+ const inputToken=o.inputToken,outputToken=o.outputToken;
+ const tokenMatches=(x:unknown,address:string,chain:number,decimals:number)=>
+  !!x&&typeof x==='object'&&!Array.isArray(x)&&
+  typeof (x as Record<string,unknown>).address==='string'&&
+  (x as Record<string,unknown>).address?.toString().toLowerCase()===address.toLowerCase()&&
+  (x as Record<string,unknown>).chainId===chain&&
+  (x as Record<string,unknown>).decimals===decimals;
  if(input===null||expected===null||minimum===null||input!==BigInt(requested.amount)||
+   !tokenMatches(inputToken,ACROSS_BASE_WETH,8453,18)||
+   !tokenMatches(outputToken,ACROSS_ARC_USDC,5042,6)||
    expected<=0n||minimum<=0n||minimum>expected||
    typeof expiry!=='number'||!Number.isSafeInteger(expiry)||
-   expiry*1000<=now+10_000||expiry*1000>now+10*60_000||
+   expiry*1000<=now+10_000||expiry*1000>now+2*60*60_000||
    !tx||typeof tx!=='object'||Array.isArray(tx)||
    (tx as Record<string,unknown>).chainId!==8453||
    (tx as Record<string,unknown>).simulationSuccess!==true||
    typeof (tx as Record<string,unknown>).to!=='string'||
-   !isAddress((tx as Record<string,unknown>).to as string))
+   !isAddress((tx as Record<string,unknown>).to as string)||
+   !BASE_ACROSS_EXECUTORS.has(((tx as Record<string,unknown>).to as string).toLowerCase()))
   throw new AcrossQuoteError('UNVERIFIED_PROVIDER_QUOTE',502,'Provider quote fails chain, simulation, minimum or expiry validation.');
  const approvals=o.approvalTxns;
  if(approvals!==undefined&&(!Array.isArray(approvals)||approvals.length>3||
@@ -71,14 +85,24 @@ export function normalizeAcrossQuote(raw:unknown,requested:ReturnType<typeof val
   Object.keys(o.steps as object).filter(k=>['originSwap','bridge','destinationSwap'].includes(k)):[];
  if(!steps.includes('bridge'))
   throw new AcrossQuoteError('UNVERIFIED_PROVIDER_ROUTE',502,'Across did not return a bridge stage.');
+ const fees=o.fees&&typeof o.fees==='object'&&!Array.isArray(o.fees)?
+   o.fees as Record<string,unknown>:{};
+ const feeTotal=fees.total&&typeof fees.total==='object'?fees.total as Record<string,unknown>:{};
+ const feeGas=fees.originGas&&typeof fees.originGas==='object'?
+  fees.originGas as Record<string,unknown>:{};
+ const usd=(x:unknown)=>typeof x==='string'&&/^\\d+(?:\\.\\d{1,12})?$/.test(x)?x:null;
+ const totalUsd=usd(feeTotal.amountUsd),gasUsd=usd(feeGas.amountUsd);
+ const feeSummary=totalUsd!==null?'Provider quoted fees ≈ $'+totalUsd+
+   (gasUsd!==null?' · origin gas ≈ $'+gasUsd:' (origin gas not itemized)'):
+   'Provider total fee not itemized; no fee guarantee';
  const eta=typeof o.expectedFillTime==='number'&&Number.isFinite(o.expectedFillTime)&&
   o.expectedFillTime>=0&&o.expectedFillTime<=86400?o.expectedFillTime:null;
  return {provider:'Across',sourceChainId:8453,destinationChainId:5042,
   inputToken:requested.inputToken,outputToken:requested.outputToken,owner:requested.owner,
   inputAmountRaw:requested.amount,expectedOutputRaw:expected.toString(),
   minimumOutputRaw:minimum.toString(),outputDecimals:6,
-  quoteExpiresAt:expiry*1000,expectedFillSeconds:eta,
-  feeSummary:o.fees&&typeof o.fees==='object'?'Across provider fee details available in live route':'Fee breakdown unavailable',
+  quoteExpiresAt:Math.min(expiry*1000,now+60_000),expectedFillSeconds:eta,
+  feeSummary,
   routeSteps:steps,approvalCount:Array.isArray(approvals)?approvals.length:0,
   executionReady:false,reason:'WALLET_SIGNING_NOT_ACCEPTED'};
 }
