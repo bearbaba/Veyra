@@ -42,6 +42,8 @@ import {
 } from './services/stableFxTradeOwnership.js';
 import { evaluateBrowserOrigin } from './middleware/browserOriginPolicy.js';
 import {isMainnetIdentityOnlyRouteAllowed} from './services/mainnetIdentityOnlyRoutes.js';
+import {quoteAcrossBaseWethToArcUsdc,AcrossQuoteError,isAcrossConfigured,
+ validateAcrossTrackingResponse} from './services/acrossExchangeQuoteService.js';
 import { validateIntentResponse } from '../src/core/intent/intentSchema';
 import { createFallbackAgentResponse, validateAgentChatResponse, type AgentHistoryMessage } from '../src/core/agent/agentV2';
 import { MANIFEST_CONSTANTS } from '../src/providers/registry/providerManifest';
@@ -286,6 +288,49 @@ function maybeSetRestoreCookie(req:Request,res:Response,userId:string,walletAddr
 
 // Only the canonical production browser origin on a separately hosted Mainnet BFF
 // can advertise ID/recipient verification. Testnet and Preview are NOT Mainnet-ready.
+// Server-side Across quote ONLY. Never forwards provider calldata or keys to the browser.
+// This is an explicit quote-only M1 candidate; real signing requires a separate security review.
+app.get('/api/mainnet/exchange/across/capability', IDENTITY_RATE, (_req:Request,res:Response):void=>{
+ res.json({ok:true,provider:'Across',quoteAvailable:runtimeConfig.environment==='mainnet'&&isAcrossConfigured(),
+  executionEnabled:false,route:'8453:WETH -> 5042:USDC'});
+});
+app.post('/api/mainnet/exchange/across/quote', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
+ if(runtimeConfig.environment!=='mainnet'){
+  res.status(503).json({ok:false,error:'MAINNET_EXCHANGE_ONLY'});return;
+ }
+ if(!getAuthenticatedVeyraUserId(req)){
+  res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;
+ }
+ try{
+  const quote=await quoteAcrossBaseWethToArcUsdc(req.body);
+  res.json({ok:true,quote});
+ }catch(err){
+  if(err instanceof AcrossQuoteError){res.status(err.httpStatus).json({ok:false,error:err.code,message:err.message});return;}
+  res.status(503).json({ok:false,error:'ACROSS_QUOTE_UNAVAILABLE'});
+ }
+});
+app.get('/api/mainnet/exchange/across/status', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
+ if(runtimeConfig.environment!=='mainnet'||!isAcrossConfigured()){
+  res.status(503).json({ok:false,error:'ACROSS_NOT_CONFIGURED'});return;
+ }
+ if(!getAuthenticatedVeyraUserId(req)){
+  res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;
+ }
+ const hash=String(req.query.originalHash??'');
+ if(!/^0x[0-9a-fA-F]{64}$/.test(hash)){
+  res.status(400).json({ok:false,error:'INVALID_ORIGINAL_HASH'});return;
+ }
+ try{
+  const r=await fetch('https://app.across.to/api/deposit/status?'+
+   new URLSearchParams({depositTxnRef:hash}),{headers:{Authorization:'Bearer '+process.env.ACROSS_API_KEY!},
+    signal:AbortSignal.timeout(8000),cache:'no-store'});
+  if(!r.ok){res.status(503).json({ok:false,error:'ACROSS_STATUS_UNAVAILABLE'});return;}
+  const evidence=validateAcrossTrackingResponse(await r.json());
+  res.json({ok:true,provider:'Across',originalHash:hash,evidence,
+   verification:'PROVIDER_REPORTED_NOT_INDEPENDENT_ONCHAIN_PROOF'});
+ }catch{res.status(503).json({ok:false,error:'ACROSS_STATUS_UNAVAILABLE'});}
+});
+
 app.post('/api/identity/mainnet-capability', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
   const authority=evaluateMainnetIdentityAuthority(runtimeConfig,req.header('origin'));
   if(!authority){res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;}
