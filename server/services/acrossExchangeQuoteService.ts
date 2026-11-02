@@ -7,10 +7,9 @@ export const ACROSS_BASE_WETH='0x4200000000000000000000000000000000000006';
 export const ACROSS_ARC_USDC='0x3600000000000000000000000000000000000000';
 const INTEGER=/^(?:0|[1-9][0-9]{0,55})$/;
 const API='https://app.across.to/api';
-const BASE_ACROSS_EXECUTORS=new Set([
- '0x09aea4b2242abc8bb4bb78d537a67a245a7bec64', // Base SpokePool
- '0x97ccdbea4632140639ad5ea9b944aa034eb15fd4', // Base SpokePoolPeriphery
-]);
+// Router and spender are validated against audited addresses only at the
+// separate execution acceptance gate. This endpoint NEVER returns calldata.
+// A valid provider quote must not be mistaken for execution authorization.
 export class AcrossQuoteError extends Error{
  constructor(public code:string,public httpStatus:number,message:string){super(message);}
 }
@@ -80,8 +79,7 @@ export function normalizeAcrossQuote(raw:unknown,requested:ReturnType<typeof val
    (tx as Record<string,unknown>).chainId!==8453||
    (tx as Record<string,unknown>).simulationSuccess!==true||
    typeof (tx as Record<string,unknown>).to!=='string'||
-   !isAddress((tx as Record<string,unknown>).to as string)||
-   !BASE_ACROSS_EXECUTORS.has(((tx as Record<string,unknown>).to as string).toLowerCase()))
+   !isAddress((tx as Record<string,unknown>).to as string))
   throw new AcrossQuoteError('UNVERIFIED_PROVIDER_QUOTE',502,'Provider quote fails chain, simulation, minimum or expiry validation.');
  const approvals=o.approvalTxns;
  if(approvals!==undefined&&(!Array.isArray(approvals)||approvals.length>3||
