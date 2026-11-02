@@ -36,7 +36,8 @@ export function MainnetPayHub({
  const settlementLocked=settlementUnresolved(settlement);
  const locked=payLocked||settlementLocked;
  const lockedMethod:Method=settlementLocked?'contract':payLocked?'wallet':method;
- const selected=locked?lockedMethod:method;
+ const forcedMethod:Method|null=locked?lockedMethod:null;
+ const selected=forcedMethod??method;
  useEffect(()=>{
   if(locked){
    setMethod(lockedMethod);
@@ -47,7 +48,7 @@ export function MainnetPayHub({
   }
  // LockedMethod tracks the persisted signature, so no form can override it.
  // eslint-disable-next-line react-hooks/exhaustive-deps
- },[initialMethod,address,locked,lockedMethod]);
+ },[initialMethod,address,forcedMethod]);
  function choose(next:Method){
   if(locked)return;
   setMethod(next);
