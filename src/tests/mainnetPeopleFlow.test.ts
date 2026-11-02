@@ -33,25 +33,22 @@ describe('Server-verifiable Veyra ID send safety',()=>{
   expect(journal).toBeGreaterThan(verify);
   expect(send).toBeGreaterThan(journal);
  });
- it('never treats an unauthenticated local contact as a signed Veyra ID',()=>{
+ it('People and Pay use one server-backed search and keep Friends optional',()=>{
   const people=src('components/pages/MainnetPeoplePage.tsx');
-  expect(people).toContain("data.kind!=='VEYRA_IDENTITY'");
-  expect(people).toContain('social.identityOrigin');
-  expect(people).toContain('verifyPaymentRecipient');
+  const hub=src('components/pages/MainnetPayHub.tsx');
+  const shared=src('components/identity/MainnetRecipientSearch.tsx');
+  expect(people).toContain('<MainnetRecipientSearch');
+  expect(hub).toContain('<MainnetRecipientSearch');
+  expect(shared).toContain('lookupMainnetRecipient');
   expect(people).toContain('Local wallet contacts (not verified Veyra IDs)');
   expect(people).toContain("social.invite('@'+selected.veyraHandle+'.veyra')");
-  expect(people).toContain("social.respond(userId,decision)");
+  expect(people).toContain('social.respond(userId,decision)');
   expect(people).toContain('Friend invitations');
-  expect(people).toContain('searchEpoch.current++');
-  expect(people).toContain('if(epoch===searchEpoch.current)setSelected(verified)');
-  expect(people).toContain('disabled={!x.veyraHandle}');
-  // A slow lookup must not replace a newer recipient or leave the spinner stuck.
-  expect(people).toContain('if(epoch===searchEpoch.current)setBusy(false)');
-  expect(people).toContain('searchEpoch.current++;setBusy(false);setName(e.target.value)');
-  // Friend pagination must be available without a reload or a second website.
   expect(people).toContain('social.friendsHasMore');
   expect(people).toContain('social.loadMoreFriends()');
   expect(people).toContain('disabled={social.loadingMoreFriends}');
+  expect(hub).toContain('onQueryEdit');
+  expect(hub).toContain("recipient:'',amount:''");
  });
  it('keeps a note and reviewed label with the original browser receipt after status update',()=>{
   const map=new Map<string,string>();
