@@ -67,6 +67,7 @@ import { VEYRA_ENV } from '@/lib/env';
 import {recordLocalOperation,readLocalOperations} from '@/mainnet/localOperations';
 import {readSettlementIntent,writeSettlementIntent,clearSettlementIntent,settlementUnresolved,type SettlementIntent} from '@/mainnet/settlementJournal';
 import {inspectRecordedSettlement} from '@/mainnet/verifyRecordedSettlement';
+import type {MainnetPayDraft} from '@/mainnet/payDraft';
 import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
 import { MainnetSettlementDeploy } from './MainnetSettlementDeploy';
 import { VEYRA_SETTLEMENT_CREATION_BYTECODE, VEYRA_SETTLEMENT_CREATION_KECCAK } from '@/generated/veyraSettlementCreation';
@@ -206,7 +207,7 @@ function buildRef(): `0x${string}` {
 
 // ─── component ─────────────────────────────────────────────────────────────────
 
-export function SettlementPage({embedded=false}:{embedded?:boolean}) {
+export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void}) {
   const { address, isConnected, chainId } = useAccount();
   const { switchChain } = useSwitchChain();
   const publicClient = usePublicClient({ chainId });
@@ -219,6 +220,17 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
 
   // lifecycle
   const [step, setStep] = useState<Step>('form');
+  useEffect(()=>{
+    if(!sharedDraft)return;
+    // Recompute contract fee and approval review when a shared visible draft changes.
+    // A mounted form in a signed/pending step is NEVER reset by tab state.
+    if(step==='form'||step==='review'||step==='loading-fees'||step==='error'){
+      setRecipient(sharedDraft.recipient);setAmount(sharedDraft.amount);
+      if(step==='review'||step==='loading-fees'){setSnapshot(null);setStep('form');}
+    }
+  // Draft edits are the only trigger; changing the lifecycle is not a draft edit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[sharedDraft?.recipient,sharedDraft?.amount]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [intentState,setIntentState]=useState<ReturnType<typeof readSettlementIntent>>({kind:'empty'});
   const [recoveryBusy,setRecoveryBusy]=useState(false);
@@ -1132,7 +1144,7 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
         )}
 
         {/* Contract badge */}
-        {deployment && (
+        {deployment && !isMainnet && (
           <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
@@ -1202,27 +1214,23 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
                   </button>
                 ))}
               </div>
-            ) : (
-              <div className="rounded-xl bg-white/[0.04] border border-white/[0.08] px-4 py-3 space-y-1">
-                <p className="text-xs text-white/70 font-medium flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-white/40" />Direct Pay only on Mainnet
-                </p>
-                <p className="text-xs text-white/40 leading-relaxed">
-                  Escrow is not available in this application on Arc Mainnet pending a live canary test.
-                  Note: escrow functions remain callable directly on-chain (application-level gate only).
-                </p>
-              </div>
-            )}
+            ) : null}
 
-            <p className="text-xs text-white/40 px-1">
+            {isMainnet&&amountParsed>0n&&recipientValid&&<p role="status" className="rounded-lg border border-white/10 px-3 py-2 text-sm text-white/75">
+              {currentAllowance===undefined?'Checking allowance for the entered amount…':
+                needsApproval?'2 confirmations: approve this amount, then pay.':
+                '1 confirmation: existing allowance covers this amount.'}
+            </p>}
+
+            {!isMainnet&&<p className="text-xs text-white/40 px-1">
               {effectiveMode === 'pay'
                 ? 'Immediately transfers USDC to recipient via the settlement contract. Instant and final.'
                 : 'Locks USDC in the contract. Recipient claims before timeout, or you refund after.'}
-            </p>
+            </p>}
 
-            <div className="space-y-1.5">
+            {!embedded&&<><div className="space-y-1.5">
               <label className="text-xs font-medium text-white/50 uppercase tracking-wide">Recipient address</label>
-              <input value={recipient} onChange={(e) => setRecipient(e.target.value)}
+              <input value={recipient} onChange={(e) => {setRecipient(e.target.value);onDraftChange?.({recipient:e.target.value});}}
                 placeholder="0x…"
                 className="w-full rounded-xl bg-white/[0.06] border border-white/[0.08] px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/20" />
               {recipient && !recipientValid && (
@@ -1232,11 +1240,17 @@ export function SettlementPage({embedded=false}:{embedded?:boolean}) {
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-white/50 uppercase tracking-wide">Amount (USDC)</label>
-              <input value={amount} onChange={(e) => setAmount(e.target.value)}
+              <input value={amount} onChange={(e) => {setAmount(e.target.value);onDraftChange?.({amount:e.target.value});}}
                 placeholder="0.00" inputMode="decimal"
                 className="w-full rounded-xl bg-white/[0.06] border border-white/[0.08] px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/20" />
             </div>
 
+            </>}
+            {isMainnet&&<details className="text-xs text-white/60">
+              <summary className="cursor-pointer">Contract details</summary>
+              <p className="mt-2">USDC is sent immediately with an onchain reference; no escrow, refund or purchase protection.</p>
+              {deployment&&<a className="text-emerald-300" href={deployment.explorerUrl} target="_blank" rel="noreferrer">Verified contract</a>}
+            </details>}
             {effectiveMode === 'escrow' && (
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-white/50 uppercase tracking-wide">Escrow timeout (hours)</label>

@@ -201,7 +201,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
           {logoutWarning&&<p role="alert" className="mt-3 text-xs" style={{color:"var(--warning)"}}>{logoutWarning}</p>}
           {xCapability==='unavailable'&&!profile?.x && <p role="status" className="mt-3 text-xs leading-5" style={{color:'var(--muted)'}}>
               {xReadinessDetail ?? (social.identityOrigin!=='ready'
-                ? 'X linking needs the approved Veyra Testnet identity backend.'
+                ? VEYRA_ENV==='mainnet'?'Veyra ID/X requires an authorized Mainnet identity origin. No account was changed.':'X linking requires the approved identity backend.'
                 : 'Sign in to your existing Veyra ID with your wallet to check X linking.')}
               {' '}Your Veyra ID and wallet remain unchanged.
             </p>}
@@ -218,7 +218,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
             <div>
               <h2 className="text-sm font-bold" style={{color:'var(--ink)'}}>Transaction protection</h2>
               <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
-                {VEYRA_ENV==='mainnet'?'Arc Mainnet Pay transfers real USDC and requires explicit wallet confirmation. Other financial routes are not yet activated.':'Every payment is reviewed before wallet approval. Testnet funds only.'}
+                {VEYRA_ENV==='mainnet'?'Wallet Pay uses an explicit signature and checks the original USDC receipt. Swap and Bridge quotes are not transaction confirmations.':'Every payment is reviewed before wallet approval. Testnet funds only.'}
               </p>
             </div>
           </div>
@@ -251,7 +251,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-bold" style={{color:'var(--ink)'}}>Networks & assets</span>
             <span className="mt-1 block text-xs leading-5" style={{color:'var(--muted)'}}>
-              {VEYRA_ENV==='mainnet'?'Arc Mainnet wallet payments and Circle App Kit Swap/Bridge workflows are available with live quotes. Gateway spend and Veyra ID Pay require separate backend readiness.':'Arc Testnet USDC is enabled. Other listings are not available for sending yet.'}
+              {VEYRA_ENV==='mainnet'?'Wallet Pay can request signing. Swap needs a live Circle quote; Bridge is quote-only on Production until proof approval. Gateway and Veyra ID Pay require verified backend readiness.':'Arc Testnet USDC is enabled. Other listings are not available for sending yet.'}
             </span>
           </span>
           <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180"

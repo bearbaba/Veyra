@@ -6,6 +6,10 @@ import { useAccount, useSwitchChain } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { formatUnits } from 'viem';
 import { recordLocalOperation } from '@/mainnet/localOperations';
+import {verifyPaymentRecipient} from '@/lib/api/identityApi';
+import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
+import {validVerifiedRecipient,type VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
+import type {MainnetPayDraft} from '@/mainnet/payDraft';
 import {assertMainnetSigningAllowed,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
 import { AlertTriangle, ExternalLink, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import {
@@ -22,10 +26,24 @@ const box = 'rounded-2xl border p-5 sm:p-6';
 const field = 'w-full rounded-xl border px-4 py-3 text-sm';
 type Review = {plan: MainnetPlan; preflight: MainnetPreflight};
 
-export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,embedded=false}:{friendHandle?:string|null;recipientWallet?:string|null;onRecipientUsed?:()=>void;embedded?:boolean}) {
+export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,embedded=false,sharedDraft,onDraftChange,verifiedRecipient}:{friendHandle?:string|null;recipientWallet?:string|null;onRecipientUsed?:()=>void;embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void;verifiedRecipient?:VerifiedMainnetRecipient|null}) {
   const {address, chainId, connector, isConnected} = useAccount();
+  const social=useUnifiedSocial();
+  async function reverifySelectedIdentity(plan:MainnetPlan){
+    if(verifiedRecipient&&!idSelection)
+      throw Error('Recipient differs from the reviewed Veyra ID. Change person or verify again in People.');
+    if(!idSelection)return;
+    if(!validVerifiedRecipient(idSelection,plan.from,plan.to))
+      throw Error('Recipient Veyra ID snapshot expired. Return to People to verify the current wallet.');
+    if(social.identityOrigin!=='ready'||!social.session?.token)
+      throw Error('Signed identity session is no longer available. Reverify the recipient in People.');
+    await verifyPaymentRecipient({snapshotId:idSelection.snapshotId,expectedWalletId:idSelection.walletId,
+      expectedWalletAddress:plan.to,expectedChainId:5042,reviewToken:idSelection.reviewToken},social.session.token);
+  }
   const {switchChain} = useSwitchChain();
   const [recipient,setRecipient] = useState('');
+  const idSelection=verifiedRecipient&&address&&recipient.toLowerCase()===verifiedRecipient.wallet.toLowerCase()
+    &&verifiedRecipient.owner.toLowerCase()===address.toLowerCase()?verifiedRecipient:null;
   const [amount,setAmount] = useState('');
   const [review,setReview] = useState<Review|null>(null);
   const [ack,setAck] = useState(false);
@@ -48,6 +66,12 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   },[address]);
   useEffect(()=>{setReview(null);setAck(false);},[chainId,connector]);
   useEffect(()=>{
+    if(!sharedDraft)return;
+    setRecipient(sharedDraft.recipient);
+    setAmount(sharedDraft.amount);
+    setReview(null);setAck(false);
+  },[sharedDraft?.recipient,sharedDraft?.amount]);
+  useEffect(()=>{
     if(!recipientWallet)return;
     if(/^0x[0-9a-fA-F]{40}$/.test(recipientWallet)){
       setRecipient(recipientWallet);setAmount('');setReview(null);setAck(false);setError(null);
@@ -69,6 +93,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     try {
       const plan=buildMainnetPayPlan(address,recipient.trim(),amount.trim());
       const preflight=await mainnetPreflight(await provider(),plan);
+      await reverifySelectedIdentity(plan);
       setReview({plan,preflight});setAck(false);
     }catch(e){setError(msg(e));}
     finally{lock.current=false;setBusy(false);}
@@ -77,9 +102,12 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
     if(!address||!review||!ack||blocked||lock.current)return;
     try{assertMainnetSigningAllowed();}catch(e){setError(msg(e));return;}
     lock.current=true;setBusy(true);setError(null);
-    const initial:MainnetJournal={from:review.plan.from,to:review.plan.to,amount:review.plan.amount,hash:null,stage:'AWAITING_WALLET'};
+    const initial:MainnetJournal={from:review.plan.from,to:review.plan.to,amount:review.plan.amount,hash:null,stage:'AWAITING_WALLET',
+      note:sharedDraft?.note?.trim().slice(0,120)||undefined,
+      recipientLabel:idSelection?'@'+idSelection.veyraHandle+'.veyra':undefined};
     let requested=false;
     try {
+      await reverifySelectedIdentity(review.plan);
       if(readMainnetJournal(address,storageForMainnet()).kind!=='empty')
         throw new Error('Earlier transaction record exists. Do not resubmit.');
       if(!writeMainnetJournal(initial,storageForMainnet()))
@@ -88,7 +116,10 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
       const hash=await requestMainnetCanaryTransfer(await provider(),review.plan,()=>{requested=true;});
       const next:MainnetJournal={...initial,hash,stage:'PENDING'};
       setJournal(next);setHashInput(hash);
-      recordLocalOperation({type:'Pay',hash,owner:address,amount:review.plan.amount,asset:'USDC',chainId:5042,status:'SUBMITTED',destination:review.plan.to});
+      recordLocalOperation({type:'Pay',hash,owner:address,amount:review.plan.amount,asset:'USDC',chainId:5042,
+       status:'SUBMITTED',destination:review.plan.to,
+       note:sharedDraft?.note?.trim().slice(0,120)||undefined,
+       recipientLabel:idSelection?'@'+idSelection.veyraHandle+'.veyra':undefined});
       if(!writeMainnetJournal(next,storageForMainnet()))
         setError('Payment submitted but hash storage failed. Keep this hash and do not retry: '+hash);
     }catch(e){
@@ -166,6 +197,11 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
           If it remains pending, Veyra checks the existing transaction rather than sending again.</p>
       </div>
     </div>
+    {idSelection&&<div role="status" className={box} style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
+      <p className="text-sm font-semibold">{'Send to @'+idSelection.veyraHandle+'.veyra'}</p>
+      <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Verified recipient snapshot · address will be rechecked by the backend before signing.</p>
+      <p className="mt-2 break-all font-mono text-xs">{idSelection.wallet}</p>
+    </div>}
     {friendHandle&&<div role="status" className={box} style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--warning)'}}>
       Paying {friendHandle} by Veyra ID is not activated on Mainnet. No recipient address has been substituted.
       Use the direct wallet transfer only after verifying the exact recipient address.
@@ -181,14 +217,15 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
           style={{background:'var(--accent)',color:'#fff'}} onClick={()=>switchChain({chainId:5042})}>Switch to Arc Mainnet</button>
       </div>}
       <div className={box+' space-y-4'} style={{background:'var(--surface)',borderColor:'var(--border)'}}>
-        <div><label className="text-sm font-semibold" style={{color:'var(--ink)'}}>Recipient wallet</label>
+        {!embedded&&<><div><label className="text-sm font-semibold" style={{color:'var(--ink)'}}>Recipient wallet</label>
           <input className={field+' mt-2'} style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}
             value={recipient} maxLength={42} autoComplete="off" spellCheck={false} placeholder="0x…"
-            disabled={blocked} onChange={e=>{setRecipient(e.target.value);setReview(null);setAck(false);}}/></div>
+            disabled={blocked} onChange={e=>{setRecipient(e.target.value);onDraftChange?.({recipient:e.target.value});setReview(null);setAck(false);}}/></div>
         <div><label className="text-sm font-semibold" style={{color:'var(--ink)'}}>Amount (USDC)</label>
           <input className={field+' mt-2'} style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}
             value={amount} inputMode="decimal" placeholder="0.01" disabled={blocked}
-            onChange={e=>{setAmount(e.target.value);setReview(null);setAck(false);}}/></div>
+            onChange={e=>{setAmount(e.target.value);onDraftChange?.({amount:e.target.value});setReview(null);setAck(false);}}/></div>
+        </>}
         {!review&&!journal&&<button className="w-full rounded-xl px-4 py-3 text-sm font-bold disabled:opacity-40"
           disabled={blocked} style={{background:'var(--accent)',color:'#fff'}}
           onClick={()=>void prepare()}>{busy?'Checking…':'Review payment'}</button>}

@@ -4,6 +4,8 @@ import { buildMainnetPayPlan } from './arcMainnetPay.js';
 export type MainnetStage = 'AWAITING_WALLET' | 'UNKNOWN' | 'PENDING' | 'VERIFIED' | 'REVERTED';
 export type MainnetJournal = {
   from: string; to: string; amount: string; stage: MainnetStage; hash: string | null;
+  /** Optional non-authoritative browser-only context. Never used to approve a transaction. */
+  note?:string; recipientLabel?:string;
 };
 export type JournalRead =
   | { kind: 'empty' } | { kind: 'blocked' } | { kind: 'active'; value: MainnetJournal };
@@ -31,7 +33,10 @@ export function readMainnetJournal(from: string, storage: Pick<StorageLike, 'get
     if (typeof value.from !== 'string' || value.from.toLowerCase() !== from.toLowerCase() ||
       typeof value.to !== 'string' || typeof value.amount !== 'string' ||
       !['AWAITING_WALLET','UNKNOWN','PENDING','VERIFIED','REVERTED'].includes(value.stage ?? '') ||
-      !(value.hash === null || typeof value.hash === 'string' && HASH.test(value.hash))) return { kind: 'blocked' };
+      !(value.hash === null || typeof value.hash === 'string' && HASH.test(value.hash)) ||
+      (value.note!==undefined && (typeof value.note!=='string'||value.note.length>120)) ||
+      (value.recipientLabel!==undefined && (typeof value.recipientLabel!=='string'||value.recipientLabel.length>50)))
+      return { kind: 'blocked' };
     buildMainnetPayPlan(from, value.to, value.amount);
     if ((value.stage === 'PENDING' || value.stage === 'VERIFIED' || value.stage === 'REVERTED') && !value.hash) {
       return { kind: 'blocked' };
@@ -40,7 +45,7 @@ export function readMainnetJournal(from: string, storage: Pick<StorageLike, 'get
     // Terminal state is always rechecked with the public RPC after reload.
     return { kind: 'active', value: { from, to: value.to, amount: value.amount,
       stage: value.stage === 'VERIFIED' || value.stage === 'REVERTED' ? 'PENDING' : value.stage as MainnetStage,
-      hash: value.hash } };
+      hash: value.hash, note:value.note, recipientLabel:value.recipientLabel } };
   } catch {
     return { kind: 'blocked' };
   }
