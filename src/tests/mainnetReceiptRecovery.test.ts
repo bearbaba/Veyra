@@ -34,7 +34,8 @@ describe('Receipt recovery never changes original financial signing',()=>{
   const verified=Object.fromEntries(records.map(v=>[key(v),'VERIFIED']));
   expect(verifiedLocalPayMissingFromAccount(records,verified,new Set(),a)).toHaveLength(3);
   const source=readFileSync(new URL('../components/pages/MainnetActivityPage.tsx',import.meta.url),'utf8');
-  expect(source).toContain('saveVerifiedMainnetPayReceipt(token,{hash:v.hash,note:v.note})');
+  expect(source).toContain('saveVerifiedMainnetPayReceipt(token,{hash:v.hash,note:v.note,');
+  expect(source).toContain('snapshotId:v.recipientSnapshotId');
   expect(source).not.toContain('requestMainnetCanaryTransfer');
   expect(source).toContain('Retry receipt sync (no wallet signature)');
  });
