@@ -2,7 +2,7 @@
  * Authoritative chain proof and active 5042 wallet binding are both required.
  */
 import {createPublicClient,http,getAddress,isAddress,type Hex} from 'viem';
-import {and,desc,eq,or,sql} from 'drizzle-orm';
+import {and,desc,eq,isNull,or,sql} from 'drizzle-orm';
 import type {DbClient} from '../db/client.js';
 import {mainnetDirectPayReceipts} from '../db/schema/mainnetDirectPay.js';
 import {identitySnapshots} from '../db/schema/snapshots.js';
@@ -35,7 +35,8 @@ export function mainnetRpcUrl(env:NodeJS.ProcessEnv=process.env):string{
  try{
   const url=new URL(value);
   if(url.protocol!=='https:'||url.username||url.password||url.hash||
-    /testnet|sepolia|localhost|127\\.0\\.0\\.1/i.test(value))return reject('INVALID_MAINNET_RECEIPT_RPC',503);
+     /testnet|sepolia/i.test(value)||/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(url.hostname))
+    return reject('INVALID_MAINNET_RECEIPT_RPC',503);
  }catch{return reject('INVALID_MAINNET_RECEIPT_RPC',503);}
  return value;
 }
@@ -50,7 +51,7 @@ export async function readCanonicalMainnetPayProof(
    client.getTransaction({hash}),client.getTransactionReceipt({hash}),client.getBlockNumber()]);
   if(tx.blockNumber===null||receipt.blockNumber>tip)return reject('PAYMENT_PENDING_CONFIRMATIONS');
   const block=await client.getBlock({blockNumber:receipt.blockNumber});
-  return verifyCanonicalDirectPay({
+  const proof=verifyCanonicalDirectPay({
    chainId,expectedSender,transaction:{
     hash:tx.hash,from:tx.from,to:tx.to,input:tx.input,value:tx.value,blockHash:tx.blockHash,
    },receipt:{
@@ -59,6 +60,8 @@ export async function readCanonicalMainnetPayProof(
     logs:receipt.logs.map(l=>({address:l.address,topics:l.topics,data:l.data})),
    },block:{number:block.number,hash:block.hash??''},tipBlockNumber:tip,minConfirmations:2,
   });
+  if(proof.txHash!==hash.toLowerCase())return reject('TRANSACTION_HASH_MISMATCH');
+  return proof;
  }catch(e){
   if(e instanceof PayReceiptApiError)throw e;
   if(e instanceof Error&&e.name==='DirectPayProofError')return reject(e.message);
@@ -92,6 +95,20 @@ export function visiblePayReceipt(row:VerifiedPayRow,userId:string){
   ...(row.senderUserId===userId&&row.senderPrivateNote?{privateNote:row.senderPrivateNote}:{}),
  };
 }
+async function verifyRecipientSnapshotForReceipt(
+ db:DbClient,snapshotId:string,recipient:string,recipientUserId:string|null,
+):Promise<{snapshotId:string;label:string}>{
+ const result=await verifySnapshot(db,snapshotId);
+ if(!result.ok)return reject('RECIPIENT_SNAPSHOT_NOT_VERIFIED');
+ const [snap]=await db.select().from(identitySnapshots)
+  .where(eq(identitySnapshots.snapshotId,snapshotId)).limit(1);
+ const wallets=Array.isArray(snap?.resolvedWallets)?snap.resolvedWallets as Array<Record<string,unknown>>:[];
+ if(!snap||snap.veyraUserId!==recipientUserId||!wallets.some(w=>
+  typeof w.walletAddress==='string'&&w.walletAddress.toLowerCase()===recipient.toLowerCase()&&
+  w.chainId===5042))
+  return reject('RECIPIENT_SNAPSHOT_MISMATCH');
+ return {snapshotId:snap.snapshotId,label:'@'+snap.veyraHandle+'.veyra'};
+}
 export async function indexVerifiedDirectPay(
  db:DbClient,userId:string,input:{hash:Hex;note?:string;snapshotId?:string},
  readProof:typeof readCanonicalMainnetPayProof=readCanonicalMainnetPayProof,
@@ -103,7 +120,27 @@ export async function indexVerifiedDirectPay(
   const existing=current[0]!;
   if(existing.senderUserId!==userId&&existing.recipientUserId!==userId)
    return reject('RECEIPT_NOT_OWNED',403);
-  return visiblePayReceipt(existing,userId);
+  if((input.note!==undefined||input.snapshotId!==undefined)&&existing.senderUserId!==userId)
+   return reject('SENDER_REQUIRED_FOR_METADATA',403);
+  // Recipient may index first; sender can attach metadata only, not change proof.
+  if(input.note?.trim()&&existing.senderPrivateNote===null)
+   await db.update(mainnetDirectPayReceipts)
+    .set({senderPrivateNote:input.note.trim()})
+    .where(and(eq(mainnetDirectPayReceipts.txHash,input.hash),
+      eq(mainnetDirectPayReceipts.senderUserId,userId),
+      isNull(mainnetDirectPayReceipts.senderPrivateNote)));
+  if(input.snapshotId&&existing.recipientSnapshotId===null){
+   const verified=await verifyRecipientSnapshotForReceipt(
+    db,input.snapshotId,existing.recipientAddress,existing.recipientUserId);
+   await db.update(mainnetDirectPayReceipts)
+    .set({recipientSnapshotId:verified.snapshotId,recipientLabel:verified.label})
+    .where(and(eq(mainnetDirectPayReceipts.txHash,input.hash),
+      eq(mainnetDirectPayReceipts.senderUserId,userId),
+      isNull(mainnetDirectPayReceipts.recipientSnapshotId)));
+  }
+  const [latest]=await db.select().from(mainnetDirectPayReceipts)
+    .where(eq(mainnetDirectPayReceipts.txHash,input.hash)).limit(1);
+  return visiblePayReceipt(latest??existing,userId);
  }
  // Caller must own an active Mainnet wallet on one of the two sides. RPC sender
  // address is authoritative; never use a caller-provided sender or recipient.
@@ -127,17 +164,9 @@ export async function indexVerifiedDirectPay(
  // use the UI's untrusted recipientLabel as an authoritative name.
  let snapshotId:string|null=null,label:string|null=null;
  if(input.snapshotId&&sender?.userId===userId){
-  const verified=await verifySnapshot(db,input.snapshotId);
-  if(!verified.ok)return reject('RECIPIENT_SNAPSHOT_NOT_VERIFIED');
-  const rows=await db.select().from(identitySnapshots)
-    .where(eq(identitySnapshots.snapshotId,input.snapshotId)).limit(1);
-  const snap=rows[0];
-  const wallets=Array.isArray(snap?.resolvedWallets)?snap.resolvedWallets as Array<Record<string,unknown>>:[];
-  if(!snap||snap.veyraUserId!==receiver?.userId||!wallets.some(w=>
-    typeof w.walletAddress==='string'&&w.walletAddress.toLowerCase()===proof.recipient.toLowerCase()&&
-    w.chainId===5042))
-    return reject('RECIPIENT_SNAPSHOT_MISMATCH');
-  snapshotId=snap.snapshotId;label='@'+snap.veyraHandle+'.veyra';
+  const verified=await verifyRecipientSnapshotForReceipt(
+   db,input.snapshotId,proof.recipient,receiver?.userId??null);
+  snapshotId=verified.snapshotId;label=verified.label;
  }
  const values={txHash:proof.txHash,chainId:5042,senderAddress:getAddress(proof.sender).toLowerCase(),
   recipientAddress:getAddress(proof.recipient).toLowerCase(),
