@@ -9,7 +9,7 @@ import {ArrowDownUp,ArrowRight,Search,Wallet,ChevronDown,ShieldCheck,X,Clock3} f
 import {ConnectKitButton} from 'connectkit';
 import {MainnetCirclePage,type ExchangeExecutionSelection} from './MainnetCirclePage';
 import {EXCHANGE_ASSETS,exchangeAssetId,resolveExchangeRoute,searchExchangeAssets,
- exchangeAssetSupport,hasAvailableExchangeDestination,type ExchangeAsset} from '@/mainnet/exchangeCatalog';
+ exchangeAssetSupport,type ExchangeAsset} from '@/mainnet/exchangeCatalog';
 import {getAcrossExchangeQuote,type ExchangeQuoteSummary} from '@/mainnet/exchangeProviderQuote';
 import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
 
@@ -42,8 +42,8 @@ function AssetMark({asset}:{asset:ExchangeAsset}){
     {asset.logo==='eurc'?'€':asset.logo==='weth'?'Ξ':'$'}
   </span>;
 }
-function AssetPicker({side,value,other,balances,onChoose,onClose}:{
- side:Side;value:ExchangeAsset;other:ExchangeAsset;balances:Record<string,bigint>;
+function AssetPicker({side,value,other,balances,acrossReady,onChoose,onClose}:{
+ side:Side;value:ExchangeAsset;other:ExchangeAsset;balances:Record<string,bigint>;acrossReady:boolean;
  onChoose:(asset:ExchangeAsset)=>void;onClose:()=>void;
 }){
  const [query,setQuery]=useState('');
@@ -51,8 +51,12 @@ function AssetPicker({side,value,other,balances,onChoose,onClose}:{
  const [ownedFirst,setOwnedFirst]=useState(true);
  const [showUnsupported,setShowUnsupported]=useState(false);
  const networks=Array.from(new Map(EXCHANGE_ASSETS.map(a=>[a.chainId,{id:a.chainId,name:a.network}])).values());
- const support=(asset:ExchangeAsset)=>side==='from'?
-  (hasAvailableExchangeDestination(asset)?'tradable-route':'unsupported'):exchangeAssetSupport(other,asset);
+ const support=(asset:ExchangeAsset)=>{
+  const route=side==='from'?EXCHANGE_ASSETS.map(to=>exchangeAssetSupport(asset,to)):
+   [exchangeAssetSupport(other,asset)];
+  return route.includes('tradable-route')?'tradable-route':
+   acrossReady&&route.includes('quote-only')?'quote-only':'unsupported';
+ };
  const score=(asset:ExchangeAsset)=>support(asset)==='tradable-route'?0:
   support(asset)==='quote-only'?1:2;
  const items=searchExchangeAssets(query,chain).filter(a=>showUnsupported||support(a)!=='unsupported')
@@ -138,6 +142,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
  const [quoteProblem,setQuoteProblem]=useState('');
  const [quoteLoading,setQuoteLoading]=useState(false);
  const [quoteRefresh,setQuoteRefresh]=useState(0);
+ const [acrossReady,setAcrossReady]=useState(false);
  const quoteController=useRef<AbortController|null>(null);
  const [from,setFrom]=useState<ExchangeAsset>(()=>usdc(ARC));
  const [to,setTo]=useState<ExchangeAsset>(()=>initialBridge?usdc(BASE):eurc);
@@ -187,6 +192,20 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
  const route=resolveExchangeRoute(from,to);
  const pairKey=exchangeAssetId(from)+'>'+exchangeAssetId(to);
  useEffect(()=>{
+  const controller=new AbortController();
+  void fetch('/api/mainnet/exchange/across/capability',{method:'GET',cache:'no-store',
+   signal:controller.signal}).then(async response=>{
+    if(!response.ok)return null;
+    const result:unknown=await response.json();
+    return result;
+   }).then(result=>{
+    if(controller.signal.aborted||!result||typeof result!=='object'||Array.isArray(result))return;
+    const cap=result as Record<string,unknown>;
+    setAcrossReady(cap.ok===true&&cap.quoteAvailable===true&&cap.executionEnabled===false);
+   }).catch(()=>{/* Provider remains hidden unless backend explicitly confirms readiness. */});
+  return()=>controller.abort();
+ },[]);
+ useEffect(()=>{
   quoteController.current?.abort();
   setAcrossQuote(null);setQuoteProblem('');setAcrossAmount('');setQuoteLoading(false);
   return()=>quoteController.current?.abort();
@@ -220,8 +239,10 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   if(locked)return;
   if(picking==='from'){
    setFrom(asset);
-   if(exchangeAssetSupport(asset,to)==='unsupported'){
-    const first=EXCHANGE_ASSETS.find(x=>exchangeAssetSupport(asset,x)!=='unsupported');
+   const currentSupport=exchangeAssetSupport(asset,to);
+   if(currentSupport==='unsupported'||currentSupport==='quote-only'&&!acrossReady){
+    const first=EXCHANGE_ASSETS.find(x=>{const support=exchangeAssetSupport(asset,x);
+     return support==='tradable-route'||support==='quote-only'&&acrossReady;});
     if(first)setTo(first);
    }
   }
@@ -306,11 +327,14 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
      style={{borderColor:'var(--border)',background:'var(--surface-raised)',color:'var(--ink)'}}/>
    </label>
    {!address?<ConnectKitButton/>:<button type="button"
-    disabled={locked||quoteLoading||!social.session?.token} onClick={()=>void getAcrossQuote()}
+    disabled={locked||quoteLoading||!social.session?.token||!acrossReady} onClick={()=>void getAcrossQuote()}
     className="w-full rounded-xl px-4 py-3 font-semibold disabled:opacity-40"
     style={{background:'var(--accent)',color:'#0d1b2f'}}>
     {quoteLoading?'Requesting live Across quote…':'Get live quote (no signing)'}
    </button>}
+   {!acrossReady&&<p className="text-xs" style={{color:'var(--warning)'}}>
+    Across is not configured on this Mainnet backend. No quote or signing is available for this route.
+   </p>}
    {address&&!social.session?.token&&<p className="text-xs" style={{color:'var(--warning)'}}>
     Sign in to your Veyra ID before requesting an Across quote.
    </p>}
@@ -339,6 +363,6 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    Multi-step Bridge + Swap, arbitrary asset execution and third-party recipient routing remain unavailable until independently accepted.
   </p>
   {picking&&<AssetPicker key={picking} side={picking} value={picking==='from'?from:to}
-   other={picking==='from'?to:from} balances={balances} onChoose={choose} onClose={()=>setPicking(null)}/>}
+   other={picking==='from'?to:from} balances={balances} acrossReady={acrossReady} onChoose={choose} onClose={()=>setPicking(null)}/>}
  </main>;
 }
