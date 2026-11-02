@@ -69,6 +69,16 @@ describe('Server-verifiable Veyra ID send safety',()=>{
   expect(history[0].submittedAt).toBeGreaterThan(0);
  });
 });
+describe('Human-first Home cannot treat browser records as server receipts',()=>{
+ it('distinguishes on-device history from canonical verified receipts',()=>{
+  const home=src('components/pages/MainnetHomePage.tsx');
+  expect(home).toContain('Saved on this device · Open Activity for verification');
+  expect(home).not.toContain('Recorded · Activity auto-verifies receipts');
+  expect(home).toContain('listVerifiedMainnetPayReceipts');
+  expect(home).toContain('knownHashes');
+  expect(home).toContain('remote:');
+ });
+});
 describe('CCTP quote cannot invent the guaranteed minimum',()=>{
  it('rejects provider responses with only estimated fees',()=>{
   expect(()=>readBridgeQuoteAmounts({fees:[{type:'forwarder',amount:'0.1',token:'USDC'}]},'10'))
