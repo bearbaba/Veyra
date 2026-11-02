@@ -55,7 +55,8 @@ describe('Across candidate: server-only live quote without token impersonation o
    inputAmountRaw:amount,minimumOutputRaw:'1985000',approvalCount:1});
   expect(JSON.stringify(quote)).not.toContain('not-a-real-key');
   expect(JSON.stringify(quote)).not.toContain('swapTx');
-  const url=String(fetcher.mock.calls[0]?.[0]);
+  const requested=fetcher.mock.calls[0]?.[0];
+  const url=typeof requested==='string'?requested:requested instanceof URL?requested.href:requested?.url??'';
   expect(url).toContain('tradeType=exactInput');
   expect(url).toContain('originChainId=8453');
   expect(url).toContain('destinationChainId=5042');
