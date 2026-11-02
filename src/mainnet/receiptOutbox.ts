@@ -16,7 +16,7 @@ type OutboxStorage=Pick<Storage,'getItem'|'setItem'|'removeItem'|'key'|'length'>
 /** Same browser store as the payment journal, with a fail-closed inaccessible fallback. */
 export function storageForReceiptOutbox():OutboxStorage{
  try{return window.localStorage;}catch{
-  return {get length(){throw Error('Storage inaccessible');},key(){throw Error('Storage inaccessible');},
+  return {get length():number{throw Error('Storage inaccessible');},key(){throw Error('Storage inaccessible');},
    getItem(){throw Error('Storage inaccessible');},setItem(){throw Error('Storage inaccessible');},
    removeItem(){throw Error('Storage inaccessible');}};
  }
