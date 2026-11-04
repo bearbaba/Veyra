@@ -7,6 +7,7 @@ import {formatUnits} from 'viem';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {isMainnetSessionForWallet,scopedMainnetReceipts} from '@/mainnet/signedWalletReceiptScope';
 import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
+import {listVerifiedMainnetSettlementReceipts,type MainnetSettlementServerReceipt} from '@/lib/api/mainnetSettlementReceipts';
 import {readReceiptOutbox,storageForReceiptOutbox,type ReceiptOutboxItem} from '@/mainnet/receiptOutbox';
 import {ConnectKitButton} from 'connectkit';
 import {CheckCircle2,Clock3,ExternalLink,RefreshCw} from 'lucide-react';
@@ -34,6 +35,9 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const social=useUnifiedSocial();
  const signedWallet=isMainnetSessionForWallet(social.session,address,connector?.uid);
  const [serverReceipts,setServerReceipts]=useState<MainnetPayServerReceipt[]>([]);
+ const [settlementReceipts,setSettlementReceipts]=useState<MainnetSettlementServerReceipt[]>([]);
+ const [settlementReceiptScope,setSettlementReceiptScope]=useState('');
+ const [settlementHistoryStatus,setSettlementHistoryStatus]=useState<'unavailable'|'checking'|'ready'>('unavailable');
  const [serverReceiptScope,setServerReceiptScope]=useState('');
  const [serverHistoryStatus,setServerHistoryStatus]=useState<'unavailable'|'checking'|'ready'>('unavailable');
  const [entries,setEntries]=useState<LocalOperation[]>([]);
@@ -157,6 +161,32 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
   return()=>{active=false;window.clearInterval(timer);controller.abort();window.removeEventListener('focus',onChange);
    window.removeEventListener('veyra:mainnet:server-receipt',onChange);};
  },[address,connector?.uid,social.session?.token,social.session?.walletKey,social.identityOrigin,signedWallet]);
+ // Contract history is additive; absent migration never hides legacy direct receipts.
+ useEffect(()=>{
+  setSettlementReceipts([]);setSettlementReceiptScope('');setSettlementHistoryStatus('unavailable');
+  const token=social.session?.token;
+  if(!address||!token||social.identityOrigin!=='ready'||!signedWallet)return;
+  const owner=address,controller=new AbortController();
+  let active=true,fetching=false;
+  async function reload(){
+   if(!active||fetching)return;
+   fetching=true;setSettlementHistoryStatus(v=>v==='ready'?'ready':'checking');
+   try{
+    const rows=await listVerifiedMainnetSettlementReceipts(token!,controller.signal);
+    if(active){setSettlementReceipts(scopedMainnetReceipts(rows,owner));
+     setSettlementReceiptScope(owner.toLowerCase()+':'+token);setSettlementHistoryStatus('ready');}
+   }catch{if(active)setSettlementHistoryStatus('unavailable');}
+   finally{fetching=false;}
+  }
+  void reload();
+  const interval=window.setInterval(()=>void reload(),20000);
+  const onChange=()=>void reload();
+  window.addEventListener('focus',onChange);
+  window.addEventListener('veyra:mainnet:server-receipt',onChange);
+  return()=>{active=false;controller.abort();window.clearInterval(interval);
+   window.removeEventListener('focus',onChange);
+   window.removeEventListener('veyra:mainnet:server-receipt',onChange);};
+ },[address,connector?.uid,social.session?.token,social.session?.walletKey,social.identityOrigin,signedWallet]);
  // Read-only outbox view. The app-scoped worker exclusively performs idempotent uploads.
  useEffect(()=>{
   setQueuedOwner('');setQueuedReceipts([]);setOutboxBlocked(false);
@@ -199,10 +229,13 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const scopedStates=address&&localOwner===address.toLowerCase()?states:{};
  const scopedQueue=address&&queuedOwner===address.toLowerCase()?queuedReceipts:[];
  const scopedOutboxBlocked=address&&queuedOwner===address.toLowerCase()?outboxBlocked:false;
- const verifiedRemote=filter==='All'||filter==='Send'?scopedReceipts:[];
- const remoteHashes=new Set(scopedReceipts.map(r=>r.txHash.toLowerCase()));
+ const scopedSettlement=signedWallet&&address&&social.session?.token&&
+  settlementReceiptScope===address.toLowerCase()+':'+social.session.token?settlementReceipts:[];
+ const verifiedRemote=filter==='All'||filter==='Send'?
+  [...scopedReceipts,...scopedSettlement].sort((a,b)=>Date.parse(b.paidAt)-Date.parse(a.paidAt)):[];
+ const remoteHashes=new Set([...scopedReceipts,...scopedSettlement].map(r=>r.txHash.toLowerCase()));
  // Server-verified payment appears ONCE, even when there is a browser journal pointer.
- const shown=scopedEntries.filter(v=>!((v.type==='Pay')&&remoteHashes.has(v.hash.toLowerCase()))&&
+ const shown=scopedEntries.filter(v=>!((v.type==='Pay'||v.type==='Settlement')&&remoteHashes.has(v.hash.toLowerCase()))&&
    !((v.type==='Swap'||v.type==='Bridge')&&(groupedHashes.has(v.hash.toLowerCase())||intentHashes.has(v.hash.toLowerCase())))&&
    (filter==='All'||(filter==='Send'?(v.type==='Pay'||v.type==='Settlement'):
     (v.type==='Swap'||v.type==='Bridge'))));
@@ -212,7 +245,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     <span className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Arc Mainnet · 5042</span>
     <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Activity</h1>
     <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>
-     One Exchange request can include multiple network steps. Direct USDC receipts are backend-verified; contract Settlement and Exchange proof links remain local until shared indexing is available.
+     One Exchange request can include multiple steps. Direct USDC and contract Settlement receipts are backend-verified when indexed; unfinished Exchange proof remains local.
     </p>
    </div>
    {address&&<span className="flex items-center gap-2 text-xs" style={{color:'var(--muted)'}}>
@@ -249,13 +282,23 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
      {scopedQueue.length>0&&<button type="button" onClick={onPay}
       className="font-semibold" style={{color:'var(--accent)'}}>View payment receipt</button>}
     </div>}
+   {address&&signedWallet&&settlementHistoryStatus==='unavailable'&&
+    <p role="status" className="text-xs" style={{color:'var(--warning)'}}>
+     Contract Settlement backend history is unavailable or awaiting its additive database migration. Local onchain evidence stays visible below; no new transfer is required.
+    </p>}
    {verifiedRemote.length>0&&<section aria-label="Verified Veyra account receipts"
       className="overflow-hidden rounded-2xl border" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
     {verifiedRemote.map(v=><article key={v.txHash} className="border-b p-4 last:border-0" style={{borderColor:'var(--border)'}}>
       <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>
-       {v.direction==='sent'?'Sent':'Received'} · {formatUnits(BigInt(v.amountRaw),6)} USDC
+       {v.direction==='sent'?'Sent':'Received'} · {formatUnits(BigInt(
+        'kind' in v&&v.kind==='settlement'&&v.direction==='received'?v.netAmountRaw:v.amountRaw),6)} USDC
       </p>
-      <p className="mt-1 text-sm" style={{color:'var(--success)'}}>Completed · independently verified by Veyra backend</p>
+      <p className="mt-1 text-sm" style={{color:'var(--success)'}}>
+       Completed · independently verified by Veyra backend · {'kind' in v&&v.kind==='settlement'?'Contract Settlement':'Direct USDC'}
+      </p>
+      {'kind' in v&&v.kind==='settlement'&&<p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
+       Gross {formatUnits(BigInt(v.amountRaw),6)} USDC · protocol fee {formatUnits(BigInt(v.protocolFeeRaw),6)} USDC · net received {formatUnits(BigInt(v.netAmountRaw),6)} USDC
+      </p>
       <p className="text-sm" style={{color:'var(--ink)'}}>
        {v.direction==='sent'?'To '+(v.recipientLabel??v.recipientAddress):
         'From wallet '+v.senderAddress.slice(0,8)+'…'+v.senderAddress.slice(-6)}
