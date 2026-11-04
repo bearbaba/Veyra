@@ -172,6 +172,7 @@ interface ReviewSnapshot {
   // payment target
   mode: Mode;
   recipient: `0x${string}`;
+  verifiedRecipient?:VerifiedMainnetRecipient|null;
   amountParsed: bigint;
   // contract
   contractAddress: `0x${string}`;
@@ -795,6 +796,12 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
       return;
     }
 
+    if(verifiedRecipient&&
+      (verifiedRecipient.owner.toLowerCase()!==address.toLowerCase()||
+       verifiedRecipient.wallet.toLowerCase()!==recipient.trim().toLowerCase())){
+      setErrorMsg('Selected Veyra ID is not the receiving wallet in this Settlement review.');
+      setStep('error');return;
+    }
     const bps =
       typeof liveFeeBps === 'bigint' ? liveFeeBps :
       typeof liveFeeBps === 'number' ? BigInt(liveFeeBps) : 0n;
@@ -807,6 +814,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
       chainLabel,
       mode: effectiveMode,
       recipient: recipient.trim() as `0x${string}`,
+      verifiedRecipient:verifiedRecipient??null,
       amountParsed,
       contractAddress: deployment.address,
       usdcAddress: activeUsdcAddress,
@@ -939,10 +947,17 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
     try {
       // A chosen Veyra ID is independently resolved again before signing
       // and may never silently point to a different recipient.
-      if(isMainnet&&snapshot.mode==='pay')
-        await reverifySettlementRecipient({original:verifiedRecipient,
+      if(isMainnet&&snapshot.mode==='pay'){
+        if(snapshot.verifiedRecipient&&
+           (!verifiedRecipient||
+            verifiedRecipient.veyraUserId!==snapshot.verifiedRecipient.veyraUserId||
+            verifiedRecipient.walletId!==snapshot.verifiedRecipient.walletId||
+            verifiedRecipient.wallet.toLowerCase()!==snapshot.verifiedRecipient.wallet.toLowerCase()))
+          throw Error('Selected Veyra ID changed after review. Start a new Settlement review.');
+        await reverifySettlementRecipient({original:snapshot.verifiedRecipient,
           owner:address,recipient:snapshot.recipient,
           sessionToken:social.session?.token,sessionWalletBound:signedForWallet});
+      }
       // Detect wallet / chain change since snapshot
       if (address.toLowerCase() !== snapshot.walletAddress.toLowerCase()) {
         throw new Error(
