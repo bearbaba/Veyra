@@ -146,3 +146,13 @@ body {
 @media(prefers-reduced-motion:reduce){
   .veyra-home .veyra-action-card,.veyra-home .veyra-action-card *{transition:none!important;transform:none!important;}
 }
+
+/* Pay M0: Wallet default, Friends list with optional lookup. */
+.veyra-pay-page .veyra-pay-panel{background:radial-gradient(ellipse at 92% 0%,rgba(97,62,197,.16),transparent 48%),linear-gradient(160deg,#0b2854,#081e43 54%,#0d1a3e);border-color:rgba(96,154,243,.32);box-shadow:0 18px 54px rgba(0,5,28,.22),inset 0 1px rgba(219,231,255,.06)}
+.veyra-pay-page .veyra-pay-tab{color:var(--muted);transition:background .16s ease,color .16s ease}
+.veyra-pay-page .veyra-pay-tab[data-active="true"]{background:linear-gradient(105deg,#078df8,#5268f4 58%,#9250f3);color:#fff;box-shadow:0 2px 12px rgba(74,95,222,.2)}
+.veyra-pay-page .veyra-pay-input{background:rgba(13,36,79,.89)!important;border-color:rgba(102,153,239,.27)!important}
+.veyra-pay-page .veyra-pay-input:focus-visible{outline:2px solid rgba(101,185,252,.38);outline-offset:0;border-color:#67c1ff!important}
+.veyra-pay-page .veyra-pay-review{background:linear-gradient(105deg,#079af8,#5564f5 56%,#9e48f7)!important;color:#fff!important}
+.veyra-pay-page .veyra-pay-review:disabled{background:rgba(75,90,129,.65)!important;opacity:.62}
+@media(prefers-reduced-motion:reduce){.veyra-pay-page .veyra-pay-tab{transition:none}}

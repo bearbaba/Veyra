@@ -11,7 +11,7 @@ import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal'
 import {readSettlementIntent,settlementUnresolved} from '@/mainnet/settlementJournal';
 import {readPayDraft,writePayDraft,type MainnetPayDraft} from '@/mainnet/payDraft';
 import {MainnetPayPage} from './MainnetPayPage';
-import {MainnetRecipientSearch} from '../identity/MainnetRecipientSearch';
+import {MainnetPayRecipientPicker} from './MainnetPayRecipientPicker';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
 import type {RecipientSearchResult} from '@/mainnet/recipientLookup';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
@@ -118,6 +118,12 @@ export function MainnetPayHub({
   setLocalVerified(result.kind==='veyra'?result.person:null);
   setMethod('contract');setVisited(v=>({...v,contract:true}));
  }
+ function changeWalletRecipient(value:string){
+  if(!address||locked)return;
+  onClearVerified?.();setLocalVerified(null);
+  const next={...readPayDraft(owner),recipient:value.trim(),amount:''};
+  setDraftHolder({owner,value:next});writePayDraft(owner,next);
+ }
  function clearChosen(){
   if(locked)return;
   onClearVerified?.();setLocalVerified(null);
@@ -130,17 +136,18 @@ export function MainnetPayHub({
   setVisited(v=>v[next]?v:{...v,[next]:true});
   setOptionsOpen(false);
  }
- return <main className="mx-auto w-full max-w-3xl space-y-4 px-4 py-7 md:px-7 md:py-9">
-  <header>
-   <p className="text-xs font-semibold uppercase tracking-wider" style={{color:'var(--accent)'}}>Veyra · Arc Mainnet</p>
-   <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Settlement</h1>
-   <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>To · Amount · Note (optional)</p>
-   {__VEYRA_RELEASE_ENV__==='preview'
-    ?<p className="mt-2 text-xs font-semibold" style={{color:'var(--warning)'}}>Read-only Preview · commit {__VEYRA_RELEASE_SHA__.slice(0,12)} · no Mainnet signing</p>
-    :<details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
-      <summary>Release details</summary>
-      Build {__VEYRA_RELEASE_SHA__.slice(0,12)} · {__VEYRA_RELEASE_ENV__}
-     </details>}
+ return <main className="veyra-pay-page mx-auto w-full max-w-2xl px-4 py-5 md:py-7">
+  <div className="veyra-pay-panel space-y-4 rounded-3xl border p-4 sm:p-6">
+  <header className="flex items-center gap-3">
+   <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border"
+    style={{background:'linear-gradient(135deg,rgba(8,141,255,.25),rgba(136,65,252,.24))',borderColor:'var(--border-strong)'}}>
+    <Wallet className="size-5" style={{color:'var(--accent)'}}/>
+   </div>
+   <div className="min-w-0">
+    <h1 className="display text-2xl font-bold" style={{color:'var(--ink)'}}>Pay</h1>
+    <p className="text-sm" style={{color:'var(--muted)'}}>Send USDC on Arc</p>
+   </div>
+   {__VEYRA_RELEASE_ENV__==='preview'&&<span className="ml-auto text-xs" style={{color:'var(--warning)'}}>Preview · read only</span>}
   </header>
   {MAINNET_EMERGENCY_READ_ONLY?<p role="alert" className="rounded-xl border p-3 text-sm"
     style={{borderColor:'var(--border)',color:'var(--warning)'}}>
@@ -158,36 +165,17 @@ export function MainnetPayHub({
    style={{borderColor:'var(--border)',color:'var(--warning)'}}>
    Payment still processing. Check Activity before trying again.
   </p>}
-  <section aria-label="Payment details" className="space-y-4 rounded-xl border p-4 sm:p-5"
+  <section aria-label="Payment details" className="space-y-4 rounded-2xl border p-3 sm:p-4"
     style={{background:'var(--surface)',borderColor:'var(--border)'}}>
-   <div>
-    {selectedVerified?<div className="rounded-xl border p-4" style={{borderColor:'var(--border)',color:'var(--ink)'}}>
-      <p className="text-sm font-semibold">{selectedVerified.displayName||'Veyra recipient'} · @{selectedVerified.veyraHandle}.veyra</p>
-      <p className="mt-1 text-xs" style={{color:'var(--accent)'}}>Verified Veyra ID</p>
-      <details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
-       <summary className="cursor-pointer">Details</summary><p className="mt-2 break-all font-mono">{selectedVerified.wallet}</p>
-      </details>
-      <button type="button" disabled={locked} onClick={clearChosen}
-       className="mt-3 text-xs font-semibold disabled:opacity-40" style={{color:'var(--accent)'}}>Change recipient</button>
-     </div>:
-     <>
-      <MainnetRecipientSearch key={owner} owner={address} sessionToken={signedWallet?social.session?.token:undefined} disabled={locked}
-       initialQuery="" label="To" onSelection={resolveSelected}
-       onQueryEdit={()=>{
-        if(!address||locked)return;
-        const next={...readPayDraft(owner),recipient:'',amount:''};
-        setDraftHolder({owner,value:next});writePayDraft(owner,next);setLocalVerified(null);
-       }}/>
-      {draft.recipient&&<p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
-        Wallet address · not a verified Veyra ID
-       </p>}
-     </>}
-   </div>
+   <MainnetPayRecipientPicker owner={owner} sessionToken={signedWallet?social.session?.token:undefined}
+    signedWallet={signedWallet} disabled={locked} selectedVerified={selectedVerified}
+    recipient={draft.recipient} onWalletChange={changeWalletRecipient}
+    onSelected={resolveSelected} onClear={clearChosen}/>
    <div>
     <label htmlFor="shared-send-amount" className="text-sm font-semibold" style={{color:'var(--ink)'}}>Amount</label>
     <input id="shared-send-amount" value={draft.amount} inputMode="decimal" maxLength={24}
      onChange={e=>changeDraft({amount:e.target.value})} disabled={!address||locked}
-     placeholder="0.00" className="mt-2 w-full rounded-xl border px-4 py-3 text-2xl font-semibold tabular-nums"
+     placeholder="0.00" className="veyra-pay-input mt-2 w-full rounded-xl border px-4 py-3 text-3xl font-bold tabular-nums"
      style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
     <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
      Available: {balanceError?'Unavailable':walletBalance!==undefined?
@@ -198,7 +186,7 @@ export function MainnetPayHub({
     <label className="text-xs font-semibold" htmlFor="pay-private-note" style={{color:'var(--muted)'}}>Note (optional)</label>
     <input id="pay-private-note" value={draft.note} maxLength={120} disabled={!address||locked}
      onChange={e=>changeDraft({note:e.target.value})}
-     placeholder="e.g. Dinner with Alex" className="mt-2 w-full rounded-lg border px-3 py-2 text-sm"
+     placeholder="What’s this for?" className="veyra-pay-input mt-2 w-full rounded-xl border px-3 py-2 text-sm"
      style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
     <details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
       <summary className="cursor-pointer">Note privacy</summary>
@@ -250,5 +238,6 @@ export function MainnetPayHub({
    <ArrowRight className="mt-0.5 size-4 shrink-0"/>
    Review fees and recipient before signing.
   </p>
+  </div>
  </main>;
 }

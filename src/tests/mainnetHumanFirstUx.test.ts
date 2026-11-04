@@ -64,7 +64,14 @@ describe('Mainnet human-first navigation and transparent settlement',()=>{
   const pay=read('components/pages/MainnetPayPage.tsx');
   const contract=read('components/pages/SettlementPage.tsx');
   const hub=read('components/pages/MainnetPayHub.tsx');
-  expect(hub).toContain('onQueryEdit');
+  const picker=read('components/pages/MainnetPayRecipientPicker.tsx');
+  expect(hub).toContain('onWalletChange={changeWalletRecipient}');
+  expect(picker).toContain("useState<'wallet'|'friends'>");
+  expect(picker).toContain('onClick={()=>changeTab(\'wallet\')}');
+  expect(picker).toContain('onClick={()=>changeTab(\'friends\')}');
+  expect(picker).toContain('aria-expanded={searchOpen}');
+  expect(picker).toContain('connected.map(friend=>');
+  expect(picker).toContain('lookupMainnetRecipient(');
   expect(pay).toContain('reverifySelectedIdentity');
   expect(contract).toContain("if(step==='review'||step==='loading-fees'){setSnapshot(null);setStep('form');}");
   expect(contract).toContain('2 confirmations: approve this amount');

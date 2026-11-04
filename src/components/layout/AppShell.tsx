@@ -162,7 +162,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
           <NotificationBell openSocial={() => onNavigate('social')} />
         </div>
         <WebPreviewBanner />
-        <GlobalWalletBalance />
+        {!(VEYRA_ENV==='mainnet'&&(page==='settlement'||page==='pay'))&&<GlobalWalletBalance />}
 
         <div className="flex-1 overflow-y-auto">
           <AnimatePresence mode="wait">
