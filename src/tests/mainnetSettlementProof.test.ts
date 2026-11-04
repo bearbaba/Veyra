@@ -54,21 +54,21 @@ describe('canonical Mainnet VeyraSettlement contract payment (read-only)',()=>{
   expect(()=>verifyCanonicalSettlement({...f,receipt:{...f.receipt,status:'reverted' as const}})).toThrow('SETTLEMENT_REVERTED');
   expect(()=>verifyCanonicalSettlement({...f,receipt:{...f.receipt,logs:f.receipt.logs.slice(1)}}))
    .toThrow('SETTLEMENT_EVENT_NOT_UNIQUE');
-  expect(()=>verifyCanonicalSettlement({...f,receipt:{...f.receipt,logs:[f.receipt.logs[0]!,f.receipt.logs[0]!,...f.receipt.logs.slice(1)]}}))
+  expect(()=>verifyCanonicalSettlement({...f,receipt:{...f.receipt,logs:[f.receipt.logs[0],f.receipt.logs[0],...f.receipt.logs.slice(1)]}}))
    .toThrow('SETTLEMENT_EVENT_NOT_UNIQUE');
   expect(()=>verifyCanonicalSettlement({...f,receipt:{...f.receipt,
-   logs:[{...f.receipt.logs[0]!,address:recipient},...f.receipt.logs.slice(1)]}}))
+   logs:[{...f.receipt.logs[0],address:recipient},...f.receipt.logs.slice(1)]}}))
    .toThrow('SETTLEMENT_EVENT_NOT_UNIQUE');
  });
  it('requires the exact input and output USDC events, not just an emitted Settled event',()=>{
   const f=fixture();
   expect(()=>verifyCanonicalSettlement({...f,receipt:{...f.receipt,
-    logs:[f.receipt.logs[0]!,f.receipt.logs[1]!]}}))
+    logs:[f.receipt.logs[0],f.receipt.logs[1]]}}))
    .toThrow('SETTLEMENT_USDC_TRANSFER_MISMATCH');
   expect(()=>verifyCanonicalSettlement({...f,receipt:{...f.receipt,
-    logs:[f.receipt.logs[0]!,f.receipt.logs[1]!,transfer(contract,sender,100_000n)]}}))
+    logs:[f.receipt.logs[0],f.receipt.logs[1],transfer(contract,sender,100_000n)]}}))
    .toThrow('SETTLEMENT_USDC_TRANSFER_MISMATCH');
-  expect(()=>verifyCanonicalSettlement({...f,block:{...f.block,hash:('0x'+'e'.repeat(64)) as Hex}}))
+  expect(()=>verifyCanonicalSettlement({...f,block:{...f.block,hash:'0x'+'e'.repeat(64)}}))
    .toThrow('NONCANONICAL_SETTLEMENT_RECEIPT');
  });
 });
