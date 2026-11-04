@@ -385,7 +385,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
      'Bridge USDC between Arc and Base Mainnet via CCTP. Destination verification is required.'}
    </p>
   </div>}
-  <div className={card+' space-y-4'} style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+  <div className={embedded?'veyra-card space-y-4 p-4 sm:p-5':card+' space-y-4'} style={{borderColor:'var(--border)',background:'var(--surface)'}}>
    {!address?<ConnectKitButton/>:<>
     {!embedded&&(mode==='bridge'?<div className="grid gap-3 sm:grid-cols-2">
      <label className="text-sm" style={{color:'var(--muted)'}}>From
@@ -418,8 +418,8 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
       <p className="mt-2">Other tokens are not selectable until contract verification,
        provider route validation, and verified output recovery have been integrated.</p>
      </details>}
-    <label className="block text-sm" style={{color:'var(--muted)'}}>Amount ({mode==='swap'?fromToken:'USDC'})
-     <input className={input} value={amount} disabled={!!recovery||busy} inputMode="decimal"
+    <label className="block text-sm font-semibold" style={{color:'var(--ink)'}}>Amount ({mode==='swap'?fromToken:'USDC'})
+     <input className={input+' veyra-field text-2xl font-semibold'} value={amount} disabled={!!recovery||busy} inputMode="decimal"
       placeholder="0.01" onChange={e=>setAmount(e.target.value)}
       style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
     </label>
@@ -432,8 +432,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
       If the provider gives no verifiable minimum, signing is unavailable.
     </p>}
     {!quote&&!recovery&&<button type="button" disabled={busy||unknownStorage||!validAmount(amount)}
-      className="w-full rounded-xl px-4 py-3 font-semibold disabled:opacity-40"
-      style={{background:'var(--accent)',color:'#0d1b2f'}} onClick={()=>void quoteNow()}>
+      className="veyra-btn-primary w-full disabled:opacity-40" onClick={()=>void quoteNow()}>
       {busy?'Getting live quote…':'Review live Mainnet quote'}
     </button>}
     {quote&&!recovery&&<div className="space-y-2 rounded-xl border p-4 text-sm"
@@ -443,15 +442,16 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
       <p>You receive (estimated): <strong>{quote.expected} {mode==='swap'?quote.toToken:'USDC'}</strong></p>
       <p>Provider minimum: {quote.minimum} {mode==='swap'?quote.toToken:'USDC'}</p>
       {mode==='swap'&&<p>Slippage limit: 1% · refresh quote if expired</p>}
-      <p>Recipient: {address}</p>
-      <p>Quote expires in 30 seconds · Real Mainnet assets</p>
-      <p>Provider: Circle App Kit {mode==='bridge'?'· CCTP burn → destination mint':'· swap router'}</p>
-      <p>Estimated completion: provider ETA not available · verify final destination before completion</p>
-      <p>Confirmations: wallet approval required; token allowance or provider steps may require additional signatures. Review wallet prompts individually.</p>
+      <p className="text-xs" style={{color:'var(--muted)'}}>Live quote · expires in 30 seconds</p>
       {quote.fees.map((fee,i)=><p key={i} className="text-xs">{fee}</p>)}
+      <details className="text-xs" style={{color:'var(--muted)'}}>
+       <summary className="cursor-pointer">Details</summary>
+       <p className="mt-2">Recipient: {address}</p>
+       <p>Provider: Circle App Kit {mode==='bridge'?'· CCTP':'· swap'}</p>
+       <p>Completion time isn't guaranteed. Wallet approval may require additional signatures.</p>
+      </details>
       <button type="button" disabled={busy} onClick={()=>void signNow()}
-       className="w-full rounded-xl px-4 py-3 font-bold disabled:opacity-40"
-       style={{background:'var(--accent)',color:'#0d1b2f'}}>Confirm and sign in wallet</button>
+       className="veyra-btn-primary w-full disabled:opacity-40">Confirm in wallet</button>
     </div>}
     {(recovery||unknownStorage)&&<div role="status" className="space-y-3 rounded-xl border p-4 text-sm"
      style={{borderColor:'var(--border)',color:'var(--ink)'}}>
