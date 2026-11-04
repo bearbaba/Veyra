@@ -10,7 +10,7 @@ import {ConnectKitButton} from 'connectkit';
 import {BrandLogo} from '../brand/BrandLogo';
 import {MainnetCirclePage,type ExchangeExecutionSelection} from './MainnetCirclePage';
 import {EXCHANGE_ASSETS,exchangeAssetId,resolveExchangeRoute,searchExchangeAssets,
- type ExchangeAsset} from '@/mainnet/exchangeCatalog';
+ type ExchangeAsset,type ExchangeAssetSupport} from '@/mainnet/exchangeCatalog';
 import {getAcrossExchangeQuote,type ExchangeQuoteSummary} from '@/mainnet/exchangeProviderQuote';
 import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
 
@@ -40,8 +40,8 @@ function recordedExchange(owner:string):null|{mode:'swap'|'bridge';source:Exchan
 function AssetMark({asset}:{asset:ExchangeAsset}){
  return <BrandLogo logoKey={asset.logo} size={40}/>;
 }
-function AssetPicker({side,value,other,balances,acrossReady,mode,onChoose,onClose}:{
- side:Side;value:ExchangeAsset;other:ExchangeAsset;balances:Record<string,bigint>;acrossReady:boolean;mode:'swap'|'bridge';
+function AssetPicker({side,value,other,balances,mode,onChoose,onClose}:{
+ side:Side;value:ExchangeAsset;other:ExchangeAsset;balances:Record<string,bigint>;mode:'swap'|'bridge';
  onChoose:(asset:ExchangeAsset)=>void;onClose:()=>void;
 }){
  const [query,setQuery]=useState('');
@@ -49,10 +49,9 @@ function AssetPicker({side,value,other,balances,acrossReady,mode,onChoose,onClos
  const [ownedFirst,setOwnedFirst]=useState(true);
  const [showUnsupported,setShowUnsupported]=useState(false);
  const networks=Array.from(new Map(EXCHANGE_ASSETS.map(a=>[a.chainId,{id:a.chainId,name:a.network}])).values());
- const support=(asset:ExchangeAsset)=>{
+ const support=(asset:ExchangeAsset):ExchangeAssetSupport=>{
   const routes=side==='from'?EXCHANGE_ASSETS.map(to=>resolveExchangeRoute(asset,to)):[resolveExchangeRoute(other,asset)];
-  return routes.some(route=>route.kind===mode)?'tradable-route':
-   acrossReady&&false?'quote-only':'unsupported';
+  return routes.some(route=>route.kind===mode)?'tradable-route':'unsupported';
  };
  const score=(asset:ExchangeAsset)=>support(asset)==='tradable-route'?0:2;
  const items=searchExchangeAssets(query,chain).filter(a=>showUnsupported||support(a)!=='unsupported')
@@ -187,7 +186,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
  const locked=!!prior||unknownPrior||engineBusy||!!intentPrior||intentBlocked;
  const viewMode=initialBridge?'bridge':'swap';
  const candidateRoute=resolveExchangeRoute(from,to);
- const route:ReturnType<typeof resolveExchangeRoute>=candidateRoute.kind===viewMode?candidateRoute:{kind:'unavailable',reason:viewMode==='swap'?'Choose supported Arc USDC/EURC pair.':'Choose USDC between Arc and Base.'};
+ const route:ReturnType<typeof resolveExchangeRoute>=candidateRoute.kind===viewMode?candidateRoute:{kind:'unavailable',source:from,destination:to,reason:viewMode==='swap'?'Choose supported Arc USDC/EURC pair.':'Choose USDC between Arc and Base.'};
  const pairKey=exchangeAssetId(from)+'>'+exchangeAssetId(to);
  useEffect(()=>{
   const controller=new AbortController();
@@ -362,6 +361,6 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    <Wallet className="size-4 shrink-0"/>Wallet funds only. Gateway deposits are separate.
   </p>
   {picking&&<AssetPicker key={picking} side={picking} value={picking==='from'?from:to}
-   other={picking==='from'?to:from} balances={balances} acrossReady={acrossReady} mode={viewMode} onChoose={choose} onClose={()=>setPicking(null)}/>}
+   other={picking==='from'?to:from} balances={balances} mode={viewMode} onChoose={choose} onClose={()=>setPicking(null)}/>}
  </main>;
 }
