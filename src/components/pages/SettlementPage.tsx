@@ -73,7 +73,7 @@ import {recordLocalOperation,readLocalOperations} from '@/mainnet/localOperation
 import {readSettlementIntent,writeSettlementIntent,clearSettlementIntent,settlementUnresolved,type SettlementIntent} from '@/mainnet/settlementJournal';
 import {inspectRecordedSettlement} from '@/mainnet/verifyRecordedSettlement';
 import type {MainnetPayDraft} from '@/mainnet/payDraft';
-import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
+import {assertMainnetSigningAllowed,assertMainnetContractCanarySigningAllowed} from '@/mainnet/releaseGates';
 import { MainnetSettlementDeploy } from './MainnetSettlementDeploy';
 import { VEYRA_SETTLEMENT_CREATION_BYTECODE, VEYRA_SETTLEMENT_CREATION_KECCAK } from '@/generated/veyraSettlementCreation';
 import {
@@ -861,7 +861,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
   }
   async function performApprove() {
     if (!deployment || !address || !snapshot) return;
-    try{assertMainnetSigningAllowed();}catch(e){
+    try{if(isMainnet)assertMainnetContractCanarySigningAllowed(address,snapshot.amountParsed,snapshot.mode);
+      else assertMainnetSigningAllowed();}catch(e){
       setErrorMsg(e instanceof Error?e.message:'New signing disabled.');
       setStep('error');return;
     }
@@ -936,7 +937,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
   }
   async function performSettle() {
     if (!deployment || !address || !snapshot || !publicClient) return;
-    try{assertMainnetSigningAllowed();}catch(e){
+    try{if(isMainnet)assertMainnetContractCanarySigningAllowed(address,snapshot.amountParsed,snapshot.mode);
+      else assertMainnetSigningAllowed();}catch(e){
       setErrorMsg(e instanceof Error?e.message:'New signing disabled.');
       setStep('error');return;
     }
