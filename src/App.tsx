@@ -76,14 +76,14 @@ export default function App() {
       case 'bridge':
         return VEYRA_ENV === 'mainnet' ? <MainnetExchangePage initialBridge /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="bridge" /> : <BridgePage />;
       case 'activity':
-        return VEYRA_ENV === 'mainnet' ? <MainnetActivityPage onPay={() => setPage('pay')} onNavigate={setPage} /> : <ActivityPage readOnly={IS_UI_ONLY_PREVIEW} />;
+        return VEYRA_ENV === 'mainnet' ? <MainnetActivityPage onPay={() => setPage('settlement')} onNavigate={setPage} /> : <ActivityPage readOnly={IS_UI_ONLY_PREVIEW} />;
       case 'settings':
         return <SettingsPage onOpenSocial={() => setPage('social')} />;
       case 'social':
         return (VEYRA_ENV === 'mainnet' ? <MainnetPeoplePage initialQuery={profileSearch} onPayVerified={recipient=>{
-            setContactRecipient(null);setVerifiedRecipient(recipient);setFriendPayment(null);setPage('pay');
+            setContactRecipient(null);setVerifiedRecipient(recipient);setFriendPayment(null);setPage('settlement');
           }} onPayWallet={recipient=>{
-            setVerifiedRecipient(null);setContactRecipient(recipient);setFriendPayment(null);setPage('pay');
+            setVerifiedRecipient(null);setContactRecipient(recipient);setFriendPayment(null);setPage('settlement');
           }}/> : <SocialPage onPayFriend={startFriendPayment} />);
       case 'settlement':
         return VEYRA_ENV === 'mainnet' ? <MainnetPayHub initialMethod="contract" friendHandle={friendPayment} recipientWallet={contactRecipient}
