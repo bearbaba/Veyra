@@ -1,6 +1,6 @@
 import {readFileSync} from 'node:fs';
 import {describe,it,expect,vi,afterEach} from 'vitest';
-import {assertMainnetSigningAllowed,assertMainnetCanarySigningAllowed,canSignMainnetCanary} from '../mainnet/releaseGates';
+import {assertMainnetSigningAllowed,assertMainnetCanarySigningAllowed,assertMainnetContractCanarySigningAllowed,canSignMainnetCanary} from '../mainnet/releaseGates';
 import {buildMainnetPayPlan,reconcileMainnetCanary} from '../mainnet/arcMainnetPay';
 import {readSettlementIntent,writeSettlementIntent,settlementUnresolved,
   type SettlementIntent} from '../mainnet/settlementJournal';
@@ -21,7 +21,18 @@ describe('read-only rollback and fault injection',()=>{
   expect(()=>assertMainnetCanarySigningAllowed('0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb',10_000n,false,true)).not.toThrow();
   expect(()=>assertMainnetCanarySigningAllowed('0x1111111111111111111111111111111111111111',10_000n,false,true)).toThrow('authorized canary wallet');
   expect(()=>assertMainnetCanarySigningAllowed('0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb',10_000n,true,true)).toThrow('read-only recovery mode');
-  // Contract deployment, Settlement approvals and Circle routes remain closed.
+  // In-app contract payment canary is owner-only and <=0.01 USDC,
+  // checked again on both approval and pay() signature paths.
+  const owner='0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb';
+  expect(()=>assertMainnetContractCanarySigningAllowed(owner,10_000n,'pay',false)).not.toThrow();
+  expect(()=>assertMainnetContractCanarySigningAllowed(owner,10_001n,'pay',false)).toThrow('0.01 USDC');
+  expect(()=>assertMainnetContractCanarySigningAllowed(from,10_000n,'pay',false)).toThrow('authorized canary wallet');
+  expect(()=>assertMainnetContractCanarySigningAllowed(owner,10_000n,'escrow',false)).toThrow('escrow signing is not enabled');
+  expect(()=>assertMainnetContractCanarySigningAllowed(owner,10_000n,'pay',true)).toThrow('read-only recovery');
+  const settlementSource=readFileSync(new URL('../components/pages/SettlementPage.tsx',import.meta.url),'utf8');
+  expect(settlementSource.match(/assertMainnetContractCanarySigningAllowed\(address,snapshot\.amountParsed,snapshot\.mode\)/g)).toHaveLength(2);
+  // Deployment and Circle routes remain closed under the normal M0 pilot.
+
   const deploy=readFileSync(new URL('../components/pages/MainnetSettlementDeploy.tsx',import.meta.url),'utf8');
   expect(deploy).toContain('assertMainnetSigningAllowed();');
   expect(deploy).toContain('!MAINNET_CANARY_ONLY && !MAINNET_EMERGENCY_READ_ONLY');
