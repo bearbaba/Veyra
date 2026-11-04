@@ -156,3 +156,67 @@ body {
 .veyra-pay-page .veyra-pay-review{background:linear-gradient(105deg,#079af8,#5564f5 56%,#9e48f7)!important;color:#fff!important}
 .veyra-pay-page .veyra-pay-review:disabled{background:rgba(75,90,129,.65)!important;opacity:.62}
 @media(prefers-reduced-motion:reduce){.veyra-pay-page .veyra-pay-tab{transition:none}}
+
+/* Veyra Design System: one compact, consistent Mainnet visual hierarchy. */
+:root {
+ --bg:#061329;
+ --bg-gradient:linear-gradient(180deg,#051128 0%,#07182f 100%);
+ --surface:#102342;
+ --surface-strong:#13294d;
+ --surface-raised:#162d51;
+ --border:rgba(129,164,223,.18);
+ --border-strong:rgba(108,157,237,.35);
+ --muted:#aabbd6;
+ --subtle:#8094b5;
+ --ink:#f7f9ff;
+ --accent:#78baff;
+ --primary-gradient:linear-gradient(110deg,#1396f7 0%,#5b70f3 68%,#8b61ed 100%);
+}
+.veyra-page {color:var(--ink);}
+.veyra-page-title {font-family:'Space Grotesk',sans-serif;font-size:clamp(1.65rem,3vw,2rem);font-weight:700;line-height:1.18;letter-spacing:-.035em;margin-top:.35rem;}
+.veyra-page-subtitle {font-size:.875rem;line-height:1.5;color:var(--muted);margin-top:.35rem;}
+.veyra-eyebrow {font-size:.68rem;font-weight:700;letter-spacing:.14em;color:var(--accent);}
+.veyra-section-title {font-family:'Space Grotesk',sans-serif;font-size:1.02rem;font-weight:700;letter-spacing:-.01em;}
+.veyra-card,.veyra-home .veyra-panel,.veyra-home .veyra-action-card {
+ background:var(--surface)!important;
+ border:1px solid var(--border)!important;
+ border-radius:1rem;
+ box-shadow:0 4px 24px rgba(0,5,23,.1),inset 0 1px rgba(196,215,255,.035)!important;
+}
+.veyra-action-card:hover {background:var(--surface-strong)!important;border-color:var(--border-strong)!important;}
+.veyra-btn-primary,.veyra-pay-page .veyra-pay-review:enabled {
+ background:var(--primary-gradient)!important;
+ border:1px solid rgba(116,157,255,.4)!important;
+ color:#fff!important;
+ border-radius:.75rem;
+ min-height:2.75rem;
+ padding:.65rem 1.1rem;
+ font-weight:700;
+ box-shadow:0 5px 18px rgba(34,86,215,.14);
+}
+.veyra-btn-primary:disabled {background:#3c4f73!important;color:#aebcd0!important;box-shadow:none!important;cursor:not-allowed;}
+.veyra-btn-secondary,.veyra-icon-button {
+ display:inline-flex;align-items:center;justify-content:center;
+ min-height:2.5rem;padding:.55rem .85rem;border:1px solid var(--border)!important;
+ border-radius:.7rem;background:rgba(24,47,83,.75)!important;
+ color:var(--ink);font-weight:600;font-size:.8rem;
+}
+.veyra-icon-button {padding:.6rem;}
+.veyra-field {
+ background:var(--surface-raised)!important;
+ color:var(--ink)!important;
+ border:1px solid var(--border)!important;
+ border-radius:.75rem;
+}
+.veyra-field:focus-visible {outline:2px solid rgba(120,186,255,.4);outline-offset:0;border-color:var(--accent)!important;}
+.veyra-pay-page .veyra-pay-panel {
+ background:var(--surface)!important;
+ border:1px solid var(--border)!important;
+ box-shadow:0 4px 24px rgba(0,5,23,.11)!important;
+}
+.veyra-pay-page .veyra-pay-tab[data-active="true"]{background:rgba(42,94,181,.42)!important;box-shadow:none!important;color:#e9f3ff;}
+.veyra-pay-page .veyra-pay-input {background:var(--surface-raised)!important;border-color:var(--border)!important;}
+.veyra-pay-page .veyra-pay-panel>section[aria-label="Payment details"] {
+ background:transparent!important;border:0!important;padding:0!important;
+}
+@media(prefers-reduced-motion:reduce){.veyra-action-card{transition:none!important;transform:none!important;}}

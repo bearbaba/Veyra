@@ -94,8 +94,8 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
   return (
     <div className="flex min-h-dvh w-full">
       <aside
-        className="hidden md:flex flex-col w-56 shrink-0 border-r px-3 py-5 gap-1"
-        style={{ borderColor: 'var(--border)', background: 'linear-gradient(180deg,rgba(3,14,33,.97),rgba(5,20,46,.96))', backdropFilter: 'blur(24px)' }}
+        className="hidden md:flex flex-col w-52 shrink-0 border-r px-3 py-5 gap-1"
+        style={{ borderColor: 'var(--border)', background: 'rgba(4,15,34,.97)', backdropFilter: 'blur(24px)' }}
       >
         <div className="flex items-center gap-3 px-3 mb-7 pt-1">
           <VeyraLogoMark />
@@ -117,7 +117,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
           <p className="flex items-center gap-2 text-xs font-semibold" style={{color:'var(--ink)'}}>
             <span className="size-2 rounded-full" style={{background:'var(--success)'}}/> Arc Mainnet
           </p>
-          <p className="mt-1 text-[11px]" style={{color:'var(--muted)'}}>Payment network</p>
+          <p className="mt-1 text-[11px]" style={{color:'var(--muted)'}}>Network</p>
         </div>}
         <div className={VEYRA_ENV==='mainnet'?'mt-3 space-y-1':'mt-auto space-y-1'}>
           <button
@@ -140,7 +140,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
       <main className="flex-1 flex flex-col min-h-dvh overflow-hidden">
         <header
           className="md:hidden flex items-center justify-between px-4 py-3 border-b"
-          style={{ borderColor: 'var(--border)', background: 'rgba(13,27,47,0.90)', backdropFilter: 'blur(20px)' }}
+          style={{ borderColor: 'var(--border)', background: 'rgba(5,19,42,.94)', backdropFilter: 'blur(20px)' }}
         >
           <div className="flex items-center gap-2">
             <VeyraLogoMark />
@@ -165,7 +165,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
           <NotificationBell openSocial={() => onNavigate('social')} />
         </div>
         <WebPreviewBanner />
-        {!(VEYRA_ENV==='mainnet'&&(page==='settlement'||page==='pay'))&&<GlobalWalletBalance />}
+        {VEYRA_ENV!=='mainnet'&&<GlobalWalletBalance />}
 
         <div className="flex-1 overflow-y-auto">
           <AnimatePresence mode="wait">
@@ -196,7 +196,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
         )}
         <nav aria-label="Primary navigation"
           className="md:hidden flex items-center border-t"
-          style={{ borderColor: 'var(--border)', background: 'rgba(13,27,47,0.92)', backdropFilter: 'blur(20px)' }}
+          style={{ borderColor: 'var(--border)', background: 'rgba(5,19,42,.95)', backdropFilter: 'blur(20px)' }}
         >
           {MOBILE_NAV.map((item) => (
             <button type="button"
