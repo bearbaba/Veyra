@@ -944,6 +944,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
     if (isMainnet) {try{await validateMainnetDeployment();}catch(e){setErrorMsg(e instanceof Error?e.message:'Mainnet contract validation failed');setStep('error');return;}}
     setStep('revalidating');
     setErrorMsg(null);
+    let identityVerifiedAtSign:VerifiedMainnetRecipient|null=null;
 
     try {
       // A chosen Veyra ID is independently resolved again before signing
@@ -955,7 +956,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
             verifiedRecipient.walletId!==snapshot.verifiedRecipient.walletId||
             verifiedRecipient.wallet.toLowerCase()!==snapshot.verifiedRecipient.wallet.toLowerCase()))
           throw Error('Selected Veyra ID changed after review. Start a new Settlement review.');
-        await reverifySettlementRecipient({original:snapshot.verifiedRecipient,
+        identityVerifiedAtSign=await reverifySettlementRecipient({original:snapshot.verifiedRecipient,
           owner:address,recipient:snapshot.recipient,
           sessionToken:social.session?.token,sessionWalletBound:signedForWallet});
       }
@@ -1107,6 +1108,9 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
           amount:formatUnits(snapshot.amountParsed,6),asset:'USDC',
           chainId:ARC_MAINNET_CHAIN_ID,status:'SUBMITTED',destination:snapshot.recipient,
            ...(snapshot.verifiedRecipient?{recipientLabel:'@'+snapshot.verifiedRecipient.veyraHandle+'.veyra'}:{}),
+           ...(identityVerifiedAtSign?{recipientSnapshotId:identityVerifiedAtSign.snapshotId}:{}),
+           ...(signedForWallet&&social.session?.profile.veyraUserId?
+              {senderUserId:social.session.profile.veyraUserId}:{}),
            ...(sharedDraft?.note?{note:sharedDraft.note.trim().slice(0,120)}:{}),
         });
         if(!stored){
