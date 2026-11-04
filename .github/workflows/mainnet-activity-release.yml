@@ -60,6 +60,73 @@ jobs:
           src/tests/phase3MainnetCatalog.test.ts
           src/tests/arcAppKitBridge.test.ts
           src/tests/arcAppKitSwap.test.ts
+      - name: Validate additive Settlement migration on disposable PostgreSQL 16
+        run: |
+          docker run -d --name veyra-mainnet-migration-ci \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=CI_DUMMY_NOT_PRODUCTION \
+            -e POSTGRES_DB=veyra_migration_ci postgres:16
+          trap 'docker rm --force veyra-mainnet-migration-ci >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for i in $(seq 1 30); do
+            if docker exec veyra-mainnet-migration-ci pg_isready -U postgres -d veyra_migration_ci >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          [ "$ready" -eq 1 ] || { echo 'ERROR: CI Postgres did not start'; exit 1; }
+          docker exec -i veyra-mainnet-migration-ci psql -U postgres -d veyra_migration_ci -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE veyra_users(veyr_user_id text PRIMARY KEY);
+          CREATE TABLE identity_snapshots(snapshot_id text PRIMARY KEY);
+          CREATE TABLE mainnet_direct_pay_receipts(tx_hash text PRIMARY KEY,amount_raw text);
+          INSERT INTO veyra_users(veyr_user_id) VALUES('usr_ci_sender'),('usr_ci_receiver');
+          INSERT INTO mainnet_direct_pay_receipts VALUES ('legacy-original-hash','10000');
+          SQL
+          # The exact checked-in migration is applied twice to test its idempotence.
+          docker exec -i veyra-mainnet-migration-ci psql -U postgres -d veyra_migration_ci -v ON_ERROR_STOP=1 \
+            < server/db/migrations/0021_mainnet_settlement_receipts.sql
+          docker exec -i veyra-mainnet-migration-ci psql -U postgres -d veyra_migration_ci -v ON_ERROR_STOP=1 \
+            < server/db/migrations/0021_mainnet_settlement_receipts.sql
+          docker exec -i veyra-mainnet-migration-ci psql -U postgres -d veyra_migration_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO mainnet_settlement_receipts(
+            tx_hash,chain_id,contract_address,payment_id,payment_ref,
+            sender_address,recipient_address,sender_user_id,recipient_user_id,
+            amount_raw,net_amount_raw,protocol_fee_raw,network_fee_wei,block_number,paid_at
+          ) VALUES (
+            '0x1111111111111111111111111111111111111111111111111111111111111111',
+            5042,'0x4444444444444444444444444444444444444444',
+            '0x2222222222222222222222222222222222222222222222222222222222',
+            '0x3333333333333333333333333333333333333333333333333333333333',
+            '0x5555555555555555555555555555555555555555',
+            '0x6666666666666666666666666666666666666666',
+            'usr_ci_sender','usr_ci_receiver','10000','9900','100','0',12,now()
+          );
+          DO $
+          BEGIN
+            IF (SELECT count(*) FROM mainnet_settlement_receipts)<>1 THEN
+              RAISE EXCEPTION 'Settlement migration failed to preserve canonical row';
+            END IF;
+            IF (SELECT count(*) FROM mainnet_direct_pay_receipts)<>1 THEN
+              RAISE EXCEPTION 'Settlement migration modified legacy receipts';
+            END IF;
+            IF (SELECT count(*) FROM pg_indexes WHERE schemaname='public'
+                AND indexname IN ('ix_mainnet_settlement_sender','ix_mainnet_settlement_recipient'))<>2 THEN
+              RAISE EXCEPTION 'Missing settlement receipt owner indexes';
+            END IF;
+            BEGIN
+              UPDATE mainnet_settlement_receipts SET net_amount_raw='9999';
+              RAISE EXCEPTION 'Gross/net mismatch was wrongly accepted';
+            EXCEPTION WHEN check_violation THEN NULL;
+            END;
+            BEGIN
+              UPDATE mainnet_settlement_receipts SET chain_id=8453;
+              RAISE EXCEPTION 'Wrong chain was wrongly accepted';
+            EXCEPTION WHEN check_violation THEN NULL;
+            END;
+          END $;
+          SQL
+
       # This tests the ACTUAL Render container. Web builds alone miss runtime
       # imports such as the pinned contract ABI (Docker context allowlist).
       - name: Build isolated read-only Mainnet BFF container
