@@ -4,7 +4,7 @@ import {MAINNET_ROUTES,routeLabel,type MainnetRoute} from '@/mainnet/mainnetProd
 import type {VeyraPage} from '../layout/AppShell';
 
 const actions:{route:MainnetRoute;icon:React.ReactNode}[]=[
- {route:'pay',icon:<SendHorizontal className="size-4"/>},
+ {route:'settlement',icon:<SendHorizontal className="size-4"/>},
  {route:'swap',icon:<ArrowLeftRight className="size-4"/>},
  {route:'bridge',icon:<Route className="size-4"/>},
 
