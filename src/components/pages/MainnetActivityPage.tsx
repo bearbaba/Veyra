@@ -245,17 +245,16 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     <span className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Arc Mainnet · 5042</span>
     <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Activity</h1>
     <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>
-     One Exchange request can include multiple steps. Direct USDC and contract Settlement receipts are backend-verified when indexed; unfinished Exchange proof remains local.
+     Your transactions and receipts.
     </p>
    </div>
    {address&&<span className="flex items-center gap-2 text-xs" style={{color:'var(--muted)'}}>
-    {syncing&&<RefreshCw className="size-4 animate-spin"/>}{syncing?'Checking wallet receipts…':'Wallet payments auto-checked'}
+    {syncing&&<RefreshCw className="size-4 animate-spin"/>}{syncing?'Updating…':'Up to date'}
    </span>}
   </header>
   {address&&localOwner===address.toLowerCase()&&unknownSettlement&&<div role="alert" className="rounded-xl border p-4 text-sm"
      style={{borderColor:'var(--border)',color:'var(--warning)'}}>
-     A previous contract wallet request has no returned transaction hash. Its outcome is unknown.
-     Veyra will not resubmit the payment automatically. Check the original request in your wallet.
+     Payment status unknown. Check Activity and your wallet before trying again.
   </div>}
   {!address?<section className="rounded-2xl border p-6" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
    <p className="mb-3 text-sm" style={{color:'var(--muted)'}}>Connect your wallet to see its Veyra history.</p>
@@ -284,7 +283,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     </div>}
    {address&&signedWallet&&settlementHistoryStatus==='unavailable'&&
     <p role="status" className="text-xs" style={{color:'var(--warning)'}}>
-     Contract Settlement backend history is unavailable or awaiting its additive database migration. Local onchain evidence stays visible below; no new transfer is required.
+     Receipts temporarily unavailable. Do not send again.
     </p>}
    {verifiedRemote.length>0&&<section aria-label="Verified Veyra account receipts"
       className="overflow-hidden rounded-2xl border" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
@@ -294,7 +293,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
         'kind' in v&&v.kind==='settlement'&&v.direction==='received'?v.netAmountRaw:v.amountRaw),6)} USDC
       </p>
       <p className="mt-1 text-sm" style={{color:'var(--success)'}}>
-       Completed · independently verified by Veyra backend · {'kind' in v&&v.kind==='settlement'?'Contract Settlement':'Direct USDC'}
+       Verified · {'kind' in v&&v.kind==='settlement'?'Settlement':'Direct transfer'}
       </p>
       {'kind' in v&&v.kind==='settlement'&&<p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
        Gross {formatUnits(BigInt(v.amountRaw),6)} USDC · protocol fee {formatUnits(BigInt(v.protocolFeeRaw),6)} USDC · net received {formatUnits(BigInt(v.netAmountRaw),6)} USDC
@@ -303,7 +302,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
        {v.direction==='sent'?'To '+(v.recipientLabel??v.recipientAddress):
         'From wallet '+v.senderAddress.slice(0,8)+'…'+v.senderAddress.slice(-6)}
       </p>
-      <details className="text-xs" style={{color:'var(--muted)'}}><summary className="cursor-pointer">Counterparty wallet</summary>
+      <details className="text-xs" style={{color:'var(--muted)'}}><summary className="cursor-pointer">Details</summary>
        <p className="mt-2 break-all">{v.direction==='sent'?v.recipientAddress:v.senderAddress}</p>
       </details>
       {v.direction==='sent'&&v.privateNote&&
@@ -402,7 +401,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
    {shown.length===0&&verifiedRemote.length===0&&exchangeShown.length===0&&intentShown.length===0?<section className="rounded-2xl border p-7 text-center" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
      <Clock3 className="mx-auto mb-3 size-6" style={{color:'var(--muted)'}}/>
      <p className="font-semibold" style={{color:'var(--ink)'}}>No {filter==='All'?'transactions':filter+' transactions'} recorded yet</p>
-     <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Veyra saves the original transaction automatically when your wallet returns its hash.</p>
+     <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Payments appear here automatically.</p>
     </section>:
     <section className="overflow-hidden rounded-2xl border" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
      {shown.map(v=>{
