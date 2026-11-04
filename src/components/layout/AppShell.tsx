@@ -38,7 +38,7 @@ interface NavItem {
 
 const PRIMARY_NAV: NavItem[] = VEYRA_ENV === 'mainnet' ? [
   { id: 'home', label: 'Home', icon: <Home className="size-5" /> },
-  { id: 'settlement', label: 'Settlement', icon: <SendHorizontal className="size-5" /> },
+  { id: 'settlement', label: 'Pay', icon: <SendHorizontal className="size-5" /> },
   { id: 'social', label: 'People', icon: <Users className="size-5" /> },
   { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
 ] : [
@@ -92,11 +92,11 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
     <div className="flex min-h-dvh w-full">
       <aside
         className="hidden md:flex flex-col w-56 shrink-0 border-r px-3 py-5 gap-1"
-        style={{ borderColor: 'var(--border)', background: 'rgba(13,27,47,0.85)', backdropFilter: 'blur(24px)' }}
+        style={{ borderColor: 'var(--border)', background: 'linear-gradient(180deg,rgba(3,14,33,.97),rgba(5,20,46,.96))', backdropFilter: 'blur(24px)' }}
       >
-        <div className="flex items-center gap-2.5 px-3 mb-6">
+        <div className="flex items-center gap-3 px-3 mb-7 pt-1">
           <VeyraLogoMark />
-          <span className="display text-lg font-bold" style={{ color: 'var(--ink)' }}>Veyra</span>
+          <span className="display text-xl font-bold" style={{ color: 'var(--ink)' }}>Veyra</span>
         </div>
 
         {PRIMARY_NAV.map((item) => (
@@ -109,7 +109,14 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
             <NavButton key={item.id} item={item} active={page === item.id} onClick={() => navigate(item.id)} />
           ))}
         </div>
-        <div className="mt-auto space-y-1">
+        {VEYRA_ENV==='mainnet'&&<div className="mt-auto rounded-xl border p-3"
+          style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+          <p className="flex items-center gap-2 text-xs font-semibold" style={{color:'var(--ink)'}}>
+            <span className="size-2 rounded-full" style={{background:'var(--success)'}}/> Arc Mainnet
+          </p>
+          <p className="mt-1 text-[11px]" style={{color:'var(--muted)'}}>Payment network</p>
+        </div>}
+        <div className={VEYRA_ENV==='mainnet'?'mt-3 space-y-1':'mt-auto space-y-1'}>
           <button
             onClick={() => setCmdOpen(true)}
             className="flex w-full items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors hover:bg-white/5"
@@ -217,8 +224,8 @@ function NavButton({ item, active, onClick }: { item: NavItem; active: boolean; 
   return (
     <button
       onClick={onClick}
-      className="relative flex w-full items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all"
-      style={{ color: active ? 'var(--accent)' : 'var(--muted)', background: active ? 'var(--accent-muted)' : 'transparent' }}
+      className="relative flex w-full items-center gap-2.5 px-3 py-3 rounded-xl text-sm font-semibold transition-all"
+      style={{ color: active ? 'var(--accent)' : 'var(--muted)', background: active ? 'rgba(44,105,198,.22)' : 'transparent' }}
     >
       {active && (
         <motion.span layoutId="nav-indicator" className="absolute left-0 inset-y-2 w-0.5 rounded-r-full" style={{ background: 'var(--accent)' }} />

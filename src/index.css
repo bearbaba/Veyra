@@ -5,20 +5,20 @@
 /* ── Arc Dark tokens (Veyra: AI command center / fintech) ─────────────────── */
 :root {
   --bg: #050f26;
-  --bg-gradient: linear-gradient(180deg, #0a1525 0%, #050f26 58%, #112240 100%);
-  --surface: rgba(255, 255, 255, 0.06);
-  --surface-strong: rgba(255, 255, 255, 0.10);
+  --bg-gradient: radial-gradient(ellipse at 73% 6%,rgba(62,67,161,.15),transparent 46%),linear-gradient(155deg,#031027 0%,#061832 58%,#08152e 100%);
+  --surface: rgba(12, 29, 63, 0.88);
+  --surface-strong: rgba(17, 42, 86, 0.90);
   --surface-muted: #0b1d3d;
   --surface-elevated: rgba(255, 255, 255, 0.08);
   --ink: #f0f4fb;
   --ink-2: #c8d8f0;
   --muted: #a9bddd;
   --subtle: #64748b;
-  --border: rgba(255, 255, 255, 0.09);
+  --border: rgba(109, 152, 228, 0.20);
   --border-strong: rgba(172, 198, 233, 0.40);
   --accent: #69b9ff;
   --accent-hover: #a5d8ff;
-  --accent-muted: rgba(172, 198, 233, 0.12);
+  --accent-muted: rgba(46, 125, 231, 0.18);
   --focus: #69b9ff;
   --success: #14e4a3;
   --success-muted: rgba(74, 222, 128, 0.12);
@@ -108,3 +108,41 @@ body {
 :root{--surface-raised:rgba(16,38,79,.88);--primary-gradient:linear-gradient(108deg,#079dff,#436dfb,#9752ff)}
 .veyra-premium-panel{background:radial-gradient(ellipse at 90% 0%,rgba(91,66,215,.16),transparent 54%),var(--surface)!important}
 .veyra-headline-accent{background:linear-gradient(105deg,#9cdeff,#71a4ff,#b071ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+/* Veyra Home: distinctive visual hierarchy without changing real financial state. */
+.veyra-home .veyra-profile-card {
+  background:linear-gradient(130deg,#0c2e62 0%,#121c4b 68%,#211541 100%);
+  border-color:rgba(106,105,255,.50);
+  box-shadow:inset 0 1px rgba(206,216,255,.11),0 18px 50px rgba(3,7,29,.17);
+}
+.veyra-home .veyra-profile-glow {
+  position:absolute;inset:-20% -18% 0 35%;pointer-events:none;
+  background:radial-gradient(ellipse at 65% 25%,rgba(106,62,251,.28),transparent 65%);
+}
+.veyra-home .veyra-balance-card {
+  background:radial-gradient(ellipse at 78% 100%,rgba(85,83,242,.22),transparent 55%),linear-gradient(125deg,#092a5e,#061b40 72%)!important;
+  border-color:rgba(64,144,253,.35)!important;
+}
+.veyra-home .veyra-panel {
+  background:linear-gradient(140deg,rgba(11,35,77,.96),rgba(9,25,55,.95) 70%,rgba(25,22,65,.88));
+  border-color:rgba(97,144,223,.24);
+  box-shadow:inset 0 1px rgba(175,197,252,.06);
+}
+.veyra-home .veyra-action-card {
+  background:linear-gradient(140deg,rgba(14,40,83,.97),rgba(10,27,59,.96));
+  border-color:rgba(93,144,227,.23);
+  box-shadow:inset 0 1px rgba(199,211,255,.06);
+}
+.veyra-home .veyra-action-card:hover {
+  border-color:rgba(76,184,255,.65);
+  background:linear-gradient(145deg,rgba(21,51,103,.99),rgba(14,32,72,.98));
+}
+.veyra-home .veyra-gradient-button {
+  background:linear-gradient(105deg,#078efb 0%,#5367f7 58%,#9851f5 100%)!important;
+  color:#fff!important;
+  box-shadow:0 8px 24px rgba(60,83,228,.19);
+}
+.veyra-home .veyra-gradient-button:hover {filter:brightness(1.09);}
+@media(prefers-reduced-motion:reduce){
+  .veyra-home .veyra-action-card,.veyra-home .veyra-action-card *{transition:none!important;transform:none!important;}
+}
