@@ -58,7 +58,7 @@ const ready={
  ...base,migrations:22,actualHistory:history,tables:[...legacyTables,'mainnet_settlement_receipts'],
  settlementColumns:columns.map(name=>({name,nullable:nullable.has(name)})),
  settlementConstraints:constraints.map(name=>({
-  name,type:definitions[name]![0],definition:definitions[name]![1],
+  name,type:definitions[name][0],definition:definitions[name][1],
   validated:true,deferrable:false,
  })),
  settlementIndexes:indexes.map(i=>({...i,valid:true,ready:true})),
@@ -76,8 +76,8 @@ describe('Backed-up Mainnet Settlement additive migration preflight',()=>{
    {...ready,settlementConstraints:ready.settlementConstraints.map(x=>x.name==='settlement_net_fee_matches_gross'?{...x,validated:false}:x)},
    {...ready,settlementIndexes:ready.settlementIndexes.map(x=>x.name==='ix_mainnet_settlement_sender'?{...x,valid:false}:x)},
    {...base,actualHistory:history.slice(0,21).map((x,i)=>i===11?{...x,hash:'f'.repeat(64)}:x)},
-   {...base,actualHistory:[...history.slice(0,20),history[19]!] },
-   {...base,actualHistory:[...history.slice(0,20),{...history[20]!,createdAt:9999999999999}]},
+   {...base,actualHistory:[...history.slice(0,20),history[19]] },
+   {...base,actualHistory:[...history.slice(0,20),{...history[20],createdAt:9999999999999}]},
   ])expect(()=>evaluateSettlementUpgradeSchema(state)).toThrow();
  });
  it('allows exactly legacy 0020 schema to upgrade by one migration',()=>{
