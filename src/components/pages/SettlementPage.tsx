@@ -1360,81 +1360,48 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
         {/* ── REVIEW ── */}
         {step === 'review' && snapshot && (
           <div className="space-y-4">
-            <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 px-4 py-2.5 flex items-center gap-2">
-              <CheckCircle className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-              <p className="text-xs text-blue-300">
-                Fee verified from live contract · feeBps = {snapshot.feeBps.toString()} · parameters frozen
-              </p>
+            <div className="rounded-xl border px-4 py-2.5 text-sm font-semibold"
+              style={{background:'var(--accent-muted)',borderColor:'var(--border-strong)',color:'var(--ink)'}}>
+              Review payment
             </div>
-
-            <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] divide-y divide-white/[0.06]">
-              <ReviewRow label="Network" value={snapshot.chainLabel} />
-              <ReviewRow label="Your wallet" value={
-                <span className="font-mono">{snapshot.walletAddress.slice(0, 8)}…{snapshot.walletAddress.slice(-6)}</span>
-              } mono />
-              <ReviewRow label="Type" value={snapshot.mode === 'pay' ? 'Direct payment' : 'Escrow'} />
-              <ReviewRow label="Recipient" value={
-                <span className="font-mono">{snapshot.recipient.slice(0, 10)}…{snapshot.recipient.slice(-6)}</span>
-              } mono />
-              <ReviewRow label="Gross amount" value={`${fmtUsdc(snapshot.amountParsed)} USDC`} />
-              <ReviewRow label="Protocol fee" value={
-                `${fmtUsdc(snapshot.feeAmount)} USDC (${snapshot.feePercent}%)`
-              } />
-              {snapshot.feeRecipient && (
-                <ReviewRow label="Fee recipient" value={
-                  <span className="font-mono text-xs">
-                    {snapshot.feeRecipient.slice(0, 8)}…{snapshot.feeRecipient.slice(-6)}
-                  </span>
-                } mono />
-              )}
-              <ReviewRow label="Net to recipient" value={`${fmtUsdc(snapshot.netAmount)} USDC`} accent />
-              {/* Step-specific gas — shown before each signature step */}
-              {needsApproval && (
-                <GasRow
-                  label="Est. Approve gas"
-                  native={snapshot.approveGasNative}
-                  loading={approveGasLoading}
-                  error={false}
-                />
-              )}
-              <GasRow
-                label="Est. Pay gas"
-                native={snapshot.gasEstimateNative}
-                loading={payGasLoading}
-                error={payGasError}
-              />
-              {snapshot.mode === 'escrow' && (
-                <ReviewRow label="Escrow timeout" value={
-                  <span className="flex items-center gap-1.5 justify-end">
-                    <Clock className="w-3.5 h-3.5 text-white/40" />{snapshot.escrowHours}h
-                  </span>
-                } />
-              )}
-              <ReviewRow label="Contract" value={
-                <a href={deployment?.explorerUrl} target="_blank" rel="noopener noreferrer"
-                  className="text-blue-400 flex items-center gap-1 hover:underline text-xs font-mono">
-                  {snapshot.contractAddress.slice(0, 10)}…{snapshot.contractAddress.slice(-6)}
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              } />
-              <ReviewRow label="USDC contract" value={
-                <span className="font-mono text-xs text-white/60">
-                  {snapshot.usdcAddress.slice(0, 10)}…{snapshot.usdcAddress.slice(-6)}
-                </span>
-              } mono />
-              <ReviewRow label="Payment ref" value={
-                <span className="font-mono text-xs text-white/60">{snapshot.ref.slice(0, 18)}…</span>
-              } mono />
+            <div className="rounded-2xl border divide-y" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+              <ReviewRow label="To" value={snapshot.verifiedRecipient?.veyraHandle
+                ? '@'+snapshot.verifiedRecipient.veyraHandle+'.veyra'
+                : <span className="font-mono">{snapshot.recipient.slice(0,10)}…{snapshot.recipient.slice(-6)}</span>} />
+              <ReviewRow label="Amount" value={`${fmtUsdc(snapshot.amountParsed)} USDC`} />
+              <ReviewRow label="Fee" value={`${fmtUsdc(snapshot.feeAmount)} USDC (${snapshot.feePercent}%)`} />
+              <ReviewRow label="Recipient receives" value={`${fmtUsdc(snapshot.netAmount)} USDC`} accent />
+              <ReviewRow label="Total sent" value={`${fmtUsdc(snapshot.amountParsed)} USDC`} />
             </div>
+            <div className="rounded-xl border divide-y" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+              {needsApproval && <GasRow label="Approve network fee (est.)"
+                native={snapshot.approveGasNative} loading={approveGasLoading} error={false}/>}
+              <GasRow label="Payment network fee (est.)"
+                native={snapshot.gasEstimateNative} loading={payGasLoading} error={payGasError}/>
+            </div>
+            <details className="rounded-xl border px-4 py-3 text-xs" style={{borderColor:'var(--border)',color:'var(--muted)'}}>
+              <summary className="cursor-pointer font-semibold">Details</summary>
+              <div className="mt-3 space-y-2">
+                <ReviewRow label="Network" value={snapshot.chainLabel}/>
+                <ReviewRow label="Your wallet" value={<span className="font-mono">{snapshot.walletAddress.slice(0,8)}…{snapshot.walletAddress.slice(-6)}</span>} mono/>
+                <ReviewRow label="Recipient wallet" value={<span className="font-mono">{snapshot.recipient.slice(0,10)}…{snapshot.recipient.slice(-6)}</span>} mono/>
+                <ReviewRow label="Type" value={snapshot.mode==='pay'?'Payment':'Escrow'}/>
+                {snapshot.feeRecipient&&<ReviewRow label="Fee recipient" value={<span className="font-mono">{snapshot.feeRecipient.slice(0,8)}…{snapshot.feeRecipient.slice(-6)}</span>} mono/>}
+                {snapshot.mode==='escrow'&&<ReviewRow label="Escrow timeout" value={snapshot.escrowHours+'h'}/>}
+                <ReviewRow label="Contract" value={<a className="font-mono underline" href={deployment?.explorerUrl} target="_blank" rel="noopener noreferrer">{snapshot.contractAddress.slice(0,10)}…{snapshot.contractAddress.slice(-6)}</a>}/>
+                <ReviewRow label="USDC contract" value={<span className="font-mono">{snapshot.usdcAddress.slice(0,10)}…{snapshot.usdcAddress.slice(-6)}</span>} mono/>
+                <ReviewRow label="Payment ref" value={<span className="font-mono">{snapshot.ref.slice(0,18)}…</span>} mono/>
+              </div>
+            </details>
 
             {needsApproval ? (
               <div className="space-y-3">
                 <p className="text-xs text-white/50 text-center">
-                  Step 1 of 2: Approve settlement contract to spend exactly {fmtUsdc(snapshot.amountParsed)} USDC
+                  Approve lets this payment use {fmtUsdc(snapshot.amountParsed)} USDC.
                 </p>
                 <button disabled={approving} onClick={() => { void handleApprove(); }}
                   className="w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-colors">
-                  {approving ? 'Waiting for signature…' : `Approve ${fmtUsdc(snapshot.amountParsed)} USDC`}
+                  {approving ? 'Waiting for wallet…' : `Approve ${fmtUsdc(snapshot.amountParsed)} USDC`}
                 </button>
               </div>
             ) : (
@@ -1442,16 +1409,15 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
                 {approveTxHash && (
                   <p className="text-xs text-emerald-400 text-center flex items-center justify-center gap-1.5">
                     <CheckCircle className="w-3.5 h-3.5" />
-                    Approval confirmed — fees re-verified before signing
+                    Approved · ready to send
                   </p>
                 )}
                 <p className="text-xs text-white/50 text-center">
-                  {approveTxHash ? 'Step 2 of 2: ' : ''}
-                  Fee configuration and allowance will be re-verified immediately before broadcast.
+                  Review fees and recipient before signing.
                 </p>
                 <button disabled={settling} onClick={() => { void handleSettle(); }}
                   className="w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-colors">
-                  {settling ? 'Waiting for signature…' : snapshot.mode === 'pay' ? 'Send payment' : 'Create escrow'}
+                  {settling ? 'Waiting for wallet…' : snapshot.mode === 'pay' ? 'Send payment' : 'Create escrow'}
                 </button>
               </div>
             )}
@@ -1467,9 +1433,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
           <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] p-6 text-center space-y-3">
             <div className="w-10 h-10 mx-auto rounded-full border-2 border-white/20 border-t-white animate-spin" />
             <p className="text-sm text-white/70">
-              {step === 'approve' ? 'Approving USDC…' :
-               step === 'revalidating' ? 'Re-verifying fee configuration and allowance before signing…' :
-               'Submitting transaction…'}
+              {step === 'approve' ? 'Waiting for wallet…' : step === 'revalidating' ? 'Checking payment…' : 'Waiting for wallet…'}
             </p>
           </div>
         )}
@@ -1478,7 +1442,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
         {step === 'pending' && (
           <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] p-6 text-center space-y-3">
             <Unlock className="w-8 h-8 text-white/30 mx-auto" />
-            <p className="text-sm text-white/70">Waiting for on-chain confirmation…</p>
+            <p className="text-sm text-white/70">Processing…</p>
             {explorerTxUrl && (
               <a href={explorerTxUrl} target="_blank" rel="noopener noreferrer"
                 className="text-xs text-blue-400 hover:underline flex items-center justify-center gap-1">
@@ -1494,10 +1458,10 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
             <div className="text-center space-y-2">
               <CheckCircle className="w-10 h-10 text-emerald-400 mx-auto" />
               <p className="text-base font-semibold text-white">
-                {snapshot.mode === 'pay' ? 'Payment verified' : 'Escrow verified'}
+                {snapshot.mode==='pay' ? `Sent ${fmtUsdc(snapshot.amountParsed)} USDC to ${snapshot.verifiedRecipient?.veyraHandle?'@'+snapshot.verifiedRecipient.veyraHandle+'.veyra':snapshot.recipient.slice(0,8)+'…'}` : 'Escrow verified'}
               </p>
               <p className="text-xs text-emerald-300/70">
-                All verification checks passed: chain, receipt, contract, event, USDC transfers
+                Verified onchain
               </p>
             </div>
             <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] divide-y divide-white/[0.06]">
