@@ -51,9 +51,23 @@ Before applying:
 
 1. Confirm correct isolated Render PostgreSQL database `veyra_mainnet_v1_db`, current
    schema migration journal, connectivity and a verified restorable database backup.
-2. Use the existing explicit Mainnet migration gate in
-   `server/db/mainnetPilotMigrationGate.ts`. Do not bypass `VEYRA_MAINNET_MIGRATE_CONFIRM`;
-   never run this on Testnet or a historical production database.
+2. Use the explicit Mainnet migration gate in `server/db/mainnetPilotMigrationGate.ts`.
+   It checks the **exact authorized Render Postgres host and database**, rejects
+   lookalike hostnames and requires all of the following operator-supplied
+   evidence for an existing-data migration:
+   `VEYRA_MAINNET_MIGRATE_CONFIRM=veyra_mainnet_v1_db`,
+   `VEYRA_MAINNET_MIGRATION_TARGET_VERSION=0021_mainnet_settlement_receipts`,
+   a real `VEYRA_MAINNET_BACKUP_REFERENCE`, a recent ISO UTC
+   `VEYRA_MAINNET_BACKUP_VERIFIED_AT`, and
+   `VEYRA_MAINNET_BACKUP_RESTORABLE=1`. These flags document **operator
+   attestation only**; the application cannot independently prove the backup
+   is restorable. Never invent these values or bypass a backup check.
+   The explicit `server/db/migrateMainnetPilot.ts` command first uses
+   `checkSettlementUpgradeSchema()` read-only. It permits exactly 21 prior
+   migrations and no Settlement table, or 22 migrations with the Settlement
+   table already present. All partial/ambiguous states are rejected. After an
+   authorized upgrade it checks the final schema again. Do not run it on
+   Testnet or any other historical production database.
 3. Deploy backend and frontend from the **same accepted git release**. Verify both endpoints
    return 401 for anonymous callers and never return a sender-only note to receiver B.
 4. Smoke-test original proof from an already verified transaction before enabling any new
@@ -61,6 +75,16 @@ Before applying:
    Mainnet signing path.
 5. Preserve rollback: previous frontend/backend release and database backup; additive table
    may remain unused after a rollback. Do not delete it to hide an incident.
+
+## Build-time proof available without Production access
+
+The release pipeline `.github/workflows/mainnet-activity-release.yml` builds
+a disposable PostgreSQL 16 container, applies the exact `0021` SQL file twice,
+verifies legacy Pay rows remain unchanged, checks fee arithmetic/network
+constraints, and exercises the read-only version/target approval gates.
+These checks are valuable **but do not mean the live Render database has
+been backed up, migrated or smoke tested**. The historical sender/receiver
+ownership tests also run in CI.
 
 ## E2E release proof — not yet performed
 
