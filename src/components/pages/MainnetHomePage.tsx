@@ -202,9 +202,18 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
      <span className="flex items-center gap-2 text-sm font-semibold" style={{color:'var(--muted)'}}>
       <BrandLogo logoKey="usdc" size={27}/> Available
      </span>
-     <button type="button" onClick={()=>void refetch()} disabled={!address||isFetching}
-      className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs disabled:opacity-40"
-      style={{color:'var(--muted)'}}><RefreshCw className={'size-3.5 '+(isFetching?'animate-spin':'')}/> Refresh</button>
+     <div className="flex items-center gap-2">
+      <button type="button" onClick={()=>setReceive(v=>!v)} disabled={!address} aria-expanded={receive}
+       className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40"
+       style={{color:'var(--accent)',borderColor:'var(--border)'}}>
+       <ArrowDownLeft className="size-3.5"/> Receive
+      </button>
+      <button type="button" onClick={()=>void refetch()} disabled={!address||isFetching}
+       className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs disabled:opacity-40"
+       style={{color:'var(--muted)',borderColor:'var(--border)'}}>
+       <RefreshCw className={'size-3.5 '+(isFetching?'animate-spin':'')}/> Refresh
+      </button>
+     </div>
     </div>
     <div className="mt-3 flex flex-wrap items-baseline gap-2">
      <strong className="display text-3xl font-bold tabular-nums sm:text-4xl" style={{color:'var(--ink)'}}>{available}</strong>
@@ -214,7 +223,6 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
      <summary className="cursor-pointer">Balance details</summary>
      <p className="mt-2">Wallet funds only. Gateway deposits are separate.</p>
     </details>
-    {!address&&<div className="mt-4"><ConnectKitButton/></div>}
    </section>
    <section className={card+" flex items-center"} style={cardStyle} aria-label="Network">
     <div className="flex items-center gap-3">

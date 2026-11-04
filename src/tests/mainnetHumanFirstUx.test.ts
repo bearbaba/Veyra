@@ -38,12 +38,17 @@ describe('Mainnet human-first navigation and transparent settlement',()=>{
   expect(shell).toContain("{ id: 'bridge', label: 'Bridge'");
   expect(shell).toContain("const MOBILE_MORE_NAV = VEYRA_ENV === 'mainnet'");
  });
- it('prioritizes Send/Receive/People/Activity rather than four DeFi tool cards',()=>{
+ it('keeps Pay, People and safe Receive available in the redesigned Mainnet Home',()=>{
   const home=read('components/pages/MainnetHomePage.tsx');
-  expect(home).toContain("id:'send',label:'Send'");
-  expect(home).toContain("id:'receive',label:'Receive'");
+  expect(home).toContain("id:'send',label:'Pay'");
   expect(home).toContain("id:'people',label:'People'");
+  expect(home).toContain("id:'swap',label:'Swap'");
+  expect(home).toContain("id:'bridge',label:'Bridge'");
   expect(home).toContain("id:'activity',label:'Activity'");
+  expect(home).toContain("onClick={()=>setReceive(v=>!v)} disabled={!address}");
+  expect(home).toContain("onNavigate(id==='send'?'settlement'");
+  expect(home).toContain("signedWallet&&social.identityOrigin==='ready'");
+  expect(home).toContain("No transactions yet.");
   expect(home).toContain('{pending.length>0&&');
  });
  it('defaults to Settlement contract and retains wallet fallback as explicit method',()=>{

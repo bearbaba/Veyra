@@ -41,9 +41,11 @@ describe('Home keeps one human-facing wallet site and one verified history',()=>
  it('shows server-verified account receipts without claiming local entries are verified',()=>{
   const source=readFileSync(new URL('../components/pages/MainnetHomePage.tsx',import.meta.url),'utf8');
   expect(source).toContain('listVerifiedMainnetPayReceipts');
-  expect(source).toContain("social.session&&social.identityOrigin==='ready'");
+  expect(source).toContain("signedWallet&&social.identityOrigin==='ready'");
+  expect(source).toContain("accountScope===address.toLowerCase()+':'+social.session.token");
+  expect(source).toContain("settlementScope===address.toLowerCase()+':'+social.session.token");
   expect(source).toContain('knownHashes.has(x.hash.toLowerCase())');
-  expect(source).toContain("x.kind==='settlement'?'Contract Settlement':'Direct transfer'");
+  expect(source).toContain("Verified · {x.recipientLabel??'Arc Mainnet'}");
   expect(source).toContain('listVerifiedMainnetSettlementReceipts');
   expect(source).toContain('{receive&&<section');
   expect(source).not.toContain('Show wallet address');
