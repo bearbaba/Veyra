@@ -3,14 +3,21 @@
  * Journal counts alone do not prove that receipt permissions and constraints exist.
  */
 import {Pool} from 'pg';
+import {createHash} from 'node:crypto';
+import {readFileSync} from 'node:fs';
+import {join,dirname} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 type SchemaColumn={name:string;nullable:boolean};
-type SchemaIndex={name:string;definition:string};
+type SchemaIndex={name:string;definition:string;valid:boolean;ready:boolean};
+type SchemaConstraint={name:string;definition:string;type:string;validated:boolean;deferrable:boolean};
+export type MigrationRecord={hash:string;createdAt:number};
 export type SettlementSchemaPreflight={
  currentDatabase:string;migrations:number;tables:string[];
  settlementColumns?:SchemaColumn[];
  settlementIndexes?:SchemaIndex[];
- settlementConstraints?:string[];
+ settlementConstraints?:SchemaConstraint[];
+ actualHistory?:MigrationRecord[];expectedHistory?:MigrationRecord[];
 };
 
 const REQUIRED_COLUMNS=[
@@ -42,6 +49,64 @@ const REQUIRED_CONSTRAINTS=[
  'settlement_net_fee_matches_gross',
 ];
 
+
+/** Drizzle 0.45 migration identity = SHA256 of exact SQL text + journal.when.
+ * Refuse missing/duplicated/out-of-order rows, not merely an incorrect count.
+ */
+export function expectedSettlementMigrationHistory():MigrationRecord[]{
+ const dir=join(dirname(fileURLToPath(import.meta.url)),'migrations');
+ const journal=JSON.parse(readFileSync(join(dir,'meta/_journal.json'),'utf8')) as {
+  version?:string;dialect?:string;
+  entries?:Array<{idx:number;when:number;tag:string}>;
+ };
+ const entries=journal.entries??[];
+ if(journal.version!=='7'||journal.dialect!=='postgresql'||entries.length!==22||
+    entries[20]?.tag!=='0020_mainnet_direct_pay_receipts'||
+    entries[21]?.tag!=='0021_mainnet_settlement_receipts')
+  throw Error('SETTLEMENT_MIGRATION_JOURNAL_UNEXPECTED');
+ let prev=0;
+ return entries.map((entry,i)=>{
+  if(entry.idx!==i||!Number.isSafeInteger(entry.when)||entry.when<=prev||
+     !/^\d{4}_[a-z0-9_]+$/.test(entry.tag))
+   throw Error('SETTLEMENT_MIGRATION_JOURNAL_UNEXPECTED');
+  prev=entry.when;
+  const sqlText=readFileSync(join(dir,entry.tag+'.sql'),'utf8');
+  return {hash:createHash('sha256').update(sqlText).digest('hex'),createdAt:entry.when};
+ });
+}
+export function assertExactSettlementMigrationHistory(
+ actual:MigrationRecord[]|undefined, expected:MigrationRecord[]|undefined,count:number,
+):void{
+ if(!actual||!expected||expected.length!==22||actual.length!==count||
+    (count!==21&&count!==22)||
+    actual.some((entry,i)=>entry.hash!==expected[i]?.hash||
+      !Number.isSafeInteger(entry.createdAt)||entry.createdAt!==expected[i]?.createdAt))
+  throw Error('SETTLEMENT_MIGRATION_HISTORY_MISMATCH');
+}
+
+/** PostgreSQL deparser adds parentheses and ::text to regex operands.
+ * Ignore only those surface differences: retain all maths and numeric casts.
+ */
+export function normalizeSettlementConstraint(s:string):string{
+ return s.replace(/::(?:pg_catalog\.)?text\b/gi,'')
+  .replace(/[\s()"']/g,'').toLowerCase();
+}
+const EXPECTED_SQL:Record<string,[string,string]>={
+ mainnet_settlement_receipts_pkey:['p','PRIMARY KEY (tx_hash)'],
+ mainnet_settlement_receipts_tx_hash_check:['c',"CHECK (tx_hash ~ '^0x[0-9a-f]{64}$')"],
+ mainnet_settlement_receipts_chain_id_check:['c','CHECK (chain_id = 5042)'],
+ mainnet_settlement_receipts_payment_id_check:['c',"CHECK (payment_id ~ '^0x[0-9a-f]{64}$')"],
+ mainnet_settlement_receipts_payment_ref_check:['c',"CHECK (payment_ref ~ '^0x[0-9a-f]{64}$')"],
+ mainnet_settlement_receipts_amount_raw_check:['c',"CHECK (amount_raw ~ '^[1-9][0-9]*$')"],
+ mainnet_settlement_receipts_net_amount_raw_check:['c',"CHECK (net_amount_raw ~ '^[1-9][0-9]*$')"],
+ mainnet_settlement_receipts_protocol_fee_raw_check:['c',"CHECK (protocol_fee_raw ~ '^[0-9]+$')"],
+ mainnet_settlement_receipts_network_fee_wei_check:['c',"CHECK (network_fee_wei ~ '^[0-9]+$')"],
+ mainnet_settlement_receipts_block_number_check:['c','CHECK (block_number > 0)'],
+ mainnet_settlement_receipts_sender_private_note_check:['c','CHECK (char_length(sender_private_note) <= 120)'],
+ settlement_payer_or_receiver_bound:['c','CHECK (sender_user_id IS NOT NULL OR recipient_user_id IS NOT NULL)'],
+ settlement_net_fee_matches_gross:['c','CHECK ((amount_raw)::numeric = (net_amount_raw)::numeric + (protocol_fee_raw)::numeric)'],
+};
+
 /** Fail closed if a recorded migration left incomplete or altered SQL objects. */
 export function evaluateSettlementUpgradeSchema(
  state:SettlementSchemaPreflight,
@@ -53,21 +118,30 @@ export function evaluateSettlementUpgradeSchema(
   'mainnet_direct_pay_receipts'];
  if(!required.every(t=>tables.has(t)))
   throw Error('SETTLEMENT_UPGRADE_MISSING_LEGACY_SCHEMA');
+ assertExactSettlementMigrationHistory(state.actualHistory,state.expectedHistory,state.migrations);
  const settlement=tables.has('mainnet_settlement_receipts');
  if(state.migrations===21&&!settlement)return 'upgrade-0021';
  if(state.migrations===22&&settlement){
   const columns=new Map<string,SchemaColumn>((state.settlementColumns??[]).map(c=>[c.name,c] as const));
-  const indexes=new Map<string,string>((state.settlementIndexes??[]).map(i=>[i.name,i.definition] as const));
-  const constraints=new Set(state.settlementConstraints??[]);
+  const constraints=new Map<string,SchemaConstraint>(
+   (state.settlementConstraints??[]).map(c=>[c.name,c] as const));
   const completeColumns=REQUIRED_COLUMNS.every(c=>columns.has(c));
   const requiredNotNull=NOT_NULL_COLUMNS.every(c=>columns.get(c)?.nullable===false);
-  const completeConstraints=REQUIRED_CONSTRAINTS.every(c=>constraints.has(c));
+  const completeConstraints=REQUIRED_CONSTRAINTS.every(name=>{
+   const actual=constraints.get(name),wanted=EXPECTED_SQL[name];
+   return actual!==undefined&&wanted!==undefined&&actual.type===wanted[0]&&
+    actual.validated===true&&actual.deferrable===false&&
+    normalizeSettlementConstraint(actual.definition)===normalizeSettlementConstraint(wanted[1]);
+  });
   const validIndexes=[
    ['ix_mainnet_settlement_sender',/\(\s*sender_user_id\s*,\s*paid_at\s+DESC\s*\)/i],
    ['ix_mainnet_settlement_recipient',/\(\s*recipient_user_id\s*,\s*paid_at\s+DESC\s*\)/i],
   ] as const;
   if(!completeColumns||!requiredNotNull||!completeConstraints||
-     !validIndexes.every(([name,pattern])=>pattern.test(indexes.get(name)??'')))
+     !validIndexes.every(([name,pattern])=>{
+       const ix=state.settlementIndexes?.find(x=>x.name===name);
+       return ix?.valid===true&&ix.ready===true&&pattern.test(ix.definition);
+     }))
    throw Error('SETTLEMENT_UPGRADE_INCOMPLETE_RECEIPT_SCHEMA');
   return 'already-ready';
  }
@@ -81,6 +155,7 @@ export function evaluateSettlementUpgradeSchema(
 export async function checkSettlementUpgradeSchema(
  databaseUrl:string,
 ):Promise<'upgrade-0021'|'already-ready'>{
+ const expectedHistory=expectedSettlementMigrationHistory();
  const pool=new Pool({connectionString:databaseUrl,max:1,
   connectionTimeoutMillis:8000,query_timeout:8000,
   application_name:'veyra_settlement_0021_read_only_preflight'});
@@ -97,28 +172,35 @@ export async function checkSettlementUpgradeSchema(
    ]);
    if(!migrationTable.rows[0]?.present)
     throw Error('SETTLEMENT_UPGRADE_MIGRATION_JOURNAL_MISSING');
-   const journal=await c.query<{count:string}>(
-    'SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations');
-   const migrations=Number(journal.rows[0]?.count??NaN);
+   const journal=await c.query<{hash:string;createdAt:string}>(
+    'SELECT hash,created_at::text AS "createdAt" FROM drizzle.__drizzle_migrations ORDER BY created_at ASC,id ASC');
+   const actualHistory=journal.rows.map(r=>({hash:r.hash,createdAt:Number(r.createdAt)}));
+   const migrations=actualHistory.length;
    const hasReceipt=schema.rows.some(r=>r.tablename==='mainnet_settlement_receipts');
    let settlementColumns:SchemaColumn[]|undefined;
    let settlementIndexes:SchemaIndex[]|undefined;
-   let settlementConstraints:string[]|undefined;
+   let settlementConstraints:SchemaConstraint[]|undefined;
    if(migrations===22&&hasReceipt){
     const [cols,idx,checks]=await Promise.all([
      c.query<{column_name:string;is_nullable:string}>(
       "SELECT column_name,is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='mainnet_settlement_receipts'"),
-     c.query<{indexname:string;indexdef:string}>(
-      "SELECT indexname,indexdef FROM pg_indexes WHERE schemaname='public' AND tablename='mainnet_settlement_receipts'"),
-     c.query<{conname:string}>(
-      "SELECT conname FROM pg_constraint WHERE conrelid=to_regclass('public.mainnet_settlement_receipts')"),
+     c.query<{indexname:string;indexdef:string;valid:boolean;ready:boolean}>(`
+      SELECT cls.relname AS indexname,pg_get_indexdef(ix.indexrelid) AS indexdef,
+       ix.indisvalid AS valid,ix.indisready AS ready
+      FROM pg_index ix JOIN pg_class cls ON cls.oid=ix.indexrelid
+      WHERE ix.indrelid='public.mainnet_settlement_receipts'::regclass`),
+     c.query<{conname:string;definition:string;contype:string;convalidated:boolean;condeferrable:boolean}>(`
+      SELECT conname,pg_get_constraintdef(oid) AS definition,contype,convalidated,condeferrable
+      FROM pg_constraint WHERE conrelid='public.mainnet_settlement_receipts'::regclass`),
     ]);
     settlementColumns=cols.rows.map(r=>({name:r.column_name,nullable:r.is_nullable==='YES'}));
-    settlementIndexes=idx.rows.map(r=>({name:r.indexname,definition:r.indexdef}));
-    settlementConstraints=checks.rows.map(r=>r.conname);
+    settlementIndexes=idx.rows.map(r=>({name:r.indexname,definition:r.indexdef,
+     valid:r.valid,ready:r.ready}));
+    settlementConstraints=checks.rows.map(r=>({name:r.conname,definition:r.definition,
+     type:r.contype,validated:r.convalidated,deferrable:r.condeferrable}));
    }
    return evaluateSettlementUpgradeSchema({
-    currentDatabase:db.rows[0]?.name??'',migrations,
+    currentDatabase:db.rows[0]?.name??'',migrations,actualHistory,expectedHistory,
     tables:schema.rows.map(r=>r.tablename),
     settlementColumns,settlementIndexes,settlementConstraints,
    });
