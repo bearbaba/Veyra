@@ -13,13 +13,28 @@ type SchemaIndex={name:string;definition:string;valid:boolean;ready:boolean};
 type SchemaConstraint={name:string;definition:string;type:string;validated:boolean;deferrable:boolean};
 export type MigrationRecord={hash:string;createdAt:number};
 export type SettlementSchemaPreflight={
- currentDatabase:string;migrations:number;tables:string[];
+ currentDatabase:string;migrations:number;tables:string[];serverVersionNum?:number;
  settlementColumns?:SchemaColumn[];
  settlementIndexes?:SchemaIndex[];
  settlementConstraints?:SchemaConstraint[];
  actualHistory?:MigrationRecord[];expectedHistory?:MigrationRecord[];
 };
 
+/** Restore rehearsal NEVER authorizes a Production migration. The restored DB
+ * needs an explicit distinct name and host checked by the rehearsal runner. */
+export type SettlementSchemaTarget=
+ |{kind:'production'}
+ |{kind:'restore';databaseName:string};
+export function validateSettlementSchemaTarget(actual:string,target:SettlementSchemaTarget):void{
+ if(target.kind==='production'){
+  if(actual!=='veyra_mainnet_v1_db')throw Error('SETTLEMENT_UPGRADE_WRONG_DATABASE');
+  return;
+ }
+ if(!/^[a-z][a-z0-9_]{3,62}$/.test(target.databaseName)||
+    target.databaseName==='veyra_mainnet_v1_db'||/testnet|acceptance/i.test(target.databaseName)||
+    target.databaseName!==actual)
+  throw Error('SETTLEMENT_RESTORE_TARGET_NOT_ISOLATED');
+}
 const REQUIRED_COLUMNS=[
  'tx_hash','chain_id','contract_address','payment_id','payment_ref',
  'sender_address','recipient_address','sender_user_id','recipient_user_id',
@@ -84,35 +99,35 @@ export function assertExactSettlementMigrationHistory(
   throw Error('SETTLEMENT_MIGRATION_HISTORY_MISMATCH');
 }
 
-/** PostgreSQL deparser adds parentheses and ::text to regex operands.
- * Ignore only those surface differences: retain all maths and numeric casts.
+/** PostgreSQL 16 pg_get_constraintdef() output from an isolated reference
+ * schema created by the checked-in migration SQL. Compare byte-for-byte:
+ * never strip parentheses, quotes, regex character classes, or case.
+ * The CI PostgreSQL 16 reference test must validate these pinned definitions.
  */
-export function normalizeSettlementConstraint(s:string):string{
- return s.replace(/::(?:pg_catalog\.)?text\b/gi,'')
-  .replace(/[\s()"']/g,'').toLowerCase();
-}
-const EXPECTED_SQL:Record<string,[string,string]>={
+export const EXPECTED_PG16_SETTLEMENT_CONSTRAINTS:Readonly<Record<string,readonly [string,string]>>={
  mainnet_settlement_receipts_pkey:['p','PRIMARY KEY (tx_hash)'],
- mainnet_settlement_receipts_tx_hash_check:['c',"CHECK (tx_hash ~ '^0x[0-9a-f]{64}$')"],
- mainnet_settlement_receipts_chain_id_check:['c','CHECK (chain_id = 5042)'],
- mainnet_settlement_receipts_payment_id_check:['c',"CHECK (payment_id ~ '^0x[0-9a-f]{64}$')"],
- mainnet_settlement_receipts_payment_ref_check:['c',"CHECK (payment_ref ~ '^0x[0-9a-f]{64}$')"],
- mainnet_settlement_receipts_amount_raw_check:['c',"CHECK (amount_raw ~ '^[1-9][0-9]*$')"],
- mainnet_settlement_receipts_net_amount_raw_check:['c',"CHECK (net_amount_raw ~ '^[1-9][0-9]*$')"],
- mainnet_settlement_receipts_protocol_fee_raw_check:['c',"CHECK (protocol_fee_raw ~ '^[0-9]+$')"],
- mainnet_settlement_receipts_network_fee_wei_check:['c',"CHECK (network_fee_wei ~ '^[0-9]+$')"],
- mainnet_settlement_receipts_block_number_check:['c','CHECK (block_number > 0)'],
- mainnet_settlement_receipts_sender_private_note_check:['c','CHECK (char_length(sender_private_note) <= 120)'],
- settlement_payer_or_receiver_bound:['c','CHECK (sender_user_id IS NOT NULL OR recipient_user_id IS NOT NULL)'],
- settlement_net_fee_matches_gross:['c','CHECK ((amount_raw)::numeric = (net_amount_raw)::numeric + (protocol_fee_raw)::numeric)'],
+ mainnet_settlement_receipts_tx_hash_check:['c',"CHECK ((tx_hash ~ '^0x[0-9a-f]{64}$'::text))"],
+ mainnet_settlement_receipts_chain_id_check:['c','CHECK ((chain_id = 5042))'],
+ mainnet_settlement_receipts_payment_id_check:['c',"CHECK ((payment_id ~ '^0x[0-9a-f]{64}$'::text))"],
+ mainnet_settlement_receipts_payment_ref_check:['c',"CHECK ((payment_ref ~ '^0x[0-9a-f]{64}$'::text))"],
+ mainnet_settlement_receipts_amount_raw_check:['c',"CHECK ((amount_raw ~ '^[1-9][0-9]*$'::text))"],
+ mainnet_settlement_receipts_net_amount_raw_check:['c',"CHECK ((net_amount_raw ~ '^[1-9][0-9]*$'::text))"],
+ mainnet_settlement_receipts_protocol_fee_raw_check:['c',"CHECK ((protocol_fee_raw ~ '^[0-9]+$'::text))"],
+ mainnet_settlement_receipts_network_fee_wei_check:['c',"CHECK ((network_fee_wei ~ '^[0-9]+$'::text))"],
+ mainnet_settlement_receipts_block_number_check:['c','CHECK ((block_number > 0))'],
+ mainnet_settlement_receipts_sender_private_note_check:['c','CHECK ((char_length(sender_private_note) <= 120))'],
+ settlement_payer_or_receiver_bound:['c','CHECK (((sender_user_id IS NOT NULL) OR (recipient_user_id IS NOT NULL)))'],
+ settlement_net_fee_matches_gross:['c','CHECK (((amount_raw)::numeric = ((net_amount_raw)::numeric + (protocol_fee_raw)::numeric)))'],
 };
 
 /** Fail closed if a recorded migration left incomplete or altered SQL objects. */
 export function evaluateSettlementUpgradeSchema(
- state:SettlementSchemaPreflight,
+ state:SettlementSchemaPreflight,target:SettlementSchemaTarget={kind:'production'},
 ):'upgrade-0021'|'already-ready'{
- if(state.currentDatabase!=='veyra_mainnet_v1_db')
-  throw Error('SETTLEMENT_UPGRADE_WRONG_DATABASE');
+ validateSettlementSchemaTarget(state.currentDatabase,target);
+ if(state.serverVersionNum!==undefined&&
+    (state.serverVersionNum<160000||state.serverVersionNum>=170000))
+  throw Error('SETTLEMENT_PG16_REQUIRED');
  const tables=new Set(state.tables);
  const required=['veyra_users','wallet_bindings','identity_snapshots',
   'mainnet_direct_pay_receipts'];
@@ -128,10 +143,10 @@ export function evaluateSettlementUpgradeSchema(
   const completeColumns=REQUIRED_COLUMNS.every(c=>columns.has(c));
   const requiredNotNull=NOT_NULL_COLUMNS.every(c=>columns.get(c)?.nullable===false);
   const completeConstraints=REQUIRED_CONSTRAINTS.every(name=>{
-   const actual=constraints.get(name),wanted=EXPECTED_SQL[name];
+   const actual=constraints.get(name),wanted=EXPECTED_PG16_SETTLEMENT_CONSTRAINTS[name];
    return actual!==undefined&&wanted!==undefined&&actual.type===wanted[0]&&
     actual.validated===true&&actual.deferrable===false&&
-    normalizeSettlementConstraint(actual.definition)===normalizeSettlementConstraint(wanted[1]);
+    actual.definition===wanted[1];
   });
   const validIndexes=[
    ['ix_mainnet_settlement_sender',/\(\s*sender_user_id\s*,\s*paid_at\s+DESC\s*\)/i],
@@ -153,7 +168,7 @@ export function evaluateSettlementUpgradeSchema(
  * outside Render or changes the production IP allowlist.
  */
 export async function checkSettlementUpgradeSchema(
- databaseUrl:string,
+ databaseUrl:string,target:SettlementSchemaTarget={kind:'production'},
 ):Promise<'upgrade-0021'|'already-ready'>{
  const expectedHistory=expectedSettlementMigrationHistory();
  const pool=new Pool({connectionString:databaseUrl,max:1,
@@ -163,12 +178,13 @@ export async function checkSettlementUpgradeSchema(
   const c=await pool.connect();
   try{
    await c.query('BEGIN READ ONLY');
-   const [db,schema,migrationTable]=await Promise.all([
+   const [db,schema,migrationTable,version]=await Promise.all([
     c.query<{name:string}>('SELECT current_database() AS name'),
     c.query<{tablename:string}>(
      "SELECT tablename FROM pg_tables WHERE schemaname='public'"),
     c.query<{present:boolean}>(
      "SELECT to_regclass('drizzle.__drizzle_migrations') IS NOT NULL AS present"),
+    c.query<{num:string}>("SELECT current_setting('server_version_num') AS num"),
    ]);
    if(!migrationTable.rows[0]?.present)
     throw Error('SETTLEMENT_UPGRADE_MIGRATION_JOURNAL_MISSING');
@@ -201,9 +217,10 @@ export async function checkSettlementUpgradeSchema(
    }
    return evaluateSettlementUpgradeSchema({
     currentDatabase:db.rows[0]?.name??'',migrations,actualHistory,expectedHistory,
+    serverVersionNum:Number(version.rows[0]?.num??NaN),
     tables:schema.rows.map(r=>r.tablename),
     settlementColumns,settlementIndexes,settlementConstraints,
-   });
+   },target);
   }finally{
    await c.query('ROLLBACK').catch(()=>undefined);
    c.release();

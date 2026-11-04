@@ -18,6 +18,8 @@ export const MAINNET_RECEIPT_ROUTES=[
  '/api/social/friends',
  '/api/mainnet/pay/receipt/verify',
  '/api/mainnet/pay/receipts',
+ '/api/mainnet/settlement/receipt/verify',
+ '/api/mainnet/settlement/receipts',
  '/api/health/database',
  '/api/social/friend/request',
  '/api/social/friend/respond',

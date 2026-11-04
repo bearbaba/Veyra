@@ -173,6 +173,14 @@
     {
       "source": "/api/mainnet/exchange/across/status",
       "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/mainnet/exchange/across/status"
+    },
+    {
+      "source": "/api/mainnet/settlement/receipt/verify",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/mainnet/settlement/receipt/verify"
+    },
+    {
+      "source": "/api/mainnet/settlement/receipts",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/mainnet/settlement/receipts"
     }
   ]
 }

@@ -47,6 +47,7 @@ jobs:
           src/tests/mainnetPilotMigrationGate.test.ts
           src/tests/mainnetPilotBootstrap.test.ts
           src/tests/mainnetSettlementMigrationPreflight.test.ts
+          src/tests/mainnetSettlementRestoreRehearsal.test.ts
           src/tests/mainnetSettlementIdentityUnification.test.ts
           src/tests/mainnetWalletSigningLock.test.ts
           src/tests/mainnetPersistentReceipt.test.ts
@@ -151,6 +152,11 @@ jobs:
             END;
           END $settlement_proof$;
           SQL
+          # Reference constraints are derived by PostgreSQL 16 itself from
+          # the exact checked-in SQL. This prevents lossy handwritten parsing.
+          docker exec veyra-mainnet-migration-ci psql -U postgres -d veyra_migration_ci -A -t -c \
+            "SELECT json_agg(json_build_object('name',conname,'type',contype::text,'definition',pg_get_constraintdef(oid)) ORDER BY conname)::text FROM pg_constraint WHERE conrelid='public.mainnet_settlement_receipts'::regclass" \
+            | bun scripts/check-settlement-pg16-reference.ts
 
       # This tests the ACTUAL Render container. Web builds alone miss runtime
       # imports such as the pinned contract ABI (Docker context allowlist).
