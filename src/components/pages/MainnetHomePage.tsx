@@ -3,8 +3,9 @@ import {useEffect,useState} from 'react';
 import {useAccount,useReadContract} from 'wagmi';
 import {ConnectKitButton} from 'connectkit';
 import {erc20Abi,formatUnits} from 'viem';
-import {ArrowUpRight,ArrowDownLeft,Copy,RefreshCw,Users,Clock3,Wallet,LayoutList} from 'lucide-react';
+import {ArrowUpRight,ArrowDownLeft,Copy,RefreshCw,Users,Clock3,LayoutList} from 'lucide-react';
 import {getUsdc} from '@/onchain-facts';
+import {BrandLogo} from '../brand/BrandLogo';
 import {readLocalOperations,type LocalOperation} from '@/mainnet/localOperations';
 import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
@@ -118,7 +119,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
   if(id==='receive')setReceive(v=>!v);
   else onNavigate(id==='send'?'settlement':id==='people'?'social':'activity');
  }
- const card='rounded-2xl p-5 sm:p-6';
+ const card='veyra-premium-panel rounded-2xl p-5 sm:p-6';
  const cardStyle={background:'var(--surface)',border:'1px solid var(--border)'};
  async function copy(){
   if(!address)return;
@@ -128,8 +129,8 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  return <div className="mx-auto w-full max-w-6xl space-y-5 px-4 py-6 md:px-7 md:py-8">
   <header className="flex flex-wrap items-center justify-between gap-3">
    <div><p className="text-xs font-semibold uppercase tracking-widest" style={{color:'var(--accent)'}}>
-    Veyra · Arc Mainnet</p>
-    <h1 className="display mt-1 text-2xl font-bold sm:text-3xl" style={{color:'var(--ink)'}}>Your money, in one place.</h1>
+    WELCOME TO VEYRA</p>
+    <h1 className="display mt-1 text-2xl font-bold sm:text-3xl" style={{color:'var(--ink)'}}>Your money, <span className="veyra-headline-accent">more capable.</span></h1>
    </div>
    <span className="rounded-full px-3 py-1.5 text-xs font-semibold"
     style={{background:'var(--surface)',color:wrong?'var(--warning)':'var(--muted)',border:'1px solid var(--border)'}}>
@@ -140,7 +141,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
    <section className={card} style={{...cardStyle,background:'var(--surface-strong)'}} aria-label="Wallet balance">
     <div className="flex items-center justify-between">
      <span className="flex items-center gap-2 text-sm font-semibold" style={{color:'var(--muted)'}}>
-      <Wallet className="size-4"/> Arc Mainnet · Wallet USDC
+      <BrandLogo logoKey="usdc" size={23}/> Available
      </span>
      <button type="button" onClick={()=>void refetch()} disabled={!address||isFetching}
       className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs disabled:opacity-40"
@@ -150,15 +151,23 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
      <strong className="display text-3xl font-bold tabular-nums sm:text-4xl" style={{color:'var(--ink)'}}>{available}</strong>
      <span className="text-base font-semibold" style={{color:'var(--muted)'}}>USDC</span>
     </div>
-    <p className="mt-3 text-xs" style={{color:'var(--muted)'}}>Spendable wallet tokens, not Circle Gateway deposits.</p>
+    <details className="mt-3 text-xs" style={{color:'var(--muted)'}}>
+     <summary className="cursor-pointer">Balance details</summary>
+     <p className="mt-2">Wallet funds only. Gateway deposits are separate.</p>
+    </details>
     {!address&&<div className="mt-4"><ConnectKitButton/></div>}
    </section>
-   <section className={card} style={cardStyle} aria-label="Circle Gateway Unified">
-    <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>Unified · Circle Gateway</p>
-    <p className="mt-4 text-lg font-semibold" style={{color:'var(--muted)'}}>Not connected</p>
-    <p className="mt-2 text-xs leading-5" style={{color:'var(--muted)'}}>
-     Deposited funds are separate. Available and pending balances cannot be confirmed until Gateway is connected.
-    </p>
+   <section className={card} style={cardStyle} aria-label="Network">
+    <div className="flex items-center gap-3">
+     <BrandLogo logoKey="arc" size={42}/>
+     <div className="min-w-0 flex-1">
+      <p className="text-xs" style={{color:'var(--muted)'}}>Network</p>
+      <p className="mt-1 text-lg font-bold" style={{color:'var(--ink)'}}>Arc Mainnet</p>
+     </div>
+     <span className="text-xs font-semibold" style={{color:wrong?'var(--warning)':'var(--success)'}}>
+      {wrong?'Switch network':isConnected?'Connected':'Available'}
+     </span>
+    </div>
    </section>
   </div>
   <section aria-label="Money actions">
@@ -166,15 +175,15 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
     {actions.map((item,i)=><button key={item.id} type="button"
       onClick={()=>selectAction(item.id)}
       className="flex min-h-24 flex-col items-start justify-between rounded-xl p-4 text-left transition-transform hover:-translate-y-0.5"
-      style={i===0?{background:'var(--accent)',color:'#0d1b2f'}:{...cardStyle,color:'var(--ink)'}}>
+      style={i===0?{background:'var(--primary-gradient)',color:'#fff'}:{...cardStyle,color:'var(--ink)'}}>
       {item.icon}
-      <span className="mt-4 text-sm font-bold">{item.label}</span>
+      <span className="mt-3 text-sm font-bold">{item.label}</span>
+      <span className="mt-1 text-xs" style={{color:i===0?'rgba(255,255,255,.85)':'var(--muted)'}}>
+       {{send:'To · Amount · Note',receive:'Copy address',people:'Find by Veyra ID',activity:'Your transactions'}[item.id]}
+      </span>
     </button>)}
    </div>
-   <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs" style={{color:'var(--muted)'}}>
-    <span>Settlement: review recipient, fees and wallet confirmations</span>
-    <span>Exchange is under More · choose assets and Veyra checks Swap or Bridge routes</span>
-   </div>
+
   </section>
   {receive&&<section className="rounded-xl border p-4" style={cardStyle} aria-label="Receive USDC on Arc Mainnet">
     <div className="flex items-center justify-between gap-3">
@@ -216,14 +225,14 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
       {'@'+social.session.profile.veyraHandle+'.veyra'}
      </p>
      <p className="mt-1 text-sm" style={{color:'var(--muted)'}}>
-      {social.friends.filter(x=>x.state==='CONNECTED').length} connected friends · signed-in Veyra ID
+      Signed in · {social.friends.filter(x=>x.state==='CONNECTED').length} connections
      </p>
     </>:<>
      <p className="mt-3 text-sm font-semibold" style={{color:'var(--ink)'}}>
       {address?address.slice(0,7)+'…'+address.slice(-5):'Connect wallet'}
      </p>
      <p className="mt-2 text-xs leading-5" style={{color:'var(--muted)'}}>
-      Connect a verified Veyra ID when the Mainnet identity backend is available. Local contacts are not verified friends.
+      Register your Veyra ID to pay people by name.
      </p>
     </>}
     <button onClick={()=>onNavigate('social')} className="mt-3 text-xs font-semibold"
