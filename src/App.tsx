@@ -28,6 +28,7 @@ import type {VerifiedMainnetRecipient} from './mainnet/verifiedRecipient';
 import { VEYRA_ENV } from './lib/env';
 import { UnifiedSocialProvider } from './features/social/UnifiedSocial';
 import {MainnetReceiptSyncWorker} from './mainnet/MainnetReceiptSyncWorker';
+import {MainnetSettlementReceiptSyncWorker} from './mainnet/MainnetSettlementReceiptSyncWorker';
 
 const sharedVeyraProfile=()=>{
   if(typeof window==='undefined')return '';
@@ -96,7 +97,7 @@ export default function App() {
 
   return (
     <UnifiedSocialProvider>
-      {VEYRA_ENV==='mainnet'&&<MainnetReceiptSyncWorker/>}
+      {VEYRA_ENV==='mainnet'&&<><MainnetReceiptSyncWorker/><MainnetSettlementReceiptSyncWorker/></>}
       <AppShell page={page} onNavigate={setPage}>
         {renderPage()}
       </AppShell>
