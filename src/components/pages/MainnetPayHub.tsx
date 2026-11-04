@@ -134,7 +134,7 @@ export function MainnetPayHub({
   <header>
    <p className="text-xs font-semibold uppercase tracking-wider" style={{color:'var(--accent)'}}>Veyra · Arc Mainnet</p>
    <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Settlement</h1>
-   <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Send USDC to a person or wallet. Review contract terms and receiving amount before signing.</p>
+   <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>To · Amount · Note (optional)</p>
    {__VEYRA_RELEASE_ENV__==='preview'
     ?<p className="mt-2 text-xs font-semibold" style={{color:'var(--warning)'}}>Read-only Preview · commit {__VEYRA_RELEASE_SHA__.slice(0,12)} · no Mainnet signing</p>
     :<details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
@@ -143,76 +143,78 @@ export function MainnetPayHub({
      </details>}
   </header>
   {MAINNET_EMERGENCY_READ_ONLY?<p role="alert" className="rounded-xl border p-3 text-sm"
-   style={{borderColor:'var(--border)',color:'var(--warning)'}}>
-    Emergency read-only mode. New transfers and approvals are disabled; existing receipts remain in Activity.
-  </p>:MAINNET_CANARY_ONLY&&<p role="status" className="rounded-xl border p-3 text-sm"
-   style={{borderColor:'var(--border)',color:'var(--muted)'}}>
-    Mainnet pilot: only the authorized owner wallet
-     ({MAINNET_CANARY_OWNER.slice(0,6)}…{MAINNET_CANARY_OWNER.slice(-4)}) may sign contract
-     Settlement or direct transfer up to 0.01 USDC per reviewed payment, after the emergency
-     read-only gate is explicitly lifted. Everyone else is read-only inside Veyra.
-     Frontend restrictions do not prevent direct calls to a public onchain contract.
-  </p>}
+    style={{borderColor:'var(--border)',color:'var(--warning)'}}>
+     Payments are paused. Your receipts remain in Activity.
+   </p>:MAINNET_CANARY_ONLY&&address&&address.toLowerCase()!==MAINNET_CANARY_OWNER.toLowerCase()?
+    <p role="status" className="rounded-xl border p-3 text-sm" style={{borderColor:'var(--border)',color:'var(--warning)'}}>
+     Payments are limited to the pilot wallet for now.
+    </p>:MAINNET_CANARY_ONLY&&<details className="text-xs" style={{color:'var(--muted)'}}>
+     <summary className="cursor-pointer">Pilot · up to 0.01 USDC per payment</summary>
+     <p className="mt-2">Only the authorized wallet can sign in Veyra. Public contracts may be called outside the app.</p>
+    </details>}
   {address&&!signedWallet&&
    <section aria-label="Sign in to send USDC"><VeyraIdentityAccess/></section>}
   {locked&&<p role="status" className="rounded-xl border p-3 text-sm"
    style={{borderColor:'var(--border)',color:'var(--warning)'}}>
-   Your original wallet request is still being checked. Veyra will not switch payment methods or submit it again.
+   Payment still processing. Check Activity before trying again.
   </p>}
   <section aria-label="Payment details" className="space-y-4 rounded-xl border p-4 sm:p-5"
     style={{background:'var(--surface)',borderColor:'var(--border)'}}>
    <div>
     {selectedVerified?<div className="rounded-xl border p-4" style={{borderColor:'var(--border)',color:'var(--ink)'}}>
       <p className="text-sm font-semibold">{selectedVerified.displayName||'Veyra recipient'} · @{selectedVerified.veyraHandle}.veyra</p>
-      <p className="mt-1 text-xs" style={{color:'var(--accent)'}}>Verified Veyra ID · receiving wallet rechecked before signature</p>
+      <p className="mt-1 text-xs" style={{color:'var(--accent)'}}>Verified Veyra ID</p>
       <details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
-       <summary className="cursor-pointer">Receiving wallet</summary><p className="mt-2 break-all font-mono">{selectedVerified.wallet}</p>
+       <summary className="cursor-pointer">Details</summary><p className="mt-2 break-all font-mono">{selectedVerified.wallet}</p>
       </details>
       <button type="button" disabled={locked} onClick={clearChosen}
        className="mt-3 text-xs font-semibold disabled:opacity-40" style={{color:'var(--accent)'}}>Change recipient</button>
      </div>:
      <>
       <MainnetRecipientSearch key={owner} owner={address} sessionToken={signedWallet?social.session?.token:undefined} disabled={locked}
-       initialQuery="" label="Who are you paying?" onSelection={resolveSelected}
+       initialQuery="" label="To" onSelection={resolveSelected}
        onQueryEdit={()=>{
         if(!address||locked)return;
         const next={...readPayDraft(owner),recipient:'',amount:''};
         setDraftHolder({owner,value:next});writePayDraft(owner,next);setLocalVerified(null);
        }}/>
       {draft.recipient&&<p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
-        Recipient: {draft.recipient.slice(0,10)}…{draft.recipient.slice(-6)} · direct wallet transfer (not a verified Veyra ID)
+        Wallet address · not a verified Veyra ID
        </p>}
      </>}
    </div>
    <div>
-    <label htmlFor="shared-send-amount" className="text-sm font-semibold" style={{color:'var(--ink)'}}>Amount · USDC</label>
+    <label htmlFor="shared-send-amount" className="text-sm font-semibold" style={{color:'var(--ink)'}}>Amount</label>
     <input id="shared-send-amount" value={draft.amount} inputMode="decimal" maxLength={24}
      onChange={e=>changeDraft({amount:e.target.value})} disabled={!address||locked}
      placeholder="0.00" className="mt-2 w-full rounded-xl border px-4 py-3 text-2xl font-semibold tabular-nums"
      style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
     <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
-     Wallet available · Arc Mainnet: {balanceError?'Unavailable':walletBalance!==undefined?
+     Available: {balanceError?'Unavailable':walletBalance!==undefined?
       formatUnits(walletBalance,6)+' USDC':balanceLoading?'Checking…':'—'}
-     {' · Gateway deposits are separate'}
     </p>
    </div>
    <div>
-    <label className="text-xs font-semibold" htmlFor="pay-private-note" style={{color:'var(--muted)'}}>Your note (optional)</label>
+    <label className="text-xs font-semibold" htmlFor="pay-private-note" style={{color:'var(--muted)'}}>Note (optional)</label>
     <input id="pay-private-note" value={draft.note} maxLength={120} disabled={!address||locked}
      onChange={e=>changeDraft({note:e.target.value})}
      placeholder="e.g. Dinner with Alex" className="mt-2 w-full rounded-lg border px-3 py-2 text-sm"
      style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
-    <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Private to you. Saved on this device first, then to your account after verified receipt sync. Never onchain or shared with the recipient.</p>
+    <details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+      <summary className="cursor-pointer">Note privacy</summary>
+      <p className="mt-2">Your note is private and never placed onchain.</p>
+     </details>
    </div>
   </section>
   <section className="rounded-xl border p-3 sm:p-4" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
    <div className="flex items-center justify-between gap-3">
     <div>
      <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>Settlement method · {selected==='wallet'?'Direct transfer':'VeyraSettlement contract'}</p>
-     <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
-      {selected==='wallet'?'Direct USDC transfer fallback · one wallet confirmation':
-       'Onchain contract payment · approval and payment can require separate signatures. No escrow or automatic refund.'}
-     </p>
+     <details className="mt-1 text-xs" style={{color:'var(--muted)'}}>
+      <summary className="cursor-pointer">Details</summary>
+      <p className="mt-2">{selected==='wallet'?'One wallet confirmation.':
+       'Approve may be needed before payment. No escrow or automatic refund.'}</p>
+     </details>
     </div>
     <button type="button" onClick={()=>setOptionsOpen(v=>!v)} aria-expanded={optionsOpen}
      aria-label="Change payment method" className="flex shrink-0 items-center gap-1 rounded-lg border px-3 py-2 text-xs font-semibold"
@@ -225,13 +227,13 @@ export function MainnetPayHub({
      className="rounded-lg border p-3 text-left disabled:opacity-40"
      style={{borderColor:selected==='wallet'?'var(--accent)':'var(--border)',background:selected==='wallet'?'var(--accent-muted)':'transparent',color:'var(--ink)'}}>
      <span className="flex items-center gap-2 text-sm font-semibold"><Wallet className="size-4"/> Direct transfer</span>
-     <span className="mt-1 block text-xs" style={{color:'var(--muted)'}}>Pilot fallback · direct to recipient</span>
+     <span className="mt-1 block text-xs" style={{color:'var(--muted)'}}>One wallet confirmation</span>
     </button>
     <button type="button" disabled={locked} aria-pressed={selected==='contract'} onClick={()=>choose('contract')}
      className="rounded-lg border p-3 text-left disabled:opacity-40"
      style={{borderColor:selected==='contract'?'var(--accent)':'var(--border)',background:selected==='contract'?'var(--accent-muted)':'transparent',color:'var(--ink)'}}>
      <span className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck className="size-4"/> Contract payment</span>
-     <span className="mt-1 block text-xs" style={{color:'var(--muted)'}}>Default · contract reference, fee review and receipt verification</span>
+     <span className="mt-1 block text-xs" style={{color:'var(--muted)'}}>Fee review · verified receipt</span>
     </button>
    </div>}
   </section>
@@ -246,7 +248,7 @@ export function MainnetPayHub({
   </section>}
   <p className="flex items-start gap-2 text-xs leading-5" style={{color:'var(--muted)'}}>
    <ArrowRight className="mt-0.5 size-4 shrink-0"/>
-   Settlement requires explicit wallet authorization. Activity retains old direct transfers and their original evidence.
+   Review fees and recipient before signing.
   </p>
  </main>;
 }
