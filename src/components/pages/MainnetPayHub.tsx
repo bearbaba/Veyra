@@ -1,4 +1,4 @@
-/** Send USDC: the normal path is one direct transfer. Contract is explicitly advanced.
+/** Mainnet Settlement: one send surface, contract default and direct fallback.
  * No draft, note or locally saved contact is recipient authentication.
  * Signing is still gated by the separate wallet journals and canonical receipt checks.
  */
@@ -24,7 +24,7 @@ declare const __VEYRA_RELEASE_SHA__:string;
 declare const __VEYRA_RELEASE_ENV__:string;
 type Method='wallet'|'contract';
 export function MainnetPayHub({
- initialMethod='wallet',friendHandle,recipientWallet,verifiedRecipient,onClearVerified,onRecipientUsed,
+ initialMethod='contract',friendHandle,recipientWallet,verifiedRecipient,onClearVerified,onRecipientUsed,
 }:{
  initialMethod?:Method;friendHandle?:string|null;recipientWallet?:string|null;
  verifiedRecipient?:VerifiedMainnetRecipient|null;onClearVerified?:()=>void;onRecipientUsed?:()=>void;
@@ -40,7 +40,7 @@ export function MainnetPayHub({
   query:{enabled:!!address,staleTime:10000},
  });
  const [method,setMethod]=useState<Method>(initialMethod);
- const [optionsOpen,setOptionsOpen]=useState(initialMethod==='contract');
+ const [optionsOpen,setOptionsOpen]=useState(false);
  const [visited,setVisited]=useState({wallet:initialMethod==='wallet',contract:initialMethod==='contract'});
  const [draftHolder,setDraftHolder]=useState<{owner:string;value:MainnetPayDraft}>(()=>({owner,value:readPayDraft(owner)}));
  const [revision,setRevision]=useState(0);
@@ -98,7 +98,7 @@ export function MainnetPayHub({
   if(!verifiedRecipient||!address||verifiedRecipient.owner.toLowerCase()!==address.toLowerCase()||locked)return;
   const next={...readPayDraft(owner),recipient:verifiedRecipient.wallet,amount:''};
   setDraftHolder({owner,value:next});writePayDraft(owner,next);
-  setMethod('wallet');setVisited(v=>({...v,wallet:true}));
+  setMethod('contract');setVisited(v=>({...v,contract:true}));
  // One new verified recipient selection, never an old draft, changes the target.
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[verifiedRecipient?.snapshotId,owner]);
@@ -116,7 +116,7 @@ export function MainnetPayHub({
   const next={...readPayDraft(owner),recipient:wallet,amount:''};
   setDraftHolder({owner,value:next});writePayDraft(owner,next);
   setLocalVerified(result.kind==='veyra'?result.person:null);
-  setMethod('wallet');setVisited(v=>({...v,wallet:true}));
+  setMethod('contract');setVisited(v=>({...v,contract:true}));
  }
  function clearChosen(){
   if(locked)return;
@@ -125,7 +125,7 @@ export function MainnetPayHub({
   setDraftHolder({owner,value:next});writePayDraft(owner,next);
  }
  function choose(next:Method){
-  if(locked||next==='contract'&&selectedVerified)return;
+  if(locked)return;
   setMethod(next);
   setVisited(v=>v[next]?v:{...v,[next]:true});
   setOptionsOpen(false);
@@ -133,10 +133,10 @@ export function MainnetPayHub({
  return <main className="mx-auto w-full max-w-3xl space-y-4 px-4 py-7 md:px-7 md:py-9">
   <header>
    <p className="text-xs font-semibold uppercase tracking-wider" style={{color:'var(--accent)'}}>Veyra · Arc Mainnet</p>
-   <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Send USDC</h1>
-   <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Choose who receives it, review the amount, then confirm in your wallet.</p>
+   <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Settlement</h1>
+   <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Send USDC to a person or wallet. Review contract terms and receiving amount before signing.</p>
    {__VEYRA_RELEASE_ENV__==='preview'
-    ?<p className="mt-2 text-xs font-semibold" style={{color:'var(--warning)'}}>REAL MAINNET Preview · commit {__VEYRA_RELEASE_SHA__.slice(0,12)} · controlled wallets only</p>
+    ?<p className="mt-2 text-xs font-semibold" style={{color:'var(--warning)'}}>Read-only Preview · commit {__VEYRA_RELEASE_SHA__.slice(0,12)} · no Mainnet signing</p>
     :<details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
       <summary>Release details</summary>
       Build {__VEYRA_RELEASE_SHA__.slice(0,12)} · {__VEYRA_RELEASE_ENV__}
@@ -147,9 +147,9 @@ export function MainnetPayHub({
     Emergency read-only mode. New transfers and approvals are disabled; existing receipts remain in Activity.
   </p>:MAINNET_CANARY_ONLY&&<p role="status" className="rounded-xl border p-3 text-sm"
    style={{borderColor:'var(--border)',color:'var(--muted)'}}>
-    Mainnet acceptance pilot: only the approved owner wallet
-    ({MAINNET_CANARY_OWNER.slice(0,6)}…{MAINNET_CANARY_OWNER.slice(-4)}) may send up to 0.01 USDC
-    per transaction. Everyone else can review, but cannot sign. Contract/Swap/Bridge writes remain off.
+    Mainnet pilot: contract Settlement signing remains paused. The authorized owner wallet
+    ({MAINNET_CANARY_OWNER.slice(0,6)}…{MAINNET_CANARY_OWNER.slice(-4)}) can use the direct-transfer
+    fallback up to 0.01 USDC on Production. All other wallets are read-only.
   </p>}
   {address&&!signedWallet&&
    <section aria-label="Sign in to send USDC"><VeyraIdentityAccess/></section>}
@@ -206,10 +206,10 @@ export function MainnetPayHub({
   <section className="rounded-xl border p-3 sm:p-4" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
    <div className="flex items-center justify-between gap-3">
     <div>
-     <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>Payment method · {selected==='wallet'?'Wallet transfer':'Contract payment'}</p>
+     <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>Settlement method · {selected==='wallet'?'Direct transfer':'VeyraSettlement contract'}</p>
      <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
-      {selected==='wallet'?'Direct USDC transfer · one wallet confirmation':
-       'Onchain payment reference · allowance approval may require a second confirmation. No escrow or refund.'}
+      {selected==='wallet'?'Direct USDC transfer fallback · one wallet confirmation':
+       'Onchain contract payment · approval and payment can require separate signatures. No escrow or automatic refund.'}
      </p>
     </div>
     <button type="button" onClick={()=>setOptionsOpen(v=>!v)} aria-expanded={optionsOpen}
@@ -222,14 +222,14 @@ export function MainnetPayHub({
     <button type="button" disabled={locked} aria-pressed={selected==='wallet'} onClick={()=>choose('wallet')}
      className="rounded-lg border p-3 text-left disabled:opacity-40"
      style={{borderColor:selected==='wallet'?'var(--accent)':'var(--border)',background:selected==='wallet'?'var(--accent-muted)':'transparent',color:'var(--ink)'}}>
-     <span className="flex items-center gap-2 text-sm font-semibold"><Wallet className="size-4"/> Wallet transfer</span>
-     <span className="mt-1 block text-xs" style={{color:'var(--muted)'}}>Everyday payments · direct to recipient</span>
+     <span className="flex items-center gap-2 text-sm font-semibold"><Wallet className="size-4"/> Direct transfer</span>
+     <span className="mt-1 block text-xs" style={{color:'var(--muted)'}}>Pilot fallback · direct to recipient</span>
     </button>
-    <button type="button" disabled={locked||!!selectedVerified} aria-pressed={selected==='contract'} onClick={()=>choose('contract')}
+    <button type="button" disabled={locked} aria-pressed={selected==='contract'} onClick={()=>choose('contract')}
      className="rounded-lg border p-3 text-left disabled:opacity-40"
      style={{borderColor:selected==='contract'?'var(--accent)':'var(--border)',background:selected==='contract'?'var(--accent-muted)':'transparent',color:'var(--ink)'}}>
      <span className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck className="size-4"/> Contract payment</span>
-     <span className="mt-1 block text-xs" style={{color:'var(--muted)'}}>Advanced · onchain reference for reconciliation</span>
+     <span className="mt-1 block text-xs" style={{color:'var(--muted)'}}>Default · contract reference, fee review and receipt verification</span>
     </button>
    </div>}
   </section>
@@ -239,11 +239,12 @@ export function MainnetPayHub({
     sharedDraft={draft} onDraftChange={changeDraft}/>
   </section>}
   {visited.contract&&<section aria-label="Contract payment" hidden={selected!=='contract'}>
-   <SettlementPage key={owner} embedded sharedDraft={draft} onDraftChange={changeDraft}/>
+   <SettlementPage key={owner} embedded sharedDraft={draft} onDraftChange={changeDraft}
+     verifiedRecipient={selectedVerified}/>
   </section>}
   <p className="flex items-start gap-2 text-xs leading-5" style={{color:'var(--muted)'}}>
    <ArrowRight className="mt-0.5 size-4 shrink-0"/>
-   Every payment uses an explicit wallet signature. Activity checks the original transaction, not a replacement.
+   Settlement requires explicit wallet authorization. Activity retains old direct transfers and their original evidence.
   </p>
  </main>;
 }
