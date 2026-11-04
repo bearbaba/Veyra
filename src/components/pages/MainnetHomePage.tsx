@@ -327,7 +327,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
          x.kind==='settlement'&&x.direction==='received'?x.netAmountRaw:x.amountRaw),6)} USDC
        </p>
        <p className="mt-1 text-xs" style={{color:'var(--success)'}}>
-        Verified · {x.kind==='settlement'?'Contract Settlement':'Direct transfer'} · {x.recipientLabel??'Arc Mainnet'} · {new Date(x.paidAt).toLocaleDateString()}
+        Verified · {x.recipientLabel??'Arc Mainnet'} · {new Date(x.paidAt).toLocaleDateString()}
        </p>
       </div>
       <button type="button" onClick={()=>onNavigate('activity')} className="text-xs font-semibold"
