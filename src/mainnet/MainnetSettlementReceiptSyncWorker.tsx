@@ -1,4 +1,4 @@
-/** Read-only account sync for already onchain-verified contract payments.
+/** Read-only, server-verified sync of original contract transaction hashes.
  * Never resubmits wallet requests. Private notes and snapshot IDs are synced
  * only when bound to the original signed Veyra user.
  */
@@ -21,15 +21,17 @@ export async function syncVerifiedSettlementOnce(args:{
  const {owner,token,userId,now,signal,entries,attempted,submit}=args;
  if(signal.aborted||!token||!userId)return 'sign-in';
  const pending=entries.filter(v=>v.type==='Settlement'&&v.chainId===5042&&
-  v.owner.toLowerCase()===owner.toLowerCase()&&v.status==='RECORDED'&&
+  v.owner.toLowerCase()===owner.toLowerCase()&&
+  (v.status==='SUBMITTED'||v.status==='RECORDED')&&
   (attempted.get(v.hash.toLowerCase())??0)<=now);
  const item=pending[0];
  if(!item)return 'empty';
  const hash=item.hash.toLowerCase();
  attempted.set(hash,now+RETRY_MS);
  try{
-  // The server independently checks original calldata, Settlement event,
-  // canonical block/finality and both token Transfer logs.
+  // SUBMITTED is NOT proof. The server independently checks the original
+  // calldata, receipt, canonical block/finality and both token Transfer logs.
+  // Failure to verify stays pending and never causes another wallet request.
   const bound=item.senderUserId===userId;
   const receipt=await submit(token,{hash,
    ...(bound&&item.note?{note:item.note}:{}),
