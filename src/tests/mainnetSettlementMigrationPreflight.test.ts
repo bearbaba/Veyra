@@ -97,7 +97,7 @@ describe('Backed-up Mainnet Settlement additive migration preflight',()=>{
    {...ready,settlementIndexes:ready.settlementIndexes.map(i=>({...i,
     definition:i.definition.replace('paid_at DESC','created_at DESC')}))},
    {...ready,settlementConstraints:ready.settlementConstraints.filter(c=>
-    c!=='settlement_net_fee_matches_gross')},
+    c.name!=='settlement_net_fee_matches_gross')},
   ])expect(()=>evaluateSettlementUpgradeSchema(state))
    .toThrow('SETTLEMENT_UPGRADE_INCOMPLETE_RECEIPT_SCHEMA');
  });
