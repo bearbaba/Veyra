@@ -15,12 +15,17 @@ describe('single-use isolated Render Mainnet database bootstrap',()=>{
   expect(mainnetPilotBootstrapEnabled({})).toBe(false);
   expect(mainnetPilotBootstrapEnabled({VEYRA_MAINNET_BOOTSTRAP_SCHEMA:'1'})).toBe(true);
   expect(decideMainnetPilotBootstrap({publicTables:0,drizzleMigrationCount:0,essentialTables:[]})).toBe('create');
-  expect(decideMainnetPilotBootstrap({publicTables:4,drizzleMigrationCount:21,
-   essentialTables:['veyra_users','wallet_bindings','identity_snapshots','mainnet_direct_pay_receipts']})).toBe('already-ready');
+  expect(decideMainnetPilotBootstrap({publicTables:5,drizzleMigrationCount:22,
+   essentialTables:['veyra_users','wallet_bindings','identity_snapshots',
+    'mainnet_direct_pay_receipts','mainnet_settlement_receipts']})).toBe('already-ready');
   for(const data of [
    {publicTables:1,drizzleMigrationCount:0,essentialTables:[]},
    {publicTables:20,drizzleMigrationCount:19,essentialTables:['veyra_users']},
    {publicTables:4,drizzleMigrationCount:0,essentialTables:['veyra_users','wallet_bindings','identity_snapshots','mainnet_direct_pay_receipts']},
+   // A database on migration 0020 must NEVER be reported 0021-ready.
+   {publicTables:4,drizzleMigrationCount:21,essentialTables:['veyra_users','wallet_bindings','identity_snapshots','mainnet_direct_pay_receipts']},
+   {publicTables:5,drizzleMigrationCount:21,essentialTables:['veyra_users','wallet_bindings','identity_snapshots','mainnet_direct_pay_receipts','mainnet_settlement_receipts']},
+   {publicTables:4,drizzleMigrationCount:22,essentialTables:['veyra_users','wallet_bindings','identity_snapshots','mainnet_direct_pay_receipts']},
   ])expect(()=>decideMainnetPilotBootstrap(data)).toThrow('MAINNET_BOOTSTRAP_REFUSED');
  });
 });
