@@ -7,9 +7,16 @@ const TOKEN_MARKS = {
 } as const;
 
 const OFFICIAL_LOGOS: Partial<Record<string, string>> = {
-  arc: 'https://cdn.prod.website-files.com/67116d0daddc92483c812e88/69dd3db99cf1d8ec9699856a_logo%20%285%29.avif',
   cirbtc: 'https://cdn.prod.website-files.com/67116d0daddc92483c812e88/6a3a95fde4bc6ee48d1ff749_cirbtc-pressroom.svg',
 };
+
+function ArcMark({size}:{size:number}) {
+  return <svg width={size} height={size} viewBox="0 0 400 400" role="img" aria-label="Arc network">
+    <defs><linearGradient id="veyra-arc-silver" x1="0" y1="0" x2=".85" y2="1"><stop stopColor="#fff"/><stop offset=".55" stopColor="#d8e1eb"/><stop offset="1" stopColor="#8a9db0"/></linearGradient></defs>
+    <circle cx="200" cy="200" r="200" fill="#092541"/>
+    <path d="M73 333 C77 193 116 67 199 67 C282 67 320 183 327 333 C290 302 233 292 177 299 L183 252 C216 251 246 255 273 261 C258 169 231 114 199 114 C160 114 125 194 120 333 Z" fill="url(#veyra-arc-silver)"/>
+  </svg>;
+}
 
 interface BrandLogoProps {
   logoKey: string;
@@ -20,6 +27,7 @@ interface BrandLogoProps {
 export function BrandLogo({ logoKey, size = 36, className = '' }: BrandLogoProps) {
   const [failedForKey, setFailedForKey] = useState<string | null>(null);
   const official = OFFICIAL_LOGOS[logoKey];
+  if(logoKey==='arc') return <span className={`inline-flex shrink-0 overflow-hidden rounded-full ${className}`} style={{width:size,height:size}}><ArcMark size={size}/></span>;
   // Do not reuse image failure state when a recycled component changes token.
   if (official && failedForKey !== logoKey) {
     return (
@@ -103,14 +111,7 @@ function FallbackMark({ logoKey, size }: { logoKey: string; size: number }) {
       // Neutral label until a verified asset-specific icon is available;
       // never fabricate an official trademark.
       return <CircleText size={size} background="#304158" text="USYC" color="white" fontSize={Math.max(8, Math.round(size*0.2))} />;
-    case 'arc':
-      return (
-        <svg width={size} height={size} viewBox="0 0 40 40" role="img" aria-label="Arc">
-          <defs><linearGradient id="arcg" x1="6" y1="33" x2="34" y2="7"><stop stopColor="#8B5CF6" /><stop offset="1" stopColor="#F43F5E" /></linearGradient></defs>
-          <circle cx="20" cy="20" r="20" fill="#11162A" />
-          <path d="M9 27.5a11 11 0 0 1 22 0" fill="none" stroke="url(#arcg)" strokeWidth="5" strokeLinecap="round" />
-        </svg>
-      );
+    case 'arc': return <ArcMark size={size}/>;
     default:
       return <CircleText size={size} background="#24364f" text={logoKey.slice(0, 2).toUpperCase()} color="#dce9fa" fontSize={fontSize} />;
   }
