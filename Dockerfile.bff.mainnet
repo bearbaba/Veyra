@@ -16,6 +16,9 @@ ENV NODE_ENV=production \
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --chown=bun:bun package.json .bun-version ./
 COPY --chown=bun:bun src ./src
+# Contract ABI is imported by src/config/veyraSettlement.ts at backend runtime.
+# Without this pinned artifact the read-only Settlement indexer cannot boot.
+COPY --chown=bun:bun contracts/contract-metadata/VeyraSettlement.json ./contracts/contract-metadata/VeyraSettlement.json
 COPY --chown=bun:bun server ./server
 USER bun
 EXPOSE 3001
