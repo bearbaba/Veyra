@@ -45,7 +45,7 @@ describe('Mainnet contract Settlement sender/receiver indexing and privacy',()=>
   expect(validSettlementServerReceipt({...recipientView,netAmountRaw:'20000'})).toBe(false);
   expect(validSettlementServerReceipt({...recipientView,privateNote:'leaked'})).toBe(false);
  });
- it('never uploads sender notes, signed intent, or executes money movement during background sync',async()=>{
+ it('keeps legacy unbound sender notes on this device, never uploads them by guess',async()=>{
   const spy=vi.fn().mockResolvedValue(visibleSettlementReceipt(contractRow(),sent));
   const attempted=new Map<string,number>();
   const controller=new AbortController();
@@ -62,6 +62,24 @@ describe('Mainnet contract Settlement sender/receiver indexing and privacy',()=>
    signal:controller.signal,entries:[sendTx],attempted,submit:spy,
   })).toBe('empty');
   expect(spy).toHaveBeenCalledTimes(1);
+ });
+ it('syncs the private note and identity snapshot only when the original signing user ID matches',async()=>{
+  const api=vi.fn().mockResolvedValue(visibleSettlementReceipt(contractRow(),sent));
+  const bound={...sendTx,senderUserId:sent,recipientSnapshotId:'snp_ABCDEFGHJKLMNPQ'};
+  const controller=new AbortController();
+  expect(await syncVerifiedSettlementOnce({
+   owner:sender,userId:sent,token:'token',now:2000,signal:controller.signal,
+   entries:[bound],attempted:new Map(),submit:api,
+  })).toBe('synced');
+  expect(api).toHaveBeenCalledWith('token',{
+   hash,note:'private sender only',snapshotId:'snp_ABCDEFGHJKLMNPQ'},controller.signal);
+  api.mockClear();
+  const changedUser={...bound,senderUserId:received};
+  expect(await syncVerifiedSettlementOnce({
+   owner:sender,userId:sent,token:'token',now:2000,signal:controller.signal,
+   entries:[changedUser],attempted:new Map(),submit:api,
+  })).toBe('synced');
+  expect(api).toHaveBeenCalledWith('token',{hash},controller.signal);
  });
  it('never upgrades a mismatched owner or an unverified browser operation',async()=>{
   const spy=vi.fn().mockResolvedValue({
