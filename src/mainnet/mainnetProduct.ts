@@ -11,10 +11,10 @@ export type RouteCapability = {
   destination:'pay'|'settlement'|'convert'|'bridge'|'agent'|'settings'|'social';
 };
 export const MAINNET_ROUTES: Record<MainnetRoute,RouteCapability> = {
-  pay:{title:'Send USDC',network:'Arc Mainnet · 5042',readiness:'wallet-signature',
-    summary:'Direct wallet payment. Review and approve each transfer in your wallet.',destination:'pay'},
-  settlement:{title:'Contract payment',network:'Arc Mainnet · 5042',readiness:'wallet-signature',
-    summary:'VeyraSettlement.pay with onchain receipt and USDC transfer checks.',destination:'settlement'},
+  pay:{title:'Settlement',network:'Arc Mainnet · 5042',readiness:'wallet-signature',
+    summary:'Compatibility alias. One Settlement page contains contract payment and the controlled direct-transfer fallback.',destination:'settlement'},
+  settlement:{title:'Settlement',network:'Arc Mainnet · 5042',readiness:'wallet-signature',
+    summary:'Contract-first USDC settlement with verified receiving wallet, fee review and onchain receipt evidence.',destination:'settlement'},
   swap:{title:'Exchange',network:'Arc default · multi-network asset picker',readiness:'live-quote',
     summary:'Choose input and output assets. Veyra checks a provider route, minimum received and proof before completion.',destination:'convert'},
   bridge:{title:'Exchange · cross-network',network:'Arc ↔ Base USDC route',readiness:'live-quote',
