@@ -41,9 +41,12 @@ describe('Mainnet contract Settlement sender/receiver indexing and privacy',()=>
   expect(recipientView).toMatchObject({direction:'received',amountRaw:'100000',
    netAmountRaw:'99000',protocolFeeRaw:'1000'});
   expect('privateNote' in recipientView).toBe(false);
-  expect(validSettlementServerReceipt(recipientView)).toBe(true);
-  expect(validSettlementServerReceipt({...recipientView,netAmountRaw:'20000'})).toBe(false);
-  expect(validSettlementServerReceipt({...recipientView,privateNote:'leaked'})).toBe(false);
+  // The API sends JSON timestamps, not the database's native Date objects.
+  const httpView=JSON.parse(JSON.stringify(recipientView)) as unknown;
+  expect(validSettlementServerReceipt(httpView)).toBe(true);
+  const body=httpView as Record<string,unknown>;
+  expect(validSettlementServerReceipt({...body,netAmountRaw:'20000'})).toBe(false);
+  expect(validSettlementServerReceipt({...body,privateNote:'leaked'})).toBe(false);
  });
  it('keeps legacy unbound sender notes on this device, never uploads them by guess',async()=>{
   const spy=vi.fn().mockResolvedValue(visibleSettlementReceipt(contractRow(),sent));
