@@ -267,8 +267,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       style={{borderColor:'var(--border)',background:filter===v?'var(--accent-muted)':'var(--surface)',
        color:filter===v?'var(--accent)':'var(--muted)'}}>{v==='Exchange'?'Swap & Bridge':v}</button>)}
     </div>
-    <button type="button" onClick={onPay} className="rounded-xl px-4 py-2 text-xs font-bold"
-     style={{background:'var(--accent)',color:'#0d1b2f'}}>New Settlement</button>
+    <button type="button" onClick={onPay} className="veyra-btn-primary text-xs">Pay</button>
    </div>
    {(social.session||scopedQueue.length>0||scopedOutboxBlocked)&&
     <div className="flex flex-wrap items-center justify-between gap-2 text-xs" style={{color:'var(--muted)'}}>
@@ -359,8 +358,8 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
         {step.hash}</a>}
       </div>)}
      </details>
-     <button type="button" onClick={()=>onNavigate('convert')}
-      className="mt-3 text-xs font-semibold" style={{color:'var(--accent)'}}>Open Exchange recovery</button>
+     <button type="button" onClick={()=>onNavigate(task.mode==='bridge'?'bridge':'convert')}
+      className="mt-3 text-xs font-semibold" style={{color:'var(--accent)'}}>Open {task.mode==='bridge'?'Bridge':'Swap'} tracking</button>
     </article>)}
    </section>}
    {exchangeShown.length>0&&<section aria-label="Exchange activities" className="overflow-hidden rounded-2xl border"
@@ -392,8 +391,8 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
          target="_blank" rel="noreferrer" className="mt-2 block break-all underline" style={{color:'var(--accent)'}}>
          Destination proof · {x.destinationHash}</a>}
        </details>
-       <button type="button" onClick={()=>onNavigate('convert')} className="mt-3 text-xs font-semibold"
-        style={{color:'var(--accent)'}}>Open Exchange tracking</button>
+       <button type="button" onClick={()=>onNavigate(x.mode==='bridge'?'bridge':'convert')} className="mt-3 text-xs font-semibold"
+        style={{color:'var(--accent)'}}>Open {x.mode==='bridge'?'Bridge':'Swap'} tracking</button>
       </div>
      </div>
     </article>)}
@@ -435,16 +434,15 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
          className="mt-2 inline-flex items-center gap-1 font-semibold" style={{color:'var(--accent)'}}>
          View original transaction <ExternalLink className="size-3.5"/></a>
        </details>
-       {(v.type==='Swap'||v.type==='Bridge')&&<button type="button" onClick={()=>onNavigate('convert')}
-        className="ml-12 mt-3 text-xs font-semibold" style={{color:'var(--accent)'}}>Open Exchange tracking</button>}
+       {(v.type==='Swap'||v.type==='Bridge')&&<button type="button" onClick={()=>onNavigate(v.type==='Bridge'?'bridge':'convert')}
+        className="ml-12 mt-3 text-xs font-semibold" style={{color:'var(--accent)'}}>Open {v.type} tracking</button>}
       </article>;
      })}
     </section>}
-   <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
-    Signed-in accounts show backend-verified USDC transfers where available; other transactions remain browser-local. Private notes are sender-only and never shared with recipients.
-    Legacy direct transfers and contract Settlement are checked against original Arc receipts. Exchange still needs shared backend proof in Activity;
-    a saved browser record is never proof of success.
-   </p>
+   <details className="text-xs" style={{color:'var(--muted)'}}>
+     <summary className="cursor-pointer">About receipts</summary>
+     <p className="mt-2 leading-5">Verified receipts appear for signed-in transfers when available. Other history may be stored only on this device.</p>
+    </details>
   </>}
  </div>;
 }
