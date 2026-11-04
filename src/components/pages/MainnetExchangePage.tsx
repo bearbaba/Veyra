@@ -129,6 +129,12 @@ function AssetPicker({side,value,other,balances,mode,onChoose,onClose}:{
   </section>
  </div>;
 }
+function resolveModeRoute(from:ExchangeAsset,to:ExchangeAsset,mode:'swap'|'bridge'):ReturnType<typeof resolveExchangeRoute>{
+ const candidate=resolveExchangeRoute(from,to);
+ if(candidate.kind===mode)return candidate;
+ return {kind:'unavailable',source:from,destination:to,
+  reason:mode==='swap'?'Choose supported Arc USDC/EURC pair.':'Choose USDC between Arc and Base.'};
+}
 export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolean}){
  const {address}=useAccount();
  const social=useUnifiedSocial();
@@ -185,8 +191,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
  },[address,owner]);
  const locked=!!prior||unknownPrior||engineBusy||!!intentPrior||intentBlocked;
  const viewMode=initialBridge?'bridge':'swap';
- const candidateRoute=resolveExchangeRoute(from,to);
- const route:ReturnType<typeof resolveExchangeRoute>=candidateRoute.kind===viewMode?candidateRoute:{kind:'unavailable',source:from,destination:to,reason:viewMode==='swap'?'Choose supported Arc USDC/EURC pair.':'Choose USDC between Arc and Base.'};
+ const route=resolveModeRoute(from,to,viewMode);
  const pairKey=exchangeAssetId(from)+'>'+exchangeAssetId(to);
  useEffect(()=>{
   const controller=new AbortController();
