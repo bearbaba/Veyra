@@ -14,10 +14,10 @@ const abi=parseAbi([
 ]);
 function transfer(from:string,to:string,value:bigint){
  return {address:ARC_MAINNET_USDC,topics:encodeEventTopics({abi,eventName:'Transfer',
-  args:{from:from as Hex,to:to as Hex}}),
+  args:{from:from as Hex,to:to as Hex}}) as Hex[],
   data:encodeAbiParameters([{type:'uint256'}],[value])};
 }
-function fixture(){
+function fixture():Parameters<typeof verifyCanonicalSettlement>[0]{
  const amount=100_000n,fee=0n;
  return {chainId:5042,expectedSender:sender,
   transaction:{hash,from:sender,to:contract,
@@ -26,7 +26,7 @@ function fixture(){
   receipt:{transactionHash:hash,blockHash,blockNumber:100n,status:'success' as const,
    gasUsed:75000n,effectiveGasPrice:1000000000n,logs:[
     {address:contract,topics:encodeEventTopics({abi,eventName:'PaymentSettled',
-      args:{paymentId,payer:sender,recipient}}),
+      args:{paymentId,payer:sender,recipient}}) as Hex[],
      data:encodeAbiParameters([{type:'uint256'},{type:'uint256'},{type:'bytes32'}],
       [amount,fee,ref])},
     transfer(sender,contract,amount),transfer(contract,recipient,amount),
