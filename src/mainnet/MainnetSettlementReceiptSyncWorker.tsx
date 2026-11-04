@@ -1,6 +1,6 @@
 /** Read-only account sync for already onchain-verified contract payments.
- * Never reconstructs or resubmits wallet requests. Never auto-uploads notes
- * or mutable contact labels from an old device/user after wallet rotation.
+ * Never resubmits wallet requests. Private notes and snapshot IDs are synced
+ * only when bound to the original signed Veyra user.
  */
 import {useEffect,useRef} from 'react';
 import {useAccount} from 'wagmi';
@@ -16,7 +16,7 @@ export type SettlementSyncOutcome='empty'|'synced'|'retry'|'sign-in'|'wrong-acco
 export async function syncVerifiedSettlementOnce(args:{
  owner:string;userId:string;token:string;now:number;signal:AbortSignal;
  entries:readonly LocalOperation[];attempted:Map<string,number>;
- submit:(token:string,payload:{hash:string},signal:AbortSignal)=>Promise<MainnetSettlementServerReceipt>;
+ submit:(token:string,payload:{hash:string;note?:string;snapshotId?:string},signal:AbortSignal)=>Promise<MainnetSettlementServerReceipt>;
 }):Promise<SettlementSyncOutcome>{
  const {owner,token,userId,now,signal,entries,attempted,submit}=args;
  if(signal.aborted||!token||!userId)return 'sign-in';
@@ -30,7 +30,11 @@ export async function syncVerifiedSettlementOnce(args:{
  try{
   // The server independently checks original calldata, Settlement event,
   // canonical block/finality and both token Transfer logs.
-  const receipt=await submit(token,{hash},signal);
+  const bound=item.senderUserId===userId;
+  const receipt=await submit(token,{hash,
+   ...(bound&&item.note?{note:item.note}:{}),
+   ...(bound&&item.recipientSnapshotId?{snapshotId:item.recipientSnapshotId}:{}),
+  },signal);
   if(signal.aborted)return 'empty';
   if(receipt.kind!=='settlement'||receipt.txHash.toLowerCase()!==hash||
    receipt.senderAddress.toLowerCase()!==owner.toLowerCase()||
