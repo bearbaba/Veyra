@@ -1342,8 +1342,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
             <button
               disabled={!canReview || !!feeBpsError || !!feeRecipientError}
               onClick={handleReview}
-              className="w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/90 transition-colors">
-              Review transaction
+              className={embedded&&isMainnet?"veyra-pay-review w-full rounded-xl py-3.5 text-sm font-bold disabled:cursor-not-allowed":"w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/90 transition-colors"}>
+              Review payment
             </button>
           </>
         )}

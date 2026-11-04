@@ -38,7 +38,12 @@ describe('Server-verifiable Veyra ID send safety',()=>{
   const hub=src('components/pages/MainnetPayHub.tsx');
   const shared=src('components/identity/MainnetRecipientSearch.tsx');
   expect(people).toContain('<MainnetRecipientSearch');
-  expect(hub).toContain('<MainnetRecipientSearch');
+  const picker=src('components/pages/MainnetPayRecipientPicker.tsx');
+  expect(hub).toContain('<MainnetPayRecipientPicker');
+  expect(picker).toContain('lookupMainnetRecipient');
+  expect(picker).toContain("found.person.veyraUserId!==expectedId");
+  expect(picker).toContain("filter(f=>f.state==='CONNECTED')");
+  expect(picker).toContain('aria-expanded={searchOpen}');
   expect(shared).toContain('lookupMainnetRecipient');
   expect(people).toContain('Local wallet contacts (not verified Veyra IDs)');
   expect(people).toContain("social.invite('@'+selected.veyraHandle+'.veyra')");
@@ -47,7 +52,10 @@ describe('Server-verifiable Veyra ID send safety',()=>{
   expect(people).toContain('social.friendsHasMore');
   expect(people).toContain('social.loadMoreFriends()');
   expect(people).toContain('disabled={social.loadingMoreFriends}');
-  expect(hub).toContain('onQueryEdit');
+  expect(hub).toContain('onWalletChange={changeWalletRecipient}');
+  expect(picker).toContain("useState<'wallet'|'friends'>");
+  expect(picker).toContain("onClick={()=>changeTab('wallet')}");
+  expect(picker).toContain("onClick={()=>changeTab('friends')}");
   expect(hub).toContain("recipient:'',amount:''");
  });
  it('keeps a note and reviewed label with the original browser receipt after status update',()=>{
