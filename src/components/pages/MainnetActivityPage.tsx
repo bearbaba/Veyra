@@ -212,7 +212,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     <span className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Arc Mainnet · 5042</span>
     <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Activity</h1>
     <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>
-     One Exchange request can include multiple network steps. Pay receipts are backend-verified; Exchange proof links remain local until shared receipt indexing is available.
+     One Exchange request can include multiple network steps. Direct USDC receipts are backend-verified; contract Settlement and Exchange proof links remain local until shared indexing is available.
     </p>
    </div>
    {address&&<span className="flex items-center gap-2 text-xs" style={{color:'var(--muted)'}}>
@@ -236,7 +236,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
        color:filter===v?'var(--accent)':'var(--muted)'}}>{v}</button>)}
     </div>
     <button type="button" onClick={onPay} className="rounded-xl px-4 py-2 text-xs font-bold"
-     style={{background:'var(--accent)',color:'#0d1b2f'}}>New payment</button>
+     style={{background:'var(--accent)',color:'#0d1b2f'}}>New Settlement</button>
    </div>
    {(social.session||scopedQueue.length>0||scopedOutboxBlocked)&&
     <div className="flex flex-wrap items-center justify-between gap-2 text-xs" style={{color:'var(--muted)'}}>
@@ -399,7 +399,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     </section>}
    <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
     Signed-in accounts show backend-verified USDC transfers where available; other transactions remain browser-local. Private notes are sender-only and never shared with recipients.
-    Direct Pay and Settlement are checked against Arc receipts. Swap and Bridge still need a shared task proof in Activity;
+    Legacy direct transfers and contract Settlement are checked against original Arc receipts. Exchange still needs shared backend proof in Activity;
     a saved browser record is never proof of success.
    </p>
   </>}
