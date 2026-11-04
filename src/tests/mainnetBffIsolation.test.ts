@@ -32,6 +32,20 @@ describe('Veyra one official domain — isolated Mainnet API release gate',()=>{
    expect(verifyProductionMainnetRouting({rewrites:[]},unsafe).ok).toBe(false);
   }
  });
+ it('packages the single pinned public Settlement ABI for read-only Mainnet backend verification',()=>{
+  const docker=read('Dockerfile.bff.mainnet');
+  const ignore=read('.dockerignore');
+  const artifact=JSON.parse(read('contracts/contract-metadata/VeyraSettlement.json')) as {
+   abi:Array<{type:string;name?:string}>;
+  };
+  expect(docker).toContain('COPY --chown=bun:bun contracts/contract-metadata/VeyraSettlement.json ./contracts/contract-metadata/VeyraSettlement.json');
+  expect(ignore).toContain('!contracts/contract-metadata/VeyraSettlement.json');
+  expect(ignore).toContain('contracts/contract-metadata/*');
+  expect(artifact.abi.some(x=>x.type==='function'&&x.name==='pay')).toBe(true);
+  expect(artifact.abi.some(x=>x.type==='event'&&x.name==='PaymentSettled')).toBe(true);
+  const chainVerifier=read('server/services/mainnetSettlementProof.ts');
+  expect(chainVerifier).toContain("from '../../src/config/veyraSettlement.js'");
+ });
  it('a Mainnet container must use its own entrypoint and not the existing Testnet Dockerfile',()=>{
   const prod=read('Dockerfile.bff.mainnet');
   const init=read('server/mainnetBffEntrypoint.ts');
