@@ -27,6 +27,9 @@ const allowed=new Set([
  'PATCH /api/preferences/receive',
  'POST /api/mainnet/pay/receipt/verify',
  'GET /api/mainnet/pay/receipts',
+ // Read-only canonical contract proof indexing; these routes never sign or relay.
+ 'POST /api/mainnet/settlement/receipt/verify',
+ 'GET /api/mainnet/settlement/receipts',
  'POST /api/mainnet/exchange/across/quote',
  'GET /api/mainnet/exchange/across/capability',
  'GET /api/mainnet/exchange/across/status',
