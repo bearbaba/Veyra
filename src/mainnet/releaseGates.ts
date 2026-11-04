@@ -24,3 +24,17 @@ export function assertMainnetCanarySigningAllowed(
  if(canary&&!canSignMainnetCanary(address,units))
   throw new Error('Mainnet pilot signing is limited to the authorized canary wallet and 0.01 USDC. No transaction started.');
 }
+
+/** App-only guard for the first *contract* Settlement canary.
+ * Intentionally enforces owner/amount even when CANARY_ONLY is accidentally
+ * omitted from the build. A public onchain contract is NOT access-controlled
+ * by a frontend guard; this only prevents Veyra from prompting disallowed
+ * signatures. Emergency read-only always takes precedence.
+ */
+export function assertMainnetContractCanarySigningAllowed(
+ address:string,units:bigint,mode:'pay'|'escrow',
+ emergency=MAINNET_EMERGENCY_READ_ONLY,
+):void{
+ if(mode!=='pay')throw new Error('Mainnet escrow signing is not enabled in M0.');
+ assertMainnetCanarySigningAllowed(address,units,emergency,true);
+}
