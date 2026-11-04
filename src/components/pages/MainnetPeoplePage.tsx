@@ -46,7 +46,7 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
  }
  return <main className="mx-auto w-full max-w-4xl space-y-5 px-4 py-7 md:px-7 md:py-9">
   <header>
-   <p className="text-xs font-bold uppercase tracking-wider" style={{color:'var(--accent)'}}>People</p>
+   <p className="text-xs font-bold uppercase tracking-wider" style={{color:'var(--accent)'}}>Friends</p>
    <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Send money to people.</h1>
    <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>A verified Veyra ID shows the receiving wallet before you sign. Local contacts are separate.</p>
   </header>

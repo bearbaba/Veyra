@@ -22,7 +22,7 @@ describe('Mainnet single Settlement surface, wallet review and identity safety',
  it('only exposes one top-level Mainnet Send entry, with People nearby',()=>{
   const home=source('components/pages/MainnetHomePage.tsx');
   expect(home).not.toContain("label:'Contract Pay'");
-  expect(home).toContain("label:'People'");
+  expect(home).toContain("label:'Friends'");
   expect(MAINNET_ROUTES.identity.destination).toBe('social');
  });
  it('blocks Mainnet contract signing when frozen pay() simulation fails',()=>{

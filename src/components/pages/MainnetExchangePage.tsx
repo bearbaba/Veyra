@@ -10,7 +10,7 @@ import {ConnectKitButton} from 'connectkit';
 import {BrandLogo} from '../brand/BrandLogo';
 import {MainnetCirclePage,type ExchangeExecutionSelection} from './MainnetCirclePage';
 import {EXCHANGE_ASSETS,exchangeAssetId,resolveExchangeRoute,searchExchangeAssets,
- exchangeAssetSupport,type ExchangeAsset} from '@/mainnet/exchangeCatalog';
+ type ExchangeAsset} from '@/mainnet/exchangeCatalog';
 import {getAcrossExchangeQuote,type ExchangeQuoteSummary} from '@/mainnet/exchangeProviderQuote';
 import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
 
@@ -40,8 +40,8 @@ function recordedExchange(owner:string):null|{mode:'swap'|'bridge';source:Exchan
 function AssetMark({asset}:{asset:ExchangeAsset}){
  return <BrandLogo logoKey={asset.logo} size={40}/>;
 }
-function AssetPicker({side,value,other,balances,acrossReady,onChoose,onClose}:{
- side:Side;value:ExchangeAsset;other:ExchangeAsset;balances:Record<string,bigint>;acrossReady:boolean;
+function AssetPicker({side,value,other,balances,acrossReady,mode,onChoose,onClose}:{
+ side:Side;value:ExchangeAsset;other:ExchangeAsset;balances:Record<string,bigint>;acrossReady:boolean;mode:'swap'|'bridge';
  onChoose:(asset:ExchangeAsset)=>void;onClose:()=>void;
 }){
  const [query,setQuery]=useState('');
@@ -50,13 +50,11 @@ function AssetPicker({side,value,other,balances,acrossReady,onChoose,onClose}:{
  const [showUnsupported,setShowUnsupported]=useState(false);
  const networks=Array.from(new Map(EXCHANGE_ASSETS.map(a=>[a.chainId,{id:a.chainId,name:a.network}])).values());
  const support=(asset:ExchangeAsset)=>{
-  const route=side==='from'?EXCHANGE_ASSETS.map(to=>exchangeAssetSupport(asset,to)):
-   [exchangeAssetSupport(other,asset)];
-  return route.includes('tradable-route')?'tradable-route':
-   acrossReady&&route.includes('quote-only')?'quote-only':'unsupported';
+  const routes=side==='from'?EXCHANGE_ASSETS.map(to=>resolveExchangeRoute(asset,to)):[resolveExchangeRoute(other,asset)];
+  return routes.some(route=>route.kind===mode)?'tradable-route':
+   acrossReady&&false?'quote-only':'unsupported';
  };
- const score=(asset:ExchangeAsset)=>support(asset)==='tradable-route'?0:
-  support(asset)==='quote-only'?1:2;
+ const score=(asset:ExchangeAsset)=>support(asset)==='tradable-route'?0:2;
  const items=searchExchangeAssets(query,chain).filter(a=>showUnsupported||support(a)!=='unsupported')
   .sort((a,b)=>{
    const ab=(balances[exchangeAssetId(a)]??0n)>0n,bb=(balances[exchangeAssetId(b)]??0n)>0n;
@@ -187,7 +185,9 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   return()=>{window.clearInterval(timer);window.removeEventListener('storage',refresh);window.removeEventListener('focus',refresh);};
  },[address,owner]);
  const locked=!!prior||unknownPrior||engineBusy||!!intentPrior||intentBlocked;
- const route=resolveExchangeRoute(from,to);
+ const viewMode=initialBridge?'bridge':'swap';
+ const candidateRoute=resolveExchangeRoute(from,to);
+ const route:ReturnType<typeof resolveExchangeRoute>=candidateRoute.kind===viewMode?candidateRoute:{kind:'unavailable',reason:viewMode==='swap'?'Choose supported Arc USDC/EURC pair.':'Choose USDC between Arc and Base.'};
  const pairKey=exchangeAssetId(from)+'>'+exchangeAssetId(to);
  useEffect(()=>{
   const controller=new AbortController();
@@ -237,10 +237,9 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   if(locked)return;
   if(picking==='from'){
    setFrom(asset);
-   const currentSupport=exchangeAssetSupport(asset,to);
-   if(currentSupport==='unsupported'||currentSupport==='quote-only'&&!acrossReady){
-    const first=EXCHANGE_ASSETS.find(x=>{const support=exchangeAssetSupport(asset,x);
-     return support==='tradable-route'||support==='quote-only'&&acrossReady;});
+   const currentSupport=resolveExchangeRoute(asset,to);
+   if(currentSupport.kind!==viewMode){
+    const first=EXCHANGE_ASSETS.find(x=>resolveExchangeRoute(asset,x).kind===viewMode);
     if(first)setTo(first);
    }
   }
@@ -250,11 +249,11 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
  const executable=(route.kind==='swap'||route.kind==='bridge')&&!unknownPrior;
  const selection:ExchangeExecutionSelection={fromChainId:from.chainId,toChainId:to.chainId,
   fromToken:from.symbol as 'USDC'|'EURC',toToken:to.symbol as 'USDC'|'EURC'};
- return <main className="mx-auto w-full max-w-3xl space-y-5 px-4 py-6 md:px-7 md:py-9">
+ return <main className="mx-auto w-full max-w-2xl space-y-4 px-4 py-5 md:px-7 md:py-8">
   <header>
-   <p className="text-xs font-bold uppercase tracking-wider" style={{color:'var(--accent)'}}>Veyra · Exchange</p>
-   <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Swap &amp; Bridge</h1>
-   <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>You pay · You receive</p>
+   <p className="text-xs font-bold uppercase tracking-wider" style={{color:'var(--accent)'}}>VEYRA · ARC MAINNET</p>
+   <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>{viewMode==='swap'?'Swap':'Bridge'}</h1>
+   <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>{viewMode==='swap'?'You pay · You receive':'From · To · Amount'}</p>
   </header>
   <section className="space-y-3 rounded-2xl border p-4 sm:p-5" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
    <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU PAY</p>
@@ -290,7 +289,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   </section>
   <section className="rounded-xl border p-4" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
    {route.kind==='unavailable'?<div role="status" className="space-y-2">
-    <p className="text-sm font-semibold">No verified exchange route</p>
+    <p className="text-sm font-semibold">No supported {viewMode} route</p>
     <p className="text-sm" style={{color:'var(--muted)'}}>{route.reason}</p>
     <p className="text-xs" style={{color:'var(--muted)'}}>Choose another pair. No transaction started.</p>
    </div>:<div className="flex items-start gap-3">
@@ -363,6 +362,6 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    <Wallet className="size-4 shrink-0"/>Wallet funds only. Gateway deposits are separate.
   </p>
   {picking&&<AssetPicker key={picking} side={picking} value={picking==='from'?from:to}
-   other={picking==='from'?to:from} balances={balances} acrossReady={acrossReady} onChoose={choose} onClose={()=>setPicking(null)}/>}
+   other={picking==='from'?to:from} balances={balances} acrossReady={acrossReady} mode={viewMode} onChoose={choose} onClose={()=>setPicking(null)}/>}
  </main>;
 }

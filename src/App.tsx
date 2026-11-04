@@ -23,6 +23,7 @@ import { SocialPage } from './components/pages/SocialPage';
 import { SettlementPage } from './components/pages/SettlementPage';
 import { MainnetPayHub } from './components/pages/MainnetPayHub';
 import { MainnetExchangePage } from './components/pages/MainnetExchangePage';
+import {MainnetSoonPage} from './components/pages/MainnetSoonPage';
 import { MainnetPeoplePage } from './components/pages/MainnetPeoplePage';
 import type {VerifiedMainnetRecipient} from './mainnet/verifiedRecipient';
 import { VEYRA_ENV } from './lib/env';
@@ -67,7 +68,9 @@ export default function App() {
       case 'home':
         return VEYRA_ENV === 'mainnet' ? <MainnetHomePage onNavigate={setPage} /> : <HomePage onNavigate={setPage} />;
       case 'agent':
-        return <AgentPage onNavigate={setPage} />;
+        return VEYRA_ENV==='mainnet'?<MainnetSoonPage feature="Agent"/>:<AgentPage onNavigate={setPage} />;
+      case 'exchange':
+        return <MainnetSoonPage feature="Exchange"/>;
       case 'pay':
         return VEYRA_ENV === 'mainnet' ? <MainnetPayHub initialMethod="contract" friendHandle={friendPayment} recipientWallet={contactRecipient}
           verifiedRecipient={verifiedRecipient} onClearVerified={()=>setVerifiedRecipient(null)}

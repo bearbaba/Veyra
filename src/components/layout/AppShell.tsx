@@ -28,19 +28,22 @@ import { WalletAccountControls } from './WalletAccountControls';
 import { GlobalWalletBalance } from './GlobalWalletBalance';
 import { VEYRA_ENV } from '@/lib/env';
 
-export type VeyraPage = 'home' | 'agent' | 'pay' | 'convert' | 'bridge' | 'activity' | 'social' | 'settings' | 'settlement';
+export type VeyraPage = 'home' | 'agent' | 'pay' | 'convert' | 'bridge' | 'exchange' | 'activity' | 'social' | 'settings' | 'settlement';
 
 interface NavItem {
   id: VeyraPage;
   label: string;
   icon: React.ReactNode;
+  soon?: boolean;
 }
 
 const PRIMARY_NAV: NavItem[] = VEYRA_ENV === 'mainnet' ? [
   { id: 'home', label: 'Home', icon: <Home className="size-5" /> },
   { id: 'settlement', label: 'Pay', icon: <SendHorizontal className="size-5" /> },
-  { id: 'social', label: 'People', icon: <Users className="size-5" /> },
+  { id: 'social', label: 'Friends', icon: <Users className="size-5" /> },
   { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
+  { id: 'convert', label: 'Swap', icon: <ArrowLeftRight className="size-5" /> },
+  { id: 'bridge', label: 'Bridge', icon: <Route className="size-5" /> },
 ] : [
   { id: 'home', label: 'Home', icon: <Home className="size-5" /> },
   { id: 'pay', label: 'Pay', icon: <SendHorizontal className="size-5" /> },
@@ -50,8 +53,8 @@ const PRIMARY_NAV: NavItem[] = VEYRA_ENV === 'mainnet' ? [
   { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
 ];
 const SECONDARY_NAV: NavItem[] = VEYRA_ENV === 'mainnet' ? [
-  { id: 'convert', label: 'Exchange', icon: <ArrowLeftRight className="size-5" /> },
-  { id: 'agent', label: 'Agent', icon: <Bot className="size-5" /> },
+  { id: 'exchange', label: 'Exchange', icon: <ArrowLeftRight className="size-5" />, soon: true },
+  { id: 'agent', label: 'Agent', icon: <Bot className="size-5" />, soon: true },
   { id: 'settings', label: 'Settings', icon: <Settings className="size-5" /> },
 ] : [
   { id: 'social', label: 'Friends', icon: <Users className="size-5" /> },
@@ -62,7 +65,7 @@ const MOBILE_NAV = PRIMARY_NAV.filter(item => VEYRA_ENV === 'mainnet'
   ? ['home', 'settlement', 'social', 'activity'].includes(item.id)
   : ['home', 'pay', 'agent', 'activity'].includes(item.id));
 const MOBILE_MORE_NAV = VEYRA_ENV === 'mainnet'
-  ? SECONDARY_NAV
+  ? [...PRIMARY_NAV.filter(item => item.id === 'convert' || item.id === 'bridge'), ...SECONDARY_NAV]
   : [...PRIMARY_NAV.filter(item => item.id === 'convert' || item.id === 'bridge'), ...SECONDARY_NAV];
 
 interface AppShellProps {
@@ -183,10 +186,10 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
           <div role="region" aria-label="More Veyra features" className="md:hidden grid grid-cols-2 gap-2 border-t p-3"
             style={{borderColor:'var(--border)',background:'var(--surface-strong)'}}>
             {MOBILE_MORE_NAV.map(item => (
-              <button type="button" key={item.id} onClick={() => navigate(item.id)}
+              <button type="button" key={item.id} disabled={item.soon} aria-label={item.soon?item.label+" coming soon":item.label} onClick={() => navigate(item.id)}
                 className="flex min-w-0 items-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold"
                 style={{borderColor:'var(--border)',color:page===item.id?'var(--accent)':'var(--ink)'}}>
-                {item.icon}<span>{item.label}</span>
+                {item.icon}<span className="flex-1 text-left">{item.label}</span>{item.soon&&<span className="text-[10px] opacity-65">Soon</span>}
               </button>
             ))}
           </div>
@@ -223,7 +226,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
 function NavButton({ item, active, onClick }: { item: NavItem; active: boolean; onClick: () => void }) {
   return (
     <button
-      onClick={onClick}
+      onClick={onClick} disabled={item.soon} aria-label={item.soon?item.label+" coming soon":item.label}
       className="relative flex w-full items-center gap-2.5 px-3 py-3 rounded-xl text-sm font-semibold transition-all"
       style={{ color: active ? 'var(--accent)' : 'var(--muted)', background: active ? 'rgba(44,105,198,.22)' : 'transparent' }}
     >
@@ -231,7 +234,7 @@ function NavButton({ item, active, onClick }: { item: NavItem; active: boolean; 
         <motion.span layoutId="nav-indicator" className="absolute left-0 inset-y-2 w-0.5 rounded-r-full" style={{ background: 'var(--accent)' }} />
       )}
       <span style={{ color: active ? 'var(--accent)' : 'var(--muted)' }}>{item.icon}</span>
-      {item.label}
+      <span className="flex-1 text-left">{item.label}</span>{item.soon&&<span className="text-[10px] font-medium opacity-65">Soon</span>}
     </button>
   );
 }

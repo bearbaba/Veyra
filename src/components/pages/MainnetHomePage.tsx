@@ -111,7 +111,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  const pending=scopedLocal.filter(x=>x.status==='SUBMITTED');
  const actions:{id:'send'|'people'|'swap'|'bridge'|'activity';label:string;hint:string;tint:string;icon:React.ReactNode}[]=[
   {id:'send',label:'Pay',hint:'To · Amount · Note',tint:'#35bbff',icon:<SendHorizontal className="size-5"/>},
-  {id:'people',label:'People',hint:'Find a Veyra ID',tint:'#ae86ff',icon:<Users className="size-5"/>},
+  {id:'people',label:'Friends',hint:'Find a Veyra ID',tint:'#ae86ff',icon:<Users className="size-5"/>},
   {id:'swap',label:'Swap',hint:'You pay · You receive',tint:'#44d9e8',icon:<ArrowLeftRight className="size-5"/>},
   {id:'bridge',label:'Bridge',hint:'From · To · Amount',tint:'#ffce6a',icon:<Route className="size-5"/>},
   {id:'activity',label:'Activity',hint:'Your transactions',tint:'#bb87ff',icon:<LayoutList className="size-5"/>},
@@ -280,16 +280,16 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
    <div className="veyra-panel rounded-2xl border p-5">
     <div className="flex items-center justify-between gap-2">
      <div><h2 className="display text-base font-bold" style={{color:'var(--ink)'}}>Explore networks</h2>
-      <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Routes checked in Exchange.</p></div>
-     <button type="button" onClick={()=>onNavigate('convert')} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-semibold"
+      <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Routes checked in Bridge.</p></div>
+     <button type="button" onClick={()=>onNavigate('bridge')} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-semibold"
       style={{borderColor:'var(--border)',color:'var(--ink)'}}>View all <ChevronRight className="size-4"/></button>
     </div>
     <div className="mt-5 grid grid-cols-4 gap-3 sm:grid-cols-7">
      {([{key:'ethereum',label:'Ethereum'},{key:'base',label:'Base'},{key:'arbitrum',label:'Arbitrum'},
       {key:'optimism',label:'Optimism'},{key:'avalanche',label:'Avalanche'},
       {key:'polygon',label:'Polygon'},{key:'arc',label:'Arc'}] as const).map(n=>
-      <button type="button" key={n.key} onClick={()=>onNavigate('convert')} className="flex min-w-0 flex-col items-center gap-2 rounded-lg py-1"
-       title={'Explore '+n.label+'; availability checked in Exchange'}>
+      <button type="button" key={n.key} onClick={()=>onNavigate('bridge')} className="flex min-w-0 flex-col items-center gap-2 rounded-lg py-1"
+       title={'Explore '+n.label+'; availability checked in Bridge'}>
        <BrandLogo logoKey={n.key} size={38}/>
        <span className="w-full truncate text-center text-[11px] font-medium" style={{color:'var(--ink)'}}>{n.label}</span>
       </button>)}
