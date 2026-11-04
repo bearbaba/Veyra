@@ -43,7 +43,7 @@ const ready={
  ...base,migrations:22,actualHistory:history,tables:[...legacyTables,'mainnet_settlement_receipts'],
  settlementColumns:columns.map(name=>({name,nullable:nullable.has(name)})),
  settlementConstraints:constraints.map(name=>({
-  name,type:EXPECTED_PG16_SETTLEMENT_CONSTRAINTS[name]![0],definition:EXPECTED_PG16_SETTLEMENT_CONSTRAINTS[name]![1],
+  name,type:EXPECTED_PG16_SETTLEMENT_CONSTRAINTS[name][0],definition:EXPECTED_PG16_SETTLEMENT_CONSTRAINTS[name][1],
   validated:true,deferrable:false,
  })),
  settlementIndexes:indexes.map(i=>({...i,valid:true,ready:true})),
