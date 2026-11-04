@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { TokenUSDC, TokenEURC, TokenETH, TokenWBTC, TokenUSDT, TokenDAI } from '@web3icons/react';
+import { TokenUSDC, TokenEURC, TokenETH, TokenWBTC, TokenUSDT, TokenDAI,
+ NetworkEthereum, NetworkBase, NetworkArbitrumOne, NetworkOptimism, NetworkAvalanche, NetworkPolygon } from '@web3icons/react';
 
 const TOKEN_MARKS = {
   usdc: TokenUSDC, eurc: TokenEURC, eth: TokenETH, wbtc: TokenWBTC,
@@ -17,6 +18,11 @@ function ArcMark({size}:{size:number}) {
     <path d="M73 333 C77 193 116 67 199 67 C282 67 320 183 327 333 C290 302 233 292 177 299 L183 252 C216 251 246 255 273 261 C258 169 231 114 199 114 C160 114 125 194 120 333 Z" fill="url(#veyra-arc-silver)"/>
   </svg>;
 }
+
+const NETWORK_MARKS = {
+ ethereum:NetworkEthereum,base:NetworkBase,arbitrum:NetworkArbitrumOne,
+ optimism:NetworkOptimism,avalanche:NetworkAvalanche,polygon:NetworkPolygon,
+} as const;
 
 interface BrandLogoProps {
   logoKey: string;
@@ -56,12 +62,11 @@ export function BrandLogo({ logoKey, size = 36, className = '' }: BrandLogoProps
       <TokenMark variant="branded" size={size} aria-hidden="true"/>
     </span>
   );
-  return (
-    <span className={`inline-flex items-center justify-center overflow-hidden rounded-full shrink-0 ${className}`}
-      style={{ width: size, height: size }} aria-hidden="true">
-      <FallbackMark logoKey={logoKey} size={size} />
-    </span>
-  );
+  const NetworkMark=NETWORK_MARKS[logoKey as keyof typeof NETWORK_MARKS];
+  if(NetworkMark) return <span className={`inline-flex items-center justify-center overflow-hidden rounded-full shrink-0 ${className}`}
+    style={{width:size,height:size}}><NetworkMark variant="branded" size={size} aria-label={logoKey}/></span>;
+  return <span className={`inline-flex items-center justify-center overflow-hidden rounded-full shrink-0 ${className}`}
+    style={{width:size,height:size}} aria-hidden="true"><FallbackMark logoKey={logoKey} size={size}/></span>;
 }
 
 function FallbackMark({ logoKey, size }: { logoKey: string; size: number }) {
