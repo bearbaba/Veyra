@@ -10,6 +10,7 @@ import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJ
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {isMainnetSessionForWallet,scopedMainnetReceipts} from '@/mainnet/signedWalletReceiptScope';
 import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
+import {listVerifiedMainnetSettlementReceipts,type MainnetSettlementServerReceipt} from '@/lib/api/mainnetSettlementReceipts';
 import type {VeyraPage} from '../layout/AppShell';
 
 const ARC=5042;
@@ -19,6 +20,8 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  const social=useUnifiedSocial();
  const signedWallet=isMainnetSessionForWallet(social.session,address,connector?.uid);
  const [accountReceipts,setAccountReceipts]=useState<MainnetPayServerReceipt[]>([]);
+ const [settlementReceipts,setSettlementReceipts]=useState<MainnetSettlementServerReceipt[]>([]);
+ const [settlementScope,setSettlementScope]=useState('');
  const [accountScope,setAccountScope]=useState('');
  const [localScope,setLocalScope]=useState('');
  const [receive,setReceive]=useState(false);
@@ -66,16 +69,40 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
    window.removeEventListener('focus',handle);
    window.removeEventListener('veyra:mainnet:server-receipt',handle);};
  },[address,connector?.uid,social.session?.token,social.session?.walletKey,social.identityOrigin,signedWallet]);
+ useEffect(()=>{
+  setSettlementReceipts([]);setSettlementScope('');
+  const token=social.session?.token;
+  if(!address||!token||social.identityOrigin!=='ready'||!signedWallet)return;
+  const owner=address,controller=new AbortController();
+  let active=true;
+  async function reload(){
+   try{
+    const rows=await listVerifiedMainnetSettlementReceipts(token!,controller.signal);
+    if(active){setSettlementReceipts(scopedMainnetReceipts(rows,owner).slice(0,10));
+     setSettlementScope(owner.toLowerCase()+':'+token);}
+   }catch{/* Direct and local payment history stay visible without contract index. */}
+  }
+  void reload();
+  const trigger=()=>void reload();
+  window.addEventListener('focus',trigger);
+  window.addEventListener('veyra:mainnet:server-receipt',trigger);
+  return()=>{active=false;controller.abort();
+   window.removeEventListener('focus',trigger);
+   window.removeEventListener('veyra:mainnet:server-receipt',trigger);};
+ },[address,connector?.uid,social.session?.token,social.session?.walletKey,social.identityOrigin,signedWallet]);
  const scopedServer=signedWallet&&address&&social.session?.token&&
   accountScope===address.toLowerCase()+':'+social.session.token?accountReceipts:[];
  const scopedLocal=address&&localScope===address.toLowerCase()?operations:[];
  const scopedExchange=address&&localScope===address.toLowerCase()?exchangeIntents:[];
- const recentVerified=scopedServer.slice(0,3);
- const knownHashes=new Set(scopedServer.map(x=>x.txHash.toLowerCase()));
+ const scopedSettlement=signedWallet&&address&&social.session?.token&&
+  settlementScope===address.toLowerCase()+':'+social.session.token?settlementReceipts:[];
+ const recentVerified=[...scopedServer,...scopedSettlement].sort((a,b)=>
+  Date.parse(b.paidAt)-Date.parse(a.paidAt)).slice(0,3);
+ const knownHashes=new Set([...scopedServer,...scopedSettlement].map(x=>x.txHash.toLowerCase()));
  const exchangeHashes=new Set(scopedExchange.flatMap(task=>[
   ...(task.sourceHash?[task.sourceHash.toLowerCase()]:[]),
   ...(task.destinationHash?[task.destinationHash.toLowerCase()]:[])]));
- const localRecent=scopedLocal.filter(x=>!(x.type==='Pay'&&knownHashes.has(x.hash.toLowerCase()))&&
+ const localRecent=scopedLocal.filter(x=>!((x.type==='Pay'||x.type==='Settlement')&&knownHashes.has(x.hash.toLowerCase()))&&
   !((x.type==='Swap'||x.type==='Bridge')&&exchangeHashes.has(x.hash.toLowerCase())));
  const recentExchange=scopedExchange.slice(0,3);
  const wrong=isConnected&&chainId!==ARC;
@@ -214,10 +241,11 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
      {recentVerified.map(x=><div className="flex items-center gap-3 py-3" key={'remote:'+x.txHash}>
       <div className="min-w-0 flex-1">
        <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>
-        {x.direction==='sent'?'Sent':'Received'} · {formatUnits(BigInt(x.amountRaw),6)} USDC
+        {x.direction==='sent'?'Sent':'Received'} · {formatUnits(BigInt(
+         x.kind==='settlement'&&x.direction==='received'?x.netAmountRaw:x.amountRaw),6)} USDC
        </p>
        <p className="mt-1 text-xs" style={{color:'var(--success)'}}>
-        Verified · {x.recipientLabel??'Arc Mainnet'} · {new Date(x.paidAt).toLocaleDateString()}
+        Verified · {x.kind==='settlement'?'Contract Settlement':'Direct transfer'} · {x.recipientLabel??'Arc Mainnet'} · {new Date(x.paidAt).toLocaleDateString()}
        </p>
       </div>
       <button type="button" onClick={()=>onNavigate('activity')} className="text-xs font-semibold"
