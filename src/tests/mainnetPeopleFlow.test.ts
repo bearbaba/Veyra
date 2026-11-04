@@ -45,7 +45,9 @@ describe('Server-verifiable Veyra ID send safety',()=>{
   expect(picker).toContain("filter(f=>f.state==='CONNECTED')");
   expect(picker).toContain('aria-expanded={searchOpen}');
   expect(shared).toContain('lookupMainnetRecipient');
-  expect(people).toContain('Local wallet contacts (not verified Veyra IDs)');
+  expect(people).toContain('Saved wallet contacts · Details');
+  expect(people).toContain('aria-expanded={findOpen}');
+  expect(people).toContain("setFriendLookup('@'+x.veyraHandle+'.veyra');setFindOpen(true);");
   expect(people).toContain("social.invite('@'+selected.veyraHandle+'.veyra')");
   expect(people).toContain('social.respond(userId,decision)');
   expect(people).toContain('Friend invitations');
