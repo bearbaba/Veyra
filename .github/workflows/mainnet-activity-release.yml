@@ -43,6 +43,7 @@ jobs:
           src/tests/mainnetDirectPayProof.test.ts
           src/tests/mainnetSettlementProof.test.ts
           src/tests/mainnetSettlementReceiptSync.test.ts
+          src/tests/mainnetSettlementHistoricalBinding.test.ts
           src/tests/mainnetSettlementIdentityUnification.test.ts
           src/tests/mainnetWalletSigningLock.test.ts
           src/tests/mainnetPersistentReceipt.test.ts
