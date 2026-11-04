@@ -253,14 +253,14 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
  const executable=(route.kind==='swap'||route.kind==='bridge')&&!unknownPrior;
  const selection:ExchangeExecutionSelection={fromChainId:from.chainId,toChainId:to.chainId,
   fromToken:from.symbol as 'USDC'|'EURC',toToken:to.symbol as 'USDC'|'EURC'};
- return <main className="mx-auto w-full max-w-2xl space-y-4 px-4 py-5 md:px-7 md:py-8">
+ return <main className="veyra-page veyra-route-page mx-auto w-full max-w-2xl space-y-4 px-4 py-5 md:px-7 md:py-8">
   <header>
-   <p className="text-xs font-bold uppercase tracking-wider" style={{color:'var(--accent)'}}>VEYRA · ARC MAINNET</p>
-   <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>{viewMode==='swap'?'Swap':'Bridge'}</h1>
-   <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>{viewMode==='swap'?'You pay · You receive':'From · To · Amount'}</p>
+   <p className="veyra-eyebrow">VEYRA · ARC MAINNET</p>
+   <h1 className="veyra-page-title">{viewMode==='swap'?'Swap':'Bridge'}</h1>
+   <p className="veyra-page-subtitle">{viewMode==='swap'?'You pay · You receive':'Move USDC between Arc and Base.'}</p>
   </header>
-  <section className="space-y-3 rounded-2xl border p-4 sm:p-5" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
-   <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU PAY</p>
+  <section className="veyra-card space-y-3 p-4 sm:p-5" aria-label={viewMode==='swap'?'Swap pair':'Bridge route'}>
+   <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>{viewMode==='swap'?'YOU PAY':'FROM'}</p>
    <button type="button" disabled={locked} onClick={()=>setPicking('from')}
     className="flex w-full items-center gap-3 rounded-xl border p-3 text-left disabled:opacity-70"
     style={{borderColor:'var(--border)',background:'var(--surface-raised)',color:'var(--ink)'}}>
@@ -275,7 +275,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
      aria-label="Reverse assets" className="-my-1 rounded-xl border p-2.5 disabled:opacity-40"
      style={{borderColor:'var(--border-strong)',background:'var(--surface)',color:'var(--accent)'}}><ArrowDownUp className="size-5"/></button>
    </div>
-   <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU RECEIVE</p>
+   <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>{viewMode==='swap'?'YOU RECEIVE':'TO'}</p>
    <button type="button" disabled={locked} onClick={()=>setPicking('to')}
     className="flex w-full items-center gap-3 rounded-xl border p-3 text-left disabled:opacity-70"
     style={{borderColor:'var(--border)',background:'var(--surface-raised)',color:'var(--ink)'}}>
@@ -291,7 +291,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
     </p>)}
    </details>
   </section>
-  <section className="rounded-xl border p-4" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+  <section className="veyra-card p-4" aria-label="Route status">
    {route.kind==='unavailable'?<div role="status" className="space-y-2">
     <p className="text-sm font-semibold">No supported {viewMode} route</p>
     <p className="text-sm" style={{color:'var(--muted)'}}>{route.reason}</p>
@@ -300,9 +300,9 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
     {route.kind==='swap'?<ArrowDownUp className="mt-1 size-5" style={{color:'var(--accent)'}}/>:
      <ArrowRight className="mt-1 size-5" style={{color:'var(--accent)'}}/>}
     <div className="min-w-0 flex-1">
-     <p className="text-sm font-semibold">{route.kind==='swap'?'Same-network Swap':route.kind==='quote-only'?'Cross-network Swap + Bridge · quote candidate':'Cross-network Bridge'}</p>
+     <p className="text-sm font-semibold">{viewMode==='swap'?'Swap route':'Bridge route'}</p>
      <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
-      {route.provider} · {from.network} → {to.network} · live quote required
+      {from.network} → {to.network} · live quote required
      </p>
      <details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
       <summary className="cursor-pointer">Route details</summary>
@@ -363,7 +363,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    onFinancialBusyChange={setEngineBusy}/>:
    !address&&route.kind!=='quote-only'?<ConnectKitButton/>:null}
   <p className="flex items-start gap-2 text-xs leading-5" style={{color:'var(--muted)'}}>
-   <Wallet className="size-4 shrink-0"/>Wallet funds only. Gateway deposits are separate.
+   <Wallet className="size-4 shrink-0"/>Only supported routes can request a live quote.
   </p>
   {picking&&<AssetPicker key={picking} side={picking} value={picking==='from'?from:to}
    other={picking==='from'?to:from} balances={balances} mode={viewMode} onChoose={choose} onClose={()=>setPicking(null)}/>}
