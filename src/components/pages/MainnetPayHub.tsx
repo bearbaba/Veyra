@@ -197,11 +197,11 @@ export function MainnetPayHub({
   <section className="rounded-xl border p-3 sm:p-4" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
    <div className="flex items-center justify-between gap-3">
     <div>
-     <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>Payment method · {selected==='wallet'?'Direct transfer':'Secure payment'}</p>
+     <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>Payment method · {selected==='wallet'?'Direct transfer':'Contract payment'}</p>
      <details className="mt-1 text-xs" style={{color:'var(--muted)'}}>
       <summary className="cursor-pointer">Details</summary>
       <p className="mt-2">{selected==='wallet'?'One wallet confirmation.':
-       'Approve may be needed before payment. No escrow or automatic refund.'}</p>
+       'VeyraSettlement contract. Approve may be needed before payment. No escrow or automatic refund.'}</p>
      </details>
     </div>
     <button type="button" onClick={()=>setOptionsOpen(v=>!v)} aria-expanded={optionsOpen}

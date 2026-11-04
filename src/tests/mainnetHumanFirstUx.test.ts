@@ -54,7 +54,7 @@ describe('Mainnet human-first navigation and transparent settlement',()=>{
  it('defaults to Settlement contract and retains wallet fallback as explicit method',()=>{
   const hub=read('components/pages/MainnetPayHub.tsx');
   expect(hub).toContain("initialMethod='contract'");
-  expect(hub).toContain('Settlement method ·');
+  expect(hub).toContain('Payment method ·');
   expect(hub).toContain('{optionsOpen&&');
   expect(hub).toContain('No escrow or automatic refund');
   expect(hub).toContain('sharedDraft={draft}');
