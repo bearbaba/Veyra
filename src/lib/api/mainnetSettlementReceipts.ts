@@ -39,7 +39,7 @@ export function validSettlementServerReceipt(receipt:unknown):receipt is Mainnet
   typeof r.contractAddress==='string'&&/^0x[0-9a-f]{40}$/i.test(r.contractAddress)&&
   typeof r.senderAddress==='string'&&/^0x[0-9a-f]{40}$/i.test(r.senderAddress)&&
   typeof r.recipientAddress==='string'&&/^0x[0-9a-f]{40}$/i.test(r.recipientAddress)&&
-  r.direction!=='unknown'&&(r.direction==='sent'||r.direction==='received')&&
+  (r.direction==='sent'||r.direction==='received')&&
   typeof r.amountRaw==='string'&&/^[1-9][0-9]*$/.test(r.amountRaw)&&
   typeof r.netAmountRaw==='string'&&/^[1-9][0-9]*$/.test(r.netAmountRaw)&&
   typeof r.protocolFeeRaw==='string'&&/^\d+$/.test(r.protocolFeeRaw)&&
