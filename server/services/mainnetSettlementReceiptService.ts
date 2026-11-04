@@ -3,12 +3,12 @@
  * sender/amount/recipient, determines the immutable evidence.
  */
 import {createPublicClient,http,getAddress,isAddress,type Hex} from 'viem';
-import {and,desc,eq,isNull,or} from 'drizzle-orm';
+import {and,desc,eq,isNull,or,sql} from 'drizzle-orm';
 import type {DbClient} from '../db/client.js';
 import {mainnetSettlementReceipts} from '../db/schema/mainnetSettlement.js';
 import {verifyCanonicalSettlement,SettlementProofError,type CanonicalSettlementProof}
  from './mainnetSettlementProof.js';
-import {mainnetActiveBinding,mainnetRpcUrl,PayReceiptApiError,
+import {mainnetRpcUrl,PayReceiptApiError,
  verifyRecipientSnapshotForReceipt} from './mainnetPayReceiptService.js';
 
 const reject=(code:string,status=409):never=>{throw new PayReceiptApiError(code,status);};
@@ -69,6 +69,38 @@ export function visibleSettlementReceipt(row:Row,userId:string){
   ...(row.senderUserId===userId&&row.senderPrivateNote?
    {privateNote:row.senderPrivateNote}:{})};
 }
+/** Historical proof is owned by the wallet's verified identity AT payment,
+ * never by a new owner who connects the same address after the transaction.
+ * Ambiguous historical bindings fail closed. */
+export type SettlementBindingWindow={
+ issuedAt:Date;verifiedAt:Date;revokedAt:Date|null;status:'ACTIVE'|'REVOKED';
+};
+export function settlementBindingCoveredPayment(binding:SettlementBindingWindow,paidAt:Date):boolean{
+ const paid=paidAt.getTime(),issued=binding.issuedAt.getTime(),
+  verified=binding.verifiedAt.getTime(),revoked=binding.revokedAt?.getTime();
+ return Number.isFinite(paid)&&Number.isFinite(issued)&&Number.isFinite(verified)&&
+  issued<=paid&&verified<=paid&&
+  (binding.status==='ACTIVE'?binding.revokedAt===null:
+   binding.status==='REVOKED'&&revoked!==undefined&&Number.isFinite(revoked)&&revoked>paid);
+}
+type HistoricalSettlementBinding={userId:string;walletAddress:string};
+export async function settlementBindingAtPayment(
+ db:DbClient,wallet:string,paidAt:Date,
+):Promise<HistoricalSettlementBinding|null>{
+ if(!isAddress(wallet)||!Number.isFinite(paidAt.getTime()))return null;
+ const result=await db.execute(sql`
+  SELECT wb.veyr_user_id AS "userId",wb.wallet_address AS "walletAddress"
+  FROM wallet_bindings wb JOIN veyra_users u ON u.veyr_user_id=wb.veyr_user_id
+  WHERE lower(wb.wallet_address)=lower(${wallet}) AND wb.chain_id=5042
+    AND u.status='ACTIVE' AND u.deleted_at IS NULL
+    AND wb.issued_at<=${paidAt} AND wb.verified_at<=${paidAt}
+    AND ((wb.status='ACTIVE' AND wb.revoked_at IS NULL)
+     OR (wb.status='REVOKED' AND wb.revoked_at>${paidAt}))
+  LIMIT 2
+ `);
+ const rows=result.rows as unknown as HistoricalSettlementBinding[];
+ return rows.length===1&&typeof rows[0]?.userId==='string'?rows[0]:null;
+}
 export async function indexVerifiedSettlement(
  db:DbClient,userId:string,input:{hash:Hex;note?:string;snapshotId?:string},
  readProof:typeof readCanonicalMainnetSettlementProof=readCanonicalMainnetSettlementProof,
@@ -108,14 +140,18 @@ export async function indexVerifiedSettlement(
  let senderAddress:string;
  try{senderAddress=(await client.getTransaction({hash:input.hash})).from;}
  catch{return reject('SETTLEMENT_NOT_INDEXED',503);}
- const sender=await mainnetActiveBinding(db,senderAddress);
- if(sender?.userId!==userId&&(input.note!==undefined||input.snapshotId!==undefined))
-  return reject('SENDER_REQUIRED_FOR_METADATA',403);
  const proof=await readProof(input.hash,senderAddress,rpc);
- const receiver=await mainnetActiveBinding(db,proof.recipient);
+ const paidAt=new Date(Number(proof.blockTimeSeconds)*1000);
+ // Reassignment after payment must never grant a different Veyra user the
+ // historical receipt. A revoked owner can still own its earlier payment.
+ const [sender,receiver]=await Promise.all([
+  settlementBindingAtPayment(db,proof.sender,paidAt),
+  settlementBindingAtPayment(db,proof.recipient,paidAt),
+ ]);
  if(sender?.userId!==userId&&receiver?.userId!==userId)
   return reject('RECEIPT_NOT_OWNED',403);
- const paidAt=new Date(Number(proof.blockTimeSeconds)*1000);
+ if(sender?.userId!==userId&&(input.note!==undefined||input.snapshotId!==undefined))
+  return reject('SENDER_REQUIRED_FOR_METADATA',403);
  let snapshotId:string|null=null,recipientLabel:string|null=null;
  if(input.snapshotId&&sender?.userId===userId){
   try{
