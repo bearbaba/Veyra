@@ -1,10 +1,10 @@
 /** Run intentionally from Mainnet Render BFF Shell only, after a database backup.
  * Example:
- *   VEYRA_MAINNET_MIGRATE_CONFIRM=veyra_mainnet_v1_db bun server/db/migrateMainnetPilot.ts
+ *   Follow docs/MAINNET_SETTLEMENT_RECEIPTS_ACCEPTANCE.md. A recent, verified\n *   restorable backup reference and exact migration version must be supplied.
  */
-import {assertMainnetPilotMigrationTarget} from './mainnetPilotMigrationGate.js';
+import {assertMainnetSettlementUpgradeApproval} from './mainnetPilotMigrationGate.js';
 import {runDatabaseMigrations} from './migrationService.js';
-const url=assertMainnetPilotMigrationTarget(process.env);
+const url=assertMainnetSettlementUpgradeApproval(process.env);
 try{
  await runDatabaseMigrations(url);
  console.log('[mainnet-pilot] migrations applied; verify 5042 identity and receipt schema separately.');
