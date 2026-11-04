@@ -118,9 +118,16 @@ export function MainnetPayHub({
   setLocalVerified(result.kind==='veyra'?result.person:null);
   setMethod('contract');setVisited(v=>({...v,contract:true}));
  }
+ function activateWalletMethod(){
+  if(locked)return;
+  setMethod('wallet');
+  setVisited(v=>v.wallet?v:{...v,wallet:true});
+  setOptionsOpen(false);
+ }
  function changeWalletRecipient(value:string){
   if(!address||locked)return;
   onClearVerified?.();setLocalVerified(null);
+  activateWalletMethod();
   const next={...readPayDraft(owner),recipient:value.trim(),amount:''};
   setDraftHolder({owner,value:next});writePayDraft(owner,next);
  }
@@ -165,7 +172,7 @@ export function MainnetPayHub({
    <MainnetPayRecipientPicker owner={owner} sessionToken={signedWallet?social.session?.token:undefined}
     signedWallet={signedWallet} disabled={locked} selectedVerified={selectedVerified}
     recipient={draft.recipient} onWalletChange={changeWalletRecipient}
-    onSelected={resolveSelected} onClear={clearChosen}/>
+    onWalletMode={activateWalletMethod} onSelected={resolveSelected} onClear={clearChosen}/>
    <div>
     <label htmlFor="shared-send-amount" className="text-sm font-semibold" style={{color:'var(--ink)'}}>Amount</label>
     <input id="shared-send-amount" value={draft.amount} inputMode="decimal" maxLength={24}

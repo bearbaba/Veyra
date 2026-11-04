@@ -8,10 +8,10 @@ import {useUnifiedSocial,friendLabel,type SocialFriend} from '@/features/social/
 import {lookupMainnetRecipient,createRecipientSearchGuard,type RecipientSearchResult} from '@/mainnet/recipientLookup';
 import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 
-export function MainnetPayRecipientPicker({owner,sessionToken,signedWallet,disabled,recipient,selectedVerified,onWalletChange,onSelected,onClear}:{
+export function MainnetPayRecipientPicker({owner,sessionToken,signedWallet,disabled,recipient,selectedVerified,onWalletChange,onWalletMode,onSelected,onClear}:{
  owner:string;sessionToken?:string;signedWallet:boolean;disabled:boolean;recipient:string;
  selectedVerified:VerifiedMainnetRecipient|null;onWalletChange:(value:string)=>void;
- onSelected:(result:RecipientSearchResult)=>void;onClear:()=>void;
+ onWalletMode:()=>void;onSelected:(result:RecipientSearchResult)=>void;onClear:()=>void;
 }){
  const social=useUnifiedSocial();
  const [tab,setTab]=useState<'wallet'|'friends'>(selectedVerified?'friends':'wallet');
@@ -25,6 +25,7 @@ export function MainnetPayRecipientPicker({owner,sessionToken,signedWallet,disab
  function changeTab(next:'wallet'|'friends'){
   if(disabled||tab===next)return;
   guard.current.invalid();setTab(next);setSearchOpen(false);setQuery('');setBusy(false);setError(null);onClear();
+  if(next==='wallet')onWalletMode();
  }
  async function verifyHandle(input:string,expectedId?:string){
   if(disabled||busy||!owner||!signedWallet||!sessionToken)return;

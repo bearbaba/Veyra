@@ -72,7 +72,7 @@ export default function App() {
       case 'exchange':
         return <MainnetSoonPage feature="Exchange"/>;
       case 'pay':
-        return VEYRA_ENV === 'mainnet' ? <MainnetPayHub initialMethod="contract" friendHandle={friendPayment} recipientWallet={contactRecipient}
+        return VEYRA_ENV === 'mainnet' ? <MainnetPayHub initialMethod="wallet" friendHandle={friendPayment} recipientWallet={contactRecipient}
           verifiedRecipient={verifiedRecipient} onClearVerified={()=>setVerifiedRecipient(null)}
           onRecipientUsed={() => setContactRecipient(null)} /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
       case 'convert':
@@ -90,7 +90,7 @@ export default function App() {
             setVerifiedRecipient(null);setContactRecipient(recipient);setFriendPayment(null);setPage('settlement');
           }}/> : <SocialPage onPayFriend={startFriendPayment} />);
       case 'settlement':
-        return VEYRA_ENV === 'mainnet' ? <MainnetPayHub initialMethod="contract" friendHandle={friendPayment} recipientWallet={contactRecipient}
+        return VEYRA_ENV === 'mainnet' ? <MainnetPayHub initialMethod="wallet" friendHandle={friendPayment} recipientWallet={contactRecipient}
           verifiedRecipient={verifiedRecipient} onClearVerified={()=>setVerifiedRecipient(null)}
           onRecipientUsed={() => setContactRecipient(null)} /> : <SettlementPage />;
       default:
