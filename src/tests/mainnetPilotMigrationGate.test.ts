@@ -15,6 +15,7 @@ describe('Mainnet V1 isolated receipt migration target',()=>{
    // A copy on another Render cluster is NOT the authorized database.
    {DATABASE_URL:'postgresql://user:p@dpg-other-instance/veyra_mainnet_v1_db'},
    {DATABASE_URL:'postgresql://user:p@dpg-dbk4ingu01pc7391im20-ax/veyra_mainnet_v1_db'},
+   {DATABASE_URL:'postgresql://user:p@dpg-dbk4ingu01pc7391im20-a.evil.example/veyra_mainnet_v1_db'},
    {VEYRA_MAINNET_IDENTITY_ONLY:'0'},{NODE_ENV:'development'},
    {DATABASE_URL:undefined},{DATABASE_URL:'postgres://user:p@localhost/veyra_mainnet_v1_db'},
    {DATABASE_URL:'postgres://user:p@testnet-db/veyra_mainnet_v1_db'},
