@@ -84,9 +84,11 @@ All four milestones include security, recovery, mobile UX, accessibility and per
 - Avoid scattered new tabs or expensive paid infrastructure just to demonstrate a feature. A smaller verified feature beats a broader fake-live feature.
 - One release = one versioned commit, test evidence, known limitations, rollback instructions and post-release verification.
 
-## Current evidence and limits (2026-11-02)
+## Current evidence and limits (2026-11-04)
 - Dedicated Render Mainnet identity/receipt BFF and isolated PostgreSQL exist; startup/migrations and read-only database health were verified through logs and Preview API health.
 - Draft PR #91 contains Mainnet identity authority, verified People lookup/Friends, a single Settlement entry with frozen Veyra ID receiver, contract-first review, controlled direct-transfer fallback, and scoped direct-transfer receipt history; its browser flow is **not production-accepted**. PRs #87/#90 and the full provider-dependent Swap/Bridge/Gateway/Agent/Chat require separate review and integration.
+- PR #91 additionally includes a **new read-only contract Settlement canonical proof**, a separate `0021_mainnet_settlement_receipts.sql` migration, authenticated sender/receiver endpoints and unified Home/Activity views. The migration is **not applied** to Render by CI and these endpoints are not claimed deployed on Mainnet. See `docs/MAINNET_SETTLEMENT_RECEIPTS_ACCEPTANCE.md`.
+- Legacy direct Pay receipts stay in their existing independent table; never migrate them into contract receipts by relabeling their transactions.
 - Production domain still runs the earlier mainnet deployment. A two-user Veyra-ID-to-USDC-to-two-sided-receipt E2E on that domain is **not verified**.
 - This document is a product/acceptance contract, **not a claim that all features have shipped**.
 
