@@ -54,9 +54,11 @@ describe('Mainnet human-first navigation and transparent settlement',()=>{
   expect(home).toContain("No transactions yet.");
   expect(home).toContain('{pending.length>0&&');
  });
- it('defaults to Settlement contract and retains wallet fallback as explicit method',()=>{
+ it('defaults to Wallet transfer and switches verified Friends into Settlement',()=>{
   const hub=read('components/pages/MainnetPayHub.tsx');
-  expect(hub).toContain("initialMethod='contract'");
+  expect(hub).toContain("initialMethod='wallet'");
+  expect(hub).toContain('onWalletMode={activateWalletMethod}');
+  expect(hub).toContain("setMethod('contract')");
   expect(hub).toContain('Payment method ·');
   expect(hub).toContain('{optionsOpen&&');
   expect(hub).toContain('No escrow or automatic refund');
