@@ -10,7 +10,8 @@ export function assertMainnetPilotDatabaseHost(databaseUrl:string):void{
  try{host=new URL(databaseUrl).hostname.toLowerCase();}
  catch{throw Error('INVALID_MAINNET_MIGRATION_TARGET');}
  if(host!==MAINNET_PILOT_RENDER_HOST&&
-    !host.startsWith(MAINNET_PILOT_RENDER_HOST+'.'))
+    !(host.startsWith(MAINNET_PILOT_RENDER_HOST+'.')&&
+      (host.endsWith('.render.com')||host.endsWith('.internal'))))
   throw Error('MAINNET_DATABASE_HOST_IS_NOT_THE_APPROVED_RENDER_INSTANCE');
 }
 export function assertMainnetPilotMigrationTarget(env:NodeJS.ProcessEnv):string{
