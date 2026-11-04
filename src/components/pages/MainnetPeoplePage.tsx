@@ -2,7 +2,7 @@
 import {useEffect,useState} from 'react';
 import {useAccount} from 'wagmi';
 import {isMainnetSessionForWallet} from '@/mainnet/signedWalletReceiptScope';
-import {UserRoundCheck,Send,ShieldAlert,Copy} from 'lucide-react';
+import {UserRoundCheck,Send,ShieldAlert,Copy,Search,ChevronDown} from 'lucide-react';
 import {useUnifiedSocial,friendLabel} from '../../features/social/UnifiedSocial';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
 import {MainnetContactsPage} from './MainnetContactsPage';
@@ -14,6 +14,7 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
 }){
  const {address,connector}=useAccount(),social=useUnifiedSocial();
  const [friendLookup,setFriendLookup]=useState(initialQuery);
+ const [findOpen,setFindOpen]=useState(!!initialQuery);
  const [selected,setSelected]=useState<VerifiedMainnetRecipient|null>(null);
  const [walletTarget,setWalletTarget]=useState<string|null>(null);
  const [friendActionBusy,setFriendActionBusy]=useState(false);
@@ -44,13 +45,16 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
   }catch(e){setFriendActionError(e instanceof Error?e.message:'Could not respond to friend request.');}
   finally{setFriendActionBusy(false);}
  }
- return <main className="mx-auto w-full max-w-4xl space-y-5 px-4 py-7 md:px-7 md:py-9">
+ return <main className="veyra-page mx-auto w-full max-w-3xl space-y-4 px-4 py-5 md:px-7 md:py-8">
   <header>
-   <p className="text-xs font-bold uppercase tracking-wider" style={{color:'var(--accent)'}}>Friends</p>
-   <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Send money to people.</h1>
-   <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>A verified Veyra ID shows the receiving wallet before you sign. Local contacts are separate.</p>
+   <p className="veyra-eyebrow">VEYRA</p>
+   <h1 className="veyra-page-title">Friends</h1>
+   <p className="veyra-page-subtitle">Your contacts, one tap away.</p>
   </header>
-  {ready&&social.session?<section className="rounded-xl border p-4" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+  {ready&&social.session?<details className="veyra-card rounded-2xl p-4">
+   <summary className="flex cursor-pointer items-center justify-between text-sm font-semibold" style={{color:'var(--ink)'}}>
+    My Veyra ID <ChevronDown className="size-4" style={{color:'var(--muted)'}}/>
+   </summary><div className="mt-4">
    <div className="flex items-center gap-3">
     <div className="flex size-12 items-center justify-center rounded-full" style={{background:'var(--accent-muted)',color:'var(--accent)'}}><UserRoundCheck className="size-6"/></div>
     <div className="min-w-0 flex-1">
@@ -65,29 +69,11 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
      </button>
     </div>
    </div>
-  </section>:<VeyraIdentityAccess/>}
-  {ready&&<section className="rounded-xl border p-4 sm:p-5" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
-   <MainnetRecipientSearch owner={address} sessionToken={ready?social.session?.token:undefined} initialQuery={friendLookup}
-     label="Find a Veyra ID, X handle or wallet" onSelection={select}/>
-   {(selected||walletTarget)&&<div className="mt-3 flex flex-wrap gap-2">
-    {selected&&<button type="button" onClick={()=>onPayVerified(selected)}
-     className="inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
-     style={{background:'var(--accent)',color:'#0d1b2f'}}><Send className="size-4"/>Send USDC</button>}
-    {walletTarget&&<button type="button" onClick={()=>onPayWallet(walletTarget)}
-     className="inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
-     style={{background:'var(--accent)',color:'#0d1b2f'}}><Send className="size-4"/>Send to wallet</button>}
-    {selected&&selected.veyraUserId!==social.session?.profile.veyraUserId&&
-     <button type="button" disabled={friendActionBusy||!!relation} onClick={()=>void connectSelected()}
-      className="rounded-lg border px-4 py-3 text-sm font-semibold disabled:opacity-50"
-      style={{borderColor:'var(--border)',color:'var(--ink)'}}>
-      {relation?.state==='CONNECTED'?'Friends':relation?.state==='OUTGOING_PENDING'?'Invitation sent':
-       relation?.state==='INCOMING_PENDING'?'Respond below':'Add friend'}
-     </button>}
-   </div>}
-   {friendActionError&&<p role="alert" className="mt-3 text-sm" style={{color:'var(--warning)'}}>{friendActionError}</p>}
-   <div className="mt-5 border-t pt-4" style={{borderColor:'var(--border)'}}>
+  </div></details>:<VeyraIdentityAccess/>}
+  {ready&&<section className="veyra-card p-4 sm:p-5" aria-label="Friends list">
+   <div className="space-y-2">
     <div className="flex items-center justify-between">
-     <h3 className="text-sm font-semibold" style={{color:'var(--ink)'}}>Friends</h3>
+     <h2 className="veyra-section-title">Your friends</h2>
      <button type="button" onClick={()=>void social.refresh()} className="text-xs" style={{color:'var(--accent)'}}>Refresh</button>
     </div>
     {social.friends.some(x=>x.state==='INCOMING_PENDING')&&<div className="mt-3 space-y-2">
@@ -106,11 +92,11 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
     {social.friends.filter(x=>x.state==='CONNECTED').length===0?
       <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>{social.friendsHasMore?'No connected friends on this page. Load more to find your contacts.':'No connected friends yet. Find a Veyra ID and send an invitation.'}</p>:
       <div className="mt-2 space-y-2">{social.friends.filter(x=>x.state==='CONNECTED').map(x=><button key={x.veyraUserId}
-       onClick={()=>{if(!x.veyraHandle)return;setFriendLookup(friendLabel(x));}}
+       onClick={()=>{if(!x.veyraHandle)return;setFriendLookup('@'+x.veyraHandle+'.veyra');setFindOpen(true);}}
        disabled={!x.veyraHandle} type="button"
        className="flex w-full items-center justify-between rounded-lg border px-3 py-3 text-sm disabled:opacity-50"
        style={{borderColor:'var(--border)',color:'var(--ink)'}}>{friendLabel(x)}<span style={{color:'var(--accent)'}}>
-        {x.veyraHandle?'Verify to send':'No verified handle'}
+        {x.veyraHandle?'Choose':'No verified handle'}
        </span></button>)}</div>}
     {social.friendsHasMore&&<button type="button" disabled={social.loadingMoreFriends}
      onClick={()=>void social.loadMoreFriends()}
@@ -119,12 +105,40 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
       {social.loadingMoreFriends?'Loading friends…':'Load more friends'}
     </button>}
    </div>
+   <button type="button" onClick={()=>{setFindOpen(v=>!v);if(findOpen)setFriendLookup('');}}
+    aria-expanded={findOpen} aria-controls="veyra-friends-search"
+    className="veyra-btn-secondary mt-4 flex w-full items-center justify-center gap-2">
+    <Search className="size-4"/>{findOpen?'Hide search':'Find friends'}
+   </button>
+   {findOpen&&<div id="veyra-friends-search" className="mt-4 rounded-xl border p-3 sm:p-4"
+    style={{borderColor:'var(--border)',background:'var(--surface-raised)'}}>
+   <MainnetRecipientSearch key={friendLookup||'new'} owner={address} sessionToken={ready?social.session?.token:undefined} initialQuery={friendLookup}
+     label="Find by Veyra ID" onSelection={select}/>
+   {(selected||walletTarget)&&<div className="mt-3 flex flex-wrap gap-2">
+    {selected&&<button type="button" onClick={()=>onPayVerified(selected)}
+     className="inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
+     style={{background:'var(--accent)',color:'#0d1b2f'}}><Send className="size-4"/>Send USDC</button>}
+    {walletTarget&&<button type="button" onClick={()=>onPayWallet(walletTarget)}
+     className="inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
+     style={{background:'var(--accent)',color:'#0d1b2f'}}><Send className="size-4"/>Send to wallet</button>}
+    {selected&&selected.veyraUserId!==social.session?.profile.veyraUserId&&
+     <button type="button" disabled={friendActionBusy||!!relation} onClick={()=>void connectSelected()}
+      className="rounded-lg border px-4 py-3 text-sm font-semibold disabled:opacity-50"
+      style={{borderColor:'var(--border)',color:'var(--ink)'}}>
+      {relation?.state==='CONNECTED'?'Friends':relation?.state==='OUTGOING_PENDING'?'Invitation sent':
+       relation?.state==='INCOMING_PENDING'?'Respond below':'Add friend'}
+     </button>}
+   </div>}
+   {friendActionError&&<p role="alert" className="mt-3 text-sm" style={{color:'var(--warning)'}}>{friendActionError}</p>}
+
+   </div>}
+
   </section>}
   {!ready&&<p className="flex items-start gap-2 text-xs" style={{color:'var(--muted)'}}>
-   <ShieldAlert className="size-4 shrink-0"/>Mainnet Veyra ID actions require server-origin approval. A reachable backend alone does not enable sign-in.
+   <ShieldAlert className="size-4 shrink-0"/>Sign in with your Veyra ID to manage friends.
   </p>}
-  <details className="rounded-xl border p-4" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
-   <summary className="cursor-pointer text-sm font-semibold" style={{color:'var(--ink)'}}>Local wallet contacts (not verified Veyra IDs)</summary>
+  <details className="veyra-card p-4">
+   <summary className="cursor-pointer text-sm font-semibold" style={{color:'var(--ink)'}}>Saved wallet contacts · Details</summary>
    <MainnetContactsPage onPay={onPayWallet}/>
   </details>
  </main>;
