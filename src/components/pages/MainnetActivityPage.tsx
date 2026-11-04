@@ -239,13 +239,13 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
    !((v.type==='Swap'||v.type==='Bridge')&&(groupedHashes.has(v.hash.toLowerCase())||intentHashes.has(v.hash.toLowerCase())))&&
    (filter==='All'||(filter==='Send'?(v.type==='Pay'||v.type==='Settlement'):
     (v.type==='Swap'||v.type==='Bridge'))));
- return <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-7 md:px-7 md:py-9">
+ return <div className="veyra-page mx-auto w-full max-w-3xl space-y-4 px-4 py-5 md:px-7 md:py-8">
   <header className="flex flex-wrap items-center justify-between gap-3">
    <div>
-    <span className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Arc Mainnet · 5042</span>
-    <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Activity</h1>
+    <span className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>VEYRA</span>
+    <h1 className="veyra-page-title">Activity</h1>
     <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>
-     Your transactions and receipts.
+     Your payments and receipts.
     </p>
    </div>
    {address&&<span className="flex items-center gap-2 text-xs" style={{color:'var(--muted)'}}>
@@ -265,7 +265,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
      {(['All','Send','Exchange'] as const).map(v=><button type="button" key={v}
       aria-pressed={filter===v} onClick={()=>setFilter(v)} className="rounded-lg border px-3 py-2 text-xs font-semibold"
       style={{borderColor:'var(--border)',background:filter===v?'var(--accent-muted)':'var(--surface)',
-       color:filter===v?'var(--accent)':'var(--muted)'}}>{v}</button>)}
+       color:filter===v?'var(--accent)':'var(--muted)'}}>{v==='Exchange'?'Swap & Bridge':v}</button>)}
     </div>
     <button type="button" onClick={onPay} className="rounded-xl px-4 py-2 text-xs font-bold"
      style={{background:'var(--accent)',color:'#0d1b2f'}}>New Settlement</button>
@@ -329,7 +329,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     style={{background:'var(--surface)',borderColor:'var(--border)'}}>
     {intentShown.map(task=><article key={task.id} className="border-b p-4 last:border-0 sm:p-5"
      style={{borderColor:'var(--border)'}}>
-     <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>Exchange · {task.amountIn} {task.tokenIn} → {task.tokenOut}</p>
+     <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>{task.mode==='bridge'?'Bridge':'Swap'} · {task.amountIn} {task.tokenIn} → {task.tokenOut}</p>
      <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
       Request {task.id.slice(0,8)} · {task.provider} · {task.stage.split('_').join(' ').toLowerCase()}
      </p>
@@ -371,7 +371,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       <div className="flex size-9 shrink-0 items-center justify-center rounded-xl"
        style={{background:'var(--surface-raised)'}}><Clock3 className="size-5" style={{color:'var(--accent)'}}/></div>
       <div className="min-w-0 flex-1">
-       <p className="font-semibold" style={{color:'var(--ink)'}}>Exchange · {x.amountIn} {x.tokenIn} → {x.tokenOut}</p>
+       <p className="font-semibold" style={{color:'var(--ink)'}}>{x.mode==='bridge'?'Bridge':'Swap'} · {x.amountIn} {x.tokenIn} → {x.tokenOut}</p>
        <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
         {x.source===8453?'Base':'Arc'} → {x.destination===8453?'Base':'Arc'} · {x.mode==='swap'?'Swap':'Bridge'}
        </p>
