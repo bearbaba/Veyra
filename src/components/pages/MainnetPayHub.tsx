@@ -6,7 +6,7 @@ import {useEffect,useState} from 'react';
 import {useAccount,useReadContract} from 'wagmi';
 import {erc20Abi,formatUnits} from 'viem';
 import {ARC_MAINNET_USDC} from '@/mainnet/arcMainnetPay';
-import {ArrowRight,ChevronDown,Wallet,ShieldCheck} from 'lucide-react';
+import {ChevronDown,Wallet,ShieldCheck} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
 import {readSettlementIntent,settlementUnresolved} from '@/mainnet/settlementJournal';
 import {readPayDraft,writePayDraft,type MainnetPayDraft} from '@/mainnet/payDraft';
@@ -136,19 +136,14 @@ export function MainnetPayHub({
   setVisited(v=>v[next]?v:{...v,[next]:true});
   setOptionsOpen(false);
  }
- return <main className="veyra-pay-page mx-auto w-full max-w-2xl px-4 py-5 md:py-7">
-  <div className="veyra-pay-panel space-y-4 rounded-3xl border p-4 sm:p-6">
-  <header className="flex items-center gap-3">
-   <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border"
-    style={{background:'linear-gradient(135deg,rgba(8,141,255,.25),rgba(136,65,252,.24))',borderColor:'var(--border-strong)'}}>
-    <Wallet className="size-5" style={{color:'var(--accent)'}}/>
-   </div>
-   <div className="min-w-0">
-    <h1 className="display text-2xl font-bold" style={{color:'var(--ink)'}}>Pay</h1>
-    <p className="text-sm" style={{color:'var(--muted)'}}>Send USDC on Arc</p>
-   </div>
-   {__VEYRA_RELEASE_ENV__==='preview'&&<span className="ml-auto text-xs" style={{color:'var(--warning)'}}>Preview · read only</span>}
+ return <main className="veyra-page veyra-pay-page mx-auto w-full max-w-2xl space-y-4 px-4 py-5 md:py-7">
+  <header>
+   <p className="veyra-eyebrow">VEYRA · ARC MAINNET</p>
+   <h1 className="veyra-page-title">Pay</h1>
+   <p className="veyra-page-subtitle">Send USDC to a wallet or friend.</p>
+   {__VEYRA_RELEASE_ENV__==='preview'&&<span className="text-xs" style={{color:'var(--warning)'}}>Preview · read only</span>}
   </header>
+  <div className="veyra-pay-panel space-y-4 rounded-2xl border p-4 sm:p-5">
   {MAINNET_EMERGENCY_READ_ONLY?<p role="alert" className="rounded-xl border p-3 text-sm"
     style={{borderColor:'var(--border)',color:'var(--warning)'}}>
      Payments are paused. Your receipts remain in Activity.
@@ -234,10 +229,6 @@ export function MainnetPayHub({
    <SettlementPage key={owner} embedded sharedDraft={draft} onDraftChange={changeDraft}
      verifiedRecipient={selectedVerified}/>
   </section>}
-  <p className="flex items-start gap-2 text-xs leading-5" style={{color:'var(--muted)'}}>
-   <ArrowRight className="mt-0.5 size-4 shrink-0"/>
-   Review fees and recipient before signing.
-  </p>
   </div>
  </main>;
 }
