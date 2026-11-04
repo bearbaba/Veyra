@@ -1,7 +1,7 @@
 /** Signed-session server receipt history. This API NEVER requests a wallet transfer. */
 import {requireSignedIdentityToken} from './identityApi';
 export type MainnetPayServerReceipt={
- txHash:string;chainId:5042;senderAddress:string;recipientAddress:string;
+ kind?:'direct';txHash:string;chainId:5042;senderAddress:string;recipientAddress:string;
  senderUserId:string|null;recipientUserId:string|null;recipientLabel:string|null;
  amountRaw:string;feeWei:string;blockNumber:number;paidAt:string;createdAt:string;verifiedAt:string;
  direction:'sent'|'received';privateNote?:string;
