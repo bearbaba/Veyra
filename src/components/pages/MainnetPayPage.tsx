@@ -26,6 +26,7 @@ import {
   storageForMainnet, type MainnetJournal,
 } from '@/mainnet/arcMainnetJournal';
 
+declare const __VEYRA_RELEASE_ENV__:string;
 const box = 'rounded-2xl border p-5 sm:p-6';
 const field = 'w-full rounded-xl border px-4 py-3 text-sm';
 type Review = {plan: MainnetPlan; preflight: MainnetPreflight};
@@ -130,6 +131,10 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   }
   async function send(){
     if(!address||!review||!ack||blocked||lock.current||!signedForWallet)return;
+    if(__VEYRA_RELEASE_ENV__!=='production'){
+      setError('Mainnet USDC signing is available only on the official Veyra Production website. This build is read-only.');
+      return;
+    }
     try{assertMainnetCanarySigningAllowed(review.plan.from,review.plan.units);}catch(e){setError(msg(e));return;}
     lock.current=true;setBusy(true);setError(null);
     let initial:MainnetJournal={from:review.plan.from,to:review.plan.to,amount:review.plan.amount,hash:null,stage:'AWAITING_WALLET',
