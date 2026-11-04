@@ -602,7 +602,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
       failReasons: result.failReasons,
     });
     if(result.verified && VEYRA_ENV==='mainnet' && result.txHash){
-      recordLocalOperation({type:'Settlement',owner:snap.walletAddress,hash:result.txHash,amount:formatUnits(snap.amountParsed,6),asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,status:'RECORDED',destination:snap.recipient});
+      recordLocalOperation({type:'Settlement',owner:snap.walletAddress,hash:result.txHash,amount:formatUnits(snap.amountParsed,6),asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,status:'RECORDED',destination:snap.recipient,
+        ...(snap.verifiedRecipient?{recipientLabel:'@'+snap.verifiedRecipient.veyraHandle+'.veyra'}:{})});
     }
     if(VEYRA_ENV==='mainnet'&&result.verified){
       const intent=readSettlementIntent(snap.walletAddress);
@@ -1105,6 +1106,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
           type:'Settlement',owner:snapshot.walletAddress,hash,
           amount:formatUnits(snapshot.amountParsed,6),asset:'USDC',
           chainId:ARC_MAINNET_CHAIN_ID,status:'SUBMITTED',destination:snapshot.recipient,
+           ...(snapshot.verifiedRecipient?{recipientLabel:'@'+snapshot.verifiedRecipient.veyraHandle+'.veyra'}:{}),
+           ...(sharedDraft?.note?{note:sharedDraft.note.trim().slice(0,120)}:{}),
         });
         if(!stored){
           setErrorMsg('Payment submitted but browser storage is unavailable. Check this transaction in your wallet; do not sign it again.');
