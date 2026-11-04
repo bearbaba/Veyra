@@ -3,17 +3,18 @@ import {readFileSync} from 'node:fs';
 import {MAINNET_ROUTES} from '../mainnet/mainnetProduct';
 const source=(path:string)=>readFileSync(new URL('../'+path,import.meta.url),'utf8');
 
-describe('Mainnet single Pay surface, wallet review and identity safety',()=>{
+describe('Mainnet single Settlement surface, wallet review and identity safety',()=>{
  it('routes both Mainnet payment methods through one entry point',()=>{
   const app=source('App.tsx');
-  expect(app).toContain('<MainnetPayHub initialMethod="wallet"');
+  expect(app).not.toContain('<MainnetPayHub initialMethod="wallet"');
+  expect(app).toContain("next==='pay'?'settlement'");
   expect(app).toContain('<MainnetPayHub initialMethod="contract"');
   expect(app).toContain('VEYRA_ENV === \'mainnet\'');
  });
  it('never hides the selected signing mechanism from the sender',()=>{
   const hub=source('components/pages/MainnetPayHub.tsx');
-  expect(hub).toContain('Wallet transfer');
-  expect(hub).toContain('Contract payment');
+  expect(hub).toContain('Direct transfer');
+  expect(hub).toContain('VeyraSettlement contract');
   expect(hub).toContain('aria-pressed');
   expect(hub).toContain('MainnetPayPage key={owner} embedded');
   expect(hub).toContain('<SettlementPage key={owner} embedded');
@@ -28,7 +29,7 @@ describe('Mainnet single Pay surface, wallet review and identity safety',()=>{
   const settlement=source('components/pages/SettlementPage.tsx');
   expect(settlement).toContain('publicClient.simulateContract(');
   expect(settlement).toContain('Contract payment could not be simulated');
-  expect(settlement).toContain('void refetchAllowance()');
+  expect(settlement).toContain('refetchAllowance()');
  });
  it('does not silently route Mainnet identity through unauthenticated local contacts',()=>{
   const contacts=source('components/pages/MainnetContactsPage.tsx');
