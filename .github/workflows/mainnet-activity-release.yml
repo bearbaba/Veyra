@@ -102,7 +102,7 @@ jobs:
             '0x6666666666666666666666666666666666666666',
             'usr_ci_sender','usr_ci_receiver','10000','9900','100','0',12,now()
           );
-          DO $
+          DO $settlement_proof$
           BEGIN
             IF (SELECT count(*) FROM mainnet_settlement_receipts)<>1 THEN
               RAISE EXCEPTION 'Settlement migration failed to preserve canonical row';
@@ -124,7 +124,7 @@ jobs:
               RAISE EXCEPTION 'Wrong chain was wrongly accepted';
             EXCEPTION WHEN check_violation THEN NULL;
             END;
-          END $;
+          END $settlement_proof$;
           SQL
 
       # This tests the ACTUAL Render container. Web builds alone miss runtime
