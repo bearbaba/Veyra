@@ -56,6 +56,53 @@ jobs:
           src/tests/phase3MainnetCatalog.test.ts
           src/tests/arcAppKitBridge.test.ts
           src/tests/arcAppKitSwap.test.ts
+      # This tests the ACTUAL Render container. Web builds alone miss runtime
+      # imports such as the pinned contract ABI (Docker context allowlist).
+      - name: Build isolated read-only Mainnet BFF container
+        run: docker build -f Dockerfile.bff.mainnet -t veyra-mainnet-bff:ci .
+
+      - name: Boot Mainnet BFF with dummy credentials and reject anonymous receipt access
+        run: |
+          docker run --detach --name veyra-mainnet-bff-ci --network host \
+            -e VEYRA_APP_ORIGIN=https://veyra-seven-beta.vercel.app \
+            -e VEYRA_SESSION_SECRET=CI_DUMMY_ONLY_012345678901234567890123456789 \
+            -e DATABASE_URL=postgresql://ci:ci@db.invalid:5432/veyra_mainnet_v1_db?sslmode=require \
+            -e ARC_MAINNET_RPC_URL=https://arc-rpc.invalid \
+            veyra-mainnet-bff:ci
+          trap 'docker rm --force veyra-mainnet-bff-ci >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for i in $(seq 1 25); do
+            if curl --fail --silent http://127.0.0.1:3001/api/health > /tmp/veyra-mainnet-ci-health.json; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            docker logs veyra-mainnet-bff-ci
+            exit 1
+          fi
+          grep -q '"ok":true' /tmp/veyra-mainnet-ci-health.json
+          for route in /api/mainnet/settlement/receipts /api/mainnet/pay/receipts; do
+            code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              --header 'Origin: https://veyra-seven-beta.vercel.app' \
+              "http://127.0.0.1:3001$route")
+            if [ "$code" != 401 ]; then
+              echo "ERROR: unauthenticated receipt listing was not blocked ($code) on $route"
+              exit 1
+            fi
+          done
+          code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --request POST --header 'Content-Type: application/json' \
+            --header 'Origin: https://veyra-seven-beta.vercel.app' \
+            --data '{"hash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' \
+            http://127.0.0.1:3001/api/mainnet/settlement/receipt/verify)
+          if [ "$code" != 401 ]; then
+            echo "ERROR: anonymous contract receipt indexing was not blocked ($code)"
+            exit 1
+          fi
+          echo 'Isolated Mainnet BFF runtime + unauthenticated financial receipt gates: PASS'
+
       - name: Build exact full Mainnet release profile (matches vercel.json)
         run: bun scripts/build-mainnet-pilot.ts
       - run: bun run check:prod-bundle
