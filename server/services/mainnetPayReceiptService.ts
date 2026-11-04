@@ -111,7 +111,7 @@ export function snapshotWasVerifiedForPayment(
    paid>=verified-30_000&&paid<=verified+15*60_000&&
    (snapshot.invalidatedAt===null||snapshot.invalidatedAt.getTime()>paid);
 }
-async function verifyRecipientSnapshotForReceipt(
+export async function verifyRecipientSnapshotForReceipt(
  db:DbClient,snapshotId:string,recipient:string,recipientUserId:string|null,paidAt:Date,
 ):Promise<{snapshotId:string;label:string}>{
  // Snapshots are immutable in owner/recipient/wallet. The server had to have
