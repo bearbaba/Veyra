@@ -1,4 +1,4 @@
-/** Mainnet Settlement: one send surface, contract default and direct fallback.
+/** Mainnet Pay: one send surface, wallet default and verified-contract option.
  * No draft, note or locally saved contact is recipient authentication.
  * Signing is still gated by the separate wallet journals and canonical receipt checks.
  */
@@ -24,7 +24,7 @@ declare const __VEYRA_RELEASE_SHA__:string;
 declare const __VEYRA_RELEASE_ENV__:string;
 type Method='wallet'|'contract';
 export function MainnetPayHub({
- initialMethod='contract',friendHandle,recipientWallet,verifiedRecipient,onClearVerified,onRecipientUsed,
+ initialMethod='wallet',friendHandle,recipientWallet,verifiedRecipient,onClearVerified,onRecipientUsed,
 }:{
  initialMethod?:Method;friendHandle?:string|null;recipientWallet?:string|null;
  verifiedRecipient?:VerifiedMainnetRecipient|null;onClearVerified?:()=>void;onRecipientUsed?:()=>void;

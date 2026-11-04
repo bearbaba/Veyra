@@ -64,8 +64,10 @@ describe('Settlement replaces the Mainnet Pay surface without losing identity pr
   expect(shell).toContain("{ id: 'settlement', label: 'Settlement'");
   expect(shell).toContain("['home', 'settlement', 'social', 'activity']");
   expect(app).toContain("next==='pay'?'settlement':next");
-  expect(app).toContain('<MainnetPayHub initialMethod="contract"');
-  expect(hub).toContain("initialMethod='contract'");
+  expect(app).toContain('<MainnetPayHub initialMethod="wallet"');
+  expect(hub).toContain("initialMethod='wallet'");
+  expect(hub).toContain("setMethod('contract')");
+  expect(hub).toContain('onWalletMode={activateWalletMethod}');
   expect(hub).toContain('verifiedRecipient={selectedVerified}');
   expect(settlement).toContain('await reverifySettlementRecipient');
   expect(settlement).toContain('withMainnetWalletSigningLock(address,performSettle)');
