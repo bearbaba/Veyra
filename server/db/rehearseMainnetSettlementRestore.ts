@@ -88,7 +88,8 @@ export async function runM0RestoreRehearsal(env:NodeJS.ProcessEnv):Promise<void>
    await c.query('BEGIN');
    const owner=await c.query<{id:string}>(
     'SELECT veyr_user_id AS id FROM veyra_users ORDER BY veyr_user_id LIMIT 1');
-   if(owner.rows[0]?.id){
+   if(!owner.rows[0]?.id)throw Error('M0_RESTORE_NO_IDENTITY_TO_TEST_RECEIPT');
+   {
     const tx='0x'+'f'.repeat(64),ref='0x'+'e'.repeat(64);
     await c.query(`INSERT INTO mainnet_settlement_receipts
      (tx_hash,chain_id,contract_address,payment_id,payment_ref,sender_address,

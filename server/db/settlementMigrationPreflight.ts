@@ -126,7 +126,8 @@ export function evaluateSettlementUpgradeSchema(
 ):'upgrade-0021'|'already-ready'{
  validateSettlementSchemaTarget(state.currentDatabase,target);
  if(state.serverVersionNum!==undefined&&
-    (state.serverVersionNum<160000||state.serverVersionNum>=170000))
+    (!Number.isSafeInteger(state.serverVersionNum)||
+     state.serverVersionNum<160000||state.serverVersionNum>=170000))
   throw Error('SETTLEMENT_PG16_REQUIRED');
  const tables=new Set(state.tables);
  const required=['veyra_users','wallet_bindings','identity_snapshots',
