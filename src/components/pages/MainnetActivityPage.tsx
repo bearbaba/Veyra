@@ -423,7 +423,8 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
           queued?'Money sent · syncing receipt':'Money sent · open receipt history for account sync':label(proof)}</p>
          {v.recipientLabel&&<p className="text-sm" style={{color:'var(--ink)'}}>{v.recipientLabel} · label saved at review (this browser only)</p>}
          {v.destination&&<p className="break-all text-xs" style={{color:'var(--muted)'}}>Recipient wallet: {v.destination}</p>}
-         {v.note&&<p className="text-sm" style={{color:'var(--muted)'}}>Your note: {v.note}</p>}
+         {v.note&&signedWallet&&v.senderUserId===social.session?.profile.veyraUserId&&
+           <p className="text-sm" style={{color:'var(--muted)'}}>Your note: {v.note}</p>}
          <p className="text-xs" style={{color:'var(--muted)'}}>
           {v.chainId===8453?'Base':'Arc'} Mainnet · saved {new Date(v.submittedAt??v.updatedAt).toLocaleString()} · last updated {new Date(v.updatedAt).toLocaleString()}</p>
         </div>
