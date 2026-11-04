@@ -7,6 +7,7 @@ import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {erc20Abi,formatUnits,parseUnits} from 'viem';
 import {ArrowDownUp,ArrowRight,Search,Wallet,ChevronDown,ShieldCheck,X,Clock3} from 'lucide-react';
 import {ConnectKitButton} from 'connectkit';
+import {BrandLogo} from '../brand/BrandLogo';
 import {MainnetCirclePage,type ExchangeExecutionSelection} from './MainnetCirclePage';
 import {EXCHANGE_ASSETS,exchangeAssetId,resolveExchangeRoute,searchExchangeAssets,
  exchangeAssetSupport,type ExchangeAsset} from '@/mainnet/exchangeCatalog';
@@ -37,10 +38,7 @@ function recordedExchange(owner:string):null|{mode:'swap'|'bridge';source:Exchan
  return null;
 }
 function AssetMark({asset}:{asset:ExchangeAsset}){
- return <span aria-hidden="true" className="flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-bold"
-   style={{background:asset.logo==='eurc'?'#3156b1':asset.logo==='weth'?'#4d5273':'#257b61',color:'#fff'}}>
-    {asset.logo==='eurc'?'€':asset.logo==='weth'?'Ξ':'$'}
-  </span>;
+ return <BrandLogo logoKey={asset.logo} size={40}/>;
 }
 function AssetPicker({side,value,other,balances,acrossReady,onChoose,onClose}:{
  side:Side;value:ExchangeAsset;other:ExchangeAsset;balances:Record<string,bigint>;acrossReady:boolean;
@@ -76,7 +74,7 @@ function AssetPicker({side,value,other,balances,acrossReady,onChoose,onClose}:{
    style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
    <div className="flex items-center justify-between gap-3">
     <div><h2 className="text-lg font-bold">Select {side==='from'?'asset you have':'asset to receive'}</h2>
-     <p className="text-xs" style={{color:'var(--muted)'}}>Contract and network identify each asset · no unverified imports</p></div>
+     <p className="text-xs" style={{color:'var(--muted)'}}>Choose a token and network</p></div>
     <button type="button" onClick={onClose} aria-label="Close asset selector" className="rounded-lg border p-2"
      style={{borderColor:'var(--border)'}}><X className="size-5"/></button>
    </div>
@@ -115,7 +113,7 @@ function AssetPicker({side,value,other,balances,acrossReady,onChoose,onClose}:{
       <AssetMark asset={asset}/>
       <span className="min-w-0 flex-1">
        <span className="block font-semibold">{asset.symbol} <span className="text-xs font-normal" style={{color:'var(--muted)'}}>· {readableChain(asset)}</span></span>
-       <span className="block truncate text-xs" style={{color:'var(--muted)'}}>{asset.name} · {asset.contractAddress.slice(0,8)}…{asset.contractAddress.slice(-5)}</span>
+       <span className="block truncate text-xs" style={{color:'var(--muted)'}}>{asset.name}</span>
        <span className="block text-xs" style={{color:availability==='unsupported'?'var(--warning)':'var(--accent)'}}>
         {availability==='tradable-route'?'Supported route · live quote required':availability==='quote-only'?'Live quote candidate · signing disabled':'Not supported'}
        </span>
@@ -127,10 +125,10 @@ function AssetPicker({side,value,other,balances,acrossReady,onChoose,onClose}:{
      </button>;
     })}
    </div>
-   <p className="mt-3 border-t pt-3 text-xs" style={{color:'var(--muted)',borderColor:'var(--border)'}}>
-    Reviewed contract identity does not guarantee value, liquidity or a safe execution route.
-    A dash means balance was not verified, not zero.
-   </p>
+   <details className="mt-3 border-t pt-3 text-xs" style={{color:'var(--muted)',borderColor:'var(--border)'}}>
+    <summary className="cursor-pointer">Details</summary>
+    <p className="mt-2">Token listing does not guarantee liquidity. — means balance unavailable.</p>
+   </details>
   </section>
  </div>;
 }
@@ -255,8 +253,8 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
  return <main className="mx-auto w-full max-w-3xl space-y-5 px-4 py-6 md:px-7 md:py-9">
   <header>
    <p className="text-xs font-bold uppercase tracking-wider" style={{color:'var(--accent)'}}>Veyra · Exchange</p>
-   <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Exchange assets</h1>
-   <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Choose what you have and what you want. Veyra checks the route before any wallet authorization.</p>
+   <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>Swap &amp; Bridge</h1>
+   <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>You pay · You receive</p>
   </header>
   <section className="space-y-3 rounded-2xl border p-4 sm:p-5" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
    <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU PAY</p>
@@ -283,7 +281,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
     <ChevronDown className="size-5"/>
    </button>
    <details className="text-xs" style={{color:'var(--muted)'}}>
-    <summary className="cursor-pointer">Token contract and network details</summary>
+    <summary className="cursor-pointer">Details</summary>
     {[from,to].map((asset,i)=><p key={i} className="mt-2 break-all">
      {i===0?'From':'To'} · {asset.network} (chain {asset.chainId}) · {asset.contractAddress}
      {' · '}<a href={asset.sourceUrl} target="_blank" rel="noreferrer" className="underline">Issuer source</a>
@@ -294,7 +292,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    {route.kind==='unavailable'?<div role="status" className="space-y-2">
     <p className="text-sm font-semibold">No verified exchange route</p>
     <p className="text-sm" style={{color:'var(--muted)'}}>{route.reason}</p>
-    <p className="text-xs" style={{color:'var(--muted)'}}>No quote, approval or wallet signing will be requested. Choose another pair.</p>
+    <p className="text-xs" style={{color:'var(--muted)'}}>Choose another pair. No transaction started.</p>
    </div>:<div className="flex items-start gap-3">
     {route.kind==='swap'?<ArrowDownUp className="mt-1 size-5" style={{color:'var(--accent)'}}/>:
      <ArrowRight className="mt-1 size-5" style={{color:'var(--accent)'}}/>}
@@ -303,8 +301,11 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
      <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
       {route.provider} · {from.network} → {to.network} · live quote required
      </p>
-     <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Route availability and minimum received are decided only by the live provider, not the token list.</p>
-     {route.kind==='quote-only'&&<p className="mt-1 text-xs" style={{color:'var(--warning)'}}>Live quote research only. Signing has not passed Veyra's Mainnet release gate.</p>}
+     <details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+      <summary className="cursor-pointer">Route details</summary>
+      <p className="mt-2">Minimum received depends on the live quote.</p>
+     </details>
+     {route.kind==='quote-only'&&<p className="mt-1 text-xs" style={{color:'var(--warning)'}}>Quote only · payment unavailable</p>}
     </div><ShieldCheck className="size-4" style={{color:'var(--accent)'}}/>
    </div>}
    {(locked||unknownPrior)&&<p role="status" className="mt-3 flex items-start gap-2 text-xs"
@@ -318,7 +319,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
    <p className="font-semibold">Across · WETH on Base → USDC on Arc</p>
    <p className="text-xs" style={{color:'var(--muted)'}}>
-    Preview a real provider quote without placing a transaction. Bridge and source Swap may be combined by Across.
+    Preview a quote. No transaction will be sent.
    </p>
    <label className="block text-sm">Amount you have (WETH)
     <input inputMode="decimal" value={acrossAmount} disabled={locked||quoteLoading}
@@ -359,8 +360,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    onFinancialBusyChange={setEngineBusy}/>:
    !address&&route.kind!=='quote-only'?<ConnectKitButton/>:null}
   <p className="flex items-start gap-2 text-xs leading-5" style={{color:'var(--muted)'}}>
-   <Wallet className="size-4 shrink-0"/>Wallet funds only. Unified Gateway deposits are separate and cannot fund this route directly.
-   Multi-step Bridge + Swap, arbitrary asset execution and third-party recipient routing remain unavailable until independently accepted.
+   <Wallet className="size-4 shrink-0"/>Wallet funds only. Gateway deposits are separate.
   </p>
   {picking&&<AssetPicker key={picking} side={picking} value={picking==='from'?from:to}
    other={picking==='from'?to:from} balances={balances} acrossReady={acrossReady} onChoose={choose} onClose={()=>setPicking(null)}/>}
