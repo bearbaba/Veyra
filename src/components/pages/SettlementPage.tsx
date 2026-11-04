@@ -64,6 +64,11 @@ import {
 import { ConnectKitButton } from 'connectkit';
 import { AlertTriangle, CheckCircle, Clock, ExternalLink, Lock, Send, Unlock, Loader2 } from 'lucide-react';
 import { VEYRA_ENV } from '@/lib/env';
+import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
+import {isMainnetSessionForWallet} from '@/mainnet/signedWalletReceiptScope';
+import {withMainnetWalletSigningLock} from '@/mainnet/mainnetWalletSigningLock';
+import {reverifySettlementRecipient} from '@/mainnet/reverifySettlementRecipient';
+import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 import {recordLocalOperation,readLocalOperations} from '@/mainnet/localOperations';
 import {readSettlementIntent,writeSettlementIntent,clearSettlementIntent,settlementUnresolved,type SettlementIntent} from '@/mainnet/settlementJournal';
 import {inspectRecordedSettlement} from '@/mainnet/verifyRecordedSettlement';
@@ -89,6 +94,7 @@ import {
   type TransferLog,
 } from '@/lib/settlementVerify';
 
+declare const __VEYRA_RELEASE_ENV__:string;
 // ─── constants ────────────────────────────────────────────────────────────────
 
 /** USDC ERC-20 interface uses 6 decimals on Arc. */
@@ -207,8 +213,14 @@ function buildRef(): `0x${string}` {
 
 // ─── component ─────────────────────────────────────────────────────────────────
 
-export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void}) {
-  const { address, isConnected, chainId } = useAccount();
+export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifiedRecipient}:{
+ embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void;
+ verifiedRecipient?:VerifiedMainnetRecipient|null;
+}) {
+  const { address, isConnected, chainId,connector } = useAccount();
+  const social=useUnifiedSocial();
+  const signedForWallet=social.identityOrigin==='ready'&&
+    isMainnetSessionForWallet(social.session,address,connector?.uid);
   const { switchChain } = useSwitchChain();
   const publicClient = usePublicClient({ chainId });
 
@@ -823,6 +835,22 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
 
   // ── approve ──────────────────────────────────────────────────────────────────
   async function handleApprove() {
+    if(VEYRA_ENV==='mainnet'){
+      if(__VEYRA_RELEASE_ENV__!=='production'){
+        setErrorMsg('Mainnet Settlement signing is disabled in Preview and local builds.');
+        setStep('error');return;
+      }
+      if(!address||!signedForWallet){
+        setErrorMsg('Sign in with the connected Veyra ID before approving Settlement.');
+        setStep('error');return;
+      }
+      try{await withMainnetWalletSigningLock(address,performApprove);}
+      catch(e){setErrorMsg(e instanceof Error?e.message:'Settlement approval unavailable.');setStep('error');}
+      return;
+    }
+    await performApprove();
+  }
+  async function performApprove() {
     if (!deployment || !address || !snapshot) return;
     try{assertMainnetSigningAllowed();}catch(e){
       setErrorMsg(e instanceof Error?e.message:'New signing disabled.');
@@ -870,9 +898,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
       if(isMainnet){
         const current=readSettlementIntent(address);
         if(current.kind==='active'){
-          const code=typeof e==='object'&&e!==null&&'code' in e?e.code:undefined;
-          if(code===4001||code==='ACTION_REJECTED')clearSettlementIntent(address);
-          else writeSettlementIntent({...current.value,stage:'UNKNOWN',hash:null});
+          // A wallet rejection error cannot prove the original transaction did not broadcast.
+           writeSettlementIntent({...current.value,stage:'UNKNOWN',hash:null});
         }
       }
       setErrorMsg((e instanceof Error?e.message:'Approval result unavailable')+
@@ -883,6 +910,22 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
 
   // ── P0-3: pre-sign revalidation + broadcast ───────────────────────────────────
   async function handleSettle() {
+    if(VEYRA_ENV==='mainnet'){
+      if(__VEYRA_RELEASE_ENV__!=='production'){
+        setErrorMsg('Mainnet Settlement signing is disabled in Preview and local builds.');
+        setStep('error');return;
+      }
+      if(!address||!signedForWallet){
+        setErrorMsg('Sign in with the connected Veyra ID before signing Settlement.');
+        setStep('error');return;
+      }
+      try{await withMainnetWalletSigningLock(address,performSettle);}
+      catch(e){setErrorMsg(e instanceof Error?e.message:'Settlement signing unavailable.');setStep('error');}
+      return;
+    }
+    await performSettle();
+  }
+  async function performSettle() {
     if (!deployment || !address || !snapshot || !publicClient) return;
     try{assertMainnetSigningAllowed();}catch(e){
       setErrorMsg(e instanceof Error?e.message:'New signing disabled.');
@@ -894,6 +937,12 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
     setErrorMsg(null);
 
     try {
+      // A chosen Veyra ID is independently resolved again before signing
+      // and may never silently point to a different recipient.
+      if(isMainnet&&snapshot.mode==='pay')
+        await reverifySettlementRecipient({original:verifiedRecipient,
+          owner:address,recipient:snapshot.recipient,
+          sessionToken:social.session?.token,sessionWalletBound:signedForWallet});
       // Detect wallet / chain change since snapshot
       if (address.toLowerCase() !== snapshot.walletAddress.toLowerCase()) {
         throw new Error(
@@ -1052,9 +1101,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
       if(isMainnet&&snapshot.mode==='pay'){
         const prior=readSettlementIntent(address);
         if(prior.kind==='active'){
-          const code=typeof e==='object'&&e!==null&&'code' in e?e.code:undefined;
-          if(code===4001||code==='ACTION_REJECTED')clearSettlementIntent(address);
-          else writeSettlementIntent({...prior.value,stage:'UNKNOWN',hash:null});
+          // A wallet rejection error cannot prove the original transaction did not broadcast.
+           writeSettlementIntent({...prior.value,stage:'UNKNOWN',hash:null});
         }
       }
       setErrorMsg((e instanceof Error?e.message:'Wallet outcome unavailable')+
