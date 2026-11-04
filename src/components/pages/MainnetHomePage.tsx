@@ -89,7 +89,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  ];
  function selectAction(id:(typeof actions)[number]['id']){
   if(id==='receive')setReceive(v=>!v);
-  else onNavigate(id==='send'?'pay':id==='people'?'social':'activity');
+  else onNavigate(id==='send'?'settlement':id==='people'?'social':'activity');
  }
  const card='rounded-2xl p-5 sm:p-6';
  const cardStyle={background:'var(--surface)',border:'1px solid var(--border)'};
@@ -145,7 +145,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
     </button>)}
    </div>
    <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs" style={{color:'var(--muted)'}}>
-    <span>Send: review and confirm in your wallet</span>
+    <span>Settlement: review recipient, fees and wallet confirmations</span>
     <span>Exchange is under More · choose assets and Veyra checks Swap or Bridge routes</span>
    </div>
   </section>
