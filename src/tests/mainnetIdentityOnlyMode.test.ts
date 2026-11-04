@@ -35,14 +35,16 @@ describe('Budget-friendly Mainnet ID and receipt-only deployment boundary',()=>{
    expect(result.ok).toBe(false);
   }
  });
- it('only permits identity, friends, receive preference and canonical Pay receipt endpoints',()=>{
+ it('only permits identity, friends, receive preference and canonical direct/contract Settlement receipt endpoints',()=>{
   for(const endpoint of [
    ['POST','/api/identity/mainnet-capability'],['POST','/api/identity/register/complete'],
    ['POST','/api/auth/wallet-login/complete'],['POST','/api/identity/prepare-payment'],
    ['POST','/api/identity/verify-payment'],['GET','/api/social/friends'],
    ['POST','/api/social/friend/request'],['POST','/api/social/block'],
    ['PATCH','/api/preferences/receive'],['POST','/api/mainnet/pay/receipt/verify'],
-   ['GET','/api/mainnet/pay/receipts'],['GET','/api/health'],['GET','/api/health/database']
+   ['GET','/api/mainnet/pay/receipts'],
+   ['POST','/api/mainnet/settlement/receipt/verify'],['GET','/api/mainnet/settlement/receipts'],
+   ['GET','/api/health'],['GET','/api/health/database']
   ])expect(isMainnetIdentityOnlyRouteAllowed(endpoint[0],endpoint[1])).toBe(true);
   for(const endpoint of [
    ['POST','/api/bridge/relay-receive'],['POST','/api/gateway/estimate'],
