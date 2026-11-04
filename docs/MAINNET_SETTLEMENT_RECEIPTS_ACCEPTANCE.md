@@ -21,9 +21,7 @@ sending flow. Existing direct USDC/Pay receipts are preserved in a separate ledg
    - one authentic Arc USDC Transfer from payer to the contract (gross)
    - one authentic Arc USDC Transfer from the contract to receiver (net = gross − protocol fee)
    - nonzero receiver payout and a bounded protocol fee
-4. The indexer obtains both Veyra user IDs through **ACTIVE, unrevoked Arc-5042 wallet bindings**,
-   never through form fields. A signed sender or receiver can index a matching original hash;
-   unauthorized users cannot. The same original transaction can be persisted only once.
+4. The indexer obtains both Veyra user IDs from **historical Arc-5042 wallet bindings valid at the canonical block timestamp** (issued and verified before payment; revoked only after payment, if applicable), never from current ownership or form fields. Re-linking a wallet after payment must not transfer its old receipts to a different Veyra ID. Overlapping or ambiguous historical bindings fail closed. A signed sender or receiver can index a matching original hash; unauthorized users cannot. The same original transaction can be persisted only once.
 5. Two-sided GET returns one proof under sender and recipient accounts. Sender sees gross spent
    and can view their own private note. Recipient sees net received and **never receives the
    sender-only private note**. Server verified at and paid at are distinct timestamps.
