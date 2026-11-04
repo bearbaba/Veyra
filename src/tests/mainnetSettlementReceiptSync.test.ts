@@ -81,7 +81,38 @@ describe('Mainnet contract Settlement sender/receiver indexing and privacy',()=>
   })).toBe('synced');
   expect(api).toHaveBeenCalledWith('token',{hash},controller.signal);
  });
- it('never upgrades a mismatched owner or an unverified browser operation',async()=>{
+ it('reconciles an original SUBMITTED hash after reload without opening Activity',async()=>{
+  const api=vi.fn().mockResolvedValue(visibleSettlementReceipt(contractRow(),sent));
+  const attempted=new Map<string,number>();
+  const controller=new AbortController();
+  const result=await syncVerifiedSettlementOnce({
+   owner:sender,userId:sent,token:'token',now:1000,signal:controller.signal,
+   entries:[{...sendTx,status:'SUBMITTED'}],attempted,submit:api,
+  });
+  expect(result).toBe('synced');
+  expect(api).toHaveBeenCalledWith('token',{hash},controller.signal);
+  expect(api).toHaveBeenCalledTimes(1);
+  expect(await syncVerifiedSettlementOnce({
+   owner:sender,userId:sent,token:'token',now:1001,signal:controller.signal,
+   entries:[{...sendTx,status:'SUBMITTED'}],attempted,submit:api,
+  })).toBe('empty');
+  expect(api).toHaveBeenCalledTimes(1);
+ });
+ it('does not promote a SUBMITTED wallet pointer if server rejects canonical evidence',async()=>{
+  const api=vi.fn().mockRejectedValue(new Error('No canonical Settlement proof yet'));
+  const attempted=new Map<string,number>();
+  const controller=new AbortController();
+  expect(await syncVerifiedSettlementOnce({
+   owner:sender,userId:sent,token:'token',now:1000,signal:controller.signal,
+   entries:[{...sendTx,status:'SUBMITTED'}],attempted,submit:api,
+  })).toBe('retry');
+  expect(attempted.get(hash)).toBeGreaterThan(1000);
+  expect(await syncVerifiedSettlementOnce({
+   owner:sender,userId:sent,token:'token',now:1001,signal:controller.signal,
+   entries:[{...sendTx,status:'SUBMITTED'}],attempted,submit:api,
+  })).toBe('empty');
+ });
+ it('rejects a mismatched owner and never requests re-signing',async()=>{
   const spy=vi.fn().mockResolvedValue({
    ...visibleSettlementReceipt(contractRow(),sent),senderUserId:received});
   expect(await syncVerifiedSettlementOnce({
@@ -90,7 +121,7 @@ describe('Mainnet contract Settlement sender/receiver indexing and privacy',()=>
    entries:[{...sendTx,status:'SUBMITTED'},sendTx],attempted:new Map(),submit:spy,
   })).toBe('wrong-account');
   expect(await syncVerifiedSettlementOnce({
-   owner:sender,userId:sent,token:'signed-token',now:1000,
+   owner:recipient,userId:received,token:'signed-token',now:1000,
    signal:new AbortController().signal,
    entries:[{...sendTx,status:'SUBMITTED'}],attempted:new Map(),submit:spy,
   })).toBe('empty');
