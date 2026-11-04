@@ -147,9 +147,11 @@ export function MainnetPayHub({
     Emergency read-only mode. New transfers and approvals are disabled; existing receipts remain in Activity.
   </p>:MAINNET_CANARY_ONLY&&<p role="status" className="rounded-xl border p-3 text-sm"
    style={{borderColor:'var(--border)',color:'var(--muted)'}}>
-    Mainnet pilot: contract Settlement signing remains paused. The authorized owner wallet
-    ({MAINNET_CANARY_OWNER.slice(0,6)}…{MAINNET_CANARY_OWNER.slice(-4)}) can use the direct-transfer
-    fallback up to 0.01 USDC on Production. All other wallets are read-only.
+    Mainnet pilot: only the authorized owner wallet
+     ({MAINNET_CANARY_OWNER.slice(0,6)}…{MAINNET_CANARY_OWNER.slice(-4)}) may sign contract
+     Settlement or direct transfer up to 0.01 USDC per reviewed payment, after the emergency
+     read-only gate is explicitly lifted. Everyone else is read-only inside Veyra.
+     Frontend restrictions do not prevent direct calls to a public onchain contract.
   </p>}
   {address&&!signedWallet&&
    <section aria-label="Sign in to send USDC"><VeyraIdentityAccess/></section>}
