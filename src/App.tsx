@@ -38,7 +38,7 @@ export default function App() {
   const [profileSearch]=useState(sharedVeyraProfile);
   // OAuth success is only a UI navigation hint; it is NEVER authentication.
   // The wallet-bound server profile will be independently restored after F5.
-  const [page, setPage] = useState<VeyraPage>(()=>
+  const [page, setPageState] = useState<VeyraPage>(()=>
     typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('x_linked')==='1'?'settings':profileSearch?'social':'home');
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
@@ -47,6 +47,7 @@ export default function App() {
       window.history.replaceState(window.history.state,'',window.location.pathname+(params.size?'?'+params.toString():''));
     }
   },[]);
+  const setPage=(next:VeyraPage)=>setPageState(VEYRA_ENV==='mainnet'&&next==='pay'?'settlement':next);
   const [friendPayment, setFriendPayment] = useState<string | null>(null);
   const [contactRecipient, setContactRecipient] = useState<string | null>(null);
   const [verifiedRecipient,setVerifiedRecipient] = useState<VerifiedMainnetRecipient|null>(null);
@@ -67,7 +68,7 @@ export default function App() {
       case 'agent':
         return <AgentPage onNavigate={setPage} />;
       case 'pay':
-        return VEYRA_ENV === 'mainnet' ? <MainnetPayHub initialMethod="wallet" friendHandle={friendPayment} recipientWallet={contactRecipient}
+        return VEYRA_ENV === 'mainnet' ? <MainnetPayHub initialMethod="contract" friendHandle={friendPayment} recipientWallet={contactRecipient}
           verifiedRecipient={verifiedRecipient} onClearVerified={()=>setVerifiedRecipient(null)}
           onRecipientUsed={() => setContactRecipient(null)} /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
       case 'convert':
@@ -85,7 +86,9 @@ export default function App() {
             setVerifiedRecipient(null);setContactRecipient(recipient);setFriendPayment(null);setPage('pay');
           }}/> : <SocialPage onPayFriend={startFriendPayment} />);
       case 'settlement':
-        return VEYRA_ENV === 'mainnet' ? <MainnetPayHub initialMethod="contract"/> : <SettlementPage />;
+        return VEYRA_ENV === 'mainnet' ? <MainnetPayHub initialMethod="contract" friendHandle={friendPayment} recipientWallet={contactRecipient}
+          verifiedRecipient={verifiedRecipient} onClearVerified={()=>setVerifiedRecipient(null)}
+          onRecipientUsed={() => setContactRecipient(null)} /> : <SettlementPage />;
       default:
         return <HomePage onNavigate={setPage} />;
     }
