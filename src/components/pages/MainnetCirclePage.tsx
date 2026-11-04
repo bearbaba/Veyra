@@ -21,7 +21,7 @@ import {withMainnetWalletSigningLock} from '@/mainnet/mainnetWalletSigningLock';
 import {recordVerifiedExchangeProof,recordVerifiedSourceRevert} from '@/mainnet/recordVerifiedExchangeProof';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked} from '@/mainnet/verifyCctpBridgeLink';
-import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
+import {assertMainnetSigningAllowed,MAINNET_CANARY_ONLY,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
 import {readBridgeQuoteAmounts} from '@/mainnet/bridgeQuoteGuard';
 
 const kit=new AppKit();
@@ -115,6 +115,9 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
   query:{enabled:!!address&&!!token,refetchInterval:15000,staleTime:8000},
  });
  const title=mode==='swap'?'Swap':'Bridge';
+ // A quote is informational. Mainnet pilot forbids signatures for Swap/Bridge.
+ const signingReady=__VEYRA_RELEASE_ENV__==='production'&&!MAINNET_EMERGENCY_READ_ONLY&&
+  !MAINNET_CANARY_ONLY&&(mode==='swap'||BRIDGE_WRITE_ENABLED);
  useEffect(()=>{
   setQuote(null);setProof('');setError('');setManualMint('');setManualSource('');
   if(!address){setRecovery(null);setUnknownStorage(false);return;}
@@ -431,6 +434,9 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
       Destination: {address} · Standard CCTP transfer. Minimum received must come from the provider's quote.
       If the provider gives no verifiable minimum, signing is unavailable.
     </p>}
+    {!signingReady&&!recovery&&<p role="status" className="text-xs" style={{color:'var(--muted)'}}>
+     Live quotes only · signing is paused during the pilot.
+    </p>}
     {!quote&&!recovery&&<button type="button" disabled={busy||unknownStorage||!validAmount(amount)}
       className="veyra-btn-primary w-full disabled:opacity-40" onClick={()=>void quoteNow()}>
       {busy?'Getting live quote…':'Review live Mainnet quote'}
@@ -450,8 +456,11 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        <p>Provider: Circle App Kit {mode==='bridge'?'· CCTP':'· swap'}</p>
        <p>Completion time isn't guaranteed. Wallet approval may require additional signatures.</p>
       </details>
-      <button type="button" disabled={busy} onClick={()=>void signNow()}
-       className="veyra-btn-primary w-full disabled:opacity-40">Confirm in wallet</button>
+      {signingReady?<button type="button" disabled={busy} onClick={()=>void signNow()}
+       className="veyra-btn-primary w-full disabled:opacity-40">Confirm in wallet</button>:
+       <p role="status" className="rounded-xl border px-3 py-3 text-sm" style={{borderColor:'var(--border)',color:'var(--warning)'}}>
+        {mode==='swap'?'Swap':'Bridge'} signing is paused during the pilot. This quote is for review only.
+       </p>}
     </div>}
     {(recovery||unknownStorage)&&<div role="status" className="space-y-3 rounded-xl border p-4 text-sm"
      style={{borderColor:'var(--border)',color:'var(--ink)'}}>
