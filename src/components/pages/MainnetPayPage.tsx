@@ -7,6 +7,7 @@ import { ConnectKitButton } from 'connectkit';
 import { formatUnits } from 'viem';
 import { recordLocalOperation } from '@/mainnet/localOperations';
 import {withMainnetWalletSigningLock} from '@/mainnet/mainnetWalletSigningLock';
+import {classifyMainnetPayFailure} from '@/mainnet/mainnetPayFailureOutcome';
 import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
 import {enqueueVerifiedPay,readReceiptOutbox,storageForReceiptOutbox,type ReceiptOutboxItem} from '@/mainnet/receiptOutbox';
 import {preparePaymentRecipient,verifyPaymentRecipient} from '@/lib/api/identityApi';
@@ -135,7 +136,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
       note:sharedDraft?.note?.trim().slice(0,120)||undefined,
       senderUserId:social.session?.profile.veyraUserId,
       recipientLabel:idSelection?'@'+idSelection.veyraHandle+'.veyra':undefined};
-    let requested=false,wroteJournal=false;
+    let requested=false,wroteJournal=false,submittedHash:string|null=null;
     try {
       await withMainnetWalletSigningLock(address,async()=>{
       const renewed=await reverifySelectedIdentity(review.plan);
@@ -149,6 +150,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
         throw new Error('Cannot persist payment lock. Signing disabled.');
       wroteJournal=true;setJournal(initial);
       const hash=await requestMainnetCanaryTransfer(await provider(),review.plan,()=>{requested=true;});
+      submittedHash=hash;
       const next:MainnetJournal={...initial,hash,stage:'PENDING'};
       setJournal(next);setHashInput(hash);
       recordLocalOperation({type:'Pay',hash,owner:address,amount:review.plan.amount,asset:'USDC',chainId:5042,
@@ -160,14 +162,27 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
         setError('Payment submitted but hash storage failed. Keep this hash and do not retry: '+hash);
       });
     }catch(e){
-      const rejected=typeof e==='object'&&e!==null&&'code' in e&&(e.code===4001||e.code==='ACTION_REJECTED');
-      if(!requested||rejected){
-        if(wroteJournal&&clearMainnetJournal(initial.from,storageForMainnet()))setJournal(null);
+      const outcome=classifyMainnetPayFailure(requested,e);
+      let caution='';
+      if(outcome==='before-wallet'){
+        if(wroteJournal){
+          const latest=readMainnetJournal(initial.from,storageForMainnet());
+          if(latest.kind==='active'&&latest.value.stage==='AWAITING_WALLET'&&
+             latest.value.hash===null&&latest.value.to.toLowerCase()===initial.to.toLowerCase()&&
+             latest.value.amount===initial.amount&&
+             clearMainnetJournal(initial.from,storageForMainnet()))setJournal(null);
+          else caution=' Original pre-sign lock could not be safely cleared. Inspect Activity.';
+        }
       }else{
-        const unknown:MainnetJournal={...initial,stage:'UNKNOWN'};
-        writeMainnetJournal(unknown,storageForMainnet());setJournal(unknown);
+        // A provider rejection/error after eth_sendTransaction is NOT
+        // definitive evidence that no original transaction was broadcast.
+        const unresolved:MainnetJournal={...initial,stage:submittedHash?'PENDING':'UNKNOWN',
+          hash:submittedHash};
+        if(writeMainnetJournal(unresolved,storageForMainnet()))setJournal(unresolved);
+        else caution=' Recovery storage failed. Preserve any original transaction hash.';
+        caution+=' Wallet request outcome uncertain. Check the original transaction; do not resend.';
       }
-      setError(msg(e)+(requested&&!rejected?' Status uncertain; do not retry.':''));
+      setError(msg(e)+caution);
     }finally{lock.current=false;setBusy(false);setReview(null);setAck(false);}
   }
   async function verify(){
