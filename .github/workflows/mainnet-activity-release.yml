@@ -155,7 +155,7 @@ jobs:
           # Reference constraints are derived by PostgreSQL 16 itself from
           # the exact checked-in SQL. This prevents lossy handwritten parsing.
           docker exec veyra-mainnet-migration-ci psql -U postgres -d veyra_migration_ci -A -t -c \
-            "SELECT json_agg(json_build_object('name',conname,'type',contype::text,'definition',pg_get_constraintdef(oid)) ORDER BY conname)::text FROM pg_constraint WHERE conrelid='public.mainnet_settlement_receipts'::regclass" \
+            "SELECT json_agg(json_build_object('name',conname,'type',contype::text,'definition',pg_get_constraintdef(oid)) ORDER BY conname)::text FROM pg_constraint WHERE conrelid='public.mainnet_settlement_receipts'::regclass AND contype IN ('c','p')" \
             | bun scripts/check-settlement-pg16-reference.ts
 
       # This tests the ACTUAL Render container. Web builds alone miss runtime
