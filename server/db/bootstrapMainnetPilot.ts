@@ -4,24 +4,22 @@
  */
 import {Pool} from 'pg';
 import {runDatabaseMigrations} from './migrationService.js';
-import {assertMainnetPilotMigrationTarget} from './mainnetPilotMigrationGate.js';
+import {assertMainnetPilotMigrationTarget,assertMainnetPilotDatabaseHost} from './mainnetPilotMigrationGate.js';
 
-const EXPECTED_RENDER_DATABASE_HOST='dpg-dbk4ingu01pc7391im20-a';
 const REQUIRED_TABLES=[
  'veyra_users','wallet_bindings','identity_snapshots','mainnet_direct_pay_receipts',
+ 'mainnet_settlement_receipts',
 ] as const;
 export function mainnetPilotBootstrapEnabled(env:NodeJS.ProcessEnv):boolean{
  return env.VEYRA_MAINNET_BOOTSTRAP_SCHEMA==='1';
 }
 export function assertPilotDatabaseHost(databaseUrl:string):void{
- const h=new URL(databaseUrl).hostname.toLowerCase();
- if(h!==EXPECTED_RENDER_DATABASE_HOST&&!h.startsWith(EXPECTED_RENDER_DATABASE_HOST+'.'))
-  throw Error('MAINNET_DATABASE_HOST_IS_NOT_THE_APPROVED_RENDER_INSTANCE');
+ assertMainnetPilotDatabaseHost(databaseUrl);
 }
 type SchemaState={publicTables:number;drizzleMigrationCount:number;essentialTables:string[]};
 export function decideMainnetPilotBootstrap(state:SchemaState):'create'|'already-ready'{
  const ready=REQUIRED_TABLES.every(t=>state.essentialTables.includes(t));
- if(ready&&state.drizzleMigrationCount>=21)return 'already-ready';
+ if(ready&&state.drizzleMigrationCount>=22)return 'already-ready';
  if(state.publicTables===0&&state.drizzleMigrationCount===0)return 'create';
  throw Error('MAINNET_BOOTSTRAP_REFUSED_PARTIAL_OR_UNEXPECTED_SCHEMA');
 }
@@ -67,7 +65,7 @@ export async function bootstrapMainnetPilotIfRequested(
    throw Error('MAINNET_BOOTSTRAP_SCHEMA_NOT_READY');
   const migrations=await client.query<{count:string}>(
    'SELECT COUNT(*)::text AS count FROM drizzle.__drizzle_migrations');
-  if(Number(migrations.rows[0]?.count??0)<21)
+  if(Number(migrations.rows[0]?.count??0)<22)
    throw Error('MAINNET_BOOTSTRAP_MIGRATIONS_INCOMPLETE');
   console.log('[mainnet-pilot] isolated database schema initialized and checked');
  }finally{
