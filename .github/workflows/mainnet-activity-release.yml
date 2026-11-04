@@ -118,6 +118,27 @@ jobs:
                 AND indexname IN ('ix_mainnet_settlement_sender','ix_mainnet_settlement_recipient'))<>2 THEN
               RAISE EXCEPTION 'Missing settlement receipt owner indexes';
             END IF;
+            -- Enforce the catalog names required by the production read-only preflight.
+            -- If PostgreSQL 16 generates different names, fail CI before any release.
+            IF (SELECT count(*) FROM pg_constraint
+                WHERE conrelid='public.mainnet_settlement_receipts'::regclass
+                AND conname IN (
+                  'mainnet_settlement_receipts_pkey',
+                  'mainnet_settlement_receipts_tx_hash_check',
+                  'mainnet_settlement_receipts_chain_id_check',
+                  'mainnet_settlement_receipts_payment_id_check',
+                  'mainnet_settlement_receipts_payment_ref_check',
+                  'mainnet_settlement_receipts_amount_raw_check',
+                  'mainnet_settlement_receipts_net_amount_raw_check',
+                  'mainnet_settlement_receipts_protocol_fee_raw_check',
+                  'mainnet_settlement_receipts_network_fee_wei_check',
+                  'mainnet_settlement_receipts_block_number_check',
+                  'mainnet_settlement_receipts_sender_private_note_check',
+                  'settlement_payer_or_receiver_bound',
+                  'settlement_net_fee_matches_gross'
+                ))<>13 THEN
+              RAISE EXCEPTION 'Receipt SQL constraints do not match release preflight';
+            END IF;
             BEGIN
               UPDATE mainnet_settlement_receipts SET net_amount_raw='9999';
               RAISE EXCEPTION 'Gross/net mismatch was wrongly accepted';
