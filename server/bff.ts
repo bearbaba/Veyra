@@ -58,6 +58,8 @@ import {resolveTrustedLoginOrigin,resolveTrustedLoginOriginForEnv} from './servi
 import {evaluateMainnetIdentityAuthority} from './services/mainnetIdentityCapability.js';
 import {indexVerifiedDirectPay,listVerifiedDirectPays,parseDirectPayReceiptRequest,PayReceiptApiError,
  mainnetActiveBinding} from './services/mainnetPayReceiptService.js';
+import {indexVerifiedSettlement,listVerifiedSettlements,parseSettlementReceiptRequest}
+ from './services/mainnetSettlementReceiptService.js';
 import {sql} from 'drizzle-orm';
 import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } from './services/friendInboxService.js';
 import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
@@ -2286,6 +2288,45 @@ app.get('/api/mainnet/pay/receipts', IDENTITY_RATE, async(req:Request,res:Respon
  }catch(e){
   console.error('[BFF] Mainnet Pay receipt history:',e instanceof Error?e.message:'unknown');
   res.status(503).json({ok:false,error:'RECEIPT_HISTORY_UNAVAILABLE'});
+ }
+});
+
+// Separate canonical contract Settlement index. Never treat a wallet or UI
+// success flag as proof of a payment; contract pay(), event, original USDC
+// transfer logs, canonical block and both owner bindings are checked server-side.
+// These endpoints do not sign, approve, send or retry transactions.
+app.post('/api/mainnet/settlement/receipt/verify',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ if(!evaluateMainnetIdentityAuthority(runtimeConfig,req.header('origin'))){
+  res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;
+ }
+ const userId=getAuthenticatedVeyraUserId(req);
+ if(!userId){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+ try{
+  const input=parseSettlementReceiptRequest(req.body);
+  const {db}=await import('./db/client.js');
+  const receipt=await indexVerifiedSettlement(db,userId,input);
+  res.setHeader('Cache-Control','no-store');
+  res.json({ok:true,receipt});
+ }catch(e){
+  if(e instanceof PayReceiptApiError){res.status(e.httpStatus).json({ok:false,error:e.code});return;}
+  console.error('[BFF] contract Settlement receipt indexer:',e instanceof Error?e.message:'unknown');
+  res.status(503).json({ok:false,error:'SETTLEMENT_RECEIPT_UNAVAILABLE'});
+ }
+});
+app.get('/api/mainnet/settlement/receipts',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ if(!evaluateMainnetIdentityAuthority(runtimeConfig,runtimeConfig.appOrigin)){
+  res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;
+ }
+ const userId=getAuthenticatedVeyraUserId(req);
+ if(!userId){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+ try{
+  const {db}=await import('./db/client.js');
+  const receipts=await listVerifiedSettlements(db,userId,50);
+  res.setHeader('Cache-Control','no-store');
+  res.json({ok:true,receipts});
+ }catch(e){
+  console.error('[BFF] contract Settlement history:',e instanceof Error?e.message:'unknown');
+  res.status(503).json({ok:false,error:'SETTLEMENT_HISTORY_UNAVAILABLE'});
  }
 });
 
