@@ -298,7 +298,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       </p>
       {'kind' in v&&v.kind==='settlement'&&<p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
        Gross {formatUnits(BigInt(v.amountRaw),6)} USDC · protocol fee {formatUnits(BigInt(v.protocolFeeRaw),6)} USDC · net received {formatUnits(BigInt(v.netAmountRaw),6)} USDC
-      </p>
+      </p>}
       <p className="text-sm" style={{color:'var(--ink)'}}>
        {v.direction==='sent'?'To '+(v.recipientLabel??v.recipientAddress):
         'From wallet '+v.senderAddress.slice(0,8)+'…'+v.senderAddress.slice(-6)}
