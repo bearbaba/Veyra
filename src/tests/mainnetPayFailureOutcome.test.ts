@@ -18,5 +18,6 @@ describe('M0 financial signing: error code is not proof of no transfer',()=>{
   expect(source).toContain("stage:submittedHash?'PENDING':'UNKNOWN'");
   expect(source).toContain("const outcome=classifyMainnetPayFailure(requested,e)");
   expect(source).not.toContain('if(!requested||rejected)');
+  expect(source).toContain("__VEYRA_RELEASE_ENV__!=='production'");
  });
 });
