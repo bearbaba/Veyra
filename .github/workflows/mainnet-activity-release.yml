@@ -44,6 +44,9 @@ jobs:
           src/tests/mainnetSettlementProof.test.ts
           src/tests/mainnetSettlementReceiptSync.test.ts
           src/tests/mainnetSettlementHistoricalBinding.test.ts
+          src/tests/mainnetPilotMigrationGate.test.ts
+          src/tests/mainnetPilotBootstrap.test.ts
+          src/tests/mainnetSettlementMigrationPreflight.test.ts
           src/tests/mainnetSettlementIdentityUnification.test.ts
           src/tests/mainnetWalletSigningLock.test.ts
           src/tests/mainnetPersistentReceipt.test.ts
