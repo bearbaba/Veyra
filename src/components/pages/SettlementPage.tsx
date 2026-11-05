@@ -1400,7 +1400,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
                   Approve lets this payment use {fmtUsdc(snapshot.amountParsed)} USDC.
                 </p>
                 <button disabled={approving} onClick={() => { void handleApprove(); }}
-                  className="w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-colors">
+                  className={embedded&&isMainnet?"veyra-btn-primary w-full rounded-xl py-3.5 text-sm font-semibold disabled:opacity-50":
+                  "w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-colors"}>
                   {approving ? 'Waiting for wallet…' : `Approve ${fmtUsdc(snapshot.amountParsed)} USDC`}
                 </button>
               </div>
@@ -1416,7 +1417,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
                   Review fees and recipient before signing.
                 </p>
                 <button disabled={settling} onClick={() => { void handleSettle(); }}
-                  className="w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-colors">
+                  className={embedded&&isMainnet?"veyra-btn-primary w-full rounded-xl py-3.5 text-sm font-semibold disabled:opacity-50":
+                  "w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-colors"}>
                   {settling ? 'Waiting for wallet…' : snapshot.mode === 'pay' ? 'Send payment' : 'Create escrow'}
                 </button>
               </div>

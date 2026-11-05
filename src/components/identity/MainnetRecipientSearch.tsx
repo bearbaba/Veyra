@@ -47,11 +47,10 @@ export function MainnetRecipientSearch({
     maxLength={90} disabled={disabled} onChange={e=>edit(e.target.value)}
     onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();void search();}}}
     placeholder="@person.veyra · @Xhandle · 0x…"
-    className="min-w-0 flex-1 rounded-xl border px-4 py-3 text-sm"
+    className="veyra-field min-w-0 flex-1 rounded-xl border px-4 py-3 text-sm"
     style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
    <button type="button" disabled={disabled||busy||!value.trim()} onClick={()=>void search()}
-    className="inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-40"
-    style={{background:'var(--accent)',color:'#0d1b2f'}}>
+    className="veyra-btn-primary inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-40">
     <Search className="size-4"/>{busy?'Finding…':'Find'}
    </button>
   </div>

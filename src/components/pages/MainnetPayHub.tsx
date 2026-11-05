@@ -207,8 +207,7 @@ export function MainnetPayHub({
      </details>
     </div>
     <button type="button" onClick={()=>setOptionsOpen(v=>!v)} aria-expanded={optionsOpen}
-     aria-label="Change payment method" className="flex shrink-0 items-center gap-1 rounded-lg border px-3 py-2 text-xs font-semibold"
-     style={{color:'var(--accent)',borderColor:'var(--border)'}}>
+     aria-label="Change payment method" className="veyra-btn-secondary flex shrink-0 items-center gap-1 rounded-lg border px-3 py-2 text-xs font-semibold">
      Change <ChevronDown className="size-3.5"/>
     </button>
    </div>
