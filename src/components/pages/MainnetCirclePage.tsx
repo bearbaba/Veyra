@@ -422,7 +422,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        provider route validation, and verified output recovery have been integrated.</p>
      </details>}
     <label className="block text-sm font-semibold" style={{color:'var(--ink)'}}>Amount ({mode==='swap'?fromToken:'USDC'})
-     <input className={input+' veyra-field text-2xl font-semibold'} value={amount} disabled={!!recovery||busy} inputMode="decimal"
+     <input className={input+' veyra-field veyra-route-input text-2xl font-semibold'} value={amount} disabled={!!recovery||busy} inputMode="decimal"
       placeholder="0.01" onChange={e=>setAmount(e.target.value)}
       style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
     </label>

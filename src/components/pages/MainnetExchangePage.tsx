@@ -262,7 +262,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   <section className="veyra-card space-y-3 p-4 sm:p-5" aria-label={viewMode==='swap'?'Swap pair':'Bridge route'}>
    <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>{viewMode==='swap'?'YOU PAY':'FROM'}</p>
    <button type="button" disabled={locked} onClick={()=>setPicking('from')}
-    className="flex w-full items-center gap-3 rounded-xl border p-3 text-left disabled:opacity-70"
+    className="veyra-route-control flex w-full items-center gap-3 rounded-xl border p-3 text-left disabled:opacity-70"
     style={{borderColor:'var(--border)',background:'var(--surface-raised)',color:'var(--ink)'}}>
     <AssetMark asset={from}/>
     <span className="min-w-0 flex-1"><strong>{from.symbol}</strong> <span className="block text-xs" style={{color:'var(--muted)'}}>{from.network} · {from.name}</span></span>
@@ -272,12 +272,12 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    </button>
    <div className="flex justify-center">
     <button type="button" disabled={locked} onClick={()=>{setFrom(to);setTo(from);}}
-     aria-label="Reverse assets" className="-my-1 rounded-xl border p-2.5 disabled:opacity-40"
+     aria-label="Reverse assets" className="veyra-btn-secondary -my-1 rounded-xl border p-2.5 disabled:opacity-40"
      style={{borderColor:'var(--border-strong)',background:'var(--surface)',color:'var(--accent)'}}><ArrowDownUp className="size-5"/></button>
    </div>
    <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>{viewMode==='swap'?'YOU RECEIVE':'TO'}</p>
    <button type="button" disabled={locked} onClick={()=>setPicking('to')}
-    className="flex w-full items-center gap-3 rounded-xl border p-3 text-left disabled:opacity-70"
+    className="veyra-route-control flex w-full items-center gap-3 rounded-xl border p-3 text-left disabled:opacity-70"
     style={{borderColor:'var(--border)',background:'var(--surface-raised)',color:'var(--ink)'}}>
     <AssetMark asset={to}/>
     <span className="min-w-0 flex-1"><strong>{to.symbol}</strong> <span className="block text-xs" style={{color:'var(--muted)'}}>{to.network} · {to.name}</span></span>
@@ -318,8 +318,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
      'Original Exchange activity is still stored. Resolve or inspect that operation before changing assets; do not submit a second transaction.'}
    </p>}
   </section>
-  {route.kind==='quote-only'&&<section className="space-y-3 rounded-2xl border p-4 sm:p-5"
-   style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}>
+  {route.kind==='quote-only'&&<section className="veyra-card space-y-3 p-4 sm:p-5" style={{color:'var(--ink)'}}>
    <p className="font-semibold">Across · WETH on Base → USDC on Arc</p>
    <p className="text-xs" style={{color:'var(--muted)'}}>
     Preview a quote. No transaction will be sent.
@@ -327,13 +326,12 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    <label className="block text-sm">Amount you have (WETH)
     <input inputMode="decimal" value={acrossAmount} disabled={locked||quoteLoading}
      onChange={e=>{setAcrossAmount(e.target.value);setAcrossQuote(null);setQuoteProblem('');}}
-     placeholder="0.01" className="mt-2 w-full rounded-xl border p-3 text-xl font-semibold"
+     placeholder="0.01" className="veyra-route-input mt-2 w-full rounded-xl border p-3 text-xl font-semibold"
      style={{borderColor:'var(--border)',background:'var(--surface-raised)',color:'var(--ink)'}}/>
    </label>
    {!address?<ConnectKitButton/>:<button type="button"
     disabled={locked||quoteLoading||!social.session?.token||!acrossReady} onClick={()=>void getAcrossQuote()}
-    className="w-full rounded-xl px-4 py-3 font-semibold disabled:opacity-40"
-    style={{background:'var(--accent)',color:'#0d1b2f'}}>
+    className="veyra-btn-primary w-full rounded-xl px-4 py-3 font-semibold disabled:opacity-40">
     {quoteLoading?'Requesting live Across quote…':'Get live quote (no signing)'}
    </button>}
    {!acrossReady&&<p className="text-xs" style={{color:'var(--warning)'}}>

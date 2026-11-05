@@ -356,8 +356,8 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
         <div className="flex items-center gap-2 text-sm" style={{color:'var(--warning)'}}>
           <AlertTriangle className="size-5"/> Wrong network. Payment cannot use Testnet on this Mainnet website.
         </div>
-        <button className="mt-3 rounded-xl px-4 py-2 text-sm font-semibold"
-          style={{background:'var(--accent)',color:'#fff'}} onClick={()=>switchChain({chainId:5042})}>Switch to Arc Mainnet</button>
+        <button className="veyra-btn-primary mt-3 rounded-xl px-4 py-2 text-sm font-semibold"
+           onClick={()=>switchChain({chainId:5042})}>Switch to Arc Mainnet</button>
       </div>}
       {!shownCompleted&&<div className={embedded?'space-y-4':box+' space-y-4'} style={{background:'var(--surface)',borderColor:embedded?'transparent':'var(--border)'}}>
         {!embedded&&<><div><label className="text-sm font-semibold" style={{color:'var(--ink)'}}>Recipient wallet</label>
@@ -369,8 +369,8 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
             value={amount} inputMode="decimal" placeholder="0.01" disabled={blocked}
             onChange={e=>{setAmount(e.target.value);onDraftChange?.({amount:e.target.value});setReview(null);setAck(false);}}/></div>
         </>}
-        {!review&&!shownJournal&&<button className="w-full rounded-xl px-4 py-3 text-sm font-bold disabled:opacity-40"
-          disabled={blocked} style={{background:'var(--accent)',color:'#fff'}}
+        {!review&&!shownJournal&&<button className="veyra-btn-primary w-full rounded-xl px-4 py-3 text-sm font-bold disabled:opacity-40"
+          disabled={blocked} 
           onClick={()=>void prepare()}>{busy?'Checking…':'Review payment'}</button>}
         {review&&!shownJournal&&<div className="space-y-3 rounded-xl border p-4 text-sm"
           style={{borderColor:'var(--border)',color:'var(--ink)'}}>
@@ -390,9 +390,9 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
             <input type="checkbox" checked={ack} onChange={e=>setAck(e.target.checked)}/>
             <span>I verified network, recipient, amount and real-money risk.</span>
           </label>
-          <button className="w-full rounded-xl px-4 py-3 font-bold disabled:opacity-40"
+          <button className="veyra-btn-primary w-full rounded-xl px-4 py-3 font-bold disabled:opacity-40"
             disabled={!ack||busy||MAINNET_EMERGENCY_READ_ONLY||
-              MAINNET_CANARY_ONLY&&!canSignMainnetCanary(address,review.plan.units)} style={{background:'var(--accent)',color:'#fff'}} onClick={()=>void send()}>
+              MAINNET_CANARY_ONLY&&!canSignMainnetCanary(address,review.plan.units)}  onClick={()=>void send()}>
             Confirm in wallet
           </button>
           <button className="w-full py-2 text-xs" onClick={()=>{setReview(null);setAck(false);}}>Edit details</button>
@@ -424,11 +424,11 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
               onChange={e=>setHashInput(e.target.value)}/>
           </details>}
           {!['VERIFIED','REVERTED'].includes(shownJournal.stage)&&
-            <button className="rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-40"
-              disabled={busy||!(shownJournal.hash||hashInput)} style={{background:'var(--accent)',color:'#fff'}}
+            <button className="veyra-btn-secondary rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-40"
+              disabled={busy||!(shownJournal.hash||hashInput)} 
               onClick={()=>void verify()}>Check original receipt</button>}
-          {shownJournal.stage==='REVERTED'&&<button className="rounded-xl px-4 py-2 text-sm font-semibold"
-              style={{background:'var(--accent)',color:'#fff'}} onClick={reset}>Start a different payment</button>}
+          {shownJournal.stage==='REVERTED'&&<button className="veyra-btn-secondary rounded-xl px-4 py-2 text-sm font-semibold"
+               onClick={reset}>Start a different payment</button>}
         </>}
       </div>}
     </>}

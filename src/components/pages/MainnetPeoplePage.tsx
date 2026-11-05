@@ -82,8 +82,8 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
        className="flex flex-wrap items-center gap-2 rounded-lg border p-3" style={{borderColor:'var(--border)'}}>
        <span className="min-w-0 flex-1 text-sm font-medium" style={{color:'var(--ink)'}}>{friendLabel(x)}</span>
        <button type="button" disabled={friendActionBusy} onClick={()=>void acceptFriend(x.veyraUserId,'ACCEPT')}
-        className="rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50"
-        style={{background:'var(--accent)',color:'#0d1b2f'}}>Accept</button>
+        className="veyra-btn-primary rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50"
+        >Accept</button>
        <button type="button" disabled={friendActionBusy} onClick={()=>void acceptFriend(x.veyraUserId,'REJECT')}
         className="rounded-lg border px-3 py-2 text-xs disabled:opacity-50"
         style={{borderColor:'var(--border)',color:'var(--muted)'}}>Decline</button>
@@ -116,11 +116,11 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
      label="Find by Veyra ID" onSelection={select}/>
    {(selected||walletTarget)&&<div className="mt-3 flex flex-wrap gap-2">
     {selected&&<button type="button" onClick={()=>onPayVerified(selected)}
-     className="inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
-     style={{background:'var(--accent)',color:'#0d1b2f'}}><Send className="size-4"/>Send USDC</button>}
+     className="veyra-btn-primary inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
+     ><Send className="size-4"/>Send USDC</button>}
     {walletTarget&&<button type="button" onClick={()=>onPayWallet(walletTarget)}
-     className="inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
-     style={{background:'var(--accent)',color:'#0d1b2f'}}><Send className="size-4"/>Send to wallet</button>}
+     className="veyra-btn-primary inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
+     ><Send className="size-4"/>Send to wallet</button>}
     {selected&&selected.veyraUserId!==social.session?.profile.veyraUserId&&
      <button type="button" disabled={friendActionBusy||!!relation} onClick={()=>void connectSelected()}
       className="rounded-lg border px-4 py-3 text-sm font-semibold disabled:opacity-50"
