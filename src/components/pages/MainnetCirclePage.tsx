@@ -405,7 +405,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     <label className="block text-xs font-semibold" style={{color:'var(--muted)'}}>AMOUNT
      <input disabled placeholder="0.00" aria-label="Amount · connect wallet first"
       className="veyra-route-input mt-2 w-full rounded-xl border p-3 text-3xl font-bold"
-      style={{background:'var(--surface-raised)',color:'var(--muted)',borderColor:'var(--border)'}/>
+      style={{background:'var(--surface-raised)',color:'var(--muted)',borderColor:'var(--border)'}}/>
     </label>
     <p className="text-xs" style={{color:'var(--muted)'}}>Connect your wallet to check the balance and request a live quote. No signing is enabled in this pilot.</p>
     <ConnectKitButton/>
