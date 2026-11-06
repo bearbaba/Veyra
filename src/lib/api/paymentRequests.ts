@@ -89,12 +89,47 @@ export async function cancelPeerRequest(token:string,requestId:string){
 }
 export const displayRequestUsdc=(x:VeyraPaymentRequest)=>formatUnits(BigInt(x.amountRaw),6);
 
-export async function claimPeerRequest(token:string,requestId:string,walletAddress:string){
- const data=await requestApi(token,'/claim',{
-  requestId,attemptId:crypto.randomUUID(),walletAddress,
- });
- const request=parsed(data.request);
- if(data.created!==true||!request.paymentInProgress)
-  throw Error('Another wallet attempt already exists for this request; do not sign again.');
- return request;
+export type PeerClaimStatus={request:VeyraPaymentRequest;matches:boolean};
+export async function readPeerRequestAttempt(token:string,requestId:string,
+ walletAddress:string,attemptId:string):Promise<PeerClaimStatus>{
+ const data=await requestApi(token,'/attempt',{requestId,walletAddress,attemptId});
+ if(typeof data.matches!=='boolean')throw Error('Invalid owner-scoped payment attempt status.');
+ return {request:parsed(data.request),matches:data.matches};
+}
+/** Re-submit only the original reservation key, never a second transaction.
+ * If the claim RESPONSE was lost, query the authoritative server by the exact
+ * attemptId. A failed lookup is UNKNOWN and must not open the wallet.
+ */
+export async function claimPeerRequest(token:string,requestId:string,walletAddress:string,attemptId:string){
+ if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attemptId))
+  throw Error('Original payment attempt key is missing or invalid.');
+ try{
+  const data=await requestApi(token,'/claim',{requestId,attemptId,walletAddress});
+  const request=parsed(data.request);
+  if(typeof data.created!=='boolean'||!request.paymentInProgress||request.status!=='PENDING')
+   throw Error('Payment claim was not verified. Do not open the wallet.');
+  return {request,recovered:!data.created};
+ }catch(e){
+  // Confirmed 4xx refuses wallet signing. Network/5xx/malformed replies may
+  // mean the reservation committed, so read the original key before deciding.
+  if(confirmedPaymentRequestRefusal(e))throw e;
+  const status=await readPeerRequestAttempt(token,requestId,walletAddress,attemptId);
+  if(!status.matches||status.request.status!=='PENDING')
+   throw Error('Claim outcome unknown or request already settled. Do not sign again.');
+  return {request:status.request,recovered:true};
+ }
+}
+/** Wallet rejection is accepted only when the provider explicitly returns
+ * code 4001 or ACTION_REJECTED (viem/wagmi may nest the cause).
+ * This is NOT an onchain absence proof. Never delete the server claim.
+ */
+export function explicitlyRejectedWallet(error:unknown):boolean{
+ let next:unknown=error;
+ for(let depth=0;depth<5;depth++){
+  if(!next||typeof next!=='object')return false;
+  const x=next as {code?:unknown;cause?:unknown};
+  if(x.code===4001||x.code==='ACTION_REJECTED')return true;
+  next=x.cause;
+ }
+ return false;
 }
