@@ -1,13 +1,11 @@
-/** Circle Gateway: strict, read-only, source-identity-bound reconciliation.
- * Never infer individual deposit credit from a difference of aggregate balances.
- * No provider credit/forwarding read adapter is enabled until independently
- * validated against Circle's *actual* Mainnet API response contract.
- * Missing evidence => PENDING, not a manufactured receipt.
+/** Circle Gateway read-only reconciliation. Source-chain finality and
+ * the provider's separate spendable ledger are independent; never infer
+ * individual credit from an aggregate balance delta. No blind resubmission.
  */
 import {decodeEventLog,decodeFunctionData,formatUnits,getAddress,isAddress,parseAbi,parseUnits,type Hex} from 'viem';
 import {getMainnetChain} from '@/config/mainnetCatalog';
 import {GATEWAY_MAINNET_CHAINS} from './gatewayMainnetBalances';
-import {archiveGatewayMainnetReceipt,readGatewayMainnetOperation,writeGatewayMainnetOperation,
+import {archiveGatewayMainnetReceipt,readGatewayMainnetOperation,
  type GatewayMainnetOperation,type GatewayMainnetReceipt,type GatewayStore} from './gatewayMainnetJournal';
 export const GATEWAY_MAINNET_WALLET='0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE' as const;
 export const GATEWAY_MAINNET_MINTER='0x2222222d7164433c4C09B0b0D809a9b52C04C205' as const;
@@ -21,24 +19,15 @@ export type GatewayCanonicalBlock={number:bigint;hash:string;timestamp:bigint};
 export type GatewayForwardedTransfer={transferId:string;status:string;sourceDomain:number;
  destinationDomain:number;sourceDepositor:string;destinationRecipient:string;
  amount:string;destinationTxHash:string};
-/** Trust boundary: only a Circle-authenticated, independently verified API
- * adapter may supply this exact per-deposit credit proof. The aggregate
- * getBalances() response DOES NOT provide one.
- */
-export type GatewayDepositCreditProof={status:'credited';creditId:string;
- sourceTxHash:string;sourceBlockHash:string;chainId:number;owner:string;
- token:string;amount:string};
 export type GatewayReconciliationDeps={
  getTransaction:(chainId:number,hash:`0x${string}`)=>Promise<GatewayChainTx>;
  getTransactionReceipt:(chainId:number,hash:`0x${string}`)=>Promise<GatewayChainReceipt>;
  getCanonicalBlock:(chainId:number,blockNumber:bigint)=>Promise<GatewayCanonicalBlock>;
  getFinalizedBlock:(chainId:number)=>Promise<GatewayCanonicalBlock>;
  getLatestBlockNumber:(chainId:number)=>Promise<bigint>;
- /** NOT wired in Production until actual Circle API schema and integrity are verified. */
- getDepositCreditProof?:(sourceChainId:number,hash:`0x${string}`)=>Promise<unknown>;
  getForwardingStatus?:(transferId:string)=>Promise<unknown>;
 };
-export type GatewayReconciliation={state:'PENDING'|'VERIFIED'|'REVERTED';reason:string;receipt?:GatewayMainnetReceipt};
+export type GatewayReconciliation={state:'PENDING'|'SOURCE_FINALIZED'|'VERIFIED'|'REVERTED';reason:string;receipt?:GatewayMainnetReceipt};
 /** Circle Gateway lists ~65 Ethereum blocks for Ethereum and Base deposit
  * finality. Base L2 block counts are NOT Ethereum L1 block counts. Therefore
  * require the canonical RPC's 'finalized' tag and >=19 min source-block age on
@@ -93,19 +82,6 @@ function validateDepositTx(op:GatewayMainnetOperation,tx:GatewayChainTx,receipt:
    }catch{return false;}
   });
  }catch{return false;}
-}
-export function parseGatewayDepositCreditProof(raw:unknown,op:GatewayMainnetOperation,
- receipt:GatewayChainReceipt):GatewayDepositCreditProof|null{
- if(!raw||typeof raw!=='object'||Array.isArray(raw)||!op.sourceHash)return null;
- const r=raw as Record<string,unknown>,usdc=getMainnetChain(op.chainId)?.usdc;
- if(!usdc||r.status!=='credited'||typeof r.creditId!=='string'||r.creditId.length===0||
-  r.creditId.length>160||r.sourceTxHash!==op.sourceHash||
-  r.sourceBlockHash!==receipt.blockHash||r.chainId!==op.chainId||
-  typeof r.owner!=='string'||!isAddress(r.owner)||r.owner.toLowerCase()!==op.owner||
-  typeof r.token!=='string'||!isAddress(r.token)||r.token.toLowerCase()!==usdc.toLowerCase()||
-  typeof r.amount!=='string'||!/^\d+(?:\.\d{1,6})?$/.test(r.amount)||
-  parseUnits(r.amount,6)!==parseUnits(op.amount,6))return null;
- return r as GatewayDepositCreditProof;
 }
 /** Circle's documented GET /v1/transfer/{id} response plus
  * GET /v1/transferSpec/{transferSpecHash}, NOT the former invented fields.
@@ -188,23 +164,20 @@ export async function reconcileGatewayMainnetOperation(owner:string,
     return {state:'PENDING',reason:'Source revert finalized, but durable archive is not ready; lock retained.'};
    return {state:'REVERTED',reason:'Original deposit reverted in a canonical finalized block.',receipt:proof};
   }
-  // The finalized USDC deposit event is NOT an attribution proof for the
-  // provider's ledger credit. Another deposit/spend can alter account totals.
-  if(op.status!=='SOURCE_CONFIRMED'&&
-   !writeGatewayMainnetOperation({...op,status:'SOURCE_CONFIRMED'},store))
-   return {state:'PENDING',reason:'Deposit finalized, but local checkpoint update failed; lock retained.'};
-  if(!deps.getDepositCreditProof)
-   return {state:'PENDING',reason:'Deposit confirmed · credit pending. Circle individual-credit evidence is not connected in Veyra.'};
-  const raw=await deps.getDepositCreditProof(op.chainId,hash);
-  const credit=parseGatewayDepositCreditProof(raw,op,receipt);
-  if(!credit)return {state:'PENDING',reason:'Deposit confirmed · credit pending. Circle did not attribute credit to this exact transaction.'};
+  // Separate source-chain settlement from the provider's independent
+  // Gateway spendable ledger. A finalized source deposit has a complete
+  // onchain lifecycle even if Circle cannot attribute an individual credit.
+  // Archive its exact original block/hash and release the *submission lock*,
+  // NEVER promote this amount to Gateway Available or label credit Verified.
+  // Future withdrawals read Circle's confirmed balance directly.
   const proof:GatewayMainnetReceipt={version:1,operationId:op.id,owner:op.owner,
-   kind:'deposit',status:'VERIFIED',chainId:op.chainId,recipient:op.recipient,amount:op.amount,
-   sourceHash:hash,sourceBlockHash:receipt.blockHash,
-   gatewayCreditReference:credit.creditId,verifiedAt:Date.now()};
+   kind:'deposit',status:'SOURCE_FINALIZED',
+   chainId:op.chainId,recipient:op.recipient,amount:op.amount,
+   sourceHash:hash,sourceBlockHash:receipt.blockHash,verifiedAt:Date.now()};
   if(!archiveGatewayMainnetReceipt(proof,store))
-   return {state:'PENDING',reason:'Exact deposit credit proven, but receipt persistence failed; lock retained.'};
-  return {state:'VERIFIED',reason:'Original deposit is finalized and its individual Circle credit is verified.',receipt:proof};
+   return {state:'PENDING',reason:'Deposit finalized onchain, but its durable receipt could not be saved. Check status without signing again.'};
+  return {state:'SOURCE_FINALIZED',
+   reason:'Deposit finalized onchain; credit attribution is unavailable. Only Circle live Available is spendable.',receipt:proof};
  }
  if(!op.transferId||!deps.getForwardingStatus)
   return {state:'PENDING',reason:'Circle forwarding receipt lookup is not verified; signed transfer remains unresolved.'};

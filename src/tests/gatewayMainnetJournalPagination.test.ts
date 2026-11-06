@@ -37,6 +37,9 @@ describe('Gateway history archival remains durable and idempotent',()=>{
   expect(latest[0]?.operationId).toBe(key(101));
   expect(latest.find(x=>x.operationId===key(2))).toBeDefined();
   expect(readGatewayMainnetHistoryPage(owner,0,storage)).toContainEqual(expect.objectContaining({operationId:key(1)}));
+  const expanded=readGatewayMainnetHistory(owner,storage,103);
+  expect(expanded).not.toBe('blocked');
+  if(expanded!=='blocked')expect(expanded).toHaveLength(102);
  });
  it('recovers after receipt save succeeds but active checkpoint deletion fails',()=>{
   const storage=local();let failed=true;

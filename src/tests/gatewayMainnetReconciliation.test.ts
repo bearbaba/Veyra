@@ -1,7 +1,7 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {encodeAbiParameters,encodeEventTopics,encodeFunctionData,parseAbi,type Hex} from 'viem';
 import {GATEWAY_MAINNET_WALLET,gatewayDepositAbi,parseGatewayForwardedStatus,
- parseGatewayDepositCreditProof,verifyGatewayCanonicalFinality,reconcileGatewayMainnetOperation,
+ verifyGatewayCanonicalFinality,reconcileGatewayMainnetOperation,
  type GatewayChainReceipt,type GatewayChainTx,type GatewayReconciliationDeps} from '../mainnet/gatewayMainnetReconcile';
 import {readGatewayMainnetHistory,readGatewayMainnetOperation,writeGatewayMainnetOperation,
  type GatewayMainnetOperation} from '../mainnet/gatewayMainnetJournal';
@@ -31,8 +31,6 @@ const deposit:GatewayMainnetOperation={
  version:1,id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',kind:'deposit',owner,recipient:owner,
  amount:'0.01',status:'SUBMITTED',chainId:8453,createdAt:Date.now(),sourceHash,beforeAvailable:'1.50',
 };
-const credit={status:'credited',creditId:'gateway-credit-123',sourceTxHash:sourceHash,
- sourceBlockHash:blockHash,chainId:8453,owner,token,amount:'0.01'};
 const deps:GatewayReconciliationDeps={
  getTransaction:()=>Promise.resolve(tx),
  getTransactionReceipt:()=>Promise.resolve(sourceReceipt),
@@ -45,35 +43,44 @@ describe('Circle Gateway per-source finality and individual credit',()=>{
  it('never verifies a deposit merely because total Gateway balance increased',async()=>{
   const store=makeStore();expect(writeGatewayMainnetOperation(deposit,store)).toBe(true);
   const result=await reconcileGatewayMainnetOperation(owner,deps,store);
-  expect(result.state).toBe('PENDING');
-  expect(result.reason).toContain('Deposit confirmed · credit pending');
-  expect(readGatewayMainnetOperation(owner,store)).toMatchObject({status:'SOURCE_CONFIRMED'});
-  expect(readGatewayMainnetHistory(owner,store)).toEqual([]);
- });
- it('rejects an unrelated provider credit even if an exact deposit finalized',async()=>{
-  const store=makeStore();writeGatewayMainnetOperation(deposit,store);
-  const result=await reconcileGatewayMainnetOperation(owner,{
-   ...deps,getDepositCreditProof:()=>Promise.resolve({...credit,sourceTxHash:'0x'+'f'.repeat(64)})},store);
-  expect(result.state).toBe('PENDING');
-  expect(readGatewayMainnetOperation(owner,store)).not.toBeNull();
-  expect(parseGatewayDepositCreditProof({...credit,owner:recipient},deposit,sourceReceipt)).toBeNull();
- });
- it('archives only an exact individually attributed provider credit and finalized deposit',async()=>{
-  const store=makeStore();writeGatewayMainnetOperation(deposit,store);
-  const result=await reconcileGatewayMainnetOperation(owner,{
-   ...deps,getDepositCreditProof:()=>Promise.resolve(credit)},store);
-  expect(result.state).toBe('VERIFIED');
+  expect(result.state).toBe('SOURCE_FINALIZED');
+  expect(result.reason).toContain('credit is not individually attributed');
   expect(readGatewayMainnetOperation(owner,store)).toBeNull();
+  expect(readGatewayMainnetHistory(owner,store)).toEqual([expect.objectContaining({status:'SOURCE_FINALIZED',sourceHash})]);
+ });
+ it('a source-finalized deposit does not block a distinct second action while Circle balance remains independently authoritative',async()=>{
+  const store=makeStore();expect(writeGatewayMainnetOperation(deposit,store)).toBe(true);
+  const first=await reconcileGatewayMainnetOperation(owner,deps,store);
+  expect(first.state).toBe('SOURCE_FINALIZED');
+  expect(first.receipt).toMatchObject({kind:'deposit',status:'SOURCE_FINALIZED',sourceHash,sourceBlockHash:blockHash});
+  expect(first.receipt?.gatewayCreditReference).toBeUndefined();
+  const next:GatewayMainnetOperation={...deposit,id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+   sourceHash:undefined,status:'UNKNOWN',createdAt:Date.now()+1000};
+  expect(writeGatewayMainnetOperation(next,store)).toBe(true);
+  expect(readGatewayMainnetOperation(owner,store)).toMatchObject({id:next.id,status:'UNKNOWN'});
+  const second=await reconcileGatewayMainnetOperation(owner,deps,store);
+  expect(second.state).toBe('PENDING');
+  expect(readGatewayMainnetOperation(owner,store)).not.toBeNull();
+  const receipts=readGatewayMainnetHistory(owner,store);
+  if(receipts==='blocked')throw Error('Corrupt history');
+  expect(receipts).toHaveLength(1);
+  expect(receipts[0]?.status).toBe('SOURCE_FINALIZED');
+ });
+ it('source finalized never creates a speculative provider credit record',async()=>{
+  const store=makeStore();writeGatewayMainnetOperation(deposit,store);
+  const result=await reconcileGatewayMainnetOperation(owner,deps,store);
+  expect(result.state).toBe('SOURCE_FINALIZED');
+  expect(result.receipt?.status).toBe('SOURCE_FINALIZED');
+  expect(result.receipt?.gatewayCreditReference).toBeUndefined();
   const history=readGatewayMainnetHistory(owner,store);
   if(history==='blocked')throw Error('Invalid history');
   expect(history).toHaveLength(1);
-  expect(history[0]?.gatewayCreditReference).toBe('gateway-credit-123');
+  expect(history[0]?.status).toBe('SOURCE_FINALIZED');
  });
- it('wrong calldata/sender is not a deposit even with a provider credit',async()=>{
+ it('wrong calldata or sender never unlocks a deposit checkpoint',async()=>{
   const store=makeStore();writeGatewayMainnetOperation(deposit,store);
   const result=await reconcileGatewayMainnetOperation(owner,{
-   ...deps,getTransaction:()=>Promise.resolve({...tx,from:recipient}),
-   getDepositCreditProof:()=>Promise.resolve(credit)},store);
+   ...deps,getTransaction:()=>Promise.resolve({...tx,from:recipient})},store);
   expect(result.state).toBe('PENDING');
   expect(readGatewayMainnetOperation(owner,store)).not.toBeNull();
  });
@@ -93,8 +100,7 @@ describe('Circle Gateway per-source finality and individual credit',()=>{
  it('rejects a reorged block with same transaction hash but different canonical hash',async()=>{
   const store=makeStore();writeGatewayMainnetOperation(deposit,store);
   const result=await reconcileGatewayMainnetOperation(owner,{
-   ...deps,getCanonicalBlock:()=>Promise.resolve({...canonical,hash:'0x'+'d'.repeat(64)}),
-   getDepositCreditProof:()=>Promise.resolve(credit)},store);
+   ...deps,getCanonicalBlock:()=>Promise.resolve({...canonical,hash:'0x'+'d'.repeat(64)})},store);
   expect(result.state).toBe('PENDING');
   expect(readGatewayMainnetOperation(owner,store)).not.toBeNull();
  });

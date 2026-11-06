@@ -13,7 +13,7 @@ export type GatewayMainnetOperation={
  beforeAvailable?:string;minimumReceive?:string;
 };
 export type GatewayMainnetReceipt={
- version:1;operationId:string;owner:string;kind:'deposit'|'spend';status:'VERIFIED'|'REVERTED'|'CANCELLED_BEFORE_SOURCE';
+ version:1;operationId:string;owner:string;kind:'deposit'|'spend';status:'VERIFIED'|'REVERTED'|'SOURCE_FINALIZED'|'CANCELLED_BEFORE_SOURCE';
  chainId:number;destinationChainId?:number;recipient:string;amount:string;
  sourceHash?:string;destinationHash?:string;transferId?:string;verifiedAt:number;
  sourceBlockHash?:string;destinationBlockHash?:string;
@@ -53,7 +53,8 @@ export function validGatewayMainnetReceipt(x:unknown,owner:string):x is GatewayM
  return r.version===1&&typeof r.operationId==='string'&&/^[0-9a-f-]{36}$/i.test(r.operationId)&&
   r.owner===getAddress(owner).toLowerCase()&&
   (r.kind==='deposit'||r.kind==='spend')&&
-  (r.status==='VERIFIED'||r.status==='REVERTED'||r.status==='CANCELLED_BEFORE_SOURCE')&&supported(r.chainId!)&&
+  (r.status==='VERIFIED'||r.status==='REVERTED'||r.status==='SOURCE_FINALIZED'||r.status==='CANCELLED_BEFORE_SOURCE')&&
+  (r.status!=='SOURCE_FINALIZED'||r.kind==='deposit')&&supported(r.chainId!)&&
   (r.destinationChainId===undefined||supported(r.destinationChainId))&&
   typeof r.recipient==='string'&&isAddress(r.recipient)&&
   amountOk(r.amount)&&parseUnits(r.amount,6)>0n&&
@@ -152,17 +153,18 @@ export function readGatewayMainnetHistoryPage(owner:string,page:number,store?:Ga
  GatewayMainnetReceipt[]|'blocked'{
  try{return readPage(owner,page,store??localStorage);}catch{return 'blocked';}
 }
-export function readGatewayMainnetHistory(owner:string,store?:GatewayStore):GatewayMainnetReceipt[]|'blocked'{
+export function readGatewayMainnetHistory(owner:string,store?:GatewayStore,limit=100):GatewayMainnetReceipt[]|'blocked'{
  try{
+  if(!Number.isInteger(limit)||limit<1||limit>10000)return 'blocked';
   const storage=store??localStorage,head=historyHead(owner,storage);
   if(head==='blocked')return 'blocked';
   const visible:GatewayMainnetReceipt[]=[];
-  for(let page=head;page>=0&&visible.length<PAGE_LIMIT;page--){
+  for(let page=head;page>=0&&visible.length<limit;page--){
    const entries=readPage(owner,page,storage);
    if(entries==='blocked')return 'blocked';
    visible.push(...[...entries].reverse());
   }
-  return visible.slice(0,PAGE_LIMIT);
+  return visible.slice(0,limit);
  }catch{return 'blocked';}
 }
 /** Immutable identity of the original receipt, excluding observed-at time and
@@ -178,9 +180,9 @@ export function gatewayReceiptEvidenceKey(r:GatewayMainnetReceipt):string{
 export function archiveGatewayMainnetReceipt(receipt:GatewayMainnetReceipt,
  store?:GatewayStore):boolean{
  if(!validGatewayMainnetReceipt(receipt,receipt.owner))return false;
- // Legacy receipts may still be displayed, but a NEW verified deposit requires
- // a Circle-origin, original-tx-linked provider credit reference.
- if(receipt.kind==='deposit'&&receipt.status==='VERIFIED'&&!receipt.gatewayCreditReference)return false;
+ // Legacy credited receipts remain readable, but new credited receipts cannot
+ // be created from an undocumented creditId schema.
+ if(receipt.kind==='deposit'&&receipt.status==='VERIFIED')return false;
  try{
   const storage=store??localStorage;
   const active=readGatewayMainnetOperation(receipt.owner,storage);

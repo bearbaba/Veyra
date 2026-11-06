@@ -18,14 +18,19 @@ export function MainnetUnifiedActivity(){
  const [history,setHistory]=useState<GatewayMainnetReceipt[]|'blocked'>([]);
  const [checking,setChecking]=useState(false);
  const [notice,setNotice]=useState('');
+ const visibleLimit=useRef(100);
+ const [hasOlder,setHasOlder]=useState(false);
  const lock=useRef(false);
  const checkRef=useRef<()=>Promise<void>>(()=>Promise.resolve());
  const owner=address?.toLowerCase()??'';
  const activeId=active&&active!=='blocked'?active.id:'';
  const refresh=()=>{
-  if(!address){setActive(null);setHistory([]);return;}
+  if(!address){setActive(null);setHistory([]);setHasOlder(false);return;}
   setActive(readGatewayMainnetOperation(address));
-  setHistory(readGatewayMainnetHistory(address));
+  const limit=visibleLimit.current;
+  const entries=readGatewayMainnetHistory(address,undefined,limit+1);
+  setHistory(entries==='blocked'?'blocked':entries.slice(0,limit));
+  setHasOlder(entries!=='blocked'&&entries.length>limit);
  };
  async function checkOriginal(){
   if(!address||!active||active==='blocked'||lock.current)return;
@@ -71,6 +76,7 @@ export function MainnetUnifiedActivity(){
  }
  checkRef.current=checkOriginal;
  useEffect(()=>{
+  visibleLimit.current=100;
   refresh();
   const onFocus=()=>{refresh();if(document.visibilityState==='visible')void checkRef.current();};
   const onVisible=()=>{if(document.visibilityState==='visible')onFocus();};
@@ -137,6 +143,7 @@ export function MainnetUnifiedActivity(){
    style={{borderColor:'var(--border)',color:'var(--ink)'}}>
    <p className="text-sm font-semibold">
     {receipt.kind==='deposit'?'Unified deposit':'Unified transfer'} · {
+     receipt.status==='SOURCE_FINALIZED'?'Source finalized · credit not attributed':
      receipt.status==='VERIFIED'?(receipt.kind==='deposit'&&!receipt.gatewayCreditReference?'Legacy credit · review required':'Verified'):
      receipt.status==='REVERTED'?'Reverted':'Cancelled before submission'}
    </p>
@@ -156,9 +163,17 @@ export function MainnetUnifiedActivity(){
     </div>
    </details>
   </div>)}
+  {history!=='blocked'&&hasOlder&&<button type="button"
+   className="veyra-btn-secondary min-h-10 w-full rounded-xl px-3 text-xs"
+   onClick={()=>{if(!address)return;const next=Math.min(visibleLimit.current+100,9900);
+    const entries=readGatewayMainnetHistory(address,undefined,next+1);
+    if(entries==='blocked'){setHistory('blocked');setHasOlder(false);return;}
+    setHistory(entries.slice(0,next));setHasOlder(entries.length>next);visibleLimit.current=next;}}>
+   Load older
+  </button>}
   <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
-   Latest 100 receipts shown; older history is retained in local pages. Device-only, no backend sync.
-   A source receipt is not proof of Gateway credit or destination settlement.
+   Older receipts can be loaded from local history. Device-only, no backend sync.
+   Source finality is not proof of Gateway credit. Available is read separately from Circle.
   </p>
  </section>;
 }

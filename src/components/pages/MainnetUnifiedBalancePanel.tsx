@@ -92,7 +92,7 @@ export function MainnetUnifiedBalancePanel(){
   refresh();
   const interval=window.setInterval(refresh,60000);
   window.addEventListener('focus',refresh);
-  const changed=()=>setOperation(readGatewayMainnetOperation(ownerAddress));
+  const changed=()=>refresh();
   window.addEventListener('veyra:gateway:mainnet',changed);
   return()=>{active=false;window.clearInterval(interval);
    window.removeEventListener('focus',refresh);window.removeEventListener('veyra:gateway:mainnet',changed);};
@@ -182,7 +182,7 @@ export function MainnetUnifiedBalancePanel(){
    Connect a wallet and sign in to Veyra ID to read the owner's Gateway ledger.
   </p>:error&&<p role="alert" className="mt-2 text-xs" style={{color:'var(--warning)'}}>{error}</p>}
   <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
-   {current?'Gateway funds are confirmed per source; total Available may span multiple chains. Pending is not spendable.':
+   {current?'Available is the current Circle Gateway ledger, not a sum of deposit receipts. Pending is separate and not spendable.':
     'Gateway values are not confirmed in this session; wallet funds remain separate.'}
   </p>
   {current&&<details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
@@ -196,7 +196,7 @@ export function MainnetUnifiedBalancePanel(){
    style={{borderColor:'var(--border)',color:'var(--warning)'}}>
    <Clock3 className="mr-1 inline size-4"/>
    {operation==='blocked'?'Previous Unified recovery data is unreadable. Do not submit another transaction.':
-    operation?.kind==='deposit'?'Gateway deposit is still being verified. Check Activity before another.':
+    operation?.kind==='deposit'?'The original Gateway deposit is not finalized onchain. Check Activity; a finalized deposit will release this submission lock.':
     'Unified transfer outcome is not independently verified. Check Activity before another.'}
   </p>}
   <div className="mt-3 flex flex-wrap gap-2">
@@ -219,7 +219,7 @@ export function MainnetUnifiedBalancePanel(){
     <button type="button" onClick={()=>setMode(null)} className="veyra-btn-secondary px-2 text-xs">Close</button>
    </div>
    <p className="text-xs" style={{color:'var(--muted)'}}>
-    {mode==='deposit'?'Deposit credit waits for Circle-confirmed source finality. Time varies by network.':
+    {mode==='deposit'?'Source deposit finality and Circle Gateway Available are separate milestones. Only the provider ledger is spendable.':
      'The Circle forwarding service pays destination gas from its quoted fee. No automatic trustless withdrawal.'}
    </p>
    {mode==='spend'&&<button type="button" className="text-xs underline"
