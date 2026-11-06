@@ -541,10 +541,22 @@ app.post('/api/social/unfollow', IDENTITY_RATE, async (req: Request, res: Respon
 
 // Chat is independently capability-gated. A signed ID is still required for
 // every actual list/send call; capability does not grant financial authority.
-app.get('/api/social/chat/capability',IDENTITY_RATE,(req:Request,res:Response):void=>{
+app.get('/api/social/chat/capability',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
   const owner=getAuthenticatedVeyraUserId(req);
   if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
-  res.json({ok:true,available:Boolean(encryptionKey()),endToEndEncrypted:false});
+  if(!encryptionKey()){
+    res.json({ok:true,available:false,endToEndEncrypted:false,reason:'CHAT_KEY_NOT_CONFIGURED'});
+    return;
+  }
+  try{
+    const {db}=await import('./db/client.js');
+    const ready=await db.execute(sql`SELECT to_regclass('public.veyra_direct_messages') AS chat`);
+    const row=ready.rows[0] as {chat?:unknown}|undefined;
+    res.json({ok:true,available:Boolean(row?.chat),endToEndEncrypted:false,
+      ...(!row?.chat?{reason:'CHAT_MIGRATION_NOT_APPLIED'}:{})});
+  }catch{
+    res.json({ok:true,available:false,endToEndEncrypted:false,reason:'CHAT_DATABASE_UNAVAILABLE'});
+  }
 });
 app.get('/api/social/chat',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
   try{
@@ -864,13 +876,26 @@ app.post('/api/identity/verify-payment', IDENTITY_RATE, async (req: Request, res
 
 // Lightweight capability; no X redirects or identity signatures are requested.
 // Returns false until provider credentials and an exact reviewed callback exist.
-app.post('/api/auth/x/capability', IDENTITY_RATE, (req:Request,res:Response):void=>{
+app.post('/api/auth/x/capability', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
   try {
     const origin=req.header('origin');
     checkedXReturnOrigin(origin,[runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
-    const callbackUrl = resolveXCallbackUrl();
-    res.json({ok:true,available:callbackUrl!==null&&isConfiguredXOAuth(process.env.X_CLIENT_ID, callbackUrl)});
-  } catch(err){identityError(res,err);}
+    const callbackUrl=resolveXCallbackUrl();
+    if(callbackUrl===null||!isConfiguredXOAuth(process.env.X_CLIENT_ID,callbackUrl)){
+      res.json({ok:true,available:false,reason:'X_CREDENTIALS_OR_CALLBACK_NOT_CONFIGURED'});
+      return;
+    }
+    const {db}=await import('./db/client.js');
+    const ready=await db.execute(sql`
+      SELECT
+      (SELECT COUNT(*) FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='oauth_link_states'
+        AND column_name IN ('pending_profile','linked_at')) AS columns_ok
+    `);
+    const row=ready.rows[0] as {columns_ok?:unknown}|undefined;
+    res.json({ok:true,available:Number(row?.columns_ok)===2,
+      ...(Number(row?.columns_ok)!==2?{reason:'X_OAUTH_MIGRATION_NOT_APPLIED'}:{})});
+  }catch(err){identityError(res,err);}
 });
 
 // ── POST /api/auth/x/start ───────────────────────────────────────────────────
