@@ -225,6 +225,10 @@
     {
       "source": "/api/social/payment-requests/cancel",
       "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/social/payment-requests/cancel"
+    },
+    {
+      "source": "/api/social/payment-requests/attempt",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/social/payment-requests/attempt"
     }
   ]
 }
