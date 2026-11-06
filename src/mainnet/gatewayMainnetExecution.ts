@@ -107,7 +107,7 @@ function validate(review:GatewayMainnetReview){
 function reviewedSdkAllocations(review:GatewayMainnetReview){
  if(!review.allocations?.length)throw Error('Source allocation was not reviewed.');
  const parts=review.allocations.map(x=>({chain:picked(x.chainId).chain,amount:x.amount}));
- return parts.length===1?parts[0]!:parts;
+ return parts.length===1?parts[0]:parts;
 }
 export async function estimateGatewayMainnetSpend(review:GatewayMainnetReview,
  provider:EIP1193Provider):Promise<GatewaySdkFee[]>{
