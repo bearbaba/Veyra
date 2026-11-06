@@ -1,7 +1,7 @@
 /** Mainnet Unified on Home. Provenance: Circle SDK ledger, not ERC20 wallet total.
  * All onchain writes are gated, explicit and checkpointed before provider calls.
  */
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {AppKit} from '@circle-fin/app-kit';
 import {erc20Abi,formatUnits,isAddress,parseUnits,type EIP1193Provider} from 'viem';
 import {useAccount,usePublicClient,useReadContracts,useSwitchChain} from 'wagmi';
@@ -13,7 +13,7 @@ import {GATEWAY_MAINNET_CHAINS,GATEWAY_MAINNET_WRITE_ENABLED,
  gatewayMainnetAmount,fetchGatewayMainnetBalances,formatGatewayUsdc,
  type GatewayMainnetBalance} from '@/mainnet/gatewayMainnetBalances';
 import {readGatewayMainnetOperation,type GatewayMainnetOperation} from '@/mainnet/gatewayMainnetJournal';
-import {planGatewayMultiSource,type GatewayAllocation} from '@/mainnet/gatewayMultiSourceAllocation';
+import {planGatewayMultiSource,matchingGatewayAllocation,type GatewayAllocation} from '@/mainnet/gatewayMultiSourceAllocation';
 import {estimateGatewayMainnetSpend,submitGatewayMainnetReview,
  type GatewayMainnetReview} from '@/mainnet/gatewayMainnetExecution';
 import type {GatewaySdkFee} from '@/core/gateway/gatewaySdkSpend';
@@ -49,6 +49,7 @@ export function MainnetUnifiedBalancePanel(){
  const [amount,setAmount]=useState('');
  const [fees,setFees]=useState<GatewaySdkFee[]|null>(null);
  const [review,setReview]=useState(false);
+ const reviewedPlan=useRef<GatewayMainnetReview|null>(null);
  const [advanced,setAdvanced]=useState(false);
  const [busy,setBusy]=useState(false);
  const owner=address?.toLowerCase()??'';
@@ -120,9 +121,9 @@ export function MainnetUnifiedBalancePanel(){
   availableForSource!==null&&units>0n&&units<=availableForSource;
  const validRecipient=!!address&&isAddress(recipient);
  const good=!!current&&!previous&&validAmount&&enough&&validRecipient&&signed&&!loading;
- async function connectedProvider():Promise<EIP1193Provider>{
+ async function connectedProvider(frozenSource?:number):Promise<EIP1193Provider>{
   if(!address||!connector)throw Error('Connect your wallet first.');
-  await switchChainAsync({chainId:mode==='spend'?allocations[0]?.chainId??sourceId:sourceId});
+  await switchChainAsync({chainId:frozenSource??(mode==='spend'?allocations[0]?.chainId??sourceId:sourceId)});
   const raw:unknown=await connector.getProvider();
   if(!raw||typeof raw!=='object'||!('request' in raw)||
    typeof raw.request!=='function')throw Error('Connected wallet provider is unavailable.');
@@ -140,24 +141,37 @@ export function MainnetUnifiedBalancePanel(){
   if(!good||busy)return;
   setBusy(true);setError('');
   try{
+   const planned=checkpoint();
    if(mode==='spend'){
-    const provider=await connectedProvider();
-    const estimated=await estimateGatewayMainnetSpend(checkpoint(),provider);
+    const provider=await connectedProvider(planned.sourceChainId);
+    const estimated=await estimateGatewayMainnetSpend(planned,provider);
     setFees(estimated);
-   }
+    reviewedPlan.current={...planned,fees:estimated};
+   }else reviewedPlan.current=planned;
    setReview(true);
   }catch(e){setError(e instanceof Error?e.message:'Gateway estimate could not be verified.');}
   finally{setBusy(false);}
  }
  async function execute(){
-  if(!review||!good||busy||!canPilot)return;
+  if(!review||!good||busy||!canPilot||!reviewedPlan.current)return;
   setBusy(true);setError('');
   try{
-   const provider=await connectedProvider();
-   const id=mode==='spend'?allocations[0]?.chainId??sourceId:sourceId;
+   const frozen=reviewedPlan.current;
+   const latest=checkpoint();
+   if(latest.owner!==frozen.owner||latest.kind!==frozen.kind||
+    latest.recipient.toLowerCase()!==frozen.recipient.toLowerCase()||
+    latest.amount!==frozen.amount||latest.sourceChainId!==frozen.sourceChainId||
+    latest.destinationChainId!==frozen.destinationChainId||
+    latest.sessionToken!==frozen.sessionToken||
+    latest.balance.readAt!==frozen.balance.readAt||
+    latest.manualSourceChainId!==frozen.manualSourceChainId||
+    !matchingGatewayAllocation(latest.allocations??[],frozen.allocations??[]))
+    throw Error('Balance or route changed after review. Review sources and fees again; no signature requested.');
+   const provider=await connectedProvider(frozen.sourceChainId);
+   const id=frozen.sourceChainId;
    const client=id===1?eth:id===8453?base:arc;
    if(!client)throw Error('Source network RPC unavailable.');
-   const confirmed=await submitGatewayMainnetReview(checkpoint(),provider,client);
+   const confirmed=await submitGatewayMainnetReview(frozen,provider,client);
    setOperation(confirmed);setReview(false);setFees(null);
    setError('Original transaction saved in Activity. Wait for independent Gateway confirmation; do not submit again.');
   }catch(e){
@@ -280,9 +294,9 @@ export function MainnetUnifiedBalancePanel(){
     Insufficient confirmed {mode==='spend'?'Gateway Available':'wallet USDC on '+activeSource.chain}.
    </p>}
    {review&&<div className="rounded-lg border p-3 text-xs" style={{borderColor:'var(--border)'}}>
-    <p className="font-semibold">Review · {amount} USDC {mode==='spend'?'· '+allocations.length+' source(s)':'· '+activeSource.chain}</p>
+    <p className="font-semibold">Review · {reviewedPlan.current?.amount??amount} USDC {mode==='spend'?'· '+(reviewedPlan.current?.allocations?.length??allocations.length)+' source(s)':'· '+activeSource.chain}</p>
     {mode==='spend'&&<div className="mt-2 space-y-1" aria-label="Reviewed source allocations">
-      {allocations.map(a=><p key={a.chainId}>{a.chain} · {a.amount} USDC</p>)}
+      {(reviewedPlan.current?.allocations??allocations).map(a=><p key={a.chainId}>{a.chain} · {a.amount} USDC</p>)}
     </div>}
     <p className="mt-1">{mode==='spend'?'To '+recipient+' on '+C.find(c=>c.chainId===destinationId)?.chain:
      'Deposit to Circle Gateway · same wallet owner'}</p>
