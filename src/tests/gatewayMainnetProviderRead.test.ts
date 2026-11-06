@@ -5,7 +5,7 @@ const hash='0x'+'f'.repeat(64);
 const response=(data:unknown,status=200)=>new Response(JSON.stringify(data),{status});
 describe('Official Circle Gateway forwarding REST GET reads',()=>{
  it('loads transfer by UUID, then its exact transferSpecHash (read-only)',async()=>{
-  const fetcher=vi.fn((url:RequestInfo|URL)=>Promise.resolve(String(url).includes('/transferSpec/')?
+  const fetcher=vi.fn((url:RequestInfo|URL)=>Promise.resolve((typeof url==='string'?url:url instanceof URL?url.href:url.url).includes('/transferSpec/')?
    response({value:'10000',sourceDomain:6}):
    response({status:'finalized',burnIntents:[{transferSpecHash:hash}]})));
   const result=await fetchGatewayForwardingProof(id,fetcher);
