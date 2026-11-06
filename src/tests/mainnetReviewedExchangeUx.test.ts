@@ -33,6 +33,10 @@ describe('Veyra reviewed routes are the ONLY source for selectors and pause stat
   const circle=source('components/pages/MainnetCirclePage.tsx');
   expect(page).toContain('reviewedExchangeNetworks');
   expect(page).toContain('reviewedExchangeAssets');
+  expect(page).toContain("side==='to'?other:undefined");
+  expect(page).toContain('Reverse swap pair');
+  expect(page).toContain('receiveSelector=');
+  expect(circle).toContain("{mode==='swap'&&receiveSelector}");
   expect(page).toContain('Quotes only · Transfers temporarily paused');
   expect(page).not.toContain('Show unsupported');
   expect(page).not.toContain('Owned first');

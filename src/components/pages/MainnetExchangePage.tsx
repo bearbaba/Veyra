@@ -39,7 +39,7 @@ function AssetPicker({side,mode,value,other,balances,onChoose,onClose}:{
  balances:Record<string,bigint>;onChoose:(asset:ExchangeAsset)=>void;onClose:()=>void;
 }){
  const [query,setQuery]=useState('');
- const eligible=reviewedExchangeAssets(mode,side,other);
+ const eligible=reviewedExchangeAssets(mode,side,side==='to'?other:undefined);
  const term=query.trim().toLowerCase();
  const items=eligible.filter(a=>!term||[a.name,a.symbol,a.contractAddress,a.network]
   .some(s=>s.toLowerCase().includes(term)))
@@ -106,7 +106,6 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
  const [intentBlocked,setIntentBlocked]=useState(false);
  const [engineBusy,setEngineBusy]=useState(false);
  const owner=address?.toLowerCase()??'';
- const availableSources=reviewedExchangeAssets(mode,'from');
  const availableDestinations=reviewedExchangeAssets(mode,'to',from);
  const readable=useMemo(()=>{
   const unique=new Map<string,ExchangeAsset>();
@@ -209,7 +208,11 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
      </span>
     </div>
     <div className="space-y-2">
-     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU PAY · TOKEN</p>
+     <div className="flex items-center justify-between gap-3">
+      <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU PAY · TOKEN</p>
+      <button type="button" disabled={locked} onClick={reverse} className="veyra-btn-secondary gap-2 text-xs"
+       aria-label="Reverse swap pair"><ArrowRightLeft className="size-4"/> Reverse</button>
+     </div>
      <button type="button" disabled={locked} onClick={()=>setPicking('from')}
       className="veyra-route-control flex w-full items-center gap-3 p-3 text-left disabled:opacity-50">
       <BrandLogo logoKey={from.logo} size={38}/>
@@ -236,11 +239,8 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
     </div>
    </>}
    {canQuote?<MainnetCirclePage key={mode+':'+exchangeAssetId(from)+':'+exchangeAssetId(to)}
-    embedded mode={mode} selection={selection} onFinancialBusyChange={setEngineBusy}/>:
-    <p role="status" className="rounded-xl border p-3 text-sm" style={{color:'var(--warning)',borderColor:'var(--border)'}}>
-     This pair has no reviewed {mode} quote route. No transaction can start.
-    </p>}
-   {mode==='swap'&&<div className="space-y-2 border-t pt-4" style={{borderColor:'var(--border)'}}>
+    embedded mode={mode} selection={selection} onFinancialBusyChange={setEngineBusy}
+    receiveSelector={mode==='swap'?<div className="space-y-2 border-t pt-4" style={{borderColor:'var(--border)'}}>
     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU RECEIVE · TOKEN</p>
     <button type="button" disabled={locked} onClick={()=>setPicking('to')}
      className="veyra-route-control flex w-full items-center gap-3 p-3 text-left disabled:opacity-50">
@@ -249,7 +249,10 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
       <span className="block text-xs" style={{color:'var(--muted)'}}>{to.name}</span></span>
      <ChevronDown className="size-4 shrink-0"/>
     </button>
-   </div>}
+   </div>:undefined}/>:
+    <p role="status" className="rounded-xl border p-3 text-sm" style={{color:'var(--warning)',borderColor:'var(--border)'}}>
+     This pair has no reviewed {mode} quote route. No transaction can start.
+    </p>}
    {(locked||intentPrior)&&<p role="status" className="flex items-start gap-2 text-xs leading-5"
      style={{color:'var(--warning)'}}>
      <Info className="mt-0.5 size-4 shrink-0"/>

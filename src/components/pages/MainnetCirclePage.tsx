@@ -4,7 +4,7 @@
  * The SDK may submit multiple transactions; local recovery locks prevent blind repeats.
  * VERIFIED requires independently checked destination USDC or swap output logs.
  */
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {AppKit} from '@circle-fin/app-kit';
 import {createViemAdapterFromProvider} from '@circle-fin/adapter-viem-v2';
 import {useAccount,usePublicClient,useReadContract,useSwitchChain} from 'wagmi';
@@ -77,9 +77,9 @@ function parseSaved(raw:string|null,owner:string,mode:Mode):Recovery|null {
  (p.mintHash!==undefined&&!HASH.test(p.mintHash)))throw Error('Invalid prior operation');
  return p;
 }
-export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusyChange}:{
+export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusyChange,receiveSelector}:{
  mode:Mode;selection?:ExchangeExecutionSelection;embedded?:boolean;
- onFinancialBusyChange?:(blocked:boolean)=>void;
+ onFinancialBusyChange?:(blocked:boolean)=>void;receiveSelector?:ReactNode;
 }){
  const {address,connector}=useAccount();
  const {switchChainAsync}=useSwitchChain();
@@ -449,6 +449,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
       </span>
      </div>
     </div>
+    {mode==='swap'&&receiveSelector}
     <div className="space-y-2 rounded-xl border p-3" style={{background:'var(--surface-raised)',borderColor:'var(--border)'}}>
      <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU RECEIVE · {mode==='swap'?toToken:'USDC'}{mode==='bridge'?' · '+label(selectedDest):''}</p>
      <p className="display text-2xl font-bold tabular-nums" style={{color:'var(--ink)'}}>
