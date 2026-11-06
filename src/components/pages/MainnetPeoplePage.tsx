@@ -4,8 +4,10 @@ import {useAccount} from 'wagmi';
 import {isMainnetSessionForWallet} from '@/mainnet/signedWalletReceiptScope';
 import {UserRoundCheck,Send,ShieldAlert,Copy,Search,ChevronDown,MessageCircle,Heart} from 'lucide-react';
 import {FriendChat} from '../../features/social/FriendChat';
+import {readSettlementIntent,resumablePaymentAttempt} from '@/mainnet/settlementJournal';
+import {formatUnits} from 'viem';
 import {lookupMainnetRecipient} from '@/mainnet/recipientLookup';
-import {reviewPeerRequest,type VeyraPaymentRequest} from '@/lib/api/paymentRequests';
+import {reviewPeerRequest,readPeerRequestAttempt,type VeyraPaymentRequest} from '@/lib/api/paymentRequests';
 import {useUnifiedSocial,friendLabel} from '../../features/social/UnifiedSocial';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
 import {MainnetContactsPage} from './MainnetContactsPage';
@@ -65,9 +67,19 @@ export function MainnetPeoplePage({onPayVerified,onPayRequest,onPayWallet,initia
   setPaymentBusy(true);setFriendActionError(null);
   try{
    const checked=await reviewPeerRequest(social.session.token,request.requestId);
-   if(checked.status!=='PENDING'||checked.paymentInProgress||checked.payerUserId!==ownerId||
+   if(checked.status!=='PENDING'||checked.payerUserId!==ownerId||
     checked.requesterUserId!==peer.veyraUserId||Date.parse(checked.expiresAt)<=Date.now())
     throw Error('This request is no longer payable. Refresh the conversation.');
+   if(checked.paymentInProgress){
+    const attemptId=resumablePaymentAttempt(readSettlementIntent(address),{
+     owner:address,requestId:checked.requestId,recipient:checked.recipientWallet,
+     amount:formatUnits(BigInt(checked.amountRaw),6),ref:checked.paymentRef});
+    if(!attemptId)throw Error('Another attempt is pending or unknown on this wallet. Recover original Activity; never create a second attempt.');
+    const recovered=await readPeerRequestAttempt(social.session.token,
+     checked.requestId,address,attemptId);
+    if(!recovered.matches||recovered.request.status!=='PENDING')
+     throw Error('Server reservation does not match the saved attempt. No new payment.');
+   }
    const found=await lookupMainnetRecipient('@'+peer.veyraHandle+'.veyra',address,social.session.token);
    if(found.kind!=='veyra'||found.person.veyraUserId!==peer.veyraUserId||
     found.person.wallet.toLowerCase()!==checked.recipientWallet.toLowerCase())
