@@ -15,7 +15,8 @@ const tx:GatewayChainTx={from:owner,to:GATEWAY_MAINNET_WALLET,hash:sourceHash,
 const transfer=parseAbi(['event Transfer(address indexed from,address indexed to,uint256 value)']);
 const log=(tokenAddress:string,from:string,to:string,value:bigint)=>({
  address:tokenAddress,
- topics:encodeEventTopics({abi:transfer,eventName:'Transfer',args:{from:from as Hex,to:to as Hex}}),
+ topics:encodeEventTopics({abi:transfer,eventName:'Transfer',args:{from:from as Hex,to:to as Hex}})
+  .flatMap(topic=>typeof topic==='string'?[topic]:[]),
  data:encodeAbiParameters([{type:'uint256'}],[value]),
 });
 const sourceReceipt:GatewayChainReceipt={status:'success',transactionHash:sourceHash,blockHash,
