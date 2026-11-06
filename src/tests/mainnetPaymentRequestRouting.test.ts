@@ -8,6 +8,7 @@ const routes=[
  ['POST','/api/social/payment-requests/review'],
  ['POST','/api/social/payment-requests/cancel'],
  ['POST','/api/social/payment-requests/claim'],
+ ['POST','/api/social/payment-requests/attempt'],
 ] as const;
 describe('Veyra signed request API end-to-end routing',()=>{
  it('every typed action is mapped in the BFF, identity allowlist and Vercel',()=>{
