@@ -5,7 +5,7 @@
  */
 import {getAddress,isAddress,parseUnits} from 'viem';
 export type GatewayOperationStatus='UNKNOWN'|'SUBMITTED'|'CREDIT_OBSERVED'|'DESTINATION_UNVERIFIED'|
- 'VERIFIED'|'REVERTED';
+ 'VERIFIED'|'REVERTED'|'SOURCE_CONFIRMED';
 export type GatewayMainnetOperation={
  version:1;id:string;owner:string;kind:'deposit'|'spend';chainId:number;
  destinationChainId?:number;recipient:string;amount:string;createdAt:number;
@@ -19,6 +19,8 @@ export type GatewayMainnetReceipt={
  sourceBlockHash?:string;destinationBlockHash?:string;
  gatewayConfirmedBefore?:string;gatewayConfirmedAfter?:string;received?:string;
  rejectionMethod?:string;
+ /** Provider-attested *individual* deposit reference, never an aggregate balance delta. */
+ gatewayCreditReference?:string;
 };
 const HASH=/^0x[0-9a-fA-F]{64}$/;
 const AMOUNT=/^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,6})?$/;
@@ -38,7 +40,7 @@ export function validGatewayMainnetOperation(x:unknown,owner:string):x is Gatewa
   typeof o.recipient==='string'&&isAddress(o.recipient)&&
   amountOk(o.amount)&&parseUnits(o.amount,6)>0n&&
   typeof o.createdAt==='number'&&Number.isFinite(o.createdAt)&&o.createdAt>0&&
-  ['UNKNOWN','SUBMITTED','CREDIT_OBSERVED','DESTINATION_UNVERIFIED','VERIFIED','REVERTED'].includes(o.status??'')&&
+  ['UNKNOWN','SUBMITTED','CREDIT_OBSERVED','SOURCE_CONFIRMED','DESTINATION_UNVERIFIED','VERIFIED','REVERTED'].includes(o.status??'')&&
   (o.sourceHash===undefined||HASH.test(o.sourceHash))&&
   (o.destinationHash===undefined||HASH.test(o.destinationHash))&&
   (o.transferId===undefined||typeof o.transferId==='string'&&o.transferId.length<160)&&
@@ -66,6 +68,8 @@ export function validGatewayMainnetReceipt(x:unknown,owner:string):x is GatewayM
   (r.gatewayConfirmedBefore===undefined||amountOk(r.gatewayConfirmedBefore))&&
   (r.gatewayConfirmedAfter===undefined||amountOk(r.gatewayConfirmedAfter))&&
   (r.received===undefined||amountOk(r.received))&&
+  (r.gatewayCreditReference===undefined||typeof r.gatewayCreditReference==='string'&&
+   r.gatewayCreditReference.length>0&&r.gatewayCreditReference.length<=160)&&
   (r.status!=='CANCELLED_BEFORE_SOURCE'||(
    r.sourceHash===undefined&&r.destinationHash===undefined&&r.transferId===undefined&&
    r.sourceBlockHash===undefined&&r.destinationBlockHash===undefined&&
@@ -109,23 +113,73 @@ export function writeGatewayMainnetOperation(op:GatewayMainnetOperation,store?:G
   return saved;
  }catch{return false;}
 }
+/** 100 receipts per durable page, NOT 100 receipts total.
+ * Page 0 retains the original v1 key. Pages are append-only; the head cursor is
+ * written only after the new page has been verified on disk. Failed removal is
+ * safely retryable without rewriting proof with a new verifiedAt.
+ */
+const PAGE_LIMIT=100,MAX_PAGE=1_000_000,MAX_PAGE_BYTES=150_000;
+export const gatewayMainnetHistoryPageKey=(owner:string,page:number)=>
+ page===0?gatewayMainnetHistoryKey(owner):gatewayMainnetHistoryKey(owner)+':page:'+page;
+export const gatewayMainnetHistoryHeadKey=(owner:string)=>gatewayMainnetHistoryKey(owner)+':head';
+function historyHead(owner:string,storage:GatewayStore):number|'blocked'{
+ try{
+  const value=storage.getItem(gatewayMainnetHistoryHeadKey(owner));
+  if(value===null)return 0;
+  if(!/^(?:0|[1-9][0-9]{0,6})$/.test(value))return 'blocked';
+  const head=Number(value);
+  return head<=MAX_PAGE?head:'blocked';
+ }catch{return 'blocked';}
+}
+function readPage(owner:string,page:number,storage:GatewayStore):GatewayMainnetReceipt[]|'blocked'{
+ try{
+  if(!Number.isSafeInteger(page)||page<0||page>MAX_PAGE)return 'blocked';
+  const raw=storage.getItem(gatewayMainnetHistoryPageKey(owner,page));
+  if(!raw)return page===0?[]:'blocked';
+  if(raw.length>MAX_PAGE_BYTES)return 'blocked';
+  const parsed:unknown=JSON.parse(raw);
+  if(!Array.isArray(parsed)||parsed.length>PAGE_LIMIT||
+   !parsed.every(v=>validGatewayMainnetReceipt(v,owner)))return 'blocked';
+  const values=parsed as GatewayMainnetReceipt[];
+  if(new Set(values.map(x=>x.operationId)).size!==values.length)return 'blocked';
+  return values;
+ }catch{return 'blocked';}
+}
+export function readGatewayMainnetHistoryPage(owner:string,page:number,store?:GatewayStore):
+ GatewayMainnetReceipt[]|'blocked'{
+ try{return readPage(owner,page,store??localStorage);}catch{return 'blocked';}
+}
 export function readGatewayMainnetHistory(owner:string,store?:GatewayStore):GatewayMainnetReceipt[]|'blocked'{
  try{
-  const raw=(store??localStorage).getItem(gatewayMainnetHistoryKey(owner));
-  if(!raw)return [];if(raw.length>150000)return 'blocked';
-  const parsed:unknown=JSON.parse(raw);
-  if(!Array.isArray(parsed)||parsed.length>100||!parsed.every(v=>validGatewayMainnetReceipt(v,owner)))
-   return 'blocked';
-  const ids=new Set(parsed.map((r:GatewayMainnetReceipt)=>r.operationId));
-  if(ids.size!==parsed.length)return 'blocked';
-  return parsed;
+  const storage=store??localStorage,head=historyHead(owner,storage);
+  if(head==='blocked')return 'blocked';
+  const visible:GatewayMainnetReceipt[]=[];
+  for(let page=head;page>=0&&visible.length<PAGE_LIMIT;page--){
+   const entries=readPage(owner,page,storage);
+   if(entries==='blocked')return 'blocked';
+   visible.push(...[...entries].reverse());
+  }
+  return visible.slice(0,PAGE_LIMIT);
  }catch{return 'blocked';}
+}
+/** Immutable identity of the original receipt, excluding observed-at time and
+ * balance snapshots which can change between two safe archive attempts.
+ */
+export function gatewayReceiptEvidenceKey(r:GatewayMainnetReceipt):string{
+ return [r.version,r.operationId,r.owner,r.kind,r.status,r.chainId,
+  r.destinationChainId??'',r.recipient.toLowerCase(),r.amount,
+  r.sourceHash?.toLowerCase()??'',r.sourceBlockHash?.toLowerCase()??'',
+  r.destinationHash?.toLowerCase()??'',r.destinationBlockHash?.toLowerCase()??'',
+  r.transferId??'',r.received??'',r.rejectionMethod??'',r.gatewayCreditReference??''].join('|');
 }
 export function archiveGatewayMainnetReceipt(receipt:GatewayMainnetReceipt,
  store?:GatewayStore):boolean{
  if(!validGatewayMainnetReceipt(receipt,receipt.owner))return false;
- const storage=store??localStorage;
+ // Legacy receipts may still be displayed, but a NEW verified deposit requires
+ // a Circle-origin, original-tx-linked provider credit reference.
+ if(receipt.kind==='deposit'&&receipt.status==='VERIFIED'&&!receipt.gatewayCreditReference)return false;
  try{
+  const storage=store??localStorage;
   const active=readGatewayMainnetOperation(receipt.owner,storage);
   if(!active||active==='blocked'||active.id!==receipt.operationId||
    active.kind!==receipt.kind||active.chainId!==receipt.chainId||
@@ -136,17 +190,38 @@ export function archiveGatewayMainnetReceipt(receipt:GatewayMainnetReceipt,
    active.recipient.toLowerCase()!==receipt.recipient.toLowerCase()||
    active.amount!==receipt.amount||
    (receipt.kind==='deposit'&&active.sourceHash?.toLowerCase()!==receipt.sourceHash?.toLowerCase())||
-   (receipt.kind==='spend'&&active.transferId!==receipt.transferId))
+   (receipt.kind==='spend'&&active.transferId!==receipt.transferId))return false;
+  const head=historyHead(receipt.owner,storage);
+  if(head==='blocked')return false;
+  const headEntries=readPage(receipt.owner,head,storage);
+  if(headEntries==='blocked')return false;
+  const prior=headEntries.find(r=>r.operationId===receipt.operationId);
+  const atCapacity=headEntries.length>=PAGE_LIMIT&&!prior;
+  const target=head+(atCapacity?1:0);
+  if(target>MAX_PAGE)return false;
+  // A previously saved but not yet indexed next page may exist after a crash.
+  const existingNext=atCapacity?
+   storage.getItem(gatewayMainnetHistoryPageKey(receipt.owner,target)):null;
+  let page=atCapacity?
+   (existingNext?readPage(receipt.owner,target,storage):[]):headEntries;
+  if(page==='blocked')return false;
+  const already=page.find(r=>r.operationId===receipt.operationId);
+  if(already&&gatewayReceiptEvidenceKey(already)!==gatewayReceiptEvidenceKey(receipt))
    return false;
-  const history=readGatewayMainnetHistory(receipt.owner,storage);
-  if(history==='blocked')return false;
-  const prior=history.find(r=>r.operationId===receipt.operationId);
-  if(prior&&JSON.stringify(prior)!==JSON.stringify(receipt))return false;
-  if(!prior){
-   if(history.length>=100)return false;
-   const json=JSON.stringify([receipt,...history]);
-   storage.setItem(gatewayMainnetHistoryKey(receipt.owner),json);
-   if(storage.getItem(gatewayMainnetHistoryKey(receipt.owner))!==json)return false;
+  if(atCapacity&&page.length>0&&!already)return false;
+  if(!already){
+   if(page.length>=PAGE_LIMIT)return false;
+   page=[...page,receipt];
+   const data=JSON.stringify(page);
+   if(data.length>MAX_PAGE_BYTES)return false;
+   const key=gatewayMainnetHistoryPageKey(receipt.owner,target);
+   storage.setItem(key,data);
+   if(storage.getItem(key)!==data)return false;
+  }
+  if(target!==head){
+   const value=String(target);
+   storage.setItem(gatewayMainnetHistoryHeadKey(receipt.owner),value);
+   if(storage.getItem(gatewayMainnetHistoryHeadKey(receipt.owner))!==value)return false;
   }
   storage.removeItem(gatewayMainnetJournalKey(receipt.owner));
   if(storage.getItem(gatewayMainnetJournalKey(receipt.owner))!==null)return false;
