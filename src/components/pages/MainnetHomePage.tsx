@@ -199,7 +199,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
   <section className="veyra-card veyra-brand-balance p-5 sm:p-6" aria-label="Wallet balance">
    <div className="flex items-center justify-between gap-3">
     <span className="inline-flex items-center gap-2 text-sm font-semibold" style={{color:'var(--muted)'}}>
-     <BrandLogo logoKey="usdc" size={27}/> Available USDC
+     <BrandLogo logoKey="usdc" size={27}/> Wallet USDC
     </span>
     <button type="button" onClick={()=>void refetch()} disabled={!address||isFetching}
      className="veyra-icon-button" aria-label="Refresh balance" title="Refresh balance">
@@ -217,11 +217,20 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
     <button type="button" onClick={()=>setReceive(v=>!v)} disabled={!address} aria-expanded={receive}
      className="veyra-btn-secondary inline-flex items-center gap-2 disabled:opacity-50"><ArrowDownLeft className="size-4"/>Receive</button>
    </div>
+   <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4" style={{borderColor:'var(--border)'}}>
+    <span><span className="block text-sm font-semibold" style={{color:'var(--ink)'}}>Unified Balance</span>
+     <span className="block text-xs" style={{color:'var(--muted)'}}>Circle Gateway deposits · separate from Wallet USDC</span></span>
+    <span className="text-xs font-semibold" style={{color:'var(--muted)'}}>Not available on Mainnet</span>
+   </div>
+   <details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+    <summary className="cursor-pointer">About Unified</summary>
+    <p className="mt-2 leading-5">Gateway deposits are independent of wallet funds. Mainnet deposits are not enabled; no Unified amount is added to your available Wallet balance.</p>
+   </details>
   </section>
   <section aria-label="Quick actions">
    <h2 className="veyra-section-title mb-3">Quick actions</h2>
-   <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-    {actions.filter(item=>item.id!=='send').map(item=><button key={item.id} type="button"
+   <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+    {actions.map(item=><button key={item.id} type="button"
      onClick={()=>selectAction(item.id)} className="veyra-action-card group flex min-h-[94px] flex-col items-start justify-center gap-2 rounded-2xl border p-4 text-left">
      <span style={{color:'var(--accent)'}}>{item.icon}</span>
      <span className="text-sm font-semibold" style={{color:'var(--ink)'}}>{item.label}</span>

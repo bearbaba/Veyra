@@ -4,30 +4,23 @@ import {MAINNET_ROUTES} from '../mainnet/mainnetProduct';
 const source=(path:string)=>readFileSync(new URL('../'+path,import.meta.url),'utf8');
 
 describe('Mainnet single Settlement surface, wallet review and identity safety',()=>{
- it('routes both Mainnet payment methods through one entry point',()=>{
-  const app=source('App.tsx');
-  expect(app).not.toContain('<MainnetPayHub initialMethod="contract"');
-  expect(app).toContain("next==='pay'?'settlement'");
-  expect(app).toContain('<MainnetPayHub initialMethod="wallet"');
-  expect(app).toContain('VEYRA_ENV === \'mainnet\'');
- });
- it('never hides the selected signing mechanism from the sender',()=>{
-  const hub=source('components/pages/MainnetPayHub.tsx');
-  expect(hub).toContain('Direct transfer');
-  expect(hub).toContain('VeyraSettlement contract');
-  expect(hub).toContain('aria-pressed');
-  expect(hub).toContain('MainnetPayPage key={owner} embedded');
-  expect(hub).toContain('<SettlementPage key={owner} embedded');
-  expect(hub).toContain('onWalletMode={activateWalletMethod}');
-  expect(hub).toContain("setMethod('wallet')");
-  expect(hub).toContain("setMethod('contract')");
-  const picker=source('components/pages/MainnetPayRecipientPicker.tsx');
-  expect(picker).toContain("if(next==='wallet')onWalletMode()");
-  const circle=source('components/pages/MainnetCirclePage.tsx');
-  expect(circle).toContain("!MAINNET_CANARY_ONLY");
-  expect(circle).toContain("signingReady?<button");
- });
- it('only exposes one top-level Mainnet Send entry, with People nearby',()=>{
+ it('uses Settlement for both Mainnet Wallet and Friends',()=>{
+   const app=source('App.tsx');
+   const hub=source('components/pages/MainnetPayHub.tsx');
+   const picker=source('components/pages/MainnetPayRecipientPicker.tsx');
+   expect(app).toContain("next==='pay'?'settlement'");
+   expect(app).toContain('<MainnetPayHub recipientWallet=');
+   expect(hub).toContain('Veyra Settlement');
+   expect(hub).toContain('<SettlementPage key={owner} embedded');
+   expect(hub).toContain('payLocked?');
+   expect(hub).not.toContain('<MainnetPayPage');
+   expect(hub).not.toContain('Change payment method');
+   expect(picker).toContain("useState<'wallet'|'friends'>");
+   const circle=source('components/pages/MainnetCirclePage.tsx');
+   expect(circle).toContain("!MAINNET_CANARY_ONLY");
+   expect(circle).toContain("signingReady?<button");
+  });
+  it('only exposes one top-level Mainnet Send entry, with People nearby',()=>{
   const home=source('components/pages/MainnetHomePage.tsx');
   expect(home).not.toContain("label:'Contract Pay'");
   expect(home).toContain("label:'Friends'");

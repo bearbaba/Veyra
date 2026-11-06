@@ -112,7 +112,7 @@ function AssetPicker({side,value,other,balances,mode,onChoose,onClose}:{
        <span className="block font-semibold">{asset.symbol} <span className="text-xs font-normal" style={{color:'var(--muted)'}}>· {readableChain(asset)}</span></span>
        <span className="block truncate text-xs" style={{color:'var(--muted)'}}>{asset.name}</span>
        <span className="block text-xs" style={{color:availability==='unsupported'?'var(--warning)':'var(--accent)'}}>
-        {availability==='tradable-route'?'Supported route · live quote required':availability==='quote-only'?'Live quote candidate · signing disabled':'Not supported'}
+        {availability==='unsupported'?'Not supported':''}
        </span>
       </span>
       <span className="text-right text-xs tabular-nums">
@@ -257,7 +257,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   <header>
    <p className="veyra-eyebrow">VEYRA · ARC MAINNET</p>
    <h1 className="veyra-page-title">{viewMode==='swap'?'Swap':'Bridge'}</h1>
-   <p className="veyra-page-subtitle">{viewMode==='swap'?'You pay · You receive':'Move USDC between Arc and Base.'}</p>
+   <p className="veyra-page-subtitle">{viewMode==='swap'?'Choose tokens and review the quote.':'Choose networks and review the quote.'}</p>
   </header>
   <section className="veyra-card space-y-3 p-4 sm:p-5" aria-label={viewMode==='swap'?'Swap pair':'Bridge route'}>
    <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>{viewMode==='swap'?'YOU PAY':'FROM'}</p>
@@ -290,8 +290,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
      {' · '}<a href={asset.sourceUrl} target="_blank" rel="noreferrer" className="underline">Issuer source</a>
     </p>)}
    </details>
-  </section>
-  <section className="veyra-card p-4" aria-label="Route status">
+  <div className="border-t pt-3" style={{borderColor:'var(--border)'}} aria-label="Route status">
    {route.kind==='unavailable'?<div role="status" className="space-y-2">
     <p className="text-sm font-semibold">No supported {viewMode} route</p>
     <p className="text-sm" style={{color:'var(--muted)'}}>{route.reason}</p>
@@ -304,10 +303,6 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
      <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
       {from.network} → {to.network} · live quote required
      </p>
-     <details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
-      <summary className="cursor-pointer">Route details</summary>
-      <p className="mt-2">Minimum received depends on the live quote.</p>
-     </details>
      {route.kind==='quote-only'&&<p className="mt-1 text-xs" style={{color:'var(--warning)'}}>Quote only · payment unavailable</p>}
     </div><ShieldCheck className="size-4" style={{color:'var(--accent)'}}/>
    </div>}
@@ -317,8 +312,8 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
      intentPrior?.stage==='PARTIAL'? 'Partial Exchange: original source completed but destination not confirmed. Open Activity to review current funds and recovery.':
      'Original Exchange activity is still stored. Resolve or inspect that operation before changing assets; do not submit a second transaction.'}
    </p>}
-  </section>
-  {route.kind==='quote-only'&&<section className="veyra-card space-y-3 p-4 sm:p-5" style={{color:'var(--ink)'}}>
+  </div>
+  {route.kind==='quote-only'&&<div className="space-y-3 border-t pt-4" style={{color:'var(--ink)',borderColor:'var(--border)'}}>
    <p className="font-semibold">Across · WETH on Base → USDC on Arc</p>
    <p className="text-xs" style={{color:'var(--muted)'}}>
     Preview a quote. No transaction will be sent.
@@ -355,7 +350,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
 
     </p>
    </div>}
-  </section>}
+  </div>}
   {executable?<MainnetCirclePage key={route.kind+':'+exchangeAssetId(from)+':'+exchangeAssetId(to)}
    embedded mode={route.kind==='swap'?'swap':'bridge'} selection={selection}
    onFinancialBusyChange={setEngineBusy}/>:
@@ -363,6 +358,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   <p className="flex items-start gap-2 text-xs leading-5" style={{color:'var(--muted)'}}>
    <Wallet className="size-4 shrink-0"/>Only supported routes can request a live quote.
   </p>
+  </section>
   {picking&&<AssetPicker key={picking} side={picking} value={picking==='from'?from:to}
    other={picking==='from'?to:from} balances={balances} mode={viewMode} onChoose={choose} onClose={()=>setPicking(null)}/>}
  </main>;

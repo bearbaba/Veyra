@@ -388,7 +388,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
      'Bridge USDC between Arc and Base Mainnet via CCTP. Destination verification is required.'}
    </p>
   </div>}
-  <div className={embedded?'veyra-card space-y-4 p-4 sm:p-5':card+' space-y-4'} style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+  <div className={embedded?'space-y-4 border-t pt-4':card+' space-y-4'} style={{borderColor:'var(--border)',background:'var(--surface)'}}>
    {!address?<ConnectKitButton/>:<>
     {!embedded&&(mode==='bridge'?<div className="grid gap-3 sm:grid-cols-2">
      <label className="text-sm" style={{color:'var(--muted)'}}>From

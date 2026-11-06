@@ -221,7 +221,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
               <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
                 {VEYRA_ENV==='mainnet'
                   ?MAINNET_EMERGENCY_READ_ONLY?'Financial signing is paused. You can still review onchain receipts safely.':
-                   MAINNET_CANARY_ONLY?'Mainnet pilot: direct Pay is limited to the project owner and 0.01 USDC per transfer. All other financial signing remains disabled.':
+                   MAINNET_CANARY_ONLY?'Mainnet pilot: contract Settlement Pay is limited to the authorized wallet and 0.01 USDC per payment. Swap and Bridge signing are paused; Mainnet Gateway deposits are unavailable.':
                    'Wallet Pay requires one reviewed wallet signature and an onchain receipt. Quotes are not transaction confirmations.'
                   :'Every payment is reviewed before wallet approval. Testnet funds only.'}
               </p>

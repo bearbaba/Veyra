@@ -54,18 +54,17 @@ describe('Mainnet human-first navigation and transparent settlement',()=>{
   expect(home).toContain("No transactions yet.");
   expect(home).toContain('{pending.length>0&&');
  });
- it('defaults to Wallet transfer and switches verified Friends into Settlement',()=>{
-  const hub=read('components/pages/MainnetPayHub.tsx');
-  expect(hub).toContain("initialMethod='wallet'");
-  expect(hub).toContain('onWalletMode={activateWalletMethod}');
-  expect(hub).toContain("setMethod('contract')");
-  expect(hub).toContain('Payment method ·');
-  expect(hub).toContain('{optionsOpen&&');
-  expect(hub).toContain('No escrow or automatic refund');
-  expect(hub).toContain('sharedDraft={draft}');
-  expect(hub).toContain('onDraftChange={changeDraft}');
- });
- it('rechecks a contract review when the shared recipient or amount changes',()=>{
+ it('keeps Wallet and Friends inside one Settlement method',()=>{
+   const hub=read('components/pages/MainnetPayHub.tsx');
+   expect(hub).toContain('Veyra Settlement');
+   expect(hub).toContain('No escrow or automatic refund');
+   expect(hub).toContain('sharedDraft={draft}');
+   expect(hub).toContain('onDraftChange={changeDraft}');
+   expect(hub).toContain('payLocked?');
+   expect(hub).not.toContain('Direct transfer');
+   expect(hub).not.toContain('optionsOpen');
+  });
+  it('rechecks a contract review when the shared recipient or amount changes',()=>{
   const pay=read('components/pages/MainnetPayPage.tsx');
   const contract=read('components/pages/SettlementPage.tsx');
   const hub=read('components/pages/MainnetPayHub.tsx');

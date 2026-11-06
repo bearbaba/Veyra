@@ -6,11 +6,10 @@ import {useEffect,useState} from 'react';
 import {useAccount,useReadContract} from 'wagmi';
 import {erc20Abi,formatUnits} from 'viem';
 import {ARC_MAINNET_USDC} from '@/mainnet/arcMainnetPay';
-import {ChevronDown,Wallet,ShieldCheck} from 'lucide-react';
+import {ShieldCheck} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
 import {readSettlementIntent,settlementUnresolved} from '@/mainnet/settlementJournal';
 import {readPayDraft,writePayDraft,type MainnetPayDraft} from '@/mainnet/payDraft';
-import {MainnetPayPage} from './MainnetPayPage';
 import {MainnetPayRecipientPicker} from './MainnetPayRecipientPicker';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
 import type {RecipientSearchResult} from '@/mainnet/recipientLookup';
@@ -22,11 +21,10 @@ import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 
 declare const __VEYRA_RELEASE_SHA__:string;
 declare const __VEYRA_RELEASE_ENV__:string;
-type Method='wallet'|'contract';
 export function MainnetPayHub({
- initialMethod='wallet',friendHandle,recipientWallet,verifiedRecipient,onClearVerified,onRecipientUsed,
+ recipientWallet,verifiedRecipient,onClearVerified,onRecipientUsed,
 }:{
- initialMethod?:Method;friendHandle?:string|null;recipientWallet?:string|null;
+ recipientWallet?:string|null;
  verifiedRecipient?:VerifiedMainnetRecipient|null;onClearVerified?:()=>void;onRecipientUsed?:()=>void;
 }){
  const {address,connector}=useAccount();
@@ -39,9 +37,6 @@ export function MainnetPayHub({
   args:address?[address]:undefined,chainId:5042,
   query:{enabled:!!address,staleTime:10000},
  });
- const [method,setMethod]=useState<Method>(initialMethod);
- const [optionsOpen,setOptionsOpen]=useState(false);
- const [visited,setVisited]=useState({wallet:initialMethod==='wallet',contract:initialMethod==='contract'});
  const [draftHolder,setDraftHolder]=useState<{owner:string;value:MainnetPayDraft}>(()=>({owner,value:readPayDraft(owner)}));
  const [revision,setRevision]=useState(0);
  const [localVerified,setLocalVerified]=useState<VerifiedMainnetRecipient|null>(null);
@@ -69,19 +64,6 @@ export function MainnetPayHub({
   ['AWAITING_WALLET','UNKNOWN','PENDING'].includes(pay.value.stage);
  const settlementLocked=settlementUnresolved(settlement);
  const locked=payLocked||settlementLocked;
- const forcedMethod:Method|null=settlementLocked?'contract':payLocked?'wallet':null;
- const selected=forcedMethod??method;
- // A completed transaction must not silently switch a person back to Wallet.
- useEffect(()=>{
-  setMethod(initialMethod);
-  setVisited(v=>v[initialMethod]?v:{...v,[initialMethod]:true});
- },[initialMethod,owner]);
- useEffect(()=>{
-  if(forcedMethod){
-   setMethod(forcedMethod);
-   setVisited(v=>v[forcedMethod]?v:{...v,[forcedMethod]:true});
-  }
- },[forcedMethod]);
  useEffect(()=>{
   if(!recipientWallet)return;
   if(/^0x[0-9a-fA-F]{40}$/.test(recipientWallet)&&owner&&address&&!locked){
@@ -98,7 +80,6 @@ export function MainnetPayHub({
   if(!verifiedRecipient||!address||verifiedRecipient.owner.toLowerCase()!==address.toLowerCase()||locked)return;
   const next={...readPayDraft(owner),recipient:verifiedRecipient.wallet,amount:''};
   setDraftHolder({owner,value:next});writePayDraft(owner,next);
-  setMethod('contract');setVisited(v=>({...v,contract:true}));
  // One new verified recipient selection, never an old draft, changes the target.
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[verifiedRecipient?.snapshotId,owner]);
@@ -116,18 +97,11 @@ export function MainnetPayHub({
   const next={...readPayDraft(owner),recipient:wallet,amount:''};
   setDraftHolder({owner,value:next});writePayDraft(owner,next);
   setLocalVerified(result.kind==='veyra'?result.person:null);
-  setMethod('contract');setVisited(v=>({...v,contract:true}));
- }
- function activateWalletMethod(){
-  if(locked)return;
-  setMethod('wallet');
-  setVisited(v=>v.wallet?v:{...v,wallet:true});
-  setOptionsOpen(false);
  }
  function changeWalletRecipient(value:string){
   if(!address||locked)return;
   onClearVerified?.();setLocalVerified(null);
-  activateWalletMethod();
+  
   const next={...readPayDraft(owner),recipient:value.trim(),amount:''};
   setDraftHolder({owner,value:next});writePayDraft(owner,next);
  }
@@ -136,12 +110,6 @@ export function MainnetPayHub({
   onClearVerified?.();setLocalVerified(null);
   const next={...draft,recipient:'',amount:''};
   setDraftHolder({owner,value:next});writePayDraft(owner,next);
- }
- function choose(next:Method){
-  if(locked)return;
-  setMethod(next);
-  setVisited(v=>v[next]?v:{...v,[next]:true});
-  setOptionsOpen(false);
  }
  return <main className="veyra-page veyra-pay-page mx-auto w-full max-w-2xl space-y-4 px-4 py-5 md:py-7">
   <header>
@@ -172,7 +140,7 @@ export function MainnetPayHub({
    <MainnetPayRecipientPicker owner={owner} sessionToken={signedWallet?social.session?.token:undefined}
     signedWallet={signedWallet} disabled={locked} selectedVerified={selectedVerified}
     recipient={draft.recipient} onWalletChange={changeWalletRecipient}
-    onWalletMode={activateWalletMethod} onSelected={resolveSelected} onClear={clearChosen}/>
+    onSelected={resolveSelected} onClear={clearChosen}/>
    <div>
     <label htmlFor="shared-send-amount" className="text-sm font-semibold" style={{color:'var(--ink)'}}>Amount</label>
     <input id="shared-send-amount" value={draft.amount} inputMode="decimal" maxLength={24}
@@ -196,45 +164,21 @@ export function MainnetPayHub({
      </details>
    </div>
   </section>
-  <section className="rounded-xl border p-3 sm:p-4" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
-   <div className="flex items-center justify-between gap-3">
-    <div>
-     <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>Payment method · {selected==='wallet'?'Direct transfer':'Contract payment'}</p>
-     <details className="mt-1 text-xs" style={{color:'var(--muted)'}}>
-      <summary className="cursor-pointer">Details</summary>
-      <p className="mt-2">{selected==='wallet'?'One wallet confirmation.':
-       'VeyraSettlement contract. Approve may be needed before payment. No escrow or automatic refund.'}</p>
-     </details>
-    </div>
-    <button type="button" onClick={()=>setOptionsOpen(v=>!v)} aria-expanded={optionsOpen}
-     aria-label="Change payment method" className="veyra-btn-secondary flex shrink-0 items-center gap-1 rounded-lg border px-3 py-2 text-xs font-semibold">
-     Change <ChevronDown className="size-3.5"/>
-    </button>
-   </div>
-   {optionsOpen&&<div className="mt-3 grid gap-2 sm:grid-cols-2" role="group" aria-label="Choose payment method">
-    <button type="button" disabled={locked} aria-pressed={selected==='wallet'} onClick={()=>choose('wallet')}
-     className="rounded-lg border p-3 text-left disabled:opacity-40"
-     style={{borderColor:selected==='wallet'?'var(--accent)':'var(--border)',background:selected==='wallet'?'var(--accent-muted)':'transparent',color:'var(--ink)'}}>
-     <span className="flex items-center gap-2 text-sm font-semibold"><Wallet className="size-4"/> Direct transfer</span>
-     <span className="mt-1 block text-xs" style={{color:'var(--muted)'}}>One wallet confirmation</span>
-    </button>
-    <button type="button" disabled={locked} aria-pressed={selected==='contract'} onClick={()=>choose('contract')}
-     className="rounded-lg border p-3 text-left disabled:opacity-40"
-     style={{borderColor:selected==='contract'?'var(--accent)':'var(--border)',background:selected==='contract'?'var(--accent-muted)':'transparent',color:'var(--ink)'}}>
-     <span className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck className="size-4"/> Contract payment</span>
-     <span className="mt-1 block text-xs" style={{color:'var(--muted)'}}>Fee review · verified receipt</span>
-    </button>
-   </div>}
-  </section>
-  {/* Both forms stay mounted after first visit. Their visible drafts share owner-scoped fields. */}
-  {visited.wallet&&<section aria-label="Wallet transfer" hidden={selected!=='wallet'}>
-   <MainnetPayPage key={owner} embedded friendHandle={friendHandle} verifiedRecipient={selectedVerified}
-    sharedDraft={draft} onDraftChange={changeDraft}/>
-  </section>}
-  {visited.contract&&<section aria-label="Contract payment" hidden={selected!=='contract'}>
-   <SettlementPage key={owner} embedded sharedDraft={draft} onDraftChange={changeDraft}
-     verifiedRecipient={selectedVerified}/>
-  </section>}
+  <div className="flex items-start gap-2 border-t pt-4 text-sm" style={{borderColor:'var(--border)'}}>
+   <ShieldCheck className="mt-0.5 size-4 shrink-0" style={{color:'var(--accent)'}}/>
+   <div><p className="font-semibold" style={{color:'var(--ink)'}}>Veyra Settlement</p>
+    <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
+     Wallet and Friends share one contract payment. Review recipient, platform and network fees before signing.
+     USDC approval may be required. No escrow or automatic refund.
+    </p></div>
+  </div>
+  {payLocked?<p role="status" className="rounded-xl border p-3 text-sm"
+    style={{borderColor:'var(--border)',color:'var(--warning)'}}>
+    Previous wallet payment is pending or unknown. Check Activity; do not sign another payment.
+   </p>:<section aria-label="Contract payment">
+    <SettlementPage key={owner} embedded sharedDraft={draft} onDraftChange={changeDraft}
+      verifiedRecipient={selectedVerified}/>
+   </section>}
   </div>
  </main>;
 }
