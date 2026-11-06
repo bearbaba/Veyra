@@ -8,7 +8,7 @@ import {erc20Abi,formatUnits} from 'viem';
 import {ARC_MAINNET_USDC} from '@/mainnet/arcMainnetPay';
 import {ShieldCheck} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
-import {readSettlementIntent,settlementUnresolved} from '@/mainnet/settlementJournal';
+import {readSettlementIntent,settlementUnresolved,resumablePaymentAttempt} from '@/mainnet/settlementJournal';
 import {readPayDraft,writePayDraft,type MainnetPayDraft} from '@/mainnet/payDraft';
 import {MainnetPayRecipientPicker} from './MainnetPayRecipientPicker';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
@@ -69,6 +69,9 @@ export function MainnetPayHub({
  const payLocked=pay.kind==='blocked'||pay.kind==='active'&&
   ['AWAITING_WALLET','UNKNOWN','PENDING'].includes(pay.value.stage);
  const settlementLocked=settlementUnresolved(settlement);
+ const resumable=Boolean(address&&paymentRequest&&resumablePaymentAttempt(settlement,{
+  owner:address,requestId:paymentRequest.requestId,recipient:paymentRequest.recipientWallet,
+  amount:requestAmount,ref:paymentRequest.paymentRef}));
  const locked=payLocked||settlementLocked;
  useEffect(()=>{
   if(!recipientWallet)return;
@@ -83,7 +86,8 @@ export function MainnetPayHub({
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[recipientWallet,owner]);
  useEffect(()=>{
-  if(!verifiedRecipient||!address||verifiedRecipient.owner.toLowerCase()!==address.toLowerCase()||locked)return;
+  if(!verifiedRecipient||!address||verifiedRecipient.owner.toLowerCase()!==address.toLowerCase()||
+    (locked&&!resumable))return;
   const next={...readPayDraft(owner),recipient:verifiedRecipient.wallet,amount:paymentRequest?requestAmount:''};
   setDraftHolder({owner,value:next});writePayDraft(owner,next);
  // One new verified recipient selection, never an old draft, changes the target.
@@ -137,7 +141,7 @@ export function MainnetPayHub({
     </details>}
   {address&&!signedWallet&&
    <section aria-label="Sign in to send USDC"><VeyraIdentityAccess/></section>}
-  {locked&&<p role="status" className="rounded-xl border p-3 text-sm"
+  {locked&&!resumable&&<p role="status" className="rounded-xl border p-3 text-sm"
    style={{borderColor:'var(--border)',color:'var(--warning)'}}>
    Payment still processing. Check Activity before trying again.
   </p>}
