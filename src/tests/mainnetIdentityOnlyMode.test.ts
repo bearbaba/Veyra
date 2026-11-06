@@ -35,7 +35,7 @@ describe('Budget-friendly Mainnet ID and receipt-only deployment boundary',()=>{
    expect(result.ok).toBe(false);
   }
  });
- it('only permits identity, friends, receive preference and canonical direct/contract Settlement receipt endpoints',()=>{
+ it('permits signed identity, OAuth and Chat while blocking all financial relays',()=>{
   for(const endpoint of [
    ['POST','/api/identity/mainnet-capability'],['POST','/api/identity/register/complete'],
    ['POST','/api/auth/wallet-login/complete'],['POST','/api/identity/prepare-payment'],
@@ -44,27 +44,32 @@ describe('Budget-friendly Mainnet ID and receipt-only deployment boundary',()=>{
    ['PATCH','/api/preferences/receive'],['POST','/api/mainnet/pay/receipt/verify'],
    ['GET','/api/mainnet/pay/receipts'],
    ['POST','/api/mainnet/settlement/receipt/verify'],['GET','/api/mainnet/settlement/receipts'],
+   ['POST','/api/auth/x/start'],['GET','/api/auth/x/callback'],
+   ['POST','/api/auth/x/finish'],['GET','/api/social/chat/capability'],
+   ['GET','/api/social/chat'],['POST','/api/social/chat/send'],
+   ['GET','/api/notifications'],['POST','/api/notifications/read'],
    ['GET','/api/health'],['GET','/api/health/database']
   ])expect(isMainnetIdentityOnlyRouteAllowed(endpoint[0],endpoint[1])).toBe(true);
   for(const endpoint of [
    ['POST','/api/bridge/relay-receive'],['POST','/api/gateway/estimate'],
    ['POST','/api/stablefx/trade'],['POST','/api/agent/chat'],
-   ['POST','/api/auth/x/start'],['GET','/api/auth/x/callback'],
    ['POST','/api/receipts/bridge'],['GET','/api/health/signer'],
    ['DELETE','/api/profile/me'],['POST','/api/identity/register/challenge/../complete'],
   ])expect(isMainnetIdentityOnlyRouteAllowed(endpoint[0],endpoint[1])).toBe(false);
  });
- it('never calls the Testnet notification service from Mainnet People',()=>{
+ it('reads Mainnet notifications from the authenticated inbox without enabling unsupported chain sync',()=>{
   const social=src('src/features/social/UnifiedSocial.tsx');
-  expect(social).toContain("VEYRA_ENV==='mainnet'?Promise.resolve<NoticesPage>");
+  expect(social).toContain("api<NoticesPage>('/api/notifications?limit=20&offset=0','GET',s.token)");
   expect(social).toContain("if(VEYRA_ENV==='mainnet'){setIncomingStatus('unavailable');return;}");
  });
- it('keeps X OAuth disabled in Mainnet V1 without redirecting to another wallet site',()=>{
+ it('only allows X OAuth with a pinned production callback and no financial signing',()=>{
   const x=src('src/lib/api/identityApi.ts');
-  const settings=src('src/components/pages/SettingsPage.tsx');
-  expect(x).toContain("if(VEYRA_ENV==='mainnet')");
-  expect(x).not.toContain('Open the stable Veyra Testnet V2 domain.');
-  expect(settings).toContain('X linking is not enabled in Mainnet V1');
+  expect(x).not.toContain('X linking is not available in Mainnet V1');
+  expect(validateServerRuntimeConfig({...safe,X_CLIENT_ID:'provider-client',
+   X_CLIENT_SECRET:'oauth-secret',X_REDIRECT_URI:
+    'https://veyra-mainnet-v1-bff.onrender.com/api/auth/x/callback'}).ok).toBe(true);
+  expect(validateServerRuntimeConfig({...safe,X_CLIENT_ID:'provider-client',
+   X_REDIRECT_URI:'https://bad.example.com/api/auth/x/callback'}).ok).toBe(false);
  });
  it('enforces the restrictive boundary BEFORE all business API routes',()=>{
   const server=src('server/bff.ts');

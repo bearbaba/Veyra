@@ -125,7 +125,7 @@ export async function probeXLinkReadiness():Promise<XLinkReadiness>{
       return {available:false,reason:'X OAuth is not enabled on the identity backend. Check Render X_CLIENT_ID, pinned X_REDIRECT_URI and the X Developer Portal callback.'};
     return {available:true,reason:''};
   }catch{
-    return {available:false,reason:'Cannot reach the X capability endpoint. Check the Veyra Testnet backend and try again.'};
+    return {available:false,reason:'Cannot reach the X capability endpoint. Check the official Veyra identity backend and try again.'};
   }
 }
 export async function getXLinkCapability():Promise<boolean>{
