@@ -140,7 +140,7 @@ function readPage(owner:string,page:number,storage:GatewayStore):GatewayMainnetR
   const parsed:unknown=JSON.parse(raw);
   if(!Array.isArray(parsed)||parsed.length>PAGE_LIMIT||
    !parsed.every(v=>validGatewayMainnetReceipt(v,owner)))return 'blocked';
-  const values=parsed as GatewayMainnetReceipt[];
+  const values=parsed;
   if(new Set(values.map(x=>x.operationId)).size!==values.length)return 'blocked';
   return values;
  }catch{return 'blocked';}

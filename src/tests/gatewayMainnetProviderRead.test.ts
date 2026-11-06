@@ -8,7 +8,7 @@ describe('Official Circle Gateway forwarding REST GET reads',()=>{
   const fetcher=vi.fn((url:string)=>Promise.resolve(url.includes('/transferSpec/')?
    response({value:'10000',sourceDomain:6}):
    response({status:'finalized',burnIntents:[{transferSpecHash:hash}]})));
-  const result=await fetchGatewayForwardingProof(id,fetcher as typeof fetch);
+  const result=await fetchGatewayForwardingProof(id,fetcher);
   expect(result).toMatchObject({transfer:{status:'finalized'},spec:{value:'10000'}});
   expect(fetcher.mock.calls.map(c=>c[0])).toEqual([
    'https://gateway-api.circle.com/v1/transfer/'+id,
@@ -16,7 +16,7 @@ describe('Official Circle Gateway forwarding REST GET reads',()=>{
  });
  it('does not fetch spec or promote pending transfer to finalized',async()=>{
   const fetcher=vi.fn(()=>Promise.resolve(response({status:'pending',burnIntents:[]})));
-  const result=await fetchGatewayForwardingProof(id,fetcher as typeof fetch);
+  const result=await fetchGatewayForwardingProof(id,fetcher);
   expect(result).toMatchObject({transfer:{status:'pending'},spec:null});
   expect(fetcher).toHaveBeenCalledTimes(1);
  });
