@@ -181,9 +181,9 @@ export function FriendChat({token,ownerId,friend,onClose,onPay,onTip}:{
      <input aria-label="Request USDC amount" value={requestAmount} inputMode="decimal"
       onChange={e=>setRequestAmount(e.target.value)} placeholder="Request USDC amount"
       className="veyra-field min-w-0 flex-1 rounded-lg border p-2 text-sm" style={{borderColor:'var(--border)'}}/>
-     <button type="button" disabled={!/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(requestAmount)||Number(requestAmount)<=0}
+     <button type="button" disabled={!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(requestAmount)||Number(requestAmount)<=0}
       className="veyra-btn-secondary rounded-lg px-3 py-2 text-xs font-semibold"
-      onClick={()=>{setDraft('Payment request: '+requestAmount+' USDC to '+friendLabel(friend)+' (request only; not a receipt)');setRequestAmount('');}}>
+      onClick={()=>{setDraft('Payment request: '+requestAmount+' USDC to my verified Veyra ID (request only; not a receipt)');setRequestAmount('');}}>
       Request payment
      </button>
     </div>}
