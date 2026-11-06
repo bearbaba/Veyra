@@ -547,17 +547,27 @@ app.get('/api/social/chat/capability',IDENTITY_RATE,async(req:Request,res:Respon
   const owner=getAuthenticatedVeyraUserId(req);
   if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
   if(!encryptionKey()){
-    res.json({ok:true,available:false,endToEndEncrypted:false,reason:'CHAT_KEY_NOT_CONFIGURED'});
+    res.json({ok:true,available:false,requestAvailable:false,endToEndEncrypted:false,reason:'CHAT_KEY_NOT_CONFIGURED'});
     return;
   }
   try{
     const {db}=await import('./db/client.js');
-    const ready=await db.execute(sql`SELECT to_regclass('public.veyra_direct_messages') AS chat`);
-    const row=ready.rows[0] as {chat?:unknown}|undefined;
-    res.json({ok:true,available:Boolean(row?.chat),endToEndEncrypted:false,
-      ...(!row?.chat?{reason:'CHAT_MIGRATION_NOT_APPLIED'}:{})});
+    const ready=await db.execute(sql`SELECT
+      to_regclass('public.veyra_direct_messages') AS chat,
+      to_regclass('public.veyra_payment_requests') AS requests,
+      (SELECT COUNT(*) FROM information_schema.columns
+       WHERE table_schema='public' AND table_name='veyra_payment_requests'
+         AND column_name IN ('request_id','payer_user_id','requester_user_id',
+          'recipient_wallet','payment_ref','amount_raw','expires_at','status',
+          'claim_id','claim_wallet','claimed_at','tx_hash')) AS request_columns`);
+    const row=ready.rows[0] as {chat?:unknown;requests?:unknown;request_columns?:unknown}|undefined;
+    const requestAvailable=Boolean(row?.chat&&row?.requests&&Number(row?.request_columns)===12);
+    res.json({ok:true,available:Boolean(row?.chat),requestAvailable,
+      endToEndEncrypted:false,
+      ...(!row?.chat?{reason:'CHAT_MIGRATION_NOT_APPLIED'}:
+         !requestAvailable?{requestReason:'REQUEST_MIGRATION_NOT_APPLIED'}:{})});
   }catch{
-    res.json({ok:true,available:false,endToEndEncrypted:false,reason:'CHAT_DATABASE_UNAVAILABLE'});
+    res.json({ok:true,available:false,requestAvailable:false,endToEndEncrypted:false,reason:'CHAT_DATABASE_UNAVAILABLE'});
   }
 });
 app.get('/api/social/chat',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{

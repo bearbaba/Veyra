@@ -25,19 +25,24 @@ export function MainnetPeoplePage({onPayVerified,onPayRequest,onPayWallet,initia
  const [friendActionBusy,setFriendActionBusy]=useState(false);
  const [chatPeer,setChatPeer]=useState<string|null>(null);
  const [chatReady,setChatReady]=useState(false);
+ const [requestsReady,setRequestsReady]=useState(false);
  const [paymentBusy,setPaymentBusy]=useState(false);
  const ready=!!address&&social.identityOrigin==='ready'&&!!social.session?.token&&
   isMainnetSessionForWallet(social.session,address,connector?.uid);
  const [friendActionError,setFriendActionError]=useState<string|null>(null);
- useEffect(()=>{setSelected(null);setWalletTarget(null);setFriendActionError(null);setChatPeer(null);setChatReady(false);},[address,social.session?.token]);
+ useEffect(()=>{setSelected(null);setWalletTarget(null);setFriendActionError(null);setChatPeer(null);setChatReady(false);setRequestsReady(false);},[address,social.session?.token]);
  useEffect(()=>{
   const token=social.session?.token;if(!token||!ready)return;
   let live=true;
   void fetch('/api/social/chat/capability',{headers:{Authorization:'Bearer '+token,Accept:'application/json'},
    credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(12000)})
    .then(async response=>response.ok&&response.headers.get('content-type')?.includes('application/json')?await response.json() as unknown:null)
-   .then(raw=>{if(live)setChatReady(Boolean(raw&&typeof raw==='object'&&'available' in raw&&raw.available===true));})
-   .catch(()=>{if(live)setChatReady(false);});
+   .then(raw=>{if(live){
+     const data=raw&&typeof raw==='object'&&!Array.isArray(raw)?raw as Record<string,unknown>:null;
+     setChatReady(data?.available===true);
+     setRequestsReady(data?.available===true&&data.requestAvailable===true);
+   }})
+   .catch(()=>{if(live){setChatReady(false);setRequestsReady(false);}});
   return()=>{live=false;};
  },[social.session?.token,ready]);
 
@@ -214,7 +219,8 @@ export function MainnetPeoplePage({onPayVerified,onPayRequest,onPayWallet,initia
       token={social.session.token} ownerId={social.session.profile.veyraUserId}
       friend={social.friends.find(x=>x.veyraUserId===chatPeer)!} onClose={()=>setChatPeer(null)}
       onPay={()=>void payFriend(chatPeer,'pay')} onTip={()=>void payFriend(chatPeer,'tip')}
-      onPayRequest={request=>void payRequested(request)}/></div>}
+      onPayRequest={requestsReady?request=>void payRequested(request):undefined}
+      requestsReady={requestsReady}/></div>}
     {paymentBusy&&<p role="status" className="text-xs" style={{color:'var(--muted)'}}>Verifying recipient…</p>}
    </section>}
  </main>;
