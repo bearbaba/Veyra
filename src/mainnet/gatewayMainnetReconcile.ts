@@ -92,43 +92,69 @@ function validateDepositTx(op:GatewayMainnetOperation,tx:GatewayChainTx,receipt:
  * https://developers.circle.com/api-reference/gateway/all/get-transfer-by-id
  * https://developers.circle.com/api-reference/gateway/all/get-transfer-spec
  */
+/** Official Circle transfer GET + per-burn TransferSpec GET. For multi-source,
+ * every original source/domain/owner/token/allocation must match the journal.
+ * Provider finalization alone is never proof of destination USDC delivery.
+ */
 export function parseGatewayForwardedStatus(raw:unknown,op:GatewayMainnetOperation):GatewayForwardedTransfer|null{
  if(!raw||typeof raw!=='object'||Array.isArray(raw)||!op.transferId||
   op.kind!=='spend'||!op.destinationChainId)return null;
  const x=raw as Record<string,unknown>;
- const t=x.transfer,s=x.spec;
- if(!t||typeof t!=='object'||Array.isArray(t)||
-  !s||typeof s!=='object'||Array.isArray(s))return null;
- const transferRecord=t as Record<string,unknown>,spec=s as Record<string,unknown>;
- const from=GATEWAY_MAINNET_CHAINS.find(c=>c.chainId===op.chainId);
+ const t=x.transfer;
+ if(!t||typeof t!=='object'||Array.isArray(t))return null;
+ const transferRecord=t as Record<string,unknown>;
  const dest=GATEWAY_MAINNET_CHAINS.find(c=>c.chainId===op.destinationChainId);
- const burnIntents=transferRecord.burnIntents,details=transferRecord.forwardingDetails;
+ const intents=transferRecord.burnIntents;
+ const details=transferRecord.forwardingDetails;
+ if(!dest||!Array.isArray(intents)||intents.length<1||intents.length>3||
+  !details||typeof details!=='object'||Array.isArray(details)||
+  (details as Record<string,unknown>).forwardingEnabled!==true||
+  transferRecord.status!=='finalized'||transferRecord.destinationDomain!==dest.domain||
+  typeof transferRecord.transactionHash!=='string'||!HASH.test(transferRecord.transactionHash))
+  return null;
+ const specs=Array.isArray(x.specs)?x.specs:x.spec?[x.spec]:[];
+ if(specs.length!==intents.length)return null;
+ const allocations=op.allocations?.length?op.allocations:
+  [{chainId:op.chainId,amount:op.amount}];
+ if(allocations.length!==intents.length)return null;
  const padded=(value:unknown,wallet:string)=>
   typeof value==='string'&&/^0x[0-9a-fA-F]{64}$/.test(value)&&
   value.toLowerCase()==='0x'+'0'.repeat(24)+wallet.slice(2).toLowerCase();
- if(!from||!dest||!Array.isArray(burnIntents)||burnIntents.length!==1||
-  !details||typeof details!=='object'||Array.isArray(details)||
-  (details as Record<string,unknown>).forwardingEnabled!==true||
-  transferRecord.status!=='finalized'||
-  transferRecord.destinationDomain!==dest.domain||
-  typeof transferRecord.transactionHash!=='string'||!HASH.test(transferRecord.transactionHash))
-  return null;
- const first:unknown=burnIntents[0];
- if(!first||typeof first!=='object'||Array.isArray(first))return null;
- const specHash=(first as Record<string,unknown>).transferSpecHash;
- if(typeof specHash!=='string'||!HASH.test(specHash)||spec.transferSpecHash!==undefined&&
-  spec.transferSpecHash!==specHash)return null;
- if(spec.sourceDomain!==from.domain||spec.destinationDomain!==dest.domain||
-  !padded(spec.sourceDepositor,op.owner)||!padded(spec.sourceSigner,op.owner)||
-  !padded(spec.destinationRecipient,op.recipient)||
-  !padded(spec.sourceContract,GATEWAY_MAINNET_WALLET)||
-  !padded(spec.destinationContract,GATEWAY_MAINNET_MINTER)||
-  !padded(spec.sourceToken,from.usdc)||!padded(spec.destinationToken,dest.usdc)||
-  typeof spec.value!=='string'||!/^(?:0|[1-9][0-9]*)$/.test(spec.value)||
-  BigInt(spec.value)!==parseUnits(op.amount,6))return null;
- return {transferId:op.transferId,status:'finalized',sourceDomain:from.domain,
-  destinationDomain:dest.domain,sourceDepositor:op.owner,destinationRecipient:op.recipient,
-  amount:op.amount,destinationTxHash:transferRecord.transactionHash};
+ const used=new Set<number>();
+ let sum=0n;
+ for(let i=0;i<specs.length;i++){
+  const specRaw:unknown=specs[i],intentRaw:unknown=intents[i];
+  if(!specRaw||typeof specRaw!=='object'||Array.isArray(specRaw)||
+   !intentRaw||typeof intentRaw!=='object'||Array.isArray(intentRaw))return null;
+  const spec=specRaw as Record<string,unknown>,intent=intentRaw as Record<string,unknown>;
+  if(typeof intent.transferSpecHash!=='string'||!HASH.test(intent.transferSpecHash)||
+   spec.transferSpecHash!==undefined&&spec.transferSpecHash!==intent.transferSpecHash)return null;
+  // Match the full set without trusting spec API ordering beyond its bound hash.
+  const matched=allocations.find(a=>{
+   if(used.has(a.chainId))return false;
+   const chain=GATEWAY_MAINNET_CHAINS.find(c=>c.chainId===a.chainId);
+   return chain&&spec.sourceDomain===chain.domain&&
+    padded(spec.sourceContract,GATEWAY_MAINNET_WALLET)&&
+    padded(spec.sourceToken,chain.usdc)&&
+    typeof spec.value==='string'&&/^(?:0|[1-9][0-9]*)$/.test(spec.value)&&
+    BigInt(spec.value)===parseUnits(a.amount,6);
+  });
+  if(!matched)return null;
+  const source=GATEWAY_MAINNET_CHAINS.find(c=>c.chainId===matched.chainId);
+  if(!source||spec.destinationDomain!==dest.domain||
+   !padded(spec.sourceDepositor,op.owner)||!padded(spec.sourceSigner,op.owner)||
+   !padded(spec.destinationRecipient,op.recipient)||
+   !padded(spec.destinationContract,GATEWAY_MAINNET_MINTER)||
+   !padded(spec.destinationToken,dest.usdc))return null;
+  sum+=parseUnits(matched.amount,6);
+  used.add(matched.chainId);
+ }
+ if(sum!==parseUnits(op.amount,6)||used.size!==allocations.length)return null;
+ return {transferId:op.transferId,status:'finalized',sourceDomain:
+   GATEWAY_MAINNET_CHAINS.find(c=>c.chainId===op.chainId)?.domain??-1,
+  destinationDomain:dest.domain,sourceDepositor:op.owner,
+  destinationRecipient:op.recipient,amount:op.amount,
+  destinationTxHash:transferRecord.transactionHash};
 }
 function destinationReceived(receipt:GatewayChainReceipt,op:GatewayMainnetOperation):bigint{
  const token=getMainnetChain(op.destinationChainId??-1)?.usdc;
@@ -200,6 +226,7 @@ export async function reconcileGatewayMainnetOperation(owner:string,
  const proof:GatewayMainnetReceipt={version:1,operationId:op.id,owner:op.owner,kind:'spend',
   status:'VERIFIED',chainId:op.chainId,destinationChainId:op.destinationChainId,
   recipient:op.recipient,amount:op.amount,transferId:op.transferId,
+  ...(op.allocations?{allocations:op.allocations}:{}),
   destinationHash:hash,destinationBlockHash:receipt.blockHash,
   received:formatUnits(received,6),verifiedAt:Date.now()};
  if(!archiveGatewayMainnetReceipt(proof,store))

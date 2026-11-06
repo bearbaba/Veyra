@@ -11,6 +11,7 @@ export type GatewayMainnetOperation={
  destinationChainId?:number;recipient:string;amount:string;createdAt:number;
  status:GatewayOperationStatus;sourceHash?:string;transferId?:string;destinationHash?:string;
  beforeAvailable?:string;minimumReceive?:string;
+ allocations?:ReadonlyArray<{chainId:number;amount:string}>;
 };
 export type GatewayMainnetReceipt={
  version:1;operationId:string;owner:string;kind:'deposit'|'spend';status:'VERIFIED'|'REVERTED'|'SOURCE_FINALIZED'|'CANCELLED_BEFORE_SOURCE';
@@ -21,6 +22,7 @@ export type GatewayMainnetReceipt={
  rejectionMethod?:string;
  /** Provider-attested *individual* deposit reference, never an aggregate balance delta. */
  gatewayCreditReference?:string;
+ allocations?:ReadonlyArray<{chainId:number;amount:string}>;
 };
 const HASH=/^0x[0-9a-fA-F]{64}$/;
 const AMOUNT=/^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,6})?$/;
@@ -30,6 +32,18 @@ export type GatewayStore=Pick<Storage,'getItem'|'setItem'|'removeItem'>;
 export const gatewayMainnetJournalKey=(owner:string)=>prefix+getAddress(owner).toLowerCase();
 export const gatewayMainnetHistoryKey=(owner:string)=>prefix+'history:'+getAddress(owner).toLowerCase();
 const amountOk=(x:unknown):x is string=>typeof x==='string'&&AMOUNT.test(x)&&parseUnits(x,6)>=0n;
+export function validGatewayAllocationGroup(value:unknown,amount:string):boolean{
+ if(!Array.isArray(value)||value.length<1||value.length>3||!amountOk(amount))return false;
+ const ids=new Set<number>();let total=0n;
+ for(const x of value){
+  if(!x||typeof x!=='object'||Array.isArray(x))return false;
+  const item=x as Record<string,unknown>;
+  if(typeof item.chainId!=='number'||!supported(item.chainId)||ids.has(item.chainId)||
+   !amountOk(item.amount)||parseUnits(item.amount,6)<=0n)return false;
+  ids.add(item.chainId);total+=parseUnits(item.amount,6);
+ }
+ return total===parseUnits(amount,6);
+}
 export function validGatewayMainnetOperation(x:unknown,owner:string):x is GatewayMainnetOperation{
  if(!isAddress(owner)||!x||typeof x!=='object'||Array.isArray(x))return false;
  const o=x as Partial<GatewayMainnetOperation>;
@@ -45,7 +59,8 @@ export function validGatewayMainnetOperation(x:unknown,owner:string):x is Gatewa
   (o.destinationHash===undefined||HASH.test(o.destinationHash))&&
   (o.transferId===undefined||typeof o.transferId==='string'&&o.transferId.length<160)&&
   (o.beforeAvailable===undefined||amountOk(o.beforeAvailable))&&
-  (o.minimumReceive===undefined||amountOk(o.minimumReceive));
+  (o.minimumReceive===undefined||amountOk(o.minimumReceive))&&
+  (o.allocations===undefined||o.kind==='spend'&&validGatewayAllocationGroup(o.allocations,o.amount));
 }
 export function validGatewayMainnetReceipt(x:unknown,owner:string):x is GatewayMainnetReceipt{
  if(!x||typeof x!=='object'||Array.isArray(x)||!isAddress(owner))return false;
@@ -69,6 +84,7 @@ export function validGatewayMainnetReceipt(x:unknown,owner:string):x is GatewayM
   (r.gatewayConfirmedBefore===undefined||amountOk(r.gatewayConfirmedBefore))&&
   (r.gatewayConfirmedAfter===undefined||amountOk(r.gatewayConfirmedAfter))&&
   (r.received===undefined||amountOk(r.received))&&
+  (r.allocations===undefined||r.kind==='spend'&&validGatewayAllocationGroup(r.allocations,r.amount))&&
   (r.gatewayCreditReference===undefined||typeof r.gatewayCreditReference==='string'&&
    r.gatewayCreditReference.length>0&&r.gatewayCreditReference.length<=160)&&
   (r.status!=='CANCELLED_BEFORE_SOURCE'||(
@@ -107,7 +123,9 @@ export function writeGatewayMainnetOperation(op:GatewayMainnetOperation,store?:G
    if(!validGatewayMainnetOperation(prev,op.owner)||prev.id!==op.id||
     prev.kind!==op.kind||prev.recipient.toLowerCase()!==op.recipient.toLowerCase()||
     prev.amount!==op.amount||prev.chainId!==op.chainId||
-    prev.destinationChainId!==op.destinationChainId||prev.sourceHash&&prev.sourceHash!==op.sourceHash||
+    prev.destinationChainId!==op.destinationChainId||
+    JSON.stringify(prev.allocations??null)!==JSON.stringify(op.allocations??null)||
+    prev.sourceHash&&prev.sourceHash!==op.sourceHash||
     prev.destinationHash&&prev.destinationHash!==op.destinationHash||
     prev.status==='VERIFIED'||prev.status==='REVERTED')return false;
   }
@@ -175,7 +193,8 @@ export function gatewayReceiptEvidenceKey(r:GatewayMainnetReceipt):string{
   r.destinationChainId??'',r.recipient.toLowerCase(),r.amount,
   r.sourceHash?.toLowerCase()??'',r.sourceBlockHash?.toLowerCase()??'',
   r.destinationHash?.toLowerCase()??'',r.destinationBlockHash?.toLowerCase()??'',
-  r.transferId??'',r.received??'',r.rejectionMethod??'',r.gatewayCreditReference??''].join('|');
+  r.transferId??'',r.received??'',r.rejectionMethod??'',r.gatewayCreditReference??'',
+  JSON.stringify(r.allocations??null)].join('|');
 }
 export function archiveGatewayMainnetReceipt(receipt:GatewayMainnetReceipt,
  store?:GatewayStore):boolean{
@@ -194,6 +213,7 @@ export function archiveGatewayMainnetReceipt(receipt:GatewayMainnetReceipt,
    active.destinationChainId!==receipt.destinationChainId||
    active.recipient.toLowerCase()!==receipt.recipient.toLowerCase()||
    active.amount!==receipt.amount||
+   (receipt.allocations!==undefined&&JSON.stringify(active.allocations??null)!==JSON.stringify(receipt.allocations))||
    (receipt.kind==='deposit'&&active.sourceHash?.toLowerCase()!==receipt.sourceHash?.toLowerCase())||
    (receipt.kind==='spend'&&active.transferId!==receipt.transferId))return false;
   const head=historyHead(receipt.owner,storage);

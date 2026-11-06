@@ -39,8 +39,8 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const [xLoading, setXLoading] = useState(false);
   const xFinishAttempted=useRef(false);
   const [xError, setXError] = useState<string | null>(null);
-  // Fail closed until the exact, owner-trusted Testnet BFF reports it has
-  // X OAuth credentials and a pinned callback. No redirect on mere "BFF online".
+  // Fail closed until the trusted backend confirms an OAuth client and exact
+  // registered callback URL. Backend availability is not authorization.
   const [xCapability,setXCapability]=useState<'checking'|'available'|'unavailable'>('unavailable');
   const [xReadinessDetail,setXReadinessDetail]=useState<string | null>(null);
   const profile = identity.profile;
@@ -202,7 +202,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
           {logoutWarning&&<p role="alert" className="mt-3 text-xs" style={{color:"var(--warning)"}}>{logoutWarning}</p>}
           {xCapability==='unavailable'&&!profile?.x && <p role="status" className="mt-3 text-xs leading-5" style={{color:'var(--muted)'}}>
               {xReadinessDetail ?? (social.identityOrigin!=='ready'
-                ? VEYRA_ENV==='mainnet'?'X linking is not enabled in Mainnet V1. Wallet sign-in and ID payments are separate.':'X linking requires the approved identity backend.'
+                ? 'X linking requires the approved identity backend.'
                 : 'Sign in to your existing Veyra ID with your wallet to check X linking.')}
               {' '}Your Veyra ID and wallet remain unchanged.
             </p>}

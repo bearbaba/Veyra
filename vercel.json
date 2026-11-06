@@ -181,6 +181,26 @@
     {
       "source": "/api/mainnet/settlement/receipts",
       "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/mainnet/settlement/receipts"
+    },
+    {
+      "source": "/api/social/chat/capability",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/social/chat/capability"
+    },
+    {
+      "source": "/api/social/chat",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/social/chat"
+    },
+    {
+      "source": "/api/social/chat/send",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/social/chat/send"
+    },
+    {
+      "source": "/api/notifications",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/notifications"
+    },
+    {
+      "source": "/api/notifications/read",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/notifications/read"
     }
   ]
 }

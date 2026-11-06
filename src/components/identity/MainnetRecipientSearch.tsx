@@ -85,8 +85,8 @@ export function MainnetRecipientSearch({
   {result?.kind==='x-unavailable'&&<div role="status" className="rounded-xl border p-3 text-xs"
     style={{borderColor:'var(--border)',color:'var(--muted)'}}>
     <p className="font-semibold" style={{color:'var(--ink)'}}>@{result.handle} · X search</p>
-    <p className="mt-1">No receiving wallet can be verified for this X handle in Mainnet V1.
-     An X name alone never proves wallet ownership. No payment was prepared.</p>
+    <p className="mt-1">This X account has not linked a verified Veyra ID.
+     No wallet was guessed and no payment was prepared.</p>
     <button type="button" className="mt-2 inline-flex items-center gap-1 font-semibold"
      style={{color:'var(--accent)'}} onClick={()=>void navigator.clipboard?.writeText(result.inviteText)}>
      <ExternalLink className="size-3.5"/>Copy Veyra invitation

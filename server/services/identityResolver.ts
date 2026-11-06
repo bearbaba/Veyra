@@ -28,6 +28,27 @@ export class IdentityResolutionError extends Error {
 export async function resolveRecipient(db: DbClient, rawInput: string, senderUserId?: string): Promise<ResolvedRecipient> {
   const input = rawInput.trim();
   if (/^0x[0-9a-fA-F]{40}$/.test(input)) return { kind: 'WALLET', walletAddress: input };
+  // Explicit X namespace: never resolve @handle by guessing a wallet or
+  // allowing an unrelated Veyra ID to hijack the X handle.
+  const xQuery=/^x:([a-z0-9_]{1,15})$/i.exec(input);
+  if(xQuery){
+    const handle=xQuery[1]!;
+    const [bound]=await db.select({veyraUserId:linkedIdentities.veyraUserId})
+      .from(linkedIdentities)
+      .innerJoin(veyraUsers,eq(veyraUsers.veyraUserId,linkedIdentities.veyraUserId))
+      .where(and(eq(linkedIdentities.provider,'X'),
+        sql`lower(${linkedIdentities.externalHandle})=lower(${handle})`,
+        eq(linkedIdentities.status,'ACTIVE'),isNull(linkedIdentities.revokedAt),
+        eq(veyraUsers.status,'ACTIVE'),isNull(veyraUsers.deletedAt))).limit(1);
+    if(!bound)throw new IdentityResolutionError('X_NOT_LINKED',
+      'This X handle is not linked to a verified Veyra ID. Invite them to link their account.');
+    if(senderUserId&&senderUserId!==bound.veyraUserId&&
+      await isBlockedEither(db,senderUserId,bound.veyraUserId))
+      throw new IdentityResolutionError('RECIPIENT_BLOCKED',
+       'Payment cannot be initiated because a block relationship exists');
+    return {kind:'VEYRA_IDENTITY',veyraUserId:bound.veyraUserId};
+  }
+
 
   let lookup: ReturnType<typeof parseRecipientHandle>;
   try {

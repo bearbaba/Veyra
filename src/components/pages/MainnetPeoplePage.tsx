@@ -2,7 +2,9 @@
 import {useEffect,useState} from 'react';
 import {useAccount} from 'wagmi';
 import {isMainnetSessionForWallet} from '@/mainnet/signedWalletReceiptScope';
-import {UserRoundCheck,Send,ShieldAlert,Copy,Search,ChevronDown} from 'lucide-react';
+import {UserRoundCheck,Send,ShieldAlert,Copy,Search,ChevronDown,MessageCircle,Heart} from 'lucide-react';
+import {FriendChat} from '../../features/social/FriendChat';
+import {lookupMainnetRecipient} from '@/mainnet/recipientLookup';
 import {useUnifiedSocial,friendLabel} from '../../features/social/UnifiedSocial';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
 import {MainnetContactsPage} from './MainnetContactsPage';
@@ -10,7 +12,7 @@ import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 import {MainnetRecipientSearch} from '../identity/MainnetRecipientSearch';
 import type {RecipientSearchResult} from '@/mainnet/recipientLookup';
 export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
- onPayVerified:(value:VerifiedMainnetRecipient)=>void;onPayWallet:(wallet:string)=>void;initialQuery?:string;
+ onPayVerified:(value:VerifiedMainnetRecipient,intent?:'pay'|'tip')=>void;onPayWallet:(wallet:string)=>void;initialQuery?:string;
 }){
  const {address,connector}=useAccount(),social=useUnifiedSocial();
  const [friendLookup,setFriendLookup]=useState(initialQuery);
@@ -18,10 +20,34 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
  const [selected,setSelected]=useState<VerifiedMainnetRecipient|null>(null);
  const [walletTarget,setWalletTarget]=useState<string|null>(null);
  const [friendActionBusy,setFriendActionBusy]=useState(false);
+ const [chatPeer,setChatPeer]=useState<string|null>(null);
+ const [chatReady,setChatReady]=useState(false);
+ const [paymentBusy,setPaymentBusy]=useState(false);
  const [friendActionError,setFriendActionError]=useState<string|null>(null);
- useEffect(()=>{setSelected(null);setWalletTarget(null);setFriendActionError(null);},[address,social.session?.token]);
+ useEffect(()=>{setSelected(null);setWalletTarget(null);setFriendActionError(null);setChatPeer(null);setChatReady(false);},[address,social.session?.token]);
+ useEffect(()=>{
+  const token=social.session?.token;if(!token||!ready)return;
+  let live=true;
+  void fetch('/api/social/chat/capability',{headers:{Authorization:'Bearer '+token,Accept:'application/json'},
+   credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(12000)})
+   .then(async response=>response.ok&&response.headers.get('content-type')?.includes('application/json')?await response.json() as unknown:null)
+   .then(raw=>{if(live)setChatReady(Boolean(raw&&typeof raw==='object'&&'available' in raw&&raw.available===true));})
+   .catch(()=>{if(live)setChatReady(false);});
+  return()=>{live=false;};
+ },[social.session?.token,ready]);
  const ready=!!address&&social.identityOrigin==='ready'&&!!social.session?.token&&
   isMainnetSessionForWallet(social.session,address,connector?.uid);
+ async function payFriend(id:string,intent:'pay'|'tip'){
+  const peer=social.friends.find(x=>x.veyraUserId===id&&x.state==='CONNECTED');
+  if(!peer?.veyraHandle||!address||!social.session?.token||paymentBusy)return;
+  setPaymentBusy(true);setFriendActionError(null);
+  try{
+   const found=await lookupMainnetRecipient('@'+peer.veyraHandle+'.veyra',address,social.session.token);
+   if(found.kind!=='veyra'||found.person.veyraUserId!==id)throw Error('Recipient identity changed. Search again.');
+   onPayVerified(found.person,intent);
+  }catch(e){setFriendActionError(e instanceof Error?e.message:'Recipient verification unavailable.');}
+  finally{setPaymentBusy(false);}
+ }
  function select(result:RecipientSearchResult|null){
   setSelected(result?.kind==='veyra'?result.person:null);
   setWalletTarget(result?.kind==='wallet'?result.wallet:null);
@@ -115,9 +141,12 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
    <MainnetRecipientSearch key={friendLookup||'new'} owner={address} sessionToken={ready?social.session?.token:undefined} initialQuery={friendLookup}
      label="Find by Veyra ID" onSelection={select}/>
    {(selected||walletTarget)&&<div className="mt-3 flex flex-wrap gap-2">
-    {selected&&<button type="button" onClick={()=>onPayVerified(selected)}
+    {selected&&<button type="button" onClick={()=>onPayVerified(selected,'pay')}
      className="veyra-btn-primary inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
      ><Send className="size-4"/>Send USDC</button>}
+    {selected&&<button type="button" onClick={()=>onPayVerified(selected,'tip')}
+     className="veyra-btn-secondary inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold">
+     <Heart className="size-4"/>Tip USDC</button>}
     {walletTarget&&<button type="button" onClick={()=>onPayWallet(walletTarget)}
      className="veyra-btn-primary inline-flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold"
      ><Send className="size-4"/>Send to wallet</button>}
@@ -141,5 +170,28 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
    <summary className="cursor-pointer text-sm font-semibold" style={{color:'var(--ink)'}}>Saved wallet contacts · Details</summary>
    <MainnetContactsPage onPay={onPayWallet}/>
   </details>
+   {ready&&<section className="veyra-card p-4" aria-label="Veyra ID Chat">
+    <div className="flex items-center justify-between gap-2">
+     <h2 className="veyra-section-title">Chat</h2>
+     <span className="text-xs" style={{color:'var(--muted)'}}>Signed Veyra ID · synced messages</span>
+    </div>
+    <div className="mt-3 flex flex-wrap gap-2">
+     {social.friends.filter(x=>x.state==='CONNECTED').map(peer=><button key={peer.veyraUserId}
+      type="button" disabled={!chatReady||!peer.veyraHandle}
+      onClick={()=>setChatPeer(peer.veyraUserId)}
+      className="veyra-btn-secondary inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50">
+      <MessageCircle className="size-4"/>{friendLabel(peer)}
+     </button>)}
+    </div>
+    {!chatReady&&<p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+     Chat requires the encrypted backend and a connected friend. Pay and Tip do not require friendship.
+    </p>}
+    {chatPeer&&chatReady&&social.session&&social.friends.some(x=>x.veyraUserId===chatPeer&&x.state==='CONNECTED')&&
+     <div className="mt-4"><FriendChat key={chatPeer+':'+social.session.profile.veyraUserId}
+      token={social.session.token} ownerId={social.session.profile.veyraUserId}
+      friend={social.friends.find(x=>x.veyraUserId===chatPeer)!} onClose={()=>setChatPeer(null)}
+      onPay={()=>void payFriend(chatPeer,'pay')} onTip={()=>void payFriend(chatPeer,'tip')}/></div>}
+    {paymentBusy&&<p role="status" className="text-xs" style={{color:'var(--muted)'}}>Verifying recipient…</p>}
+   </section>}
  </main>;
 }

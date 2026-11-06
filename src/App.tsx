@@ -19,6 +19,7 @@ import { MainnetActivityPage } from './components/pages/MainnetActivityPage';
 import { UiOnlyPreviewPage } from './components/pages/UiOnlyPreviewPage';
 import { IS_UI_ONLY_PREVIEW } from './lib/env';
 import { SettingsPage } from './components/pages/SettingsPage';
+import {readPayDraft,writePayDraft} from '@/mainnet/payDraft';
 import { SocialPage } from './components/pages/SocialPage';
 import { SettlementPage } from './components/pages/SettlementPage';
 import { MainnetPayHub } from './components/pages/MainnetPayHub';
@@ -84,7 +85,9 @@ export default function App() {
       case 'settings':
         return <SettingsPage onOpenSocial={() => setPage('social')} />;
       case 'social':
-        return (VEYRA_ENV === 'mainnet' ? <MainnetPeoplePage initialQuery={profileSearch} onPayVerified={recipient=>{
+        return (VEYRA_ENV === 'mainnet' ? <MainnetPeoplePage initialQuery={profileSearch} onPayVerified={(recipient,intent)=>{
+            if(intent==='tip')writePayDraft(recipient.owner,{...readPayDraft(recipient.owner),
+             recipient:recipient.wallet,amount:'',note:'Tip'});
             setContactRecipient(null);setVerifiedRecipient(recipient);setFriendPayment(null);setPage('settlement');
           }} onPayWallet={recipient=>{
             setVerifiedRecipient(null);setContactRecipient(recipient);setFriendPayment(null);setPage('settlement');

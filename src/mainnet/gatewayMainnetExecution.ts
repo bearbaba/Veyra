@@ -13,6 +13,7 @@ import {hasUnresolvedGatewayMainnetOperation,writeGatewayMainnetOperation,
 import {activeSignedIdentityToken} from '@/lib/api/liveIdentitySession';
 import {MAINNET_CANARY_OWNER,MAINNET_CANARY_MAX_UNITS} from './releaseGates';
 import {parseGatewaySdkFees,assertGatewaySdkFeesUnchanged,type GatewaySdkFee} from '@/core/gateway/gatewaySdkSpend';
+import {planGatewayMultiSource,matchingGatewayAllocation,type GatewayAllocation} from './gatewayMultiSourceAllocation';
 
 /** SDK fee amounts are exact six-decimal USDC; preserve reviewed minimum. */
 function minimumGatewayReceive(review:GatewayMainnetReview):string{
@@ -55,13 +56,14 @@ export function observeGatewayWalletSigning(provider:EIP1193Provider){
 const chains=GATEWAY_MAINNET_CHAINS;
 const picked=(id:number)=>{
  const value=chains.find(x=>x.chainId===id);
- if(!value)throw Error('Gateway only supports configured Ethereum and Base Mainnet.');
+ if(!value)throw Error('Gateway network is not in the reviewed Mainnet catalog.');
  return value;
 };
 export type GatewayMainnetReview={
  kind:'deposit'|'spend';owner:string;sourceChainId:number;destinationChainId?:number;
  recipient:string;amount:string;balance:GatewayMainnetBalance;sessionToken:string;
  fees:GatewaySdkFee[];
+ allocations?:GatewayAllocation[];manualSourceChainId?:number;
 };
 export async function assertGatewayMainnetWallet(provider:EIP1193Provider,owner:string,chainId:number){
  if(!isAddress(owner))throw Error('Invalid connected owner wallet.');
@@ -93,10 +95,19 @@ function validate(review:GatewayMainnetReview){
  if(review.kind==='spend'){
   if(!review.destinationChainId)throw Error('Destination not reviewed.');
   picked(review.destinationChainId);
-  const available=review.balance.chains.find(x=>x.chainId===review.sourceChainId)?.available;
-  if(available===undefined||amount>available)throw Error('Confirmed Unified source funds are insufficient.');
+  const allocation=planGatewayMultiSource(review.balance,review.amount,review.manualSourceChainId);
+  if(!review.allocations||!matchingGatewayAllocation(allocation,review.allocations)||
+   review.allocations[0]?.chainId!==review.sourceChainId)
+   throw Error('Source allocation changed. Review the amounts and fees again.');
  }
  return {owner,source,amount};
+}
+/** One Circle spend intent, with exact reviewed multi-source allocations.
+ * Never emit N independent fallback transfers or auto retry. */
+function reviewedSdkAllocations(review:GatewayMainnetReview){
+ if(!review.allocations?.length)throw Error('Source allocation was not reviewed.');
+ const parts=review.allocations.map(x=>({chain:x.chain,amount:x.amount}));
+ return parts.length===1?parts[0]!:parts;
 }
 export async function estimateGatewayMainnetSpend(review:GatewayMainnetReview,
  provider:EIP1193Provider):Promise<GatewaySdkFee[]>{
@@ -105,7 +116,7 @@ export async function estimateGatewayMainnetSpend(review:GatewayMainnetReview,
  const destination=picked(review.destinationChainId!);
  const kit=new AppKit();
  const fees=await kit.unifiedBalance.estimateSpend({
-  from:{adapter,allocations:{chain:source.chain,amount:review.amount}},
+  from:{adapter,allocations:reviewedSdkAllocations(review)},
   to:{chain:destination.chain,recipientAddress:getAddress(review.recipient),useForwarder:true},
   amount:review.amount,token:'USDC',
  });
@@ -144,6 +155,7 @@ export async function submitGatewayMainnetReview(review:GatewayMainnetReview,
   ...(review.destinationChainId?{destinationChainId:review.destinationChainId}:{}),
   recipient:getAddress(review.recipient),amount:review.amount,createdAt:Date.now(),
   status:'UNKNOWN',
+  ...(review.kind==='spend'?{allocations:review.allocations?.map(x=>({chainId:x.chainId,amount:x.amount}))}:{}),
   ...(review.kind==='deposit'?{
    beforeAvailable:formatUnits(review.balance.chains.find(c=>c.chainId===source.chainId)?.available??0n,6),
   }:{minimumReceive:minimumGatewayReceive(review)}),
@@ -180,7 +192,7 @@ export async function submitGatewayMainnetReview(review:GatewayMainnetReview,
  let result:Awaited<ReturnType<AppKit['unifiedBalance']['spend']>>;
  try{
   result=await kit.unifiedBalance.spend({
-   from:{adapter,allocations:{chain:source.chain,amount:review.amount}},
+   from:{adapter,allocations:reviewedSdkAllocations(review)},
    to:{chain:dest.chain,recipientAddress:getAddress(review.recipient),useForwarder:true},
    amount:review.amount,token:'USDC',
   });

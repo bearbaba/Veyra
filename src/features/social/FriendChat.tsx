@@ -1,5 +1,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
-import {MessageCircle,Send,RefreshCw,X} from 'lucide-react';
+import {MessageCircle,Send,RefreshCw,X,Heart,ReceiptText} from 'lucide-react';
+import {formatUnits} from 'viem';
+import {listVerifiedMainnetSettlementReceipts,type MainnetSettlementServerReceipt} from '@/lib/api/mainnetSettlementReceipts';
 import {friendLabel,type SocialFriend} from './UnifiedSocial';
 
 type ChatMessage={
@@ -8,11 +10,14 @@ type ChatMessage={
 };
 type ChatPage={ok:boolean;items:ChatMessage[];hasMore:boolean;nextOffset:number|null};
 
-export function FriendChat({token,ownerId,friend,onClose}:{
+export function FriendChat({token,ownerId,friend,onClose,onPay,onTip}:{
   token:string;ownerId:string;friend:SocialFriend;onClose:()=>void;
+  onPay?:()=>void;onTip?:()=>void;
 }){
   const [messages,setMessages]=useState<ChatMessage[]>([]);
   const [draft,setDraft]=useState('');
+  const [requestAmount,setRequestAmount]=useState('');
+  const [verifiedReceipts,setVerifiedReceipts]=useState<MainnetSettlementServerReceipt[]>([]);
   const [hasMore,setHasMore]=useState(false);
   const [loading,setLoading]=useState(true);
   const [sending,setSending]=useState(false);
@@ -42,6 +47,14 @@ export function FriendChat({token,ownerId,friend,onClose}:{
       throw new Error('Invalid chat history returned.');
     return page;
   },[friend.veyraUserId,token]);
+  const refreshReceipts=useCallback(async()=>{
+    try{
+     const rows=await listVerifiedMainnetSettlementReceipts(token);
+     if(active.current)setVerifiedReceipts(rows.filter(x=>
+      (x.senderUserId===ownerId&&x.recipientUserId===friend.veyraUserId)||
+      (x.senderUserId===friend.veyraUserId&&x.recipientUserId===ownerId)));
+    }catch{if(active.current)setVerifiedReceipts([]);}
+  },[token,ownerId,friend.veyraUserId]);
   const refresh=useCallback(async()=>{
     try{
       const page=await fetchPage(0);
@@ -60,12 +73,15 @@ export function FriendChat({token,ownerId,friend,onClose}:{
   },[fetchPage]);
   useEffect(()=>{
     active.current=true;
-    void refresh();
-    const interval=window.setInterval(()=>{
-      if(document.visibilityState==='visible')void refresh();
-    },12000);
-    return()=>{active.current=false;window.clearInterval(interval);};
-  },[refresh]);
+    void refresh();void refreshReceipts();
+    const onFocus=()=>{if(document.visibilityState==='visible'){
+      void refresh();void refreshReceipts();}};
+    const interval=window.setInterval(onFocus,12000);
+    window.addEventListener('focus',onFocus);
+    window.addEventListener('veyra:mainnet:server-receipt',onFocus);
+    return()=>{active.current=false;window.clearInterval(interval);
+     window.removeEventListener('focus',onFocus);window.removeEventListener('veyra:mainnet:server-receipt',onFocus);};
+  },[refresh,refreshReceipts]);
   async function loadOlder(){
     if(olderLoading||!hasMore)return;
     setOlderLoading(true);
@@ -127,6 +143,10 @@ export function FriendChat({token,ownerId,friend,onClose}:{
           className="rounded-lg border p-2" style={{borderColor:'var(--border)'}}><X size={16}/></button>
       </div>
     </div>
+    <div className="mt-3 flex flex-wrap gap-2">
+      {onPay&&<button type="button" onClick={onPay} className="veyra-btn-secondary rounded-lg px-3 py-2 text-xs font-semibold">Pay</button>}
+      {onTip&&<button type="button" onClick={onTip} className="veyra-btn-secondary inline-flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-semibold"><Heart size={13}/>Tip</button>}
+    </div>
     <div aria-live="polite" className="mt-4 max-h-80 min-h-40 space-y-2 overflow-y-auto rounded-xl p-3"
       style={{background:'var(--surface)',border:'1px solid var(--border)'}}>
       {loading&&<p className="text-xs" style={{color:'var(--muted)'}}>Loading your conversation…</p>}
@@ -147,7 +167,26 @@ export function FriendChat({token,ownerId,friend,onClose}:{
         </div>
       </div>)}
     </div>
+    {verifiedReceipts.length>0&&<details className="mt-3 rounded-xl border p-3 text-xs" style={{borderColor:'var(--border)'}}>
+      <summary className="flex cursor-pointer items-center gap-2 font-semibold"><ReceiptText size={15}/>Verified receipts ({verifiedReceipts.length})</summary>
+      <div className="mt-2 space-y-2">{verifiedReceipts.map(receipt=><a key={receipt.txHash}
+        href={'https://explorer.arc.io/tx/'+receipt.txHash} target="_blank" rel="noreferrer"
+        className="block rounded-lg border p-2 underline" style={{borderColor:'var(--border)'}}>
+        {receipt.direction==='sent'?'Sent':'Received'} {formatUnits(BigInt(receipt.netAmountRaw),6)} USDC · {receipt.txHash.slice(0,10)}…
+      </a>)}</div>
+      <p className="mt-2" style={{color:'var(--muted)'}}>Only independently indexed VeyraSettlement receipts. Chat text is not payment proof.</p>
+    </details>}
     {error&&<p role="alert" className="mt-2 text-xs" style={{color:'var(--warning)'}}>{error}</p>}
+    {onPay&&<div className="mt-3 flex flex-wrap items-center gap-2">
+     <input aria-label="Request USDC amount" value={requestAmount} inputMode="decimal"
+      onChange={e=>setRequestAmount(e.target.value)} placeholder="Request USDC amount"
+      className="veyra-field min-w-0 flex-1 rounded-lg border p-2 text-sm" style={{borderColor:'var(--border)'}}/>
+     <button type="button" disabled={!/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(requestAmount)||Number(requestAmount)<=0}
+      className="veyra-btn-secondary rounded-lg px-3 py-2 text-xs font-semibold"
+      onClick={()=>{setDraft('Payment request: '+requestAmount+' USDC to '+friendLabel(friend)+' (request only; not a receipt)');setRequestAmount('');}}>
+      Request payment
+     </button>
+    </div>}
     <form onSubmit={event=>void send(event)} className="mt-3 flex gap-2">
       <input aria-label="Message friend" value={draft} maxLength={1000}
         onChange={event=>{setDraft(event.target.value);if(requestRef.current?.body!==event.target.value.trim())requestRef.current=null;}}

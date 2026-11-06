@@ -1,6 +1,5 @@
 import {activeSignedIdentityToken} from './liveIdentitySession';
 import {verifyXAuthorizationUrl} from '../../identity-beta/protocol';
-import {VEYRA_ENV} from '../env';
 
 const DEV_USER_ID = import.meta.env.VITE_DEV_VEYRA_USER_ID as string | undefined;
 
@@ -105,8 +104,6 @@ export async function getMyProfile(): Promise<MyProfile> {
 export type XLinkReadiness = { available: boolean; reason: string };
 /** Public status only: never expose X credentials, tokens or OAuth state. */
 export async function probeXLinkReadiness():Promise<XLinkReadiness>{
-  if(VEYRA_ENV==='mainnet')
-   return {available:false,reason:'X linking is not available in Veyra Mainnet V1. Your wallet and Veyra ID are unaffected.'};
   try{
     const response=await fetch('/api/auth/x/capability',{
       method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
@@ -136,13 +133,11 @@ export async function getXLinkCapability():Promise<boolean>{
 }
 
 export async function finishXLink(state: string, signedToken: string): Promise<void> {
-  if(VEYRA_ENV==='mainnet')throw Error('X linking is not available in Mainnet V1.');
   if (!/^[-_A-Za-z0-9]{30,128}$/.test(state)) throw new Error('X authorization state is invalid. Start again.');
   await postJson<{ ok: true }>('/api/auth/x/finish', { state }, requireSignedIdentityToken(signedToken));
 }
 
 export async function beginXLink(returnPath = '/settings'): Promise<string> {
-  if(VEYRA_ENV==='mainnet')throw Error('X linking is not available in Mainnet V1.');
   const result = await postJson<{ ok: true; authorizeUrl: string }>('/api/auth/x/start', { returnPath });
   return verifyXAuthorizationUrl(result.authorizeUrl);
 }

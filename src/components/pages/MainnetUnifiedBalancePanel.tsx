@@ -13,6 +13,7 @@ import {GATEWAY_MAINNET_CHAINS,GATEWAY_MAINNET_WRITE_ENABLED,
  gatewayMainnetAmount,fetchGatewayMainnetBalances,formatGatewayUsdc,
  type GatewayMainnetBalance} from '@/mainnet/gatewayMainnetBalances';
 import {readGatewayMainnetOperation,type GatewayMainnetOperation} from '@/mainnet/gatewayMainnetJournal';
+import {planGatewayMultiSource,type GatewayAllocation} from '@/mainnet/gatewayMultiSourceAllocation';
 import {estimateGatewayMainnetSpend,submitGatewayMainnetReview,
  type GatewayMainnetReview} from '@/mainnet/gatewayMainnetExecution';
 import type {GatewaySdkFee} from '@/core/gateway/gatewaySdkSpend';
@@ -66,7 +67,7 @@ export function MainnetUnifiedBalancePanel(){
  const sourceWalletRaw=walletReads?.[C.findIndex(x=>x.chainId===sourceId)];
  const sourceWalletBalance=sourceWalletRaw?.status==='success'&&
   typeof sourceWalletRaw.result==='bigint'?sourceWalletRaw.result:null;
- const availableForSource=mode==='deposit'?sourceWalletBalance:sourceLedger;
+ const availableForSource=mode==='deposit'?sourceWalletBalance:advanced?sourceLedger:current?.available??null;
  function readJournal(){
   setOperation(address?readGatewayMainnetOperation(address):null);
  }
@@ -110,12 +111,18 @@ export function MainnetUnifiedBalancePanel(){
  }
  const validAmount=gatewayMainnetAmount(amount);
  const units=validAmount?parseUnits(amount,6):0n;
- const enough=availableForSource!==null&&units>0n&&units<=availableForSource;
+ let allocations:GatewayAllocation[]=[];
+ if(mode==='spend'&&current&&validAmount){
+  try{allocations=planGatewayMultiSource(current,amount,advanced?sourceId:undefined);}
+  catch{/* Confirmed source liquidity insufficient. */}
+ }
+ const enough=mode==='spend'?allocations.length>0:
+  availableForSource!==null&&units>0n&&units<=availableForSource;
  const validRecipient=!!address&&isAddress(recipient);
  const good=!!current&&!previous&&validAmount&&enough&&validRecipient&&signed&&!loading;
  async function connectedProvider():Promise<EIP1193Provider>{
   if(!address||!connector)throw Error('Connect your wallet first.');
-  await switchChainAsync({chainId:sourceId});
+  await switchChainAsync({chainId:mode==='spend'?allocations[0]?.chainId??sourceId:sourceId});
   const raw:unknown=await connector.getProvider();
   if(!raw||typeof raw!=='object'||!('request' in raw)||
    typeof raw.request!=='function')throw Error('Connected wallet provider is unavailable.');
@@ -124,7 +131,8 @@ export function MainnetUnifiedBalancePanel(){
  function checkpoint():GatewayMainnetReview{
   if(!current||!address||!social.session?.token||!mode)
    throw Error('Connect and sign into your Veyra ID to review Unified.');
-  return {kind:mode,owner:address,sourceChainId:sourceId,
+  return {kind:mode,owner:address,sourceChainId:mode==='spend'?allocations[0]?.chainId??sourceId:sourceId,
+   ...(mode==='spend'?{allocations,manualSourceChainId:advanced?sourceId:undefined}:{}),
    ...(mode==='spend'?{destinationChainId:destinationId}:{}),
    recipient,amount,balance:current,sessionToken:social.session.token,fees:fees??[]};
  }
@@ -146,7 +154,8 @@ export function MainnetUnifiedBalancePanel(){
   setBusy(true);setError('');
   try{
    const provider=await connectedProvider();
-   const client=sourceId===1?eth:sourceId===8453?base:arc;
+   const id=mode==='spend'?allocations[0]?.chainId??sourceId:sourceId;
+   const client=id===1?eth:id===8453?base:arc;
    if(!client)throw Error('Source network RPC unavailable.');
    const confirmed=await submitGatewayMainnetReview(checkpoint(),provider,client);
    setOperation(confirmed);setReview(false);setFees(null);
@@ -224,7 +233,7 @@ export function MainnetUnifiedBalancePanel(){
    </p>
    {mode==='spend'&&<button type="button" className="text-xs underline"
     onClick={()=>{setAdvanced(value=>!value);setReview(false);setFees(null);}}>
-    {advanced?'Automatic source selection':'Advanced · change source network'}
+    {advanced?'Automatic source selection':'Advanced · select one source'}
    </button>}
    {(mode==='deposit'||advanced)&&<div><p className="mb-1 text-xs font-semibold">Source network</p>
     <div className="grid grid-cols-2 gap-2">{C.map(c=><button type="button" key={c.chainId}
@@ -252,7 +261,7 @@ export function MainnetUnifiedBalancePanel(){
      style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}/>
    </label>
    <div className="flex items-center justify-between text-xs" style={{color:'var(--muted)'}}>
-    <span>{mode==='deposit'?'Wallet':'Unified'} available: {fmt(availableForSource)} USDC</span>
+    <span>{mode==='deposit'?'Wallet':advanced?'Selected source':'Combined confirmed'} available: {fmt(availableForSource)} USDC</span>
     <button type="button" disabled={availableForSource===null||availableForSource===0n}
      onClick={()=>{if(availableForSource===null)return;
       setAmount(formatUnits(availableForSource>10000n?10000n:availableForSource,6));
@@ -264,19 +273,22 @@ export function MainnetUnifiedBalancePanel(){
      className="veyra-route-input mt-2 w-full rounded-xl border p-3 text-sm"
      style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}/>
    </label>}
-   {!enough&&validAmount&&mode==='spend'&&!advanced&&current!==null&&current.available>=units&&<p className="text-xs" style={{color:'var(--warning)'}}>
-    Your combined Gateway balance is sufficient, but no single source has this amount. Veyra's multi-source spend flow is not yet accepted. Try a smaller transfer or Advanced.
+   {mode==='spend'&&!advanced&&allocations.length>1&&<p className="text-xs" style={{color:'var(--accent)'}}>
+    One Circle transfer can use {allocations.length} confirmed sources. Review exact source amounts and fees before signing.
    </p>}
    {!enough&&validAmount&&<p className="text-xs" style={{color:'var(--warning)'}}>
-    Insufficient confirmed {mode==='spend'?'Gateway':'wallet'} USDC on {activeSource.chain}.
+    Insufficient confirmed {mode==='spend'?'Gateway Available':'wallet USDC on '+activeSource.chain}.
    </p>}
    {review&&<div className="rounded-lg border p-3 text-xs" style={{borderColor:'var(--border)'}}>
-    <p className="font-semibold">Review · {amount} USDC · {activeSource.chain}</p>
+    <p className="font-semibold">Review · {amount} USDC {mode==='spend'?'· '+allocations.length+' source(s)':'· '+activeSource.chain}</p>
+    {mode==='spend'&&<div className="mt-2 space-y-1" aria-label="Reviewed source allocations">
+      {allocations.map(a=><p key={a.chainId}>{a.chain} · {a.amount} USDC</p>)}
+    </div>}
     <p className="mt-1">{mode==='spend'?'To '+recipient+' on '+C.find(c=>c.chainId===destinationId)?.chain:
      'Deposit to Circle Gateway · same wallet owner'}</p>
     <p className="mt-1">Fees: {mode==='spend'?(fees?.map(f=>f.type+': '+f.amount+' '+f.token).join(' · ')||'Unavailable'):
      'Network gas shown by wallet; not estimated by Veyra'}</p>
-    <p className="mt-1">A provider result is not final settlement. Your receipt remains Pending until independently verified.</p>
+    <p className="mt-1">A provider result is not final settlement. Each source and destination must be independently verified; no automatic resend.</p>
    </div>}
    <button type="button" disabled={!good||busy||review}
     onClick={()=>void preview()} className="veyra-btn-secondary w-full py-3 disabled:opacity-40">

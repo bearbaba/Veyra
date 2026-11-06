@@ -9,7 +9,7 @@ import {validVerifiedRecipient,type VerifiedMainnetRecipient} from './verifiedRe
 export type RecipientQuery=
  | {kind:'veyra';query:string}
  | {kind:'wallet';wallet:string}
- | {kind:'x-unavailable';handle:string;query:string};
+ | {kind:'x';handle:string;query:string};
 export type RecipientSearchResult=
  | {kind:'veyra';person:VerifiedMainnetRecipient}
  | {kind:'wallet';wallet:string}
@@ -24,7 +24,7 @@ export function parseRecipientQuery(input:string):RecipientQuery{
  const v=VEYRA.exec(raw);
  if(v)return {kind:'veyra',query:'@'+v[1].toLowerCase()+'.veyra'};
  const x=X.exec(raw)??XURL.exec(raw);
- if(x)return {kind:'x-unavailable',handle:x[1].toLowerCase(),query:'@'+x[1].toLowerCase()};
+ if(x)return {kind:'x',handle:x[1].toLowerCase(),query:'x:'+x[1].toLowerCase()};
  throw new Error('Enter a full @name.veyra, a verified wallet address, or an @Xhandle. A bare name is ambiguous.');
 }
 type LookupDeps={
@@ -39,13 +39,18 @@ export async function lookupMainnetRecipient(
 ):Promise<RecipientSearchResult>{
  const query=parseRecipientQuery(input);
  if(query.kind==='wallet')return query;
- if(query.kind==='x-unavailable')
-  return {kind:'x-unavailable',handle:query.handle,
-   inviteText:'You can receive USDC with Veyra. Create your verified Veyra ID at https://veyra-seven-beta.vercel.app/'};
  if(!isAddress(owner)||!sessionToken)throw Error('Sign in to your Veyra ID to verify this recipient.');
- const data=await deps.prepare(query.query,5042,sessionToken);
+ let data:PreparedRecipient;
+ try{data=await deps.prepare(query.query,5042,sessionToken);}
+ catch(error){
+  if(query.kind==='x'&&error instanceof Error&&
+   (/X_NOT_LINKED|not linked to a verified Veyra ID/i.test(error.message)))
+   return {kind:'x-unavailable',handle:query.handle,
+    inviteText:'Join Veyra, verify your wallet and link your X account so I can Tip you USDC: https://veyra-seven-beta.vercel.app/'};
+  throw error;
+ }
  if(data.kind!=='VEYRA_IDENTITY'||data.chainId!==5042||!data.snapshot||!isAddress(data.resolvedAddress))
-  throw Error('This Veyra ID has no independently verified Arc Mainnet receiving wallet.');
+  throw Error('This recipient has no independently verified Arc Mainnet receiving wallet.');
  const s=data.snapshot;
  const person:VerifiedMainnetRecipient={owner,wallet:data.resolvedAddress,walletId:s.walletId,
   veyraUserId:s.veyraUserId,veyraHandle:s.veyraHandle,displayName:s.displayName,

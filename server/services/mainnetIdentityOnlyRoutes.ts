@@ -1,5 +1,6 @@
 /** Allowlist for the wallet-signed, NO-RELAY Mainnet V1 identity/receipts BFF.
- * Enforced BEFORE all business routes, including Agent, Bridge, Gateway, X.
+ * Enforced BEFORE all business routes. X OAuth, Chat and notifications are
+ * owner-authenticated, capability-gated and NEVER authorize financial signing.
  * This mode is never permitted for the fully featured Mainnet signer release.
  */
 const allowed=new Set([
@@ -34,6 +35,14 @@ const allowed=new Set([
  'GET /api/mainnet/exchange/across/capability',
  'GET /api/mainnet/exchange/across/status',
  'POST /api/auth/x/capability',
+ 'POST /api/auth/x/start',
+ 'GET /api/auth/x/callback',
+ 'POST /api/auth/x/finish',
+ 'GET /api/social/chat/capability',
+ 'GET /api/social/chat',
+ 'POST /api/social/chat/send',
+ 'GET /api/notifications',
+ 'POST /api/notifications/read',
 ]);
 export function isMainnetIdentityOnlyRouteAllowed(method:string,path:string):boolean{
  if(!/^\/[a-z0-9_/-]+$/.test(path)||!['GET','POST','PATCH'].includes(method))return false;
