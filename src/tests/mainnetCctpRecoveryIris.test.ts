@@ -3,7 +3,7 @@ import {findCctpDestinationMintHash} from '../mainnet/verifyCctpBridgeLink';
 const source='0x'+'a'.repeat(64),mint='0x'+'b'.repeat(64);
 describe('Mainnet Iris read-only recovery and strict mint linkage',()=>{
  it('uses CCTP source DOMAIN 6 rather than EVM chainId 8453',async()=>{
-  const fetcher=vi.fn(async()=>new Response(JSON.stringify({messages:[{
+  const fetcher=vi.fn(async (_url:string)=>new Response(JSON.stringify({messages:[{
    status:'complete',sourceTxHash:source,destinationMintTxHash:mint,
   }]}),{status:200,headers:{'content-type':'application/json'}}));
   expect(await findCctpDestinationMintHash(8453,1,source,fetcher as typeof fetch)).toBe(mint);
