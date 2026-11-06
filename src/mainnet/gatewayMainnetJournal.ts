@@ -13,11 +13,12 @@ export type GatewayMainnetOperation={
  beforeAvailable?:string;minimumReceive?:string;
 };
 export type GatewayMainnetReceipt={
- version:1;operationId:string;owner:string;kind:'deposit'|'spend';status:'VERIFIED'|'REVERTED';
+ version:1;operationId:string;owner:string;kind:'deposit'|'spend';status:'VERIFIED'|'REVERTED'|'CANCELLED_BEFORE_SOURCE';
  chainId:number;destinationChainId?:number;recipient:string;amount:string;
  sourceHash?:string;destinationHash?:string;transferId?:string;verifiedAt:number;
  sourceBlockHash?:string;destinationBlockHash?:string;
  gatewayConfirmedBefore?:string;gatewayConfirmedAfter?:string;received?:string;
+ rejectionMethod?:string;
 };
 const HASH=/^0x[0-9a-fA-F]{64}$/;
 const AMOUNT=/^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,6})?$/;
@@ -50,14 +51,14 @@ export function validGatewayMainnetReceipt(x:unknown,owner:string):x is GatewayM
  return r.version===1&&typeof r.operationId==='string'&&/^[0-9a-f-]{36}$/i.test(r.operationId)&&
   r.owner===getAddress(owner).toLowerCase()&&
   (r.kind==='deposit'||r.kind==='spend')&&
-  (r.status==='VERIFIED'||r.status==='REVERTED')&&supported(r.chainId!)&&
+  (r.status==='VERIFIED'||r.status==='REVERTED'||r.status==='CANCELLED_BEFORE_SOURCE')&&supported(r.chainId!)&&
   (r.destinationChainId===undefined||supported(r.destinationChainId))&&
   typeof r.recipient==='string'&&isAddress(r.recipient)&&
   amountOk(r.amount)&&parseUnits(r.amount,6)>0n&&
   (r.sourceHash===undefined||HASH.test(r.sourceHash))&&
   (r.sourceBlockHash===undefined||HASH.test(r.sourceBlockHash))&&
   (r.transferId===undefined||typeof r.transferId==='string'&&r.transferId.length>0&&r.transferId.length<160)&&
-  (r.kind!=='deposit'||typeof r.sourceHash==='string'&&HASH.test(r.sourceHash)&&
+  (r.kind!=='deposit'||r.status==='CANCELLED_BEFORE_SOURCE'||typeof r.sourceHash==='string'&&HASH.test(r.sourceHash)&&
    typeof r.sourceBlockHash==='string'&&HASH.test(r.sourceBlockHash))&&
   (r.destinationHash===undefined||HASH.test(r.destinationHash))&&
   (r.destinationBlockHash===undefined||HASH.test(r.destinationBlockHash))&&
@@ -65,6 +66,12 @@ export function validGatewayMainnetReceipt(x:unknown,owner:string):x is GatewayM
   (r.gatewayConfirmedBefore===undefined||amountOk(r.gatewayConfirmedBefore))&&
   (r.gatewayConfirmedAfter===undefined||amountOk(r.gatewayConfirmedAfter))&&
   (r.received===undefined||amountOk(r.received))&&
+  (r.status!=='CANCELLED_BEFORE_SOURCE'||(
+   r.sourceHash===undefined&&r.destinationHash===undefined&&r.transferId===undefined&&
+   r.sourceBlockHash===undefined&&r.destinationBlockHash===undefined&&
+   typeof r.rejectionMethod==='string'&&
+   (/^eth_(?:sendTransaction|sendRawTransaction|sign|signTypedData(?:_v[0-9]+)?)$/.test(r.rejectionMethod)||r.rejectionMethod==='personal_sign')
+  ))&&
   (r.status!=='VERIFIED'||r.kind!=='deposit'||(
     r.gatewayConfirmedBefore!==undefined&&r.gatewayConfirmedAfter!==undefined&&
     parseUnits(r.gatewayConfirmedAfter,6)>=parseUnits(r.gatewayConfirmedBefore,6)+parseUnits(r.amount,6)
@@ -122,6 +129,9 @@ export function archiveGatewayMainnetReceipt(receipt:GatewayMainnetReceipt,
   const active=readGatewayMainnetOperation(receipt.owner,storage);
   if(!active||active==='blocked'||active.id!==receipt.operationId||
    active.kind!==receipt.kind||active.chainId!==receipt.chainId||
+   (receipt.status==='CANCELLED_BEFORE_SOURCE'&&(
+    active.status!=='UNKNOWN'||active.sourceHash!==undefined||active.transferId!==undefined||
+    active.destinationHash!==undefined))||
    active.destinationChainId!==receipt.destinationChainId||
    active.recipient.toLowerCase()!==receipt.recipient.toLowerCase()||
    active.amount!==receipt.amount||

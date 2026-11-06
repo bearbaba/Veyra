@@ -112,7 +112,7 @@ export function MainnetUnifiedActivity(){
   </p>:history.map(receipt=><div key={receipt.operationId} className="rounded-xl border p-3"
    style={{borderColor:'var(--border)',color:'var(--ink)'}}>
    <p className="text-sm font-semibold">
-    {receipt.kind==='deposit'?'Unified deposit':'Unified transfer'} · {receipt.status==='VERIFIED'?'Verified':'Reverted'}
+    {receipt.kind==='deposit'?'Unified deposit':'Unified transfer'} · {receipt.status==='VERIFIED'?'Verified':receipt.status==='REVERTED'?'Reverted':'Cancelled before submission'}
    </p>
    <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
     {receipt.amount} USDC · {new Date(receipt.verifiedAt).toLocaleString()}

@@ -8,6 +8,7 @@ import {erc20Abi,formatUnits,getAddress,isAddress,parseUnits,type EIP1193Provide
 import {GATEWAY_MAINNET_CHAINS,GATEWAY_MAINNET_WRITE_ENABLED,
  gatewayMainnetAmount,type GatewayMainnetBalance} from './gatewayMainnetBalances';
 import {hasUnresolvedGatewayMainnetOperation,writeGatewayMainnetOperation,
+ archiveGatewayMainnetReceipt,
  type GatewayMainnetOperation} from './gatewayMainnetJournal';
 import {activeSignedIdentityToken} from '@/lib/api/liveIdentitySession';
 import {MAINNET_CANARY_OWNER,MAINNET_CANARY_MAX_UNITS} from './releaseGates';
@@ -22,6 +23,35 @@ function minimumGatewayReceive(review:GatewayMainnetReview):string{
  return formatUnits(value-costs,6);
 }
 const HASH=/^0x[0-9a-fA-F]{64}$/;
+/** A first EIP-1193 wallet rejection (code 4001) before ANY successful
+ * signature or transaction request is the only SDK failure eligible for
+ * cancelling the local UNKNOWN checkpoint without an onchain receipt.
+ */
+const signingMethod=(method:string)=>method==='eth_sendTransaction'||method==='eth_sendRawTransaction'||
+ method==='personal_sign'||method==='eth_sign'||method==='eth_signTypedData'||
+ /^eth_signTypedData_v[0-9]+$/.test(method);
+const walletRejected=(error:unknown)=>!!error&&typeof error==='object'&&
+ 'code' in error&&(error as {code:unknown}).code===4001;
+export function observeGatewayWalletSigning(provider:EIP1193Provider){
+ let completedFinancialRequest=false;
+ let rejectedBeforeAnySignature:string|null=null;
+ const watched={...provider,request:async(args:Parameters<EIP1193Provider['request']>[0])=>{
+  const method=args.method;
+  try{
+   const response:unknown=await provider.request(args);
+   if(signingMethod(method))completedFinancialRequest=true;
+   return response;
+  }catch(e){
+   if(signingMethod(method)&&walletRejected(e)&&!completedFinancialRequest)
+    rejectedBeforeAnySignature=method;
+   throw e;
+  }
+ }} as EIP1193Provider;
+ return {provider:watched,
+  get rejectedBeforeSignature(){return completedFinancialRequest?null:rejectedBeforeAnySignature;},
+ };
+}
+
 const chains=GATEWAY_MAINNET_CHAINS;
 const picked=(id:number)=>{
  const value=chains.find(x=>x.chainId===id);
@@ -97,7 +127,8 @@ export async function submitGatewayMainnetReview(review:GatewayMainnetReview,
    functionName:'balanceOf',args:[getAddress(owner)]});
   if(balance<amount)throw Error('Insufficient source wallet USDC.');
  }
- const adapter=await adapterFor({provider,owner,chainId:source.chainId});
+ const watched=observeGatewayWalletSigning(provider);
+ const adapter=await adapterFor({provider:watched.provider,owner,chainId:source.chainId});
  if(activeSignedIdentityToken()!==review.sessionToken)
   throw Error('Signed Veyra ID session changed.');
  const kit=new AppKit();
@@ -122,10 +153,23 @@ export async function submitGatewayMainnetReview(review:GatewayMainnetReview,
  // SDK may have initiated approval or signed the spend when a provider throws;
  // never delete the UNKNOWN checkpoint after any error.
  if(review.kind==='deposit'){
-  const result=await kit.unifiedBalance.deposit({
-   from:{adapter,chain:source.chain},amount:review.amount,token:'USDC',
-   allowanceStrategy:'approve',
-  });
+  let result:Awaited<ReturnType<AppKit['unifiedBalance']['deposit']>>;
+  try{
+   result=await kit.unifiedBalance.deposit({
+    from:{adapter,chain:source.chain},amount:review.amount,token:'USDC',
+    allowanceStrategy:'approve',
+   });
+  }catch(error){
+   if(watched.rejectedBeforeSignature){
+    const archived=archiveGatewayMainnetReceipt({
+     version:1,operationId:operation.id,owner,kind:'deposit',status:'CANCELLED_BEFORE_SOURCE',
+     chainId:operation.chainId,recipient:operation.recipient,amount:operation.amount,
+     verifiedAt:Date.now(),rejectionMethod:watched.rejectedBeforeSignature,
+    });
+    if(archived)throw Error('Wallet declined before any signature. No Gateway deposit was sent; you can review a new request.');
+   }
+   throw error;
+  }
   const txHash=typeof result.txHash==='string'&&HASH.test(result.txHash)?result.txHash:undefined;
   const submitted:GatewayMainnetOperation={...operation,status:'SUBMITTED',...(txHash?{sourceHash:txHash}:{})};
   if(!writeGatewayMainnetOperation(submitted))
@@ -133,11 +177,25 @@ export async function submitGatewayMainnetReview(review:GatewayMainnetReview,
   return submitted;
  }
  const dest=picked(review.destinationChainId!);
- const result=await kit.unifiedBalance.spend({
-  from:{adapter,allocations:{chain:source.chain,amount:review.amount}},
-  to:{chain:dest.chain,recipientAddress:getAddress(review.recipient),useForwarder:true},
-  amount:review.amount,token:'USDC',
- });
+ let result:Awaited<ReturnType<AppKit['unifiedBalance']['spend']>>;
+ try{
+  result=await kit.unifiedBalance.spend({
+   from:{adapter,allocations:{chain:source.chain,amount:review.amount}},
+   to:{chain:dest.chain,recipientAddress:getAddress(review.recipient),useForwarder:true},
+   amount:review.amount,token:'USDC',
+  });
+ }catch(error){
+  if(watched.rejectedBeforeSignature){
+   const archived=archiveGatewayMainnetReceipt({
+    version:1,operationId:operation.id,owner,kind:'spend',status:'CANCELLED_BEFORE_SOURCE',
+    chainId:operation.chainId,destinationChainId:operation.destinationChainId,
+    recipient:operation.recipient,amount:operation.amount,
+    verifiedAt:Date.now(),rejectionMethod:watched.rejectedBeforeSignature,
+   });
+   if(archived)throw Error('Wallet declined before any signature. No Gateway transfer was signed; you can review again.');
+  }
+  throw error;
+ }
  const txHash=typeof result.txHash==='string'&&HASH.test(result.txHash)?result.txHash:undefined;
  const transferId=typeof result.transferId==='string'?result.transferId:undefined;
  const pending:GatewayMainnetOperation={...operation,status:'DESTINATION_UNVERIFIED',
