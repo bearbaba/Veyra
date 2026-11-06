@@ -5,6 +5,19 @@ import {formatUnits} from 'viem';
 import {requireSignedIdentityToken} from './identityApi';
 import {paymentRequestRef,PAYMENT_REQUEST_ID,validRequestUsdcAmount} from '../../mainnet/paymentRequestRef';
 
+/** A structured 4xx refusal from the signed server is definitive: the
+ * payment-attempt claim did not succeed. Network/5xx/invalid responses are
+ * UNKNOWN and must never be treated as confirmation of failure.
+ */
+export class ConfirmedPaymentRequestRefusal extends Error {
+ constructor(public readonly code:string,message:string){
+  super(message);this.name='ConfirmedPaymentRequestRefusal';
+ }
+}
+export function confirmedPaymentRequestRefusal(error:unknown):boolean{
+ return error instanceof ConfirmedPaymentRequestRefusal;
+}
+
 export type VeyraPaymentRequest={
  requestId:string;requesterUserId:string;payerUserId:string;
  recipientWallet:string;paymentRef:string;amountRaw:string;chainId:5042;
@@ -39,6 +52,12 @@ async function requestApi(token:string,route:string,body?:unknown,method:'GET'|'
   credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000),
  });
  const data:unknown=await res.json().catch(()=>null);
+ if(!res.ok&&res.status>=400&&res.status<500&&data&&typeof data==='object'&&!Array.isArray(data)){
+  const refusal=data as Record<string,unknown>;
+  if(refusal.ok===false&&typeof refusal.error==='string'&&refusal.error.length>0)
+   throw new ConfirmedPaymentRequestRefusal(refusal.error,
+    typeof refusal.message==='string'?refusal.message:'Payment request was rejected by the server.');
+ }
  if(!data||typeof data!=='object'||Array.isArray(data)||
   !('ok' in data)||data.ok!==true||!res.ok)
   throw Error(data&&typeof data==='object'&&'message' in data&&typeof data.message==='string'?
