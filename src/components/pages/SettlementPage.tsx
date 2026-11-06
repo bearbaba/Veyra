@@ -70,10 +70,10 @@ import {withMainnetWalletSigningLock} from '@/mainnet/mainnetWalletSigningLock';
 import {reverifySettlementRecipient} from '@/mainnet/reverifySettlementRecipient';
 import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 import {recordLocalOperation,readLocalOperations} from '@/mainnet/localOperations';
-import {readSettlementIntent,writeSettlementIntent,clearSettlementIntent,settlementUnresolved,type SettlementIntent} from '@/mainnet/settlementJournal';
+import {readSettlementIntent,writeSettlementIntent,clearSettlementIntent,settlementUnresolved,resumablePaymentAttempt,type SettlementIntent} from '@/mainnet/settlementJournal';
 import {inspectRecordedSettlement} from '@/mainnet/verifyRecordedSettlement';
 import type {MainnetPayDraft} from '@/mainnet/payDraft';
-import {reviewPeerRequest,claimPeerRequest,confirmedPaymentRequestRefusal,type VeyraPaymentRequest} from '@/lib/api/paymentRequests';
+import {reviewPeerRequest,claimPeerRequest,readPeerRequestAttempt,explicitlyRejectedWallet,confirmedPaymentRequestRefusal,type VeyraPaymentRequest} from '@/lib/api/paymentRequests';
 import {paymentRequestRef} from '@/mainnet/paymentRequestRef';
 import {assertMainnetSigningAllowed,assertMainnetContractCanarySigningAllowed} from '@/mainnet/releaseGates';
 import { MainnetSettlementDeploy } from './MainnetSettlementDeploy';
@@ -775,9 +775,15 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
 
   // ── review entry: load fees, lock snapshot ─────────────────────────────────────
   function handleReview() {
-    if(address&&VEYRA_ENV==='mainnet'&&settlementUnresolved(readSettlementIntent(address))){
-      setErrorMsg('An earlier payment or approval request is unresolved. Check the original wallet request before signing again.');
-      setStep('error');return;
+    if(address&&VEYRA_ENV==='mainnet'){
+      const old=readSettlementIntent(address);
+      const recover=paymentRequest&&resumablePaymentAttempt(old,{
+       owner:address,requestId:paymentRequest.requestId,recipient:paymentRequest.recipientWallet,
+       amount:formatUnits(BigInt(paymentRequest.amountRaw),6),ref:paymentRequest.paymentRef});
+      if(settlementUnresolved(old)&&!recover){
+       setErrorMsg('An earlier payment or approval request is unresolved. Check the original wallet request before signing again.');
+       setStep('error');return;
+      }
     }
     if (!mainnetRegistryVerified) { setErrorMsg('Mainnet contract verification has not passed.'); setStep('error'); return; }
     if (!liveFeesReady) { setStep('loading-fees'); return; }
@@ -1055,7 +1061,11 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
          !social.session?.token||snapshot.requestId!==paymentRequest.requestId)
           throw Error('Veyra ID or request changed.');
         const live=await reviewPeerRequest(social.session.token,paymentRequest.requestId);
-        if(live.status!=='PENDING'||live.paymentInProgress||live.payerUserId!==paymentRequest.payerUserId||
+        if(live.status!=='PENDING'||(live.paymentInProgress&&
+          !resumablePaymentAttempt(readSettlementIntent(address),{
+           owner:address,requestId:paymentRequest.requestId,recipient:snapshot.recipient,
+           amount:formatUnits(snapshot.amountParsed,6),ref:snapshot.ref}))||
+         live.payerUserId!==paymentRequest.payerUserId||
          live.requesterUserId!==paymentRequest.requesterUserId||
          live.recipientWallet.toLowerCase()!==snapshot.recipient.toLowerCase()||
          live.amountRaw!==snapshot.amountParsed.toString()||
@@ -1094,57 +1104,75 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
         return;
       }
     }
-    // Persist the exact intent BEFORE requesting the atomic server claim.
-    // A failed browser write must not strand a server claim without recovery evidence.
+    // The exact, owner-scoped attempt ID must survive reload and lost HTTP
+    // responses. A second attempt or a previous UNKNOWN/PENDING send is NEVER
+    // authorized. Wallet refusal retains the server claim for the same attempt.
+    let claimAttemptId:string|null=null;
     if(isMainnet&&snapshot.mode==='pay'){
-      if(settlementUnresolved(readSettlementIntent(address))){
-        setErrorMsg('An earlier Settlement request is unresolved. Check Activity before signing again.');
+      const prior=readSettlementIntent(address);
+      claimAttemptId=paymentRequest?resumablePaymentAttempt(prior,{
+       owner:address,requestId:paymentRequest.requestId,recipient:snapshot.recipient,
+       amount:formatUnits(snapshot.amountParsed,6),ref:snapshot.ref}):null;
+      if(settlementUnresolved(prior)&&!claimAttemptId){
+        setErrorMsg('Another wallet request is unresolved. Recover its original hash; do not sign a new transaction.');
         setStep('error');return;
       }
-      let fromBlock:string;
-      try{fromBlock=(await publicClient.getBlockNumber()).toString();}
-      catch{
-        setErrorMsg('Cannot save the original payment block. No wallet signature requested.');
-        setStep('error');return;
-      }
-      const intent:SettlementIntent={owner:address,phase:'PAYMENT',
-       stage:'AWAITING_WALLET',recipient:snapshot.recipient,
-       amount:formatUnits(snapshot.amountParsed,6),ref:snapshot.ref,hash:null,createdAt:Date.now(),fromBlock};
-      if(!writeSettlementIntent(intent)){
-        setErrorMsg('Recovery storage unavailable. No wallet signature requested.');
-        setStep('error');return;
+      if(claimAttemptId){
+        if(prior.kind!=='active'||!writeSettlementIntent({...prior.value,stage:'AWAITING_WALLET'})){
+          setErrorMsg('Cannot safely reopen the original checkpoint. No signing requested.');
+          setStep('error');return;
+        }
+      }else{
+        let fromBlock:string;
+        try{fromBlock=(await publicClient.getBlockNumber()).toString();}
+        catch{
+          setErrorMsg('Cannot save original payment block. No wallet signature requested.');
+          setStep('error');return;
+        }
+        claimAttemptId=paymentRequest?crypto.randomUUID():null;
+        const intent:SettlementIntent={owner:address,phase:'PAYMENT',
+         stage:'AWAITING_WALLET',recipient:snapshot.recipient,
+         amount:formatUnits(snapshot.amountParsed,6),ref:snapshot.ref,hash:null,
+         createdAt:Date.now(),fromBlock,
+         ...(paymentRequest&&claimAttemptId?
+          {requestId:paymentRequest.requestId,attemptId:claimAttemptId}:{})};
+        if(!writeSettlementIntent(intent)){
+          setErrorMsg('Recovery storage unavailable. No server claim or wallet signature requested.');
+          setStep('error');return;
+        }
       }
     }
-    // Acquire an atomic server claim AFTER the frozen local recovery checkpoint, but BEFORE
-    // opening the wallet. A second browser/device can never claim this request.
-    // Unknown signing outcomes are not automatically released; Activity and
-    // canonical receipts must settle the original attempt.
+    // The authoritative server either creates this claim once or confirms
+    // ownership of the SAME key after a lost response. Any ambiguity fails
+    // closed and keeps the exact local checkpoint for manual recovery.
     if(isMainnet&&paymentRequest){
       try{
-        if(!social.session?.token||!address||snapshot.requestId!==paymentRequest.requestId)
-         throw Error('Payment Request identity changed.');
-        await claimPeerRequest(social.session.token,paymentRequest.requestId,address);
+        if(!social.session?.token||!address||!claimAttemptId||
+         snapshot.requestId!==paymentRequest.requestId)
+          throw Error('Payment Request identity changed.');
+        const result=await claimPeerRequest(social.session.token,
+         paymentRequest.requestId,address,claimAttemptId);
+        if(result.request.paymentRef!==snapshot.ref||
+         result.request.amountRaw!==snapshot.amountParsed.toString()||
+         result.request.recipientWallet.toLowerCase()!==snapshot.recipient.toLowerCase())
+          throw Error('Server claim differs from the frozen Settlement review.');
       }catch(e){
-        // A server-confirmed 4xx refusal has NOT acquired the request claim.
-        // Since the wallet was never invoked, the exact pre-claim local intent
-        // may be removed. Network, 5xx, or malformed responses remain UNKNOWN:
-        // the backend could have accepted the claim before the reply was lost.
-        if(confirmedPaymentRequestRefusal(e)){
-          const recorded=readSettlementIntent(address);
-          if(recorded.kind==='active'&&recorded.value.phase==='PAYMENT'&&
-            recorded.value.stage==='AWAITING_WALLET'&&recorded.value.hash===null&&
-            recorded.value.ref===snapshot.ref&&
-            recorded.value.recipient.toLowerCase()===snapshot.recipient.toLowerCase()&&
-            recorded.value.amount===formatUnits(snapshot.amountParsed,6)&&
-            !clearSettlementIntent(address)){
-            setErrorMsg('Server declined this request, but the local safety lock could not be cleared. Check Activity.');
-            setStep('error');return;
-          }
+        // A server 4xx alone does not prove no claim exists. Clear only after
+        // a positive, authenticated lookup confirms NO reservation and PENDING.
+        if(confirmedPaymentRequestRefusal(e)&&social.session?.token&&claimAttemptId){
+          try{
+            const status=await readPeerRequestAttempt(social.session.token,
+             paymentRequest.requestId,address,claimAttemptId);
+            if(!status.matches&&!status.request.paymentInProgress&&status.request.status==='PENDING'){
+              const old=readSettlementIntent(address);
+              if(old.kind==='active'&&old.value.requestId===paymentRequest.requestId&&
+               old.value.attemptId===claimAttemptId&&old.value.hash===null&&
+               old.value.stage==='AWAITING_WALLET')clearSettlementIntent(address);
+            }
+          }catch{/* no verified non-claim: keep the checkpoint */}
         }
-        setErrorMsg((e instanceof Error?e.message:'Unable to confirm payment request claim')+
-         (confirmedPaymentRequestRefusal(e)?
-           ' No wallet signature was requested. Return to Chat and refresh.':
-           ' Server claim outcome is unknown. Do not sign again until the original attempt is reconciled.'));
+        setErrorMsg((e instanceof Error?e.message:'Could not verify original server attempt')+
+         ' No wallet signature requested. Recover the exact attempt; never create another while unresolved.');
         setStep('error');return;
       }
     }
@@ -1194,11 +1222,16 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
         const prior=readSettlementIntent(address);
         if(prior.kind==='active'){
           // A wallet rejection error cannot prove the original transaction did not broadcast.
-           writeSettlementIntent({...prior.value,stage:'UNKNOWN',hash:null});
+           writeSettlementIntent({...prior.value,
+            stage:paymentRequest&&explicitlyRejectedWallet(e)&&
+              prior.value.requestId===paymentRequest.requestId&&
+              prior.value.attemptId===claimAttemptId?'REJECTED':'UNKNOWN',hash:null});
         }
       }
       setErrorMsg((e instanceof Error?e.message:'Wallet outcome unavailable')+
-       '. A wallet/RPC error does not prove the funds were not submitted. Do not resend.');
+       (paymentRequest&&explicitlyRejectedWallet(e)?
+        '. Wallet explicitly declined. You may re-review the SAME attempt; server reservation remains held.':
+        '. A wallet/RPC error does not prove the funds were not submitted. Do not resend.'));
       setStep('error');
     }
   }
@@ -1610,6 +1643,13 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
                 <p className="text-xs text-red-400/70 mt-1 break-words">{errorMsg}</p>
               </div>
             </div>
+            {paymentRequest&&address&&resumablePaymentAttempt(intentState,{
+              owner:address,requestId:paymentRequest.requestId,recipient:paymentRequest.recipientWallet,
+              amount:formatUnits(BigInt(paymentRequest.amountRaw),6),ref:paymentRequest.paymentRef})&&
+              <button type="button" className="veyra-btn-secondary w-full rounded-xl p-3 text-sm font-semibold"
+                onClick={()=>{setErrorMsg(null);setSnapshot(null);setStep('form');}}>
+                Review original attempt again (no new claim)
+              </button>}
             <button onClick={reset} disabled={isMainnet&&settlementUnresolved(intentState)}
               className="w-full py-2 text-sm text-white/40 hover:text-white/70 disabled:cursor-not-allowed disabled:opacity-30">
               {isMainnet&&settlementUnresolved(intentState)?'Checking original request':'← Start again'}
