@@ -73,7 +73,7 @@ import {recordLocalOperation,readLocalOperations} from '@/mainnet/localOperation
 import {readSettlementIntent,writeSettlementIntent,clearSettlementIntent,settlementUnresolved,type SettlementIntent} from '@/mainnet/settlementJournal';
 import {inspectRecordedSettlement} from '@/mainnet/verifyRecordedSettlement';
 import type {MainnetPayDraft} from '@/mainnet/payDraft';
-import {reviewPeerRequest,claimPeerRequest,type VeyraPaymentRequest} from '@/lib/api/paymentRequests';
+import {reviewPeerRequest,claimPeerRequest,confirmedPaymentRequestRefusal,type VeyraPaymentRequest} from '@/lib/api/paymentRequests';
 import {paymentRequestRef} from '@/mainnet/paymentRequestRef';
 import {assertMainnetSigningAllowed,assertMainnetContractCanarySigningAllowed} from '@/mainnet/releaseGates';
 import { MainnetSettlementDeploy } from './MainnetSettlementDeploy';
@@ -1094,22 +1094,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
         return;
       }
     }
-    // Acquire an atomic server claim AFTER exact RPC simulation but BEFORE
-    // opening the wallet. A second browser/device can never claim this request.
-    // Unknown signing outcomes are not automatically released; Activity and
-    // canonical receipts must settle the original attempt.
-    if(isMainnet&&paymentRequest){
-      try{
-        if(!social.session?.token||!address||snapshot.requestId!==paymentRequest.requestId)
-         throw Error('Payment Request identity changed.');
-        await claimPeerRequest(social.session.token,paymentRequest.requestId,address);
-      }catch(e){
-        setErrorMsg((e instanceof Error?e.message:'Unable to claim payment request')+
-         ' No new signature requested. Check the original request in Chat.');
-        setStep('error');return;
-      }
-    }
-    // Save the frozen payment intent BEFORE the wallet request is opened.
+    // Persist the exact intent BEFORE requesting the atomic server claim.
+    // A failed browser write must not strand a server claim without recovery evidence.
     if(isMainnet&&snapshot.mode==='pay'){
       if(settlementUnresolved(readSettlementIntent(address))){
         setErrorMsg('An earlier Settlement request is unresolved. Check Activity before signing again.');
@@ -1126,6 +1112,39 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
        amount:formatUnits(snapshot.amountParsed,6),ref:snapshot.ref,hash:null,createdAt:Date.now(),fromBlock};
       if(!writeSettlementIntent(intent)){
         setErrorMsg('Recovery storage unavailable. No wallet signature requested.');
+        setStep('error');return;
+      }
+    }
+    // Acquire an atomic server claim AFTER the frozen local recovery checkpoint, but BEFORE
+    // opening the wallet. A second browser/device can never claim this request.
+    // Unknown signing outcomes are not automatically released; Activity and
+    // canonical receipts must settle the original attempt.
+    if(isMainnet&&paymentRequest){
+      try{
+        if(!social.session?.token||!address||snapshot.requestId!==paymentRequest.requestId)
+         throw Error('Payment Request identity changed.');
+        await claimPeerRequest(social.session.token,paymentRequest.requestId,address);
+      }catch(e){
+        // A server-confirmed 4xx refusal has NOT acquired the request claim.
+        // Since the wallet was never invoked, the exact pre-claim local intent
+        // may be removed. Network, 5xx, or malformed responses remain UNKNOWN:
+        // the backend could have accepted the claim before the reply was lost.
+        if(confirmedPaymentRequestRefusal(e)){
+          const recorded=readSettlementIntent(address);
+          if(recorded.kind==='active'&&recorded.value.phase==='PAYMENT'&&
+            recorded.value.stage==='AWAITING_WALLET'&&recorded.value.hash===null&&
+            recorded.value.ref===snapshot.ref&&
+            recorded.value.recipient.toLowerCase()===snapshot.recipient.toLowerCase()&&
+            recorded.value.amount===formatUnits(snapshot.amountParsed,6)&&
+            !clearSettlementIntent(address)){
+            setErrorMsg('Server declined this request, but the local safety lock could not be cleared. Check Activity.');
+            setStep('error');return;
+          }
+        }
+        setErrorMsg((e instanceof Error?e.message:'Unable to confirm payment request claim')+
+         (confirmedPaymentRequestRefusal(e)?
+           ' No wallet signature was requested. Return to Chat and refresh.':
+           ' Server claim outcome is unknown. Do not sign again until the original attempt is reconciled.'));
         setStep('error');return;
       }
     }
