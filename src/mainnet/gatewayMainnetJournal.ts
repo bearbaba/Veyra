@@ -77,9 +77,12 @@ export function validGatewayMainnetReceipt(x:unknown,owner:string):x is GatewayM
    (/^eth_(?:sendTransaction|sendRawTransaction|sign|signTypedData(?:_v[0-9]+)?)$/.test(r.rejectionMethod)||r.rejectionMethod==='personal_sign')
   ))&&
   (r.status!=='VERIFIED'||r.kind!=='deposit'||(
-    r.gatewayConfirmedBefore!==undefined&&r.gatewayConfirmedAfter!==undefined&&
-    parseUnits(r.gatewayConfirmedAfter,6)>=parseUnits(r.gatewayConfirmedBefore,6)+parseUnits(r.amount,6)
-   ))&&
+   // Read legacy v1 receipts without presenting their aggregate-balance test
+   // as strong evidence. New verified deposits must carry a provider credit ID.
+   r.gatewayCreditReference!==undefined||
+   (r.gatewayConfirmedBefore!==undefined&&r.gatewayConfirmedAfter!==undefined&&
+    parseUnits(r.gatewayConfirmedAfter,6)>=parseUnits(r.gatewayConfirmedBefore,6)+parseUnits(r.amount,6))
+  ))&&
   (r.status!=='VERIFIED'||r.kind!=='spend'||(
     r.destinationHash!==undefined&&r.destinationBlockHash!==undefined&&r.received!==undefined&&
     r.transferId!==undefined
