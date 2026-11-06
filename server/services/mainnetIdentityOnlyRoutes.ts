@@ -38,6 +38,7 @@ const allowed=new Set([
  'POST /api/auth/x/start',
  'GET /api/auth/x/callback',
  'POST /api/auth/x/finish',
+ 'POST /api/auth/x/revoke',
  'GET /api/social/chat/capability',
  'GET /api/social/chat',
  'POST /api/social/chat/send',

@@ -5,14 +5,17 @@ import {isMainnetSessionForWallet} from '@/mainnet/signedWalletReceiptScope';
 import {UserRoundCheck,Send,ShieldAlert,Copy,Search,ChevronDown,MessageCircle,Heart} from 'lucide-react';
 import {FriendChat} from '../../features/social/FriendChat';
 import {lookupMainnetRecipient} from '@/mainnet/recipientLookup';
+import {reviewPeerRequest,type VeyraPaymentRequest} from '@/lib/api/paymentRequests';
 import {useUnifiedSocial,friendLabel} from '../../features/social/UnifiedSocial';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
 import {MainnetContactsPage} from './MainnetContactsPage';
 import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 import {MainnetRecipientSearch} from '../identity/MainnetRecipientSearch';
 import type {RecipientSearchResult} from '@/mainnet/recipientLookup';
-export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
- onPayVerified:(value:VerifiedMainnetRecipient,intent?:'pay'|'tip')=>void;onPayWallet:(wallet:string)=>void;initialQuery?:string;
+export function MainnetPeoplePage({onPayVerified,onPayRequest,onPayWallet,initialQuery=''}:{
+ onPayVerified:(value:VerifiedMainnetRecipient,intent?:'pay'|'tip')=>void;
+ onPayRequest:(value:VerifiedMainnetRecipient,request:VeyraPaymentRequest)=>void;
+ onPayWallet:(wallet:string)=>void;initialQuery?:string;
 }){
  const {address,connector}=useAccount(),social=useUnifiedSocial();
  const [friendLookup,setFriendLookup]=useState(initialQuery);
@@ -47,6 +50,25 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
    if(found.kind!=='veyra'||found.person.veyraUserId!==id)throw Error('Recipient identity changed. Search again.');
    onPayVerified(found.person,intent);
   }catch(e){setFriendActionError(e instanceof Error?e.message:'Recipient verification unavailable.');}
+  finally{setPaymentBusy(false);}
+ }
+ async function payRequested(request:VeyraPaymentRequest){
+  const ownerId=social.session?.profile.veyraUserId;
+  const peer=social.friends.find(x=>x.veyraUserId===request.requesterUserId&&x.state==='CONNECTED');
+  if(!peer?.veyraHandle||!address||!social.session?.token||!ownerId||paymentBusy||!ready)return;
+  if(request.payerUserId!==ownerId||request.requesterUserId!==chatPeer)return;
+  setPaymentBusy(true);setFriendActionError(null);
+  try{
+   const checked=await reviewPeerRequest(social.session.token,request.requestId);
+   if(checked.status!=='PENDING'||checked.paymentInProgress||checked.payerUserId!==ownerId||
+    checked.requesterUserId!==peer.veyraUserId||Date.parse(checked.expiresAt)<=Date.now())
+    throw Error('This request is no longer payable. Refresh the conversation.');
+   const found=await lookupMainnetRecipient('@'+peer.veyraHandle+'.veyra',address,social.session.token);
+   if(found.kind!=='veyra'||found.person.veyraUserId!==peer.veyraUserId||
+    found.person.wallet.toLowerCase()!==checked.recipientWallet.toLowerCase())
+    throw Error('The payment receiver has changed. This request must be replaced.');
+   onPayRequest(found.person,checked);
+  }catch(e){setFriendActionError(e instanceof Error?e.message:'Payment request cannot be verified.');}
   finally{setPaymentBusy(false);}
  }
  function select(result:RecipientSearchResult|null){
@@ -191,7 +213,8 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
      <div className="mt-4"><FriendChat key={chatPeer+':'+social.session.profile.veyraUserId}
       token={social.session.token} ownerId={social.session.profile.veyraUserId}
       friend={social.friends.find(x=>x.veyraUserId===chatPeer)!} onClose={()=>setChatPeer(null)}
-      onPay={()=>void payFriend(chatPeer,'pay')} onTip={()=>void payFriend(chatPeer,'tip')}/></div>}
+      onPay={()=>void payFriend(chatPeer,'pay')} onTip={()=>void payFriend(chatPeer,'tip')}
+      onPayRequest={request=>void payRequested(request)}/></div>}
     {paymentBusy&&<p role="status" className="text-xs" style={{color:'var(--muted)'}}>Verifying recipient…</p>}
    </section>}
  </main>;

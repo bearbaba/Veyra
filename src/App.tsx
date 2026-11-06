@@ -20,6 +20,7 @@ import { UiOnlyPreviewPage } from './components/pages/UiOnlyPreviewPage';
 import { IS_UI_ONLY_PREVIEW } from './lib/env';
 import { SettingsPage } from './components/pages/SettingsPage';
 import {readPayDraft,writePayDraft} from '@/mainnet/payDraft';
+import type {VeyraPaymentRequest} from '@/lib/api/paymentRequests';
 import { SocialPage } from './components/pages/SocialPage';
 import { SettlementPage } from './components/pages/SettlementPage';
 import { MainnetPayHub } from './components/pages/MainnetPayHub';
@@ -54,6 +55,7 @@ export default function App() {
   const [friendPayment, setFriendPayment] = useState<string | null>(null);
   const [contactRecipient, setContactRecipient] = useState<string | null>(null);
   const [verifiedRecipient,setVerifiedRecipient] = useState<VerifiedMainnetRecipient|null>(null);
+ const [paymentRequest,setPaymentRequest]=useState<VeyraPaymentRequest|null>(null);
 
   function startFriendPayment(handle: string) {
     // A friendly label is only a suggestion. Pay resolves a fresh 30-second
@@ -74,7 +76,7 @@ export default function App() {
         return <MainnetSoonPage feature="Exchange"/>;
       case 'pay':
         return VEYRA_ENV === 'mainnet' ? <MainnetPayHub recipientWallet={contactRecipient}
-          verifiedRecipient={verifiedRecipient} onClearVerified={()=>setVerifiedRecipient(null)}
+          verifiedRecipient={verifiedRecipient} paymentRequest={paymentRequest} onClearVerified={()=>{setVerifiedRecipient(null);setPaymentRequest(null);}}
           onRecipientUsed={() => setContactRecipient(null)} /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
       case 'convert':
         return VEYRA_ENV === 'mainnet' ? <MainnetExchangePage /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="convert" /> : <ConvertPage />;
@@ -88,13 +90,16 @@ export default function App() {
         return (VEYRA_ENV === 'mainnet' ? <MainnetPeoplePage initialQuery={profileSearch} onPayVerified={(recipient,intent)=>{
             if(intent==='tip')writePayDraft(recipient.owner,{...readPayDraft(recipient.owner),
              recipient:recipient.wallet,amount:'',note:'Tip'});
-            setContactRecipient(null);setVerifiedRecipient(recipient);setFriendPayment(null);setPage('settlement');
+            setPaymentRequest(null);setContactRecipient(null);setVerifiedRecipient(recipient);setFriendPayment(null);setPage('settlement');
+          }} onPayRequest={(recipient,request)=>{
+            setPaymentRequest(request);setContactRecipient(null);
+            setVerifiedRecipient(recipient);setFriendPayment(null);setPage('settlement');
           }} onPayWallet={recipient=>{
-            setVerifiedRecipient(null);setContactRecipient(recipient);setFriendPayment(null);setPage('settlement');
+            setPaymentRequest(null);setVerifiedRecipient(null);setContactRecipient(recipient);setFriendPayment(null);setPage('settlement');
           }}/> : <SocialPage onPayFriend={startFriendPayment} />);
       case 'settlement':
         return VEYRA_ENV === 'mainnet' ? <MainnetPayHub recipientWallet={contactRecipient}
-          verifiedRecipient={verifiedRecipient} onClearVerified={()=>setVerifiedRecipient(null)}
+          verifiedRecipient={verifiedRecipient} paymentRequest={paymentRequest} onClearVerified={()=>{setVerifiedRecipient(null);setPaymentRequest(null);}}
           onRecipientUsed={() => setContactRecipient(null)} /> : <SettlementPage />;
       default:
         return <HomePage onNavigate={setPage} />;

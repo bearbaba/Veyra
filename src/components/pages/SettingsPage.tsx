@@ -13,7 +13,7 @@ import { Check, ChevronDown, Copy, Link2, Loader2, ShieldCheck, SlidersHorizonta
 import { DEFAULT_VEYRA_POLICY } from '@/core/policy/policyEngine';
 import { VEYRA_ENV } from '@/lib/env';
 import { MAINNET_CANARY_ONLY,MAINNET_EMERGENCY_READ_ONLY } from '@/mainnet/releaseGates';
-import { beginXLink, finishXLink, probeXLinkReadiness } from '@/lib/api/identityApi';
+import { beginXLink, finishXLink, probeXLinkReadiness, unlinkXAccount } from '@/lib/api/identityApi';
 import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS } from '@/config/productRegistry';
 import { RuntimeStatusCard } from '../system/RuntimeStatusCard';
@@ -37,6 +37,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const [disconnecting,setDisconnecting]=useState(false);
   const [logoutWarning,setLogoutWarning]=useState<string|null>(null);
   const [xLoading, setXLoading] = useState(false);
+  const [xUnlinking,setXUnlinking]=useState(false);
   const xFinishAttempted=useRef(false);
   const [xError, setXError] = useState<string | null>(null);
   // Fail closed until the trusted backend confirms an OAuth client and exact
@@ -109,6 +110,14 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
     }
   }
 
+  async function unlinkX(){
+    if(!profile?.x||!signedToken||xUnlinking)return;
+    if(!window.confirm('Disconnect this X account from your Veyra ID? Linked X handles will no longer resolve for Tips.'))return;
+    setXUnlinking(true);setXError(null);
+    try{await unlinkXAccount(signedToken);await social.refresh();}
+    catch(e){setXError(e instanceof Error?e.message:'X unlink unavailable.');}
+    finally{setXUnlinking(false);}
+  }
   async function copyId(){
     const handle=profile?.veyraHandle ?? identity.lastUsedHandle;
     if(!handle)return;
@@ -198,6 +207,11 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
               {xLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
               {profile?.x ? 'X linked' : xCapability==='checking' ? 'Checking X…' : xCapability==='unavailable' ? 'X linking unavailable' : 'Connect X'}
             </button>
+            {profile?.x&&<button type="button" onClick={()=>void unlinkX()} disabled={xUnlinking}
+              className="rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+              style={{borderColor:'var(--border)',color:'var(--ink)'}}>
+              {xUnlinking?'Disconnecting X…':'Unlink X'}
+            </button>}
           </div>
           {logoutWarning&&<p role="alert" className="mt-3 text-xs" style={{color:"var(--warning)"}}>{logoutWarning}</p>}
           {xCapability==='unavailable'&&!profile?.x && <p role="status" className="mt-3 text-xs leading-5" style={{color:'var(--muted)'}}>

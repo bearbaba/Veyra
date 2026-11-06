@@ -201,6 +201,14 @@
     {
       "source": "/api/notifications/read",
       "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/notifications/read"
+    },
+    {
+      "source": "/api/auth/x/revoke",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/auth/x/revoke"
+    },
+    {
+      "source": "/api/social/payment-requests/claim",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/social/payment-requests/claim"
     }
   ]
 }

@@ -30,7 +30,7 @@ export function chooseGatewaySource(balance:GatewayMainnetBalance,raw:string):nu
  })[0]?.chainId??null;
 }
 type Mode='deposit'|'spend';
-export function MainnetUnifiedBalancePanel(){
+export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded}:{fundingToWallet?:string;fundingNeeded?:string}={}){
  const {address,connector}=useAccount();
  const social=useUnifiedSocial();
  const signed= social.identityOrigin==='ready'&&
@@ -74,8 +74,9 @@ export function MainnetUnifiedBalancePanel(){
   setOperation(address?readGatewayMainnetOperation(address):null);
  }
  useEffect(()=>{
-  setScope('');setSnapshot(null);setError('');setMode(null);
-  setRecipient(address??'');setReview(false);setFees(null);
+  setScope('');setSnapshot(null);setError('');setMode(fundingToWallet?'spend':null);
+   if(fundingToWallet){setDestinationId(5042);setAmount(fundingNeeded??'');setAdvanced(false);}
+  setRecipient(fundingToWallet??address??'');setReview(false);setFees(null);
   if(!address||!signed){setOperation(null);return;}
   const ownerAddress=address,activeSession=session;
   let active=true;
@@ -99,7 +100,7 @@ export function MainnetUnifiedBalancePanel(){
   window.addEventListener('veyra:gateway:mainnet',changed);
   return()=>{active=false;window.clearInterval(interval);
    window.removeEventListener('focus',refresh);window.removeEventListener('veyra:gateway:mainnet',changed);};
- },[address,signed,session]);
+ },[address,signed,session,fundingToWallet,fundingNeeded]);
  function selectMode(next:Mode){
   setMode(next);setAmount('');setFees(null);setReview(false);setError('');setRecipient(address??'');setAdvanced(false);
  }
@@ -133,7 +134,11 @@ export function MainnetUnifiedBalancePanel(){
  function checkpoint():GatewayMainnetReview{
   if(!current||!address||!social.session?.token||!mode)
    throw Error('Connect and sign into your Veyra ID to review Unified.');
-  return {kind:mode,owner:address,sourceChainId:mode==='spend'?allocations[0]?.chainId??sourceId:sourceId,
+  if(fundingToWallet&&(mode!=='spend'||destinationId!==5042||
+    recipient.toLowerCase()!==fundingToWallet.toLowerCase()||
+    fundingToWallet.toLowerCase()!==address.toLowerCase()))
+    throw Error('Unified funding must go to your own verified Arc wallet.');
+   return {kind:mode,owner:address,sourceChainId:mode==='spend'?allocations[0]?.chainId??sourceId:sourceId,
    ...(mode==='spend'?{allocations,manualSourceChainId:advanced?sourceId:undefined}:{}),
    ...(mode==='spend'?{destinationChainId:destinationId}:{}),
    recipient,amount,balance:current,sessionToken:social.session.token,fees:fees??[]};
@@ -225,10 +230,10 @@ export function MainnetUnifiedBalancePanel(){
     'Unified transfer outcome is not independently verified. Check Activity before another.'}
   </p>}
   <div className="mt-3 flex flex-wrap gap-2">
-   <button type="button" disabled={!canRead||!current||previous} onClick={()=>selectMode('deposit')}
+   <button type="button" disabled={Boolean(fundingToWallet)||!canRead||!current||previous} onClick={()=>selectMode('deposit')}
     className="veyra-btn-secondary flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs font-semibold disabled:opacity-40">
     <ArrowDownLeft className="size-4"/> Add USDC</button>
-   <button type="button" disabled={!canRead||!current||previous||current.available<=0n} onClick={()=>selectMode('spend')}
+   <button type="button" disabled={Boolean(fundingToWallet)||!canRead||!current||previous||current.available<=0n} onClick={()=>selectMode('spend')}
     className="veyra-btn-secondary flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs font-semibold disabled:opacity-40">
     <SendHorizontal className="size-4"/> Send to wallet</button>
   </div>
@@ -241,7 +246,7 @@ export function MainnetUnifiedBalancePanel(){
     style={{color:'var(--warning)'}}>Quotes and review only · Mainnet transfers paused</p>}
    <div className="flex items-center justify-between">
     <p className="text-sm font-bold">{mode==='deposit'?'Add USDC':'Send Unified USDC'}</p>
-    <button type="button" onClick={()=>setMode(null)} className="veyra-btn-secondary px-2 text-xs">Close</button>
+    {!fundingToWallet&&<button type="button" onClick={()=>setMode(null)} className="veyra-btn-secondary px-2 text-xs">Close</button>}
    </div>
    <p className="text-xs" style={{color:'var(--muted)'}}>
     {mode==='deposit'?'Source deposit finality and Circle Gateway Available are separate milestones. Only the provider ledger is spendable.':
@@ -259,7 +264,7 @@ export function MainnetUnifiedBalancePanel(){
       borderColor:sourceId===c.chainId?'var(--border-strong)':'var(--border)'}}>
      <BrandLogo logoKey={c.logo} size={26}/><span className="truncate text-xs font-semibold">{c.chain}</span>
     </button>)}</div></div>}
-   {mode==='spend'&&<div><p className="mb-1 text-xs font-semibold">Destination network</p>
+   {mode==='spend'&&!fundingToWallet&&<div><p className="mb-1 text-xs font-semibold">Destination network</p>
     <div className="grid grid-cols-2 gap-2">{C.map(c=><button type="button" key={c.chainId}
      onClick={()=>selectDestination(c.chainId)} aria-pressed={destinationId===c.chainId}
      className="veyra-route-control flex min-w-0 items-center gap-2 rounded-xl border p-2 text-left"
@@ -284,12 +289,13 @@ export function MainnetUnifiedBalancePanel(){
       setReview(false);setFees(null);}}
      className="veyra-btn-secondary px-2 disabled:opacity-40">Max pilot</button>
    </div>
-   {mode==='spend'&&<label className="block text-xs font-semibold">Recipient wallet
-    <input value={recipient} onChange={e=>{setRecipient(e.target.value);setReview(false);setFees(null);}}
+   {mode==='spend'&&<label className="block text-xs font-semibold">{fundingToWallet?'Funding destination · your Arc wallet':'Recipient wallet'}
+    <input value={recipient} disabled={Boolean(fundingToWallet)} onChange={e=>{setRecipient(e.target.value);setReview(false);setFees(null);}}
      className="veyra-route-input mt-2 w-full rounded-xl border p-3 text-sm"
      style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}/>
    </label>}
-   {mode==='spend'&&!advanced&&allocations.length>1&&<p className="text-xs" style={{color:'var(--accent)'}}>
+   {fundingToWallet&&<p className="text-xs" style={{color:'var(--muted)'}}>Gateway funds your Arc wallet, not the payee. Confirm destination receipt and wallet balance before signing Settlement separately; fees reduce net funds.</p>}
+    {mode==='spend'&&!advanced&&allocations.length>1&&<p className="text-xs" style={{color:'var(--accent)'}}>
     One Circle transfer can use {allocations.length} confirmed sources. Review exact source amounts and fees before signing.
    </p>}
    {!enough&&validAmount&&<p className="text-xs" style={{color:'var(--warning)'}}>

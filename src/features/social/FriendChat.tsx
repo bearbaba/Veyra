@@ -1,6 +1,8 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {MessageCircle,Send,RefreshCw,X,Heart,ReceiptText} from 'lucide-react';
 import {formatUnits} from 'viem';
+import {createPeerRequest,cancelPeerRequest,displayRequestUsdc,listPeerRequests,type VeyraPaymentRequest} from '@/lib/api/paymentRequests';
+import {validRequestUsdcAmount} from '@/mainnet/paymentRequestRef';
 import {listVerifiedMainnetSettlementReceipts,type MainnetSettlementServerReceipt} from '@/lib/api/mainnetSettlementReceipts';
 import {friendLabel,type SocialFriend} from './UnifiedSocial';
 
@@ -10,13 +12,16 @@ type ChatMessage={
 };
 type ChatPage={ok:boolean;items:ChatMessage[];hasMore:boolean;nextOffset:number|null};
 
-export function FriendChat({token,ownerId,friend,onClose,onPay,onTip}:{
+export function FriendChat({token,ownerId,friend,onClose,onPay,onTip,onPayRequest}:{
   token:string;ownerId:string;friend:SocialFriend;onClose:()=>void;
-  onPay?:()=>void;onTip?:()=>void;
+  onPay?:()=>void;onTip?:()=>void;onPayRequest?:(request:VeyraPaymentRequest)=>void;
 }){
   const [messages,setMessages]=useState<ChatMessage[]>([]);
   const [draft,setDraft]=useState('');
   const [requestAmount,setRequestAmount]=useState('');
+  const [requests,setRequests]=useState<VeyraPaymentRequest[]>([]);
+  const [requestBusy,setRequestBusy]=useState(false);
+  const requestCreateRef=useRef<{amount:string;key:string}|null>(null);
   const [verifiedReceipts,setVerifiedReceipts]=useState<MainnetSettlementServerReceipt[]>([]);
   const [hasMore,setHasMore]=useState(false);
   const [loading,setLoading]=useState(true);
@@ -47,6 +52,12 @@ export function FriendChat({token,ownerId,friend,onClose,onPay,onTip}:{
       throw new Error('Invalid chat history returned.');
     return page;
   },[friend.veyraUserId,token]);
+  const refreshRequests=useCallback(async()=>{
+    try{
+      const list=await listPeerRequests(token,friend.veyraUserId);
+      if(active.current)setRequests(list);
+    }catch(e){if(active.current)setError(e instanceof Error?e.message:'Payment requests cannot be loaded.');}
+  },[token,friend.veyraUserId]);
   const refreshReceipts=useCallback(async()=>{
     try{
      const rows=await listVerifiedMainnetSettlementReceipts(token);
@@ -73,15 +84,15 @@ export function FriendChat({token,ownerId,friend,onClose,onPay,onTip}:{
   },[fetchPage]);
   useEffect(()=>{
     active.current=true;
-    void refresh();void refreshReceipts();
+    void refresh();void refreshReceipts();void refreshRequests();
     const onFocus=()=>{if(document.visibilityState==='visible'){
-      void refresh();void refreshReceipts();}};
+      void refresh();void refreshReceipts();void refreshRequests();}};
     const interval=window.setInterval(onFocus,12000);
     window.addEventListener('focus',onFocus);
     window.addEventListener('veyra:mainnet:server-receipt',onFocus);
     return()=>{active.current=false;window.clearInterval(interval);
      window.removeEventListener('focus',onFocus);window.removeEventListener('veyra:mainnet:server-receipt',onFocus);};
-  },[refresh,refreshReceipts]);
+  },[refresh,refreshReceipts,refreshRequests]);
   async function loadOlder(){
     if(olderLoading||!hasMore)return;
     setOlderLoading(true);
@@ -124,6 +135,31 @@ export function FriendChat({token,ownerId,friend,onClose,onPay,onTip}:{
     }catch(error){
       if(active.current)setError(error instanceof Error?error.message:'Message delivery was not confirmed.');
     }finally{if(active.current)setSending(false);}
+  }
+  async function createRequest(){
+    const amount=requestAmount.trim();
+    if(requestBusy||!validRequestUsdcAmount(amount))return;
+    setRequestBusy(true);setError(null);
+    const key=requestCreateRef.current?.amount===amount?requestCreateRef.current:
+      {amount,key:crypto.randomUUID()};
+    requestCreateRef.current=key; // reuse same ID if request result is unknown
+    try{
+      const created=await createPeerRequest(token,friend.veyraUserId,amount,key.key);
+      if(created.requesterUserId!==ownerId||created.payerUserId!==friend.veyraUserId)
+        throw Error('Request parties did not match. Recheck history.');
+      if(active.current){
+        requestCreateRef.current=null;setRequestAmount('');
+        await refreshRequests();
+      }
+    }catch(e){if(active.current)setError(e instanceof Error?e.message:'Request not confirmed. Retry with the same key.');}
+    finally{if(active.current)setRequestBusy(false);}
+  }
+  async function cancelRequest(requestId:string){
+    if(requestBusy)return;
+    setRequestBusy(true);setError(null);
+    try{await cancelPeerRequest(token,requestId);await refreshRequests();}
+    catch(e){if(active.current)setError(e instanceof Error?e.message:'Could not cancel the request.');}
+    finally{if(active.current)setRequestBusy(false);}
   }
   return <section aria-label={'Conversation with '+friendLabel(friend)}
     className="rounded-3xl border p-4 md:p-5" style={{background:'var(--surface-strong)',borderColor:'var(--border-strong)'}}>
@@ -177,16 +213,55 @@ export function FriendChat({token,ownerId,friend,onClose,onPay,onTip}:{
       <p className="mt-2" style={{color:'var(--muted)'}}>Only independently indexed VeyraSettlement receipts. Chat text is not payment proof.</p>
     </details>}
     {error&&<p role="alert" className="mt-2 text-xs" style={{color:'var(--warning)'}}>{error}</p>}
-    {onPay&&<div className="mt-3 flex flex-wrap items-center gap-2">
-     <input aria-label="Request USDC amount" value={requestAmount} inputMode="decimal"
-      onChange={e=>setRequestAmount(e.target.value)} placeholder="Request USDC amount"
-      className="veyra-field min-w-0 flex-1 rounded-lg border p-2 text-sm" style={{borderColor:'var(--border)'}}/>
-     <button type="button" disabled={!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(requestAmount)||Number(requestAmount)<=0}
-      className="veyra-btn-secondary rounded-lg px-3 py-2 text-xs font-semibold"
-      onClick={()=>{setDraft('Payment request: '+requestAmount+' USDC to my verified Veyra ID (request only; not a receipt)');setRequestAmount('');}}>
-      Request payment
-     </button>
-    </div>}
+    <section className="mt-4 space-y-2" aria-label="USDC payment requests">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold">Payment requests</h3>
+        <button type="button" onClick={()=>void refreshRequests()} className="text-xs underline">Refresh</button>
+      </div>
+      {requests.length===0&&<p className="text-xs" style={{color:'var(--muted)'}}>
+        Requests sync with your signed Veyra ID. Chat text is not a receipt.</p>}
+      {requests.map(request=><article key={request.requestId} className="rounded-xl border p-3 text-xs"
+        style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+        <div className="flex items-center justify-between gap-2">
+          <p className="font-semibold">{displayRequestUsdc(request)} USDC</p>
+          <span>{request.status}</span>
+        </div>
+        <p className="mt-1" style={{color:'var(--muted)'}}>
+          {request.requesterUserId===ownerId?'You requested payment from '+friendLabel(friend):
+            friendLabel(friend)+' requests payment from you'}
+        </p>
+        <p className="mt-1" style={{color:'var(--muted)'}}>
+          Request {request.requestId.slice(0,13)}… · expires {new Date(request.expiresAt).toLocaleString()}
+        </p>
+        {request.paymentInProgress&&request.status==='PENDING'&&
+          <p className="mt-2 font-semibold" style={{color:'var(--warning)'}}>
+            Original wallet attempt unresolved. Check Activity; never sign this request again from a new device.
+          </p>}
+        {request.status==='PAID'&&request.txHash&&
+          <a className="mt-2 inline-block underline" href={'https://explorer.arc.io/tx/'+request.txHash}
+            target="_blank" rel="noreferrer">View verified Settlement receipt</a>}
+        {request.status==='PENDING'&&!request.paymentInProgress&&request.payerUserId===ownerId&&onPayRequest&&
+          <button type="button" onClick={()=>onPayRequest(request)}
+            className="veyra-btn-primary mt-2 rounded-lg px-3 py-2 font-semibold">
+            Pay request · review in Settlement</button>}
+        {request.status==='PENDING'&&!request.paymentInProgress&&request.requesterUserId===ownerId&&
+          <button type="button" onClick={()=>void cancelRequest(request.requestId)} disabled={requestBusy}
+            className="veyra-btn-secondary mt-2 rounded-lg px-3 py-2 font-semibold disabled:opacity-50">
+            Cancel request</button>}
+      </article>)}
+      {onPay&&<div className="mt-3 flex flex-wrap items-center gap-2">
+        <input aria-label="Request USDC amount" value={requestAmount} inputMode="decimal"
+          onChange={e=>{setRequestAmount(e.target.value);if(requestCreateRef.current?.amount!==e.target.value.trim())requestCreateRef.current=null;}}
+          placeholder="Amount to receive (USDC)"
+          className="veyra-field min-w-0 flex-1 rounded-lg border p-2 text-sm"
+          style={{borderColor:'var(--border)'}}/>
+        <button type="button" disabled={requestBusy||!validRequestUsdcAmount(requestAmount.trim())}
+          className="veyra-btn-secondary rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50"
+          onClick={()=>void createRequest()}>
+          {requestBusy?'Saving…':'Request payment'}
+        </button>
+      </div>}
+    </section>
     <form onSubmit={event=>void send(event)} className="mt-3 flex gap-2">
       <input aria-label="Message friend" value={draft} maxLength={1000}
         onChange={event=>{setDraft(event.target.value);if(requestRef.current?.body!==event.target.value.trim())requestRef.current=null;}}

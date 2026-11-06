@@ -73,6 +73,8 @@ import {recordLocalOperation,readLocalOperations} from '@/mainnet/localOperation
 import {readSettlementIntent,writeSettlementIntent,clearSettlementIntent,settlementUnresolved,type SettlementIntent} from '@/mainnet/settlementJournal';
 import {inspectRecordedSettlement} from '@/mainnet/verifyRecordedSettlement';
 import type {MainnetPayDraft} from '@/mainnet/payDraft';
+import {reviewPeerRequest,claimPeerRequest,type VeyraPaymentRequest} from '@/lib/api/paymentRequests';
+import {paymentRequestRef} from '@/mainnet/paymentRequestRef';
 import {assertMainnetSigningAllowed,assertMainnetContractCanarySigningAllowed} from '@/mainnet/releaseGates';
 import { MainnetSettlementDeploy } from './MainnetSettlementDeploy';
 import { VEYRA_SETTLEMENT_CREATION_BYTECODE, VEYRA_SETTLEMENT_CREATION_KECCAK } from '@/generated/veyraSettlementCreation';
@@ -188,6 +190,7 @@ interface ReviewSnapshot {
   approveGasNative: bigint;
   // payment reference (fixed at review entry)
   ref: `0x${string}`;
+  requestId?:string;
   // escrow (only set when mode === 'escrow')
   escrowHours?: string;
 }
@@ -214,9 +217,10 @@ function buildRef(): `0x${string}` {
 
 // ─── component ─────────────────────────────────────────────────────────────────
 
-export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifiedRecipient}:{
+export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifiedRecipient,paymentRequest}:{
  embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void;
  verifiedRecipient?:VerifiedMainnetRecipient|null;
+ paymentRequest?:VeyraPaymentRequest|null;
 }) {
   const { address, isConnected, chainId,connector } = useAccount();
   const social=useUnifiedSocial();
@@ -803,6 +807,17 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
       setErrorMsg('Selected Veyra ID is not the receiving wallet in this Settlement review.');
       setStep('error');return;
     }
+    if(paymentRequest){
+      if(paymentRequest.status!=='PENDING'||Date.parse(paymentRequest.expiresAt)<=Date.now()||
+        !signedForWallet||social.session?.profile.veyraUserId!==paymentRequest.payerUserId||
+        !verifiedRecipient||verifiedRecipient.veyraUserId!==paymentRequest.requesterUserId||
+        verifiedRecipient.wallet.toLowerCase()!==paymentRequest.recipientWallet.toLowerCase()||
+        amountParsed!==BigInt(paymentRequest.amountRaw)||effectiveMode!=='pay'||
+        paymentRequest.paymentRef!==paymentRequestRef(paymentRequest.requestId)){
+        setErrorMsg('Request no longer matches payer, payee, wallet or amount. Refresh Chat.');
+        setStep('error');return;
+      }
+    }
     const bps =
       typeof liveFeeBps === 'bigint' ? liveFeeBps :
       typeof liveFeeBps === 'number' ? BigInt(liveFeeBps) : 0n;
@@ -826,7 +841,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
       feePercent: Number(bps) / 100,
       gasEstimateNative: payGasNative,
       approveGasNative: approveGasNative,
-      ref: buildRef(),
+      ref: paymentRequest?paymentRequestRef(paymentRequest.requestId):buildRef(),
+      ...(paymentRequest?{requestId:paymentRequest.requestId}:{}),
       ...(effectiveMode === 'escrow' ? { escrowHours } : {}),
     });
     setStep('review');
@@ -1033,6 +1049,24 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
       return;
     }
 
+    if(paymentRequest&&isMainnet){
+      try{
+        if(!signedForWallet||social.session?.profile.veyraUserId!==paymentRequest.payerUserId||
+         !social.session?.token||snapshot.requestId!==paymentRequest.requestId)
+          throw Error('Veyra ID or request changed.');
+        const live=await reviewPeerRequest(social.session.token,paymentRequest.requestId);
+        if(live.status!=='PENDING'||live.paymentInProgress||live.payerUserId!==paymentRequest.payerUserId||
+         live.requesterUserId!==paymentRequest.requesterUserId||
+         live.recipientWallet.toLowerCase()!==snapshot.recipient.toLowerCase()||
+         live.amountRaw!==snapshot.amountParsed.toString()||
+         live.paymentRef!==snapshot.ref||Date.parse(live.expiresAt)<=Date.now())
+         throw Error('Payment Request was cancelled, expired or changed. No signature requested.');
+      }catch(e){
+        setErrorMsg((e instanceof Error?e.message:'Payment Request unavailable')+
+         ' Return to Chat and refresh before signing.');
+        setStep('error');return;
+      }
+    }
     // Never blindly re-broadcast an earlier Mainnet Settlement payment.
     // Activity automatically verifies and resolves the original recorded hash.
     if(isMainnet && readLocalOperations(address).some(v=>v.type==='Settlement'&&v.status==='SUBMITTED')){
@@ -1058,6 +1092,21 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
         setErrorMsg('Contract payment could not be simulated. No payment signature requested. '+(e instanceof Error?e.message:'Check your network and allowance.'));
         setStep('error');
         return;
+      }
+    }
+    // Acquire an atomic server claim AFTER exact RPC simulation but BEFORE
+    // opening the wallet. A second browser/device can never claim this request.
+    // Unknown signing outcomes are not automatically released; Activity and
+    // canonical receipts must settle the original attempt.
+    if(isMainnet&&paymentRequest){
+      try{
+        if(!social.session?.token||!address||snapshot.requestId!==paymentRequest.requestId)
+         throw Error('Payment Request identity changed.');
+        await claimPeerRequest(social.session.token,paymentRequest.requestId,address);
+      }catch(e){
+        setErrorMsg((e instanceof Error?e.message:'Unable to claim payment request')+
+         ' No new signature requested. Check the original request in Chat.');
+        setStep('error');return;
       }
     }
     // Save the frozen payment intent BEFORE the wallet request is opened.
@@ -1382,6 +1431,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
             <details className="rounded-xl border px-4 py-3 text-xs" style={{borderColor:'var(--border)',color:'var(--muted)'}}>
               <summary className="cursor-pointer font-semibold">Details</summary>
               <div className="mt-3 space-y-2">
+                {snapshot.requestId&&<ReviewRow label="Payment request" value={snapshot.requestId.slice(0,18)+"…"}/>}
                 <ReviewRow label="Network" value={snapshot.chainLabel}/>
                 <ReviewRow label="Your wallet" value={<span className="font-mono">{snapshot.walletAddress.slice(0,8)}…{snapshot.walletAddress.slice(-6)}</span>} mono/>
                 <ReviewRow label="Recipient wallet" value={<span className="font-mono">{snapshot.recipient.slice(0,10)}…{snapshot.recipient.slice(-6)}</span>} mono/>

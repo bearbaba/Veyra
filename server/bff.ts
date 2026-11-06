@@ -63,7 +63,7 @@ import {indexVerifiedSettlement,listVerifiedSettlements,parseSettlementReceiptRe
 import {sql} from 'drizzle-orm';
 import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } from './services/friendInboxService.js';
 import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
-import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
+import { getProfile, updateProfile, revokeXIdentity, ProfileError } from './services/profileService.js';
 import {DirectMessageError,encryptionKey,chatPage,listDirectMessages,sendDirectMessage} from './services/directMessageService.js';
 import {IncomingUsdcError,reconcileIncomingUsdc} from './services/incomingUsdcService.js';
 import { beginXOAuthLink, completeXOAuthCallback, finishXOAuthLink, XOAuthError,checkedXReturnOrigin,buildXLinkedReturnUrl,isConfiguredXOAuth,resolveXCallbackUrl } from './services/xOAuthService.js';
@@ -581,6 +581,19 @@ app.post('/api/social/chat/send',CHAT_SEND_RATE,async(req:Request,res:Response):
 // On-demand read-triggered chain reconciliation. The client cannot submit
 // transfer hashes, amounts, wallet addresses, or a claimed payment event.
 const INCOMING_SYNC_RATE=rateLimit(2,60_000);
+app.post('/api/social/payment-requests/claim',CHAT_SEND_RATE,async(req:Request,res:Response):Promise<void>=>{
+ try{
+  const owner=getAuthenticatedVeyraUserId(req);
+  if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  const body=req.body as Record<string,unknown>|undefined;
+  const {db}=await import('./db/client.js');
+  const result=await claimPaymentRequest(db,owner,{
+   requestId:body?.requestId,attemptId:body?.attemptId,walletAddress:body?.walletAddress,
+  });
+  res.setHeader('Cache-Control','no-store');res.json(result);
+ }catch(e){identityError(res,e);}
+});
+
 app.post('/api/notifications/sync-incoming',INCOMING_SYNC_RATE,async(req:Request,res:Response):Promise<void>=>{
   try{
     const owner=getAuthenticatedVeyraUserId(req);
@@ -894,6 +907,7 @@ app.post('/api/auth/x/capability', IDENTITY_RATE, async(req:Request,res:Response
     `);
     const row=ready.rows[0] as {columns_ok?:unknown}|undefined;
     res.json({ok:true,available:Number(row?.columns_ok)===2,
+      lookupAvailable:Boolean(process.env.X_BEARER_TOKEN),
       ...(Number(row?.columns_ok)!==2?{reason:'X_OAUTH_MIGRATION_NOT_APPLIED'}:{})});
   }catch(err){identityError(res,err);}
 });
@@ -948,6 +962,17 @@ app.get('/api/auth/x/callback', IDENTITY_RATE, async (req: Request, res: Respons
   } catch (err) {
     identityError(res, err);
   }
+});
+
+// Signed owner can revoke X; no financial signing or wallet rebind.
+app.post('/api/auth/x/revoke',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ try{
+  const userId=getAuthenticatedVeyraUserId(req);
+  if(!userId){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  const {db}=await import('./db/client.js');
+  const profile=await revokeXIdentity(db,userId);
+  res.setHeader('Cache-Control','no-store');res.json({ok:true,profile});
+ }catch(e){identityError(res,e);}
 });
 
 // ── POST /api/auth/x/finish ─────────────────────────────────────────────────

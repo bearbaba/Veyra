@@ -186,3 +186,13 @@ export async function completeVeyraIdRegistration(input: {
   // The signed Social provider alone may activate a wallet-bound session.
   return { profile: result.profile, sessionToken: result.sessionToken };
 }
+
+export async function unlinkXAccount(token:string):Promise<void>{
+ const response=await fetch('/api/auth/x/revoke',{
+  method:'POST',headers:{Authorization:'Bearer '+requireSignedIdentityToken(token)},
+  credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(12000),
+ });
+ const body:unknown=await response.json().catch(()=>null);
+ if(!response.ok||!body||typeof body!=='object'||!('ok' in body)||body.ok!==true)
+  throw Error('X unlink could not be confirmed. Refresh your profile before trying again.');
+}
