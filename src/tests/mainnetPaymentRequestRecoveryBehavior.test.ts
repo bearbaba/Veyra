@@ -20,6 +20,12 @@ const data=(inProgress=false,status:VeyraPaymentRequest['status']='PENDING'):Vey
  status,paymentInProgress:inProgress,txHash:status==='PAID'?'0x'+'a'.repeat(64):null,
  createdAt:created,updatedAt:created,expiresAt:expires,
 });
+const requestPath=(v:RequestInfo|URL)=>typeof v==='string'?v:
+ v instanceof URL?v.href:v.url;
+const requestAttempt=(opts?:RequestInit):{attemptId:string;walletAddress?:string}=>{
+ if(typeof opts?.body!=='string')throw Error('Request body was not JSON');
+ return JSON.parse(opts.body) as {attemptId:string;walletAddress?:string};
+};
 const json=(v:unknown,status=200)=>new Response(JSON.stringify(v),{
  status,headers:{'Content-Type':'application/json'},
 });
@@ -60,9 +66,10 @@ describe('Payment Request: crash-safe ORIGINAL attempt behavior',()=>{
   let serverAttempt:string|null=null;
   const recorded:string[]=[];
   const fetchMock=vi.fn(async (url:RequestInfo|URL,opts?:RequestInit)=>{
-   const body=JSON.parse(String(opts?.body)) as {attemptId:string;walletAddress:string};
+   await Promise.resolve();
+   const body=requestAttempt(opts) as {attemptId:string;walletAddress:string};
    recorded.push(body.attemptId);
-   if(String(url).endsWith('/claim')){
+   if(requestPath(url).endsWith('/claim')){
     serverAttempt??=body.attemptId;throw new TypeError('response lost');
    }
    return json({ok:true,matches:body.attemptId===serverAttempt,request:data(true)});
@@ -101,8 +108,9 @@ describe('Payment Request: crash-safe ORIGINAL attempt behavior',()=>{
  it('concurrent devices cannot take over an existing server attempt',async()=>{
   let serverAttempt:string|null=null;
   vi.stubGlobal('fetch',vi.fn(async (url:RequestInfo|URL,opts?:RequestInit)=>{
-   const {attemptId}=JSON.parse(String(opts?.body)) as {attemptId:string};
-   if(String(url).endsWith('/attempt'))
+   await Promise.resolve();
+   const {attemptId}=requestAttempt(opts);
+   if(requestPath(url).endsWith('/attempt'))
     return json({ok:true,matches:serverAttempt===attemptId,request:data(true)});
    if(serverAttempt===null){
     serverAttempt=attemptId;return json({ok:true,created:true,request:data(true)});
@@ -121,8 +129,9 @@ describe('Payment Request: crash-safe ORIGINAL attempt behavior',()=>{
  });
  it('a verified PAID request after receipt-sync loss never authorizes a second signature',async()=>{
   vi.stubGlobal('fetch',vi.fn(async (url:RequestInfo|URL,opts?:RequestInit)=>{
-   if(String(url).endsWith('/claim'))throw new TypeError('response lost');
-   const body=JSON.parse(String(opts?.body)) as {attemptId:string};
+   await Promise.resolve();
+   if(requestPath(url).endsWith('/claim'))throw new TypeError('response lost');
+   const body=requestAttempt(opts);
    return json({ok:true,matches:body.attemptId===a,request:data(true,'PAID')});
   }));
   const view=await readPeerRequestAttempt('signed-token',id,owner,a);
