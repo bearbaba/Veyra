@@ -201,21 +201,58 @@ export async function cancelPaymentRequest(db:DbClient,owner:string,rawId:unknow
  return {ok:true,request:visiblePaymentRequest(updated)};
 }
 
-/** One-way signed payer's attempt claim, acquired before opening wallet.
- * No remote device can use another claim to send the same request twice.
- * Uncertain claims are never automatically released.
+/** A claim is a reservation for exactly one frozen wallet attempt, not a
+ * transferable permission. Same-attempt retry is idempotent; a different ID
+ * or wallet never inherits the claim, even after expiry or a read timeout.
+ * We intentionally do NOT expose a client-driven release endpoint: the
+ * Settlement contract does not enforce reference uniqueness, and a browser
+ * cannot prove that an unseen wallet transaction was never broadcast.
  */
+export function samePaymentAttempt(row:Pick<Row,'claimId'|'claimWallet'>,
+ attemptId:string,wallet:string):boolean{
+ return row.claimId===attemptId&&row.claimWallet===wallet.toLowerCase();
+}
+function parseAttempt(input:{requestId:unknown;attemptId:unknown;walletAddress:unknown}){
+ if(typeof input.requestId!=='string'||!PAYMENT_REQUEST_ID.test(input.requestId)||
+  typeof input.attemptId!=='string'||!isValidClientIntentId(input.attemptId)||
+  typeof input.walletAddress!=='string'||!/^0x[0-9a-fA-F]{40}$/.test(input.walletAddress))
+  return deny('INVALID_PAYMENT_ATTEMPT','Invalid payment request ID, attempt ID or wallet.');
+ return {requestId:input.requestId,attemptId:input.attemptId,
+  wallet:getAddress(input.walletAddress).toLowerCase()};
+}
+/** Owner-only lookup. The caller supplies the local attempt ID; it is
+ * NEVER leaked to a second device, other payer, payee or chat participant.
+ * Missing claim is not proof of a failed chain transaction.
+ */
+export async function getPaymentRequestClaim(db:DbClient,payerUserId:string,
+ input:{requestId:unknown;attemptId:unknown;walletAddress:unknown}){
+ const {requestId,attemptId,wallet}=parseAttempt(input);
+ const [row]=await db.select().from(paymentRequests)
+  .where(and(eq(paymentRequests.requestId,requestId),
+   eq(paymentRequests.payerUserId,payerUserId))).limit(1);
+ if(!row)return deny('REQUEST_NOT_FOUND','Payment request not found.',404);
+ await requirePeer(db,payerUserId,row.requesterUserId);
+ const current=await reconcileOneRequest(db,row);
+ return {ok:true,matches:samePaymentAttempt(current,attemptId,wallet),
+  request:visiblePaymentRequest(current)};
+}
 export async function claimPaymentRequest(
  db:DbClient,payerUserId:string,
  input:{requestId:unknown;attemptId:unknown;walletAddress:unknown},
 ){
- if(typeof input.attemptId!=='string'||!isValidClientIntentId(input.attemptId)||
-  typeof input.walletAddress!=='string'||!/^0x[0-9a-fA-F]{40}$/.test(input.walletAddress))
-  return deny('INVALID_PAYMENT_ATTEMPT','Invalid payment claim or wallet.');
- const {request}=await reviewPaymentRequest(db,payerUserId,input.requestId);
- if(request.paymentInProgress)return deny('REQUEST_PAYMENT_IN_PROGRESS',
-  'An earlier wallet payment attempt is unresolved. Never sign a duplicate.',409);
- const wallet=getAddress(input.walletAddress).toLowerCase();
+ const {requestId,attemptId,wallet}=parseAttempt(input);
+ const {request}=await reviewPaymentRequest(db,payerUserId,requestId);
+ const [existing]=await db.select().from(paymentRequests).where(and(
+  eq(paymentRequests.requestId,requestId),
+  eq(paymentRequests.payerUserId,payerUserId))).limit(1);
+ if(!existing)return deny('REQUEST_NOT_FOUND','Payment request not found.',404);
+ if(existing.claimId!==null){
+  if(samePaymentAttempt(existing,attemptId,wallet))
+   return {ok:true,created:false,request:visiblePaymentRequest(existing)};
+  return deny('REQUEST_PAYMENT_IN_PROGRESS',
+   'Another attempt has reserved this request. Recover the original attempt; do not sign twice.',409);
+ }
+ // A claim may be created only from an actively bound payer wallet.
  const [binding]=await db.select({id:walletBindings.walletId}).from(walletBindings)
   .where(and(eq(walletBindings.veyraUserId,payerUserId),eq(walletBindings.chainId,5042),
    eq(walletBindings.walletAddress,wallet),eq(walletBindings.status,'ACTIVE'),
@@ -223,12 +260,19 @@ export async function claimPaymentRequest(
  if(!binding)return deny('PAYMENT_WALLET_NOT_BOUND',
   'Payer wallet is not actively bound to this signed Veyra ID on Arc.',403);
  const now=new Date();
- const [claim]=await db.update(paymentRequests).set({
-  claimId:input.attemptId,claimWallet:wallet,claimedAt:now,updatedAt:now,
- }).where(and(eq(paymentRequests.requestId,request.requestId),
+ const [claimed]=await db.update(paymentRequests).set({
+  claimId:attemptId,claimWallet:wallet,claimedAt:now,updatedAt:now,
+ }).where(and(eq(paymentRequests.requestId,requestId),
   eq(paymentRequests.payerUserId,payerUserId),eq(paymentRequests.status,'PENDING'),
   isNull(paymentRequests.claimId),gt(paymentRequests.expiresAt,now))).returning();
- if(!claim)return deny('REQUEST_PAYMENT_IN_PROGRESS',
-  'Request changed or a prior payment attempt may have been signed. Do not sign another.',409);
- return {ok:true,created:true,request:visiblePaymentRequest(claim)};
+ if(claimed)return {ok:true,created:true,request:visiblePaymentRequest(claimed)};
+ // Race: if this exact attempt won another in-flight request, reply
+ // idempotently. Otherwise fail closed; never take over someone else's claim.
+ const [winner]=await db.select().from(paymentRequests).where(and(
+  eq(paymentRequests.requestId,requestId),
+  eq(paymentRequests.payerUserId,payerUserId))).limit(1);
+ if(winner?.status==='PENDING'&&samePaymentAttempt(winner,attemptId,wallet))
+  return {ok:true,created:false,request:visiblePaymentRequest(winner)};
+ return deny('REQUEST_PAYMENT_IN_PROGRESS',
+  'Request changed or another wallet attempt was already reserved. Do not sign again.',409);
 }
