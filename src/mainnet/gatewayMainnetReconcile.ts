@@ -32,9 +32,11 @@ export type GatewayReconciliation={state:'PENDING'|'SOURCE_FINALIZED'|'VERIFIED'
  * finality. Base L2 block counts are NOT Ethereum L1 block counts. Therefore
  * require the canonical RPC's 'finalized' tag and >=19 min source-block age on
  * Base, rather than pretending 65 Base blocks satisfy 65 Ethereum blocks.
- * Arc Mainnet finality policy is not independently signed off in Veyra.
+ * Arc Mainnet has deterministic BFT commit finality; receipt canonicality
+ * and latest head inclusion suffice (no Ethereum finalized tag).
  */
 export const GATEWAY_FINALITY_POLICY={
+ 5042:{minDepth:1n,minAgeSeconds:0n,kind:'arc-deterministic'},
  1:{minDepth:65n,minAgeSeconds:0n,kind:'ethereum-finalized'},
  8453:{minDepth:1n,minAgeSeconds:19n*60n,kind:'base-l1-finalized'},
 } as const;
@@ -42,22 +44,23 @@ export async function verifyGatewayCanonicalFinality(chainId:number,
  receipt:GatewayChainReceipt,deps:GatewayReconciliationDeps):Promise<boolean>{
  const policy=GATEWAY_FINALITY_POLICY[chainId as keyof typeof GATEWAY_FINALITY_POLICY];
  if(!policy||receipt.blockNumber<0n||!HASH.test(receipt.blockHash))return false;
- const [canonical,finalized,head]=await Promise.all([
+ const [canonical,head]=await Promise.all([
   deps.getCanonicalBlock(chainId,receipt.blockNumber),
-  deps.getFinalizedBlock(chainId),
   deps.getLatestBlockNumber(chainId),
  ]);
- if(!HASH.test(canonical.hash)||!HASH.test(finalized.hash)||
-  canonical.number!==receipt.blockNumber||
+ if(!HASH.test(canonical.hash)||canonical.number!==receipt.blockNumber||
   canonical.hash.toLowerCase()!==receipt.blockHash.toLowerCase()||
-  finalized.number<receipt.blockNumber||
-  head<receipt.blockNumber+policy.minDepth-1n||
-  finalized.number>head||canonical.timestamp<0n)return false;
- // The block timestamp is an onchain observation, not Date.now() as a source of finality.
- // Finalized tag is mandatory on both networks; Base also waits conservatively
- // for Circle's published L1-based finality window.
+  head<receipt.blockNumber+policy.minDepth-1n||canonical.timestamp<0n)return false;
  const now=BigInt(Math.floor(Date.now()/1000));
- return canonical.timestamp<=now&&now-canonical.timestamp>=policy.minAgeSeconds;
+ if(canonical.timestamp>now||now-canonical.timestamp<policy.minAgeSeconds)return false;
+ // Arc BFT commits a block with deterministic finality at inclusion.
+ // Do not require an Ethereum-style RPC finalized tag from an Arc node.
+ if(policy.kind==='arc-deterministic')return true;
+ // Ethereum and Base require the canonical RPC's finalized block tag.
+ // The Base L1 settlement bound additionally requires 19 minutes of age.
+ const finalized=await deps.getFinalizedBlock(chainId);
+ return HASH.test(finalized.hash)&&finalized.number>=receipt.blockNumber&&
+  finalized.number<=head;
 }
 function validateDepositTx(op:GatewayMainnetOperation,tx:GatewayChainTx,receipt:GatewayChainReceipt):boolean{
  try{

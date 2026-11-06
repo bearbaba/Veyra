@@ -120,8 +120,16 @@ describe('Circle Gateway per-source finality and individual credit',()=>{
   });
   expect(check).toBe(false);
  });
- it('fails closed on Arc until its Mainnet finality acceptance policy is reviewed',async()=>{
-  const check=await verifyGatewayCanonicalFinality(5042,sourceReceipt,deps);
+ it('Arc Mainnet deterministic finality accepts a canonical committed block without Ethereum finalized tag',async()=>{
+  const finalized=vi.fn(()=>Promise.resolve({...canonical,number:999n}));
+  const check=await verifyGatewayCanonicalFinality(5042,sourceReceipt,{
+   ...deps,getFinalizedBlock:finalized});
+  expect(check).toBe(true);
+  expect(finalized).not.toHaveBeenCalled();
+ });
+ it('Arc Mainnet rejects a receipt replaced by a different canonical block hash',async()=>{
+  const check=await verifyGatewayCanonicalFinality(5042,sourceReceipt,{
+   ...deps,getCanonicalBlock:()=>Promise.resolve({...canonical,hash:'0x'+'f'.repeat(64)})});
   expect(check).toBe(false);
  });
 });
