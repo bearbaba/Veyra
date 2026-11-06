@@ -36,7 +36,7 @@ export function observeGatewayWalletSigning(provider:EIP1193Provider){
  let completedFinancialRequest=false;
  let rejectedBeforeAnySignature:string|null=null;
  const watched={...provider,request:async(args:Parameters<EIP1193Provider['request']>[0])=>{
-  const method=args.method;
+  const method=(args as {method:string}).method;
   try{
    const response:unknown=await provider.request(args);
    if(signingMethod(method))completedFinancialRequest=true;
