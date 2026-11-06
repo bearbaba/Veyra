@@ -246,19 +246,18 @@ export async function claimPaymentRequest(
   eq(paymentRequests.requestId,requestId),
   eq(paymentRequests.payerUserId,payerUserId))).limit(1);
  if(!existing)return deny('REQUEST_NOT_FOUND','Payment request not found.',404);
- if(existing.claimId!==null){
-  if(samePaymentAttempt(existing,attemptId,wallet))
-   return {ok:true,created:false,request:visiblePaymentRequest(existing)};
+ if(existing.claimId!==null&&!samePaymentAttempt(existing,attemptId,wallet))
   return deny('REQUEST_PAYMENT_IN_PROGRESS',
    'Another attempt has reserved this request. Recover the original attempt; do not sign twice.',409);
- }
- // A claim may be created only from an actively bound payer wallet.
+ // Both first-time and resumed claims require the wallet to STILL be
+ // actively bound to the signed payer. Revocation cannot inherit a claim.
  const [binding]=await db.select({id:walletBindings.walletId}).from(walletBindings)
   .where(and(eq(walletBindings.veyraUserId,payerUserId),eq(walletBindings.chainId,5042),
    eq(walletBindings.walletAddress,wallet),eq(walletBindings.status,'ACTIVE'),
    isNull(walletBindings.revokedAt))).limit(1);
  if(!binding)return deny('PAYMENT_WALLET_NOT_BOUND',
   'Payer wallet is not actively bound to this signed Veyra ID on Arc.',403);
+ if(existing.claimId!==null)return {ok:true,created:false,request:visiblePaymentRequest(existing)};
  const now=new Date();
  const [claimed]=await db.update(paymentRequests).set({
   claimId:attemptId,claimWallet:wallet,claimedAt:now,updatedAt:now,
