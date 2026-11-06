@@ -1,5 +1,6 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {paymentRequestRef} from '../mainnet/paymentRequestRef';
+import {samePaymentAttempt} from '../../server/services/paymentRequestsService';
 import {readSettlementIntent,resumablePaymentAttempt,writeSettlementIntent,
  type SettlementIntent} from '../mainnet/settlementJournal';
 import {claimPeerRequest,explicitlyRejectedWallet,
@@ -36,6 +37,13 @@ const expected={owner,requestId:id,recipient,amount:'0.01',ref};
 afterEach(()=>vi.unstubAllGlobals());
 
 describe('Payment Request: crash-safe ORIGINAL attempt behavior',()=>{
+ it('server claim ownership is determined by the exact ID AND wallet',()=>{
+  const original={claimId:a,claimWallet:owner};
+  expect(samePaymentAttempt(original,a,owner)).toBe(true);
+  expect(samePaymentAttempt(original,b,owner)).toBe(false);
+  expect(samePaymentAttempt(original,a,recipient)).toBe(false);
+  expect(samePaymentAttempt({claimId:null,claimWallet:null},a,owner)).toBe(false);
+ });
  it('a failed checkpoint write does not invoke either the server or wallet',async()=>{
   const store={getItem:(_k:string)=>null,setItem:()=>{throw Error('quota full');},
    removeItem:()=>{throw Error('quota full');}};
@@ -78,6 +86,15 @@ describe('Payment Request: crash-safe ORIGINAL attempt behavior',()=>{
   expect(resumablePaymentAttempt(saved,{...expected,recipient:owner})).toBeNull();
   // Once the wallet outcome is unknown, NO attempt (even the same one)
   // can sign automatically. Absence of a receipt is not a negative proof.
+  expect(writeSettlementIntent({...checkpoint(),stage:'UNKNOWN'},store)).toBe(true);
+  expect(resumablePaymentAttempt(readSettlementIntent(owner,store),expected)).toBeNull();
+ });
+ it('unknown wallet outcome is never classified as a safe refusal',()=>{
+  expect(explicitlyRejectedWallet(new Error('RPC timeout'))).toBe(false);
+  expect(explicitlyRejectedWallet({code:-32000,message:'Nonce too low'})).toBe(false);
+  expect(explicitlyRejectedWallet({cause:{code:'ACTION_REJECTED'}})).toBe(true);
+  const store=memoryStore();
+  expect(writeSettlementIntent(checkpoint(),store)).toBe(true);
   expect(writeSettlementIntent({...checkpoint(),stage:'UNKNOWN'},store)).toBe(true);
   expect(resumablePaymentAttempt(readSettlementIntent(owner,store),expected)).toBeNull();
  });
