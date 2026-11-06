@@ -23,6 +23,8 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
  const [chatPeer,setChatPeer]=useState<string|null>(null);
  const [chatReady,setChatReady]=useState(false);
  const [paymentBusy,setPaymentBusy]=useState(false);
+ const ready=!!address&&social.identityOrigin==='ready'&&!!social.session?.token&&
+  isMainnetSessionForWallet(social.session,address,connector?.uid);
  const [friendActionError,setFriendActionError]=useState<string|null>(null);
  useEffect(()=>{setSelected(null);setWalletTarget(null);setFriendActionError(null);setChatPeer(null);setChatReady(false);},[address,social.session?.token]);
  useEffect(()=>{
@@ -35,8 +37,7 @@ export function MainnetPeoplePage({onPayVerified,onPayWallet,initialQuery=''}:{
    .catch(()=>{if(live)setChatReady(false);});
   return()=>{live=false;};
  },[social.session?.token,ready]);
- const ready=!!address&&social.identityOrigin==='ready'&&!!social.session?.token&&
-  isMainnetSessionForWallet(social.session,address,connector?.uid);
+
  async function payFriend(id:string,intent:'pay'|'tip'){
   const peer=social.friends.find(x=>x.veyraUserId===id&&x.state==='CONNECTED');
   if(!peer?.veyraHandle||!address||!social.session?.token||paymentBusy)return;

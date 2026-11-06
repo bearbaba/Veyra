@@ -106,7 +106,7 @@ function validate(review:GatewayMainnetReview){
  * Never emit N independent fallback transfers or auto retry. */
 function reviewedSdkAllocations(review:GatewayMainnetReview){
  if(!review.allocations?.length)throw Error('Source allocation was not reviewed.');
- const parts=review.allocations.map(x=>({chain:x.chain,amount:x.amount}));
+ const parts=review.allocations.map(x=>({chain:picked(x.chainId).chain,amount:x.amount}));
  return parts.length===1?parts[0]!:parts;
 }
 export async function estimateGatewayMainnetSpend(review:GatewayMainnetReview,
