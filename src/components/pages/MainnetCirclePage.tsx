@@ -34,6 +34,11 @@ declare const __VEYRA_RELEASE_ENV__:string;
 const BRIDGE_WRITE_ENABLED=__VEYRA_RELEASE_ENV__==='production' &&
  import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_WRITE_ENABLED==='1';
 type Mode='swap'|'bridge';
+/** Keep display readiness and the signing decision on the same release gates. */
+export function isCircleSigningReady(mode:Mode):boolean{
+ return __VEYRA_RELEASE_ENV__==='production'&&!MAINNET_EMERGENCY_READ_ONLY&&
+  !MAINNET_CANARY_ONLY&&(mode==='swap'||BRIDGE_WRITE_ENABLED);
+}
 type Token='USDC'|'EURC';
 export type ExchangeExecutionSelection={fromChainId:number;toChainId:number;fromToken:Token;toToken:Token};
 type Quote={owner:string;at:number;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;expected:string;fees:string[]};
@@ -90,6 +95,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
  const [amount,setAmount]=useState('');
  const [minimum,setMinimum]=useState('');
  const [quote,setQuote]=useState<Quote|null>(null);
+ const [quoteClock,setQuoteClock]=useState(Date.now());
  const [recovery,setRecovery]=useState<Recovery|null>(null);
  const [unknownStorage,setUnknownStorage]=useState(false);
  const [busy,setBusy]=useState(false);
@@ -116,15 +122,20 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
  });
  const title=mode==='swap'?'Swap':'Bridge';
  // A quote is informational. Mainnet pilot forbids signatures for Swap/Bridge.
- const signingReady=__VEYRA_RELEASE_ENV__==='production'&&!MAINNET_EMERGENCY_READ_ONLY&&
-  !MAINNET_CANARY_ONLY&&(mode==='swap'||BRIDGE_WRITE_ENABLED);
+ const signingReady=isCircleSigningReady(mode);
  useEffect(()=>{
   setQuote(null);setProof('');setError('');setManualMint('');setManualSource('');
   if(!address){setRecovery(null);setUnknownStorage(false);return;}
   try{setRecovery(parseSaved(localStorage.getItem(key(mode,address)),address,mode));setUnknownStorage(false);}
   catch{setRecovery(null);setUnknownStorage(true);}
  },[address,mode]);
- useEffect(()=>{setQuote(null);},[source,destination,fromToken,amount]);
+ useEffect(()=>{setQuote(null);},[source,destination,fromToken,toToken,amount]);
+ useEffect(()=>{
+  if(!quote)return;
+  const tick=window.setInterval(()=>setQuoteClock(Date.now()),1000);
+  return()=>window.clearInterval(tick);
+ },[quote]);
+ const quoteExpired=!!quote&&quoteClock-quote.at>=30000;
  const client=(id:number)=>id===ARC?arc:id===BASE?base:undefined;
  async function wallet(id:number):Promise<EIP1193Provider>{
   if(!address||!connector)throw Error('Connect your wallet first.');
@@ -176,7 +187,8 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    if(mode==='bridge')setMinimum(min);
    if(!validAmount(min)||parseUnits(min,6)>parseUnits(expected,6)&&mode==='swap')
     throw Error('Provider did not return a usable minimum-output quote.');
-   setQuote({owner,at:Date.now(),mode,amount,source:selectedSource,destination:selectedDest,
+   const at=Date.now();setQuoteClock(at);
+   setQuote({owner,at,mode,amount,source:selectedSource,destination:selectedDest,
     fromToken,toToken,minimum:min,expected,fees:feeLines(estimate)});
   }catch(e){setError(e instanceof Error?e.message:'Circle Mainnet quote unavailable.');}
   finally{setBusy(false);lock.current=false;}
@@ -389,7 +401,15 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    </p>
   </div>}
   <div className={embedded?'space-y-4 border-t pt-4':card+' space-y-4'} style={{borderColor:'var(--border)',background:'var(--surface)'}}>
-   {!address?<ConnectKitButton/>:<>
+   {!address?<div className="space-y-3">
+    <label className="block text-xs font-semibold" style={{color:'var(--muted)'}}>AMOUNT
+     <input disabled placeholder="0.00" aria-label="Amount · connect wallet first"
+      className="veyra-route-input mt-2 w-full rounded-xl border p-3 text-3xl font-bold"
+      style={{background:'var(--surface-raised)',color:'var(--muted)',borderColor:'var(--border)'}/>
+    </label>
+    <p className="text-xs" style={{color:'var(--muted)'}}>Connect your wallet to check the balance and request a live quote. No signing is enabled in this pilot.</p>
+    <ConnectKitButton/>
+   </div>:<>
     {!embedded&&(mode==='bridge'?<div className="grid gap-3 sm:grid-cols-2">
      <label className="text-sm" style={{color:'var(--muted)'}}>From
       <select className={input} value={source} disabled={!!recovery||busy}
@@ -411,55 +431,71 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
       style={{borderColor:'var(--border)',color:'var(--ink)'}}
       onClick={()=>setFromToken(t=>t==='USDC'?'EURC':'USDC')}><ArrowLeftRight className="inline size-4"/> Reverse</button>
     </div>)}
-    {mode==='swap'&&<details className="text-xs" style={{color:'var(--muted)'}}>
-      <summary className="cursor-pointer">Verified asset details · trading availability</summary>
-      <p className="mt-2">Veyra verifies token contract identities; the Circle route and liquidity
-       must still be verified with a live quote. Listing does not guarantee safety or value.</p>
-      {[ARC_VERIFIED_ASSETS[fromToken],ARC_VERIFIED_ASSETS[toToken]].map(x=><p key={x.contractAddress}
-        className="mt-2 break-all">{x.symbol} · Arc {x.chainId} · {x.contractAddress} · {x.decimals} decimals · <a
-          href={x.sourceUrl} target="_blank" rel="noreferrer" className="underline">official source</a></p>)}
-      <p className="mt-2">Other tokens are not selectable until contract verification,
-       provider route validation, and verified output recovery have been integrated.</p>
-     </details>}
-    <label className="block text-sm font-semibold" style={{color:'var(--ink)'}}>Amount ({mode==='swap'?fromToken:'USDC'})
-     <input className={input+' veyra-field veyra-route-input text-2xl font-semibold'} value={amount} disabled={!!recovery||busy} inputMode="decimal"
-      placeholder="0.01" onChange={e=>setAmount(e.target.value)}
-      style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
-    </label>
-    <div className="flex flex-wrap items-center justify-between gap-2 text-xs" style={{color:'var(--muted)'}}>
-     <span>Source wallet balance ({label(selectedSource)}): {sourceBalanceError?'Unavailable':sourceBalance!==undefined?formatUnits(sourceBalance,6)+' '+(mode==='swap'?fromToken:'USDC'):'Reading…'}</span>
-     <button type="button" disabled={balanceLoading} onClick={()=>void refreshBalance()} className="underline">Refresh</button>
+    <div className="space-y-2">
+     <label className="block text-xs font-semibold" style={{color:'var(--muted)'}}>
+      {mode==='swap'?'YOU PAY · AMOUNT':'AMOUNT · USDC'}
+      <input className="veyra-route-input mt-2 w-full rounded-xl border p-3 text-3xl font-bold tabular-nums"
+       value={amount} disabled={!!recovery||busy} inputMode="decimal" maxLength={25}
+       placeholder="0.00" onChange={e=>setAmount(e.target.value)}
+       style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
+     </label>
+     <div className="flex flex-wrap items-center justify-between gap-2 text-xs" style={{color:'var(--muted)'}}>
+      <span>Wallet · {sourceBalanceError?'Unavailable':sourceBalance!==undefined?formatUnits(sourceBalance,6)+' '+(mode==='swap'?fromToken:'USDC'):'Reading…'}</span>
+      <span className="flex items-center gap-3">
+       <button type="button" className="font-semibold underline disabled:opacity-40"
+        disabled={busy||!!recovery||sourceBalance===undefined||sourceBalance===0n}
+        onClick={()=>setAmount(formatUnits(sourceBalance!>100_000_000n*1_000_000n?100_000_000n*1_000_000n:sourceBalance!,6))}>Max</button>
+       <button type="button" disabled={balanceLoading} onClick={()=>void refreshBalance()} className="underline">Refresh</button>
+      </span>
+     </div>
     </div>
-    {mode==='bridge'&&<p className="text-sm" style={{color:'var(--muted)'}}>
-      Destination: {address} · Standard CCTP transfer. Minimum received must come from the provider's quote.
-      If the provider gives no verifiable minimum, signing is unavailable.
-    </p>}
-    {!signingReady&&!recovery&&<p role="status" className="text-xs" style={{color:'var(--muted)'}}>
-     Live quotes only · signing is paused during the pilot.
-    </p>}
+    <div className="space-y-2 rounded-xl border p-3" style={{background:'var(--surface-raised)',borderColor:'var(--border)'}}>
+     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU RECEIVE · {mode==='swap'?toToken:'USDC'}{mode==='bridge'?' · '+label(selectedDest):''}</p>
+     <p className="display text-2xl font-bold tabular-nums" style={{color:'var(--ink)'}}>
+      {quote&&!quoteExpired?quote.expected:'—'}
+      <span className="ml-2 text-sm" style={{color:'var(--muted)'}}>{mode==='swap'?toToken:'USDC'}</span>
+     </p>
+     {!quote||quoteExpired?<p className="text-xs" style={{color:'var(--muted)'}}>Estimated amount will appear after a live provider quote.</p>:null}
+    </div>
     {!quote&&!recovery&&<button type="button" disabled={busy||unknownStorage||!validAmount(amount)}
-      className="veyra-btn-primary w-full disabled:opacity-40" onClick={()=>void quoteNow()}>
-      {busy?'Getting live quote…':'Review live Mainnet quote'}
+     className="veyra-btn-primary w-full disabled:opacity-40" onClick={()=>void quoteNow()}>
+     {busy?'Requesting live quote…':mode==='swap'?'Review swap quote':'Review bridge quote'}
     </button>}
-    {quote&&!recovery&&<div className="space-y-2 rounded-xl border p-4 text-sm"
+    {quote&&!recovery&&<div className="space-y-3 rounded-xl border p-4 text-sm"
       style={{borderColor:'var(--border)',color:'var(--ink)'}}>
-      <p className="font-bold">{label(quote.source)} {mode==='bridge'?'→ '+label(quote.destination):'Swap'}</p>
-      <p>You pay: <strong>{quote.amount} {quote.fromToken}</strong></p>
-      <p>You receive (estimated): <strong>{quote.expected} {mode==='swap'?quote.toToken:'USDC'}</strong></p>
-      <p>Provider minimum: {quote.minimum} {mode==='swap'?quote.toToken:'USDC'}</p>
-      {mode==='swap'&&<p>Slippage limit: 1% · refresh quote if expired</p>}
-      <p className="text-xs" style={{color:'var(--muted)'}}>Live quote · expires in 30 seconds</p>
-      {quote.fees.map((fee,i)=><p key={i} className="text-xs">{fee}</p>)}
-      <details className="text-xs" style={{color:'var(--muted)'}}>
-       <summary className="cursor-pointer">Details</summary>
-       <p className="mt-2">Recipient: {address}</p>
-       <p>Provider: Circle App Kit {mode==='bridge'?'· CCTP':'· swap'}</p>
-       <p>Completion time isn't guaranteed. Wallet approval may require additional signatures.</p>
-      </details>
-      {signingReady?<button type="button" disabled={busy} onClick={()=>void signNow()}
+     <div className="flex items-center justify-between gap-2">
+      <p className="font-bold">{quoteExpired?'Quote expired':'Live provider quote'}</p>
+      <span className="text-xs" style={{color:quoteExpired?'var(--warning)':'var(--muted)'}}>
+       {quoteExpired?'Refresh required':Math.max(0,30-Math.floor((quoteClock-quote.at)/1000))+'s remaining'}
+      </span>
+     </div>
+     <div className="grid grid-cols-2 gap-3">
+      <div><p className="text-xs" style={{color:'var(--muted)'}}>Minimum received</p>
+       <p className="mt-1 font-semibold">{quote.minimum} {mode==='swap'?quote.toToken:'USDC'}</p></div>
+      <div><p className="text-xs" style={{color:'var(--muted)'}}>Provider fees</p>
+       <p className="mt-1 font-semibold">{quote.fees.length?quote.fees.join(' · '):'Not supplied'}</p></div>
+     </div>
+     <div className="text-xs" style={{color:'var(--muted)'}}>
+      {mode==='swap'?'Slippage limit: 1%':'Estimated arrival: Provider ETA unavailable'}
+     </div>
+     <details className="border-t pt-3 text-xs" style={{color:'var(--muted)',borderColor:'var(--border)'}}>
+      <summary className="cursor-pointer font-semibold">Details</summary>
+      <div className="mt-2 space-y-1 break-all">
+       <p>Source: {label(quote.source)} · {quote.fromToken}</p>
+       <p>Destination: {label(quote.destination)} · {mode==='swap'?quote.toToken:'USDC'}</p>
+       <p>Recipient: {address}</p>
+       <p>Provider: Circle App Kit {mode==='bridge'?'· CCTP':'· Swap'}</p>
+       <p>Source token: {token}</p>
+       <p>Destination token: {destToken}</p>
+       <p>Network fees and any extra wallet approval are confirmed by your wallet.</p>
+      </div>
+     </details>
+     {quoteExpired?<button type="button" onClick={()=>setQuote(null)}
+       className="veyra-btn-secondary w-full">Get a fresh quote</button>:
+      signingReady?<button type="button" disabled={busy} onClick={()=>void signNow()}
        className="veyra-btn-primary w-full disabled:opacity-40">Confirm in wallet</button>:
-       <p role="status" className="rounded-xl border px-3 py-3 text-sm" style={{borderColor:'var(--border)',color:'var(--warning)'}}>
-        {mode==='swap'?'Swap':'Bridge'} signing is paused during the pilot. This quote is for review only.
+       <p role="status" className="text-xs" style={{color:'var(--warning)'}}>
+        Quotes only. Transfers are paused; no transaction has been sent.
        </p>}
     </div>}
     {(recovery||unknownStorage)&&<div role="status" className="space-y-3 rounded-xl border p-4 text-sm"

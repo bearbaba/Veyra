@@ -12,7 +12,7 @@ export type RouteCapability = {
 };
 export const MAINNET_ROUTES: Record<MainnetRoute,RouteCapability> = {
   pay:{title:'Settlement',network:'Arc Mainnet · 5042',readiness:'wallet-signature',
-    summary:'Compatibility alias. One Settlement page contains contract payment and the controlled direct-transfer fallback.',destination:'settlement'},
+    summary:'Compatibility alias. Wallet and Friends share one Settlement contract payment. Previous direct-payment records remain visible in Activity.',destination:'settlement'},
   settlement:{title:'Settlement',network:'Arc Mainnet · 5042',readiness:'wallet-signature',
     summary:'Contract-first USDC settlement with verified receiving wallet, fee review and onchain receipt evidence.',destination:'settlement'},
   swap:{title:'Swap',network:'Arc USDC ↔ EURC',readiness:'live-quote',

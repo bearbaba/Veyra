@@ -222,7 +222,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
                 {VEYRA_ENV==='mainnet'
                   ?MAINNET_EMERGENCY_READ_ONLY?'Financial signing is paused. You can still review onchain receipts safely.':
                    MAINNET_CANARY_ONLY?'Mainnet pilot: contract Settlement Pay is limited to the authorized wallet and 0.01 USDC per payment. Swap and Bridge signing are paused; Mainnet Gateway deposits are unavailable.':
-                   'Wallet Pay requires one reviewed wallet signature and an onchain receipt. Quotes are not transaction confirmations.'
+                   'Veyra Settlement Pay requires review, wallet confirmation and an onchain receipt. Quotes are not completed transactions.'
                   :'Every payment is reviewed before wallet approval. Testnet funds only.'}
               </p>
             </div>
@@ -258,8 +258,8 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
             <span className="mt-1 block text-xs leading-5" style={{color:'var(--muted)'}}>
               {VEYRA_ENV==='mainnet'
                ?MAINNET_EMERGENCY_READ_ONLY?'Mainnet is read-only. Existing transactions and receipts can be checked; sending is disabled.':
-                MAINNET_CANARY_ONLY?'Arc USDC Pay is in a 0.01 USDC owner-only pilot. People and receipts use signed wallet identity. Swap, Bridge, Gateway and contract payments are not enabled for new signing.':
-                'Direct wallet Pay requires a separate wallet confirmation. Swap, Bridge and Gateway require independently verified routes.'
+                MAINNET_CANARY_ONLY?'Arc USDC Veyra Settlement is in a 0.01 USDC owner-only pilot. Wallet and Friends share one reviewed contract payment. Swap and Bridge quotes remain available but signing is paused. Gateway deposits are unavailable.':
+                'Veyra Settlement Pay requires a separate wallet confirmation. Swap and Bridge require independently verified routes; Gateway deposits remain unavailable.'
                :'Arc Testnet USDC is enabled. Other listings are not available for sending yet.'}
             </span>
           </span>
