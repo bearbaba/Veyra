@@ -25,7 +25,7 @@ export function parseGatewayMainnetBalance(raw:unknown,owner:string,now=Date.now
  const data=raw as Record<string,unknown>;
  if(data.token!=='USDC'||!Array.isArray(data.breakdown)||data.breakdown.length!==1)
   throw Error('Circle returned no complete owner-scoped Gateway USDC ledger.');
- const account=data.breakdown[0];
+ const account=(data.breakdown as unknown[])[0];
  if(!account||typeof account!=='object'||Array.isArray(account))
   throw Error('Gateway owner data missing.');
  const depositor=account as Record<string,unknown>;
