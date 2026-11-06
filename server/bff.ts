@@ -65,7 +65,7 @@ import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } fr
 import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
 import { getProfile, updateProfile, revokeXIdentity, ProfileError } from './services/profileService.js';
 import {DirectMessageError,encryptionKey,chatPage,listDirectMessages,sendDirectMessage} from './services/directMessageService.js';
-import {PaymentRequestError,createPaymentRequest,listPeerPaymentRequests,reviewPaymentRequest,cancelPaymentRequest,claimPaymentRequest} from './services/paymentRequestsService.js';
+import {PaymentRequestError,createPaymentRequest,listPeerPaymentRequests,reviewPaymentRequest,cancelPaymentRequest,claimPaymentRequest,getPaymentRequestClaim} from './services/paymentRequestsService.js';
 import {IncomingUsdcError,reconcileIncomingUsdc} from './services/incomingUsdcService.js';
 import { beginXOAuthLink, completeXOAuthCallback, finishXOAuthLink, XOAuthError,checkedXReturnOrigin,buildXLinkedReturnUrl,isConfiguredXOAuth,resolveXCallbackUrl } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
@@ -631,6 +631,19 @@ app.post('/api/social/payment-requests/cancel',CHAT_SEND_RATE,async(req:Request,
   const body=req.body as Record<string,unknown>|undefined;
   const {db}=await import('./db/client.js');
   const result=await cancelPaymentRequest(db,owner,body?.requestId);
+  res.setHeader('Cache-Control','no-store');res.json(result);
+ }catch(e){identityError(res,e);}
+});
+
+app.post('/api/social/payment-requests/attempt',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ try{
+  const owner=getAuthenticatedVeyraUserId(req);
+  if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  const body=req.body as Record<string,unknown>|undefined;
+  const {db}=await import('./db/client.js');
+  const result=await getPaymentRequestClaim(db,owner,{
+   requestId:body?.requestId,attemptId:body?.attemptId,walletAddress:body?.walletAddress,
+  });
   res.setHeader('Cache-Control','no-store');res.json(result);
  }catch(e){identityError(res,e);}
 });
