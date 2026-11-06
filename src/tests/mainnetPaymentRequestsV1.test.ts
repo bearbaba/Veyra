@@ -51,11 +51,11 @@ describe('Veyra v1 Payment Requests: wallet authority and onchain-only Paid',()=
   ])expect(receiptMatchesPaymentRequest(request,changed)).toBe(false);
  });
  it('does not resolve an X handle when provider owner is missing, changed or unverified',async()=>{
-  const ok=vi.fn(async()=>new Response(JSON.stringify({data:{id:'999999',username:'legit_user'}}),{
-   status:200,headers:{'content-type':'application/json'}}));
+  const ok=vi.fn(()=>Promise.resolve(new Response(JSON.stringify({data:{id:'999999',username:'legit_user'}}),{
+   status:200,headers:{'content-type':'application/json'}})));
   expect(await lookupCurrentXAccountId('legit_user','test-bearer-token',ok)).toBe('999999');
   expect(await lookupCurrentXAccountId('legit_user',undefined,ok)).toBeNull();
   expect(await lookupCurrentXAccountId('legit_user','test-bearer-token',
-   vi.fn(async()=>new Response(JSON.stringify({data:{id:'999999',username:'not_user'}}),{status:200})))).toBeNull();
+   vi.fn(()=>Promise.resolve(new Response(JSON.stringify({data:{id:'999999',username:'not_user'}}),{status:200}))))).toBeNull();
  });
 });

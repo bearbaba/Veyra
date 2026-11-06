@@ -11,6 +11,6 @@ export const USDC_REQUEST_AMOUNT=/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/;
 export function validRequestUsdcAmount(amount:string):boolean{
  if(!USDC_REQUEST_AMOUNT.test(amount))return false;
  const [whole,part='']=amount.split('.');
- const raw=BigInt(whole!)*1000000n+BigInt(part.padEnd(6,'0')||'0');
+ const raw=BigInt(whole)*1000000n+BigInt(part.padEnd(6,'0')||'0');
  return raw>0n&&raw<=1000000000000n;
 }
