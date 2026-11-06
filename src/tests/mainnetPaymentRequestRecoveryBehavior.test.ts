@@ -81,7 +81,7 @@ describe('Payment Request: crash-safe ORIGINAL attempt behavior',()=>{
   expect(serverAttempt).toBe(a);
   expect(fetchMock).toHaveBeenCalledTimes(2);
  });
- it('explicit wallet rejection reuses local attempt without releasing its server claim',async()=>{
+ it('explicit wallet rejection reuses local attempt without releasing its server claim',()=>{
   const store=memoryStore();
   expect(writeSettlementIntent(checkpoint(),store)).toBe(true);
   expect(explicitlyRejectedWallet({code:4001})).toBe(true);
