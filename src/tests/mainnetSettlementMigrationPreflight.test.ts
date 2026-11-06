@@ -70,9 +70,10 @@ describe('Backed-up Mainnet Settlement additive migration preflight',()=>{
    .toThrow('SETTLEMENT_UPGRADE_WRONG_DATABASE');
  });
 
- it('checks 22 canonical ordered SQL hashes from committed Drizzle journal',()=>{
+ it('checks the complete canonical SQL history including the additive request migration',()=>{
   const real=expectedSettlementMigrationHistory();
-  expect(real).toHaveLength(22);
+  expect(real).toHaveLength(23);
+  expect(real[22]?.createdAt).toBeGreaterThan(real[21]?.createdAt??0);
   expect(real.every(x=>/^[0-9a-f]{64}$/.test(x.hash))).toBe(true);
  });
  it('rejects altered same-named financial rules and forged Drizzle history',()=>{

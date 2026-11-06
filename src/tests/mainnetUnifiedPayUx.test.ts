@@ -11,7 +11,8 @@ describe('Mainnet single Settlement surface, wallet review and identity safety',
    expect(app).toContain("next==='pay'?'settlement'");
    expect(app).toContain('<MainnetPayHub recipientWallet=');
    expect(hub).toContain('Veyra Settlement');
-   expect(hub).toContain('<SettlementPage key={owner} embedded');
+   expect(hub).toContain('<SettlementPage key={owner+":"+(paymentRequest?.requestId??"")} embedded');
+   expect(hub).toContain('paymentRequest={paymentRequest}');
    expect(hub).toContain('payLocked?');
    expect(hub).not.toContain('<MainnetPayPage');
    expect(hub).not.toContain('Change payment method');
