@@ -127,9 +127,10 @@ export async function createPaymentRequest(
   'Set exactly one verified Arc Mainnet receiving wallet before requesting USDC.',409);
  const requestId=newPaymentRequestId();
  const ref=paymentRequestRef(requestId);
+ const clientRequestId=input.clientRequestId as string;
  const inserted=await db.transaction(async tx=>{
   const [created]=await tx.insert(paymentRequests).values({
-   requestId,requesterUserId,payerUserId,clientRequestId:input.clientRequestId,
+   requestId,requesterUserId,payerUserId,clientRequestId,
    amountRaw,chainId:5042,expiresAt:new Date(Date.now()+REQUEST_TTL_MS),
    recipientWallet:getAddress(wallet.walletAddress).toLowerCase(),
    recipientWalletId:wallet.walletId,paymentRef:ref,status:'PENDING',

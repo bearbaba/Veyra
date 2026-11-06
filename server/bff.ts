@@ -65,6 +65,7 @@ import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } fr
 import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
 import { getProfile, updateProfile, revokeXIdentity, ProfileError } from './services/profileService.js';
 import {DirectMessageError,encryptionKey,chatPage,listDirectMessages,sendDirectMessage} from './services/directMessageService.js';
+import {PaymentRequestError,createPaymentRequest,listPeerPaymentRequests,reviewPaymentRequest,cancelPaymentRequest,claimPaymentRequest} from './services/paymentRequestsService.js';
 import {IncomingUsdcError,reconcileIncomingUsdc} from './services/incomingUsdcService.js';
 import { beginXOAuthLink, completeXOAuthCallback, finishXOAuthLink, XOAuthError,checkedXReturnOrigin,buildXLinkedReturnUrl,isConfiguredXOAuth,resolveXCallbackUrl } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
@@ -239,6 +240,7 @@ app.use('/api', GLOBAL_RATE);
 function identityError(res: Response, err: unknown): void {
   if(err instanceof IncomingUsdcError){res.status(err.httpStatus).json({ok:false,error:err.code,message:err.message});return;}
   if(err instanceof DirectMessageError){res.status(err.httpStatus).json({ok:false,error:err.code,message:err.message});return;}
+  if(err instanceof PaymentRequestError){res.status(err.httpStatus).json({ok:false,error:err.code,message:err.message});return;}
   if (err instanceof NotificationInboxError) {
     res.status(err.code === 'NOTIFICATION_NOT_FOUND' ? 404 : 400)
       .json({ ok: false, error: err.code, message: err.message });
