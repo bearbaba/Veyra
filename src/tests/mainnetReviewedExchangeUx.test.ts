@@ -13,20 +13,20 @@ describe('Veyra reviewed routes are the ONLY source for selectors and pause stat
   expect(reviewedExchangeAssets('swap','to',find(5042,'USDC')).map(x=>x.symbol)).toEqual(['EURC']);
   expect(reviewedExchangeAssets('swap','from').some(x=>x.chainId===1)).toBe(false);
  });
- it('Bridge source Arc/Base only; destination is derived from selected source',()=>{
+ it('Bridge source Ethereum/Base only; destination is derived from selected source',()=>{
   const sources=reviewedExchangeAssets('bridge','from');
-  expect(sources.map(x=>x.chainId)).toEqual([5042,8453]);
-  expect(reviewedExchangeNetworks('bridge','to',find(5042,'USDC')).map(x=>x.chainId)).toEqual([8453]);
-  expect(reviewedExchangeNetworks('bridge','to',find(8453,'USDC')).map(x=>x.chainId)).toEqual([5042]);
+  expect(sources.map(x=>x.chainId)).toEqual([1,8453]);
+  expect(reviewedExchangeNetworks('bridge','to',find(1,'USDC')).map(x=>x.chainId)).toEqual([8453]);
+  expect(reviewedExchangeNetworks('bridge','to',find(8453,'USDC')).map(x=>x.chainId)).toEqual([1]);
   expect(reviewedExchangeAssets('bridge','from').some(x=>x.chainId===137)).toBe(false);
  });
  it('never promotes a reference-only token to selectable on wallet balance',()=>{
   const ethereum=find(1,'USDC');
   expect(reviewedExchangeAssets('swap','from').some(x=>exchangeAssetId(x)===exchangeAssetId(ethereum))).toBe(false);
   expect(reviewedRouteStatus('swap',ethereum,find(5042,'EURC'),false)).toBe('unsupported');
-  expect(reviewedRouteStatus('bridge',find(5042,'USDC'),find(8453,'USDC'),false)).toBe('paused');
+  expect(reviewedRouteStatus('bridge',find(1,'USDC'),find(8453,'USDC'),false)).toBe('paused');
   expect(reviewedRouteStatus('swap',find(5042,'USDC'),find(5042,'EURC'),true)).toBe('reviewable');
-  expect(resolveExchangeRoute(find(5042,'USDC'),find(8453,'USDC')).kind).toBe('bridge');
+  expect(resolveExchangeRoute(find(5042,'USDC'),find(8453,'USDC')).kind).toBe('unavailable');
  });
  it('has one coherent route form with visible quote-only status, Max and provider evidence',()=>{
   const page=source('components/pages/MainnetExchangePage.tsx');

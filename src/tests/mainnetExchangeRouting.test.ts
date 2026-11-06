@@ -24,10 +24,12 @@ describe('Exchange selects assets first; routes are proof-gated',()=>{
   expect(resolveExchangeRoute(selected(5042,'USDC'),selected(5042,'USDC')).kind).toBe('unavailable');
   expect(resolveExchangeRoute(selected(8453,'USDC'),selected(8453,'USDC')).kind).toBe('unavailable');
  });
- it('chooses reviewed CCTP Arc/Base USDC, never auto-switches tokens or chains',()=>{
-  expect(resolveExchangeRoute(selected(5042,'USDC'),selected(8453,'USDC')))
+ it('chooses officially supported Ethereum/Base CCTP V2 but NOT Arc Mainnet',()=>{
+  expect(resolveExchangeRoute(selected(1,'USDC'),selected(8453,'USDC')))
    .toMatchObject({kind:'bridge',provider:'Circle CCTP'});
-  expect(resolveExchangeRoute(selected(8453,'USDC'),selected(5042,'USDC')).kind).toBe('bridge');
+  expect(resolveExchangeRoute(selected(8453,'USDC'),selected(1,'USDC')).kind).toBe('bridge');
+  expect(resolveExchangeRoute(selected(5042,'USDC'),selected(8453,'USDC')).kind).toBe('unavailable');
+  expect(resolveExchangeRoute(selected(8453,'USDC'),selected(5042,'USDC')).kind).toBe('unavailable');
   const combined=resolveExchangeRoute(selected(5042,'EURC'),selected(8453,'USDC'));
   expect(combined).toMatchObject({kind:'unavailable'});
   if(combined.kind==='unavailable')expect(combined.reason).toContain('Bridge + Swap');

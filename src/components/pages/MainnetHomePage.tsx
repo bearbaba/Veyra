@@ -6,6 +6,7 @@ import {erc20Abi,formatUnits} from 'viem';
 import {ArrowDownLeft,ArrowLeftRight,Copy,RefreshCw,Users,Clock3,LayoutList,SendHorizontal,Route,ArrowRight,UserRound,ShieldCheck,Wallet,Check,ChevronRight} from 'lucide-react';
 import {getUsdc} from '@/onchain-facts';
 import {BrandLogo} from '../brand/BrandLogo';
+import {MainnetUnifiedBalancePanel} from './MainnetUnifiedBalancePanel';
 import {readLocalOperations,type LocalOperation} from '@/mainnet/localOperations';
 import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
@@ -217,15 +218,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
     <button type="button" onClick={()=>setReceive(v=>!v)} disabled={!address} aria-expanded={receive}
      className="veyra-btn-secondary inline-flex items-center gap-2 disabled:opacity-50"><ArrowDownLeft className="size-4"/>Receive</button>
    </div>
-   <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4" style={{borderColor:'var(--border)'}}>
-    <span><span className="block text-sm font-semibold" style={{color:'var(--ink)'}}>Unified Balance</span>
-     <span className="block text-xs" style={{color:'var(--muted)'}}>Circle Gateway deposits · separate from Wallet USDC</span></span>
-    <span className="text-xs font-semibold" style={{color:'var(--muted)'}}>Not available on Mainnet</span>
-   </div>
-   <details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
-    <summary className="cursor-pointer">About Unified</summary>
-    <p className="mt-2 leading-5">Gateway deposits are independent of wallet funds. Mainnet deposits are not enabled; no Unified amount is added to your available Wallet balance.</p>
-   </details>
+   <MainnetUnifiedBalancePanel/>
   </section>
   <section aria-label="Quick actions">
    <h2 className="veyra-section-title mb-3">Quick actions</h2>

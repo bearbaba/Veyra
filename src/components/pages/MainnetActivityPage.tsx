@@ -6,6 +6,7 @@ import {useAccount} from 'wagmi';
 import {formatUnits} from 'viem';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {isMainnetSessionForWallet,scopedMainnetReceipts} from '@/mainnet/signedWalletReceiptScope';
+import {MainnetUnifiedActivity} from './MainnetUnifiedActivity';
 import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
 import {listVerifiedMainnetSettlementReceipts,type MainnetSettlementServerReceipt} from '@/lib/api/mainnetSettlementReceipts';
 import {readReceiptOutbox,storageForReceiptOutbox,type ReceiptOutboxItem} from '@/mainnet/receiptOutbox';
@@ -252,6 +253,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     {syncing&&<RefreshCw className="size-4 animate-spin"/>}{syncing?'Updating…':'Up to date'}
    </span>}
   </header>
+  {address&&filter==='All'&&<MainnetUnifiedActivity/>}
   {address&&localOwner===address.toLowerCase()&&unknownSettlement&&<div role="alert" className="rounded-xl border p-4 text-sm"
      style={{borderColor:'var(--border)',color:'var(--warning)'}}>
      Payment status unknown. Check Activity and your wallet before trying again.

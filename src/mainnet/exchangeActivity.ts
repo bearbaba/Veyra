@@ -18,7 +18,7 @@ function valid(x:unknown,owner:string):x is ExchangeActivity{
  const v=x as Partial<ExchangeActivity>;
  return v.owner?.toLowerCase()===owner.toLowerCase()&&
    (v.mode==='swap'||v.mode==='bridge')&&
-   (v.source===5042||v.source===8453)&&(v.destination===5042||v.destination===8453)&&
+   (v.source===5042||v.source===8453||v.source===1)&&(v.destination===5042||v.destination===8453||v.destination===1)&&
    typeof v.tokenIn==='string'&&typeof v.tokenOut==='string'&&
    typeof v.amountIn==='string'&&typeof v.minOut==='string'&&
    typeof v.originalHash==='string'&&HASH.test(v.originalHash)&&

@@ -4,6 +4,7 @@
 import {isAddress} from 'viem';
 import {ARC_VERIFIED_ASSETS} from '@/config/arcVerifiedAssets';
 import {MAINNET_CHAIN_CATALOG} from '@/config/mainnetCatalog';
+import {circleCctpBridgePair} from './circleBridgePolicy';
 
 export type ExchangeAsset={
  chainId:number;contractAddress:`0x${string}`;
@@ -72,12 +73,11 @@ export function resolveExchangeRoute(from:ExchangeAsset,to:ExchangeAsset):Exchan
    return {kind:'swap',source,destination,provider:'Circle App Kit'};
   return no('No independently validated same-chain Swap executor is connected for this pair yet.');
  }
- if(source.symbol==='USDC'&&destination.symbol==='USDC'&&
-   [source.chainId,destination.chainId].every(id=>id===5042||id===8453))
+ if(circleCctpBridgePair(source.chainId,destination.chainId,source.symbol,destination.symbol))
   return {kind:'bridge',source,destination,provider:'Circle CCTP'};
  return no(source.symbol!==destination.symbol?
   'A cross-network Bridge + Swap needs a complete provider quote and recoverable multi-step route. Not enabled yet.':
-  'This network pair has no accepted destination-proof bridge route in Veyra yet.');
+  'Circle has not listed this pair as a supported Mainnet CCTP V2 route. Arc Mainnet is not yet supported.');
 }
 export function validateExchangeCatalog():string[]{
  const seen=new Set<string>(),problems:string[]=[];

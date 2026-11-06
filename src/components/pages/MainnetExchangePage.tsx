@@ -15,7 +15,7 @@ import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJ
 
 const ARC=5042,BASE=8453;
 const asset=(chain:number,symbol:string)=>EXCHANGE_ASSETS.find(a=>a.chainId===chain&&a.symbol===symbol)!;
-const nameOf=(chain:number)=>chain===ARC?'Arc':chain===BASE?'Base':'Unknown network';
+const nameOf=(chain:number)=>chain===ARC?'Arc':chain===BASE?'Base':chain===1?'Ethereum':'Unknown network';
 function recordedExchange(owner:string):null|{mode:'swap'|'bridge';source:ExchangeAsset;destination:ExchangeAsset;status:string}{
  if(!owner)return null;
  try{
@@ -94,11 +94,57 @@ function AssetPicker({side,mode,value,other,balances,onChoose,onClose}:{
   </section>
  </div>;
 }
+function BridgeNetworkPicker({side,from,balances,onChoose,onClose}:{
+ side:ReviewedSide;from:ExchangeAsset;balances:Record<string,bigint>;
+ onChoose:(a:ExchangeAsset)=>void;onClose:()=>void;
+}){
+ const [query,setQuery]=useState('');
+ const options=reviewedExchangeNetworks('bridge',side,side==='to'?from:undefined)
+  .filter(x=>x.name.toLowerCase().includes(query.trim().toLowerCase()));
+ useEffect(()=>{
+  const onKey=(e:KeyboardEvent)=>{if(e.key==='Escape')onClose();};
+  window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey);
+ },[onClose]);
+ return <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 sm:items-center sm:p-5"
+   role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+  <section role="dialog" aria-modal="true" aria-label={'Select '+side+' network'}
+   className="flex max-h-[85dvh] w-full max-w-md flex-col gap-3 rounded-t-2xl border p-4 shadow-2xl sm:rounded-2xl"
+   style={{background:'var(--surface)',borderColor:'var(--border-strong)',color:'var(--ink)'}}>
+   <header className="flex items-center justify-between gap-3">
+    <div><h2 className="text-lg font-bold">{side==='from'?'From network':'To network'}</h2>
+     <p className="text-xs" style={{color:'var(--muted)'}}>Native USDC · integrated CCTP routes</p></div>
+    <button type="button" onClick={onClose} aria-label="Close network selector"
+     className="veyra-btn-secondary rounded-lg p-2"><X className="size-4"/></button>
+   </header>
+   <label className="relative block">
+    <Search className="absolute left-3 top-3.5 size-4" style={{color:'var(--muted)'}}/>
+    <input autoFocus value={query} onChange={e=>setQuery(e.target.value)}
+     placeholder="Search network" aria-label="Search supported networks"
+     className="veyra-route-input w-full rounded-xl border py-3 pl-10 pr-3 text-sm"
+     style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
+   </label>
+   <div className="min-h-0 overflow-y-auto space-y-2">
+    {options.length===0?<p className="py-6 text-center text-sm" style={{color:'var(--muted)'}}>
+     No available network matches your search.</p>:
+     options.map(x=><button key={x.chainId} type="button" onClick={()=>onChoose(x.asset)}
+      className="veyra-route-control flex w-full items-center gap-3 rounded-xl p-3 text-left">
+      <BrandLogo logoKey={x.logo} size={34}/>
+      <span className="min-w-0 flex-1"><span className="block font-semibold">{x.name}</span>
+       <span className="block text-xs" style={{color:'var(--muted)'}}>USDC · Mainnet</span></span>
+      <span className="text-right text-xs tabular-nums" style={{color:'var(--muted)'}}>
+       {balances[exchangeAssetId(x.asset)]===undefined?'Balance —':formatUnits(balances[exchangeAssetId(x.asset)],6)+' USDC'}
+      </span>
+     </button>)}
+   </div>
+   <p className="text-xs" style={{color:'var(--muted)'}}>Arc Mainnet has no published CCTP V2 Mainnet domain.</p>
+  </section>
+ </div>;
+}
 export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolean}){
  const {address}=useAccount();
  const mode:ReviewedExchangeMode=initialBridge?'bridge':'swap';
- const [from,setFrom]=useState<ExchangeAsset>(()=>asset(ARC,'USDC'));
- const [to,setTo]=useState<ExchangeAsset>(()=>initialBridge?asset(BASE,'USDC'):asset(ARC,'EURC'));
+ const [from,setFrom]=useState<ExchangeAsset>(()=>asset(initialBridge?BASE:ARC,'USDC'));
+ const [to,setTo]=useState<ExchangeAsset>(()=>initialBridge?asset(1,'USDC'):asset(ARC,'EURC'));
  const [picking,setPicking]=useState<ReviewedSide|null>(null);
  const [prior,setPrior]=useState<ReturnType<typeof recordedExchange>>(null);
  const [unknownPrior,setUnknownPrior]=useState(false);
@@ -177,21 +223,21 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   formatUnits(balances[exchangeAssetId(a)],a.decimals)+' '+a.symbol;
  const networkButton=(a:ExchangeAsset,side:ReviewedSide,active:boolean)=>(
   <button type="button" key={exchangeAssetId(a)}
-   disabled={locked} onClick={()=>side==='from'?chooseSource(a):chooseDestination(a)}
+   disabled={locked} onClick={()=>setPicking(side)}
    aria-pressed={active}
    className="flex min-h-16 min-w-0 flex-1 items-center gap-3 rounded-xl border p-3 text-left disabled:opacity-50"
    style={{background:active?'var(--accent-muted)':'var(--veyra-control)',
     borderColor:active?'var(--border-strong)':'var(--border)',color:'var(--ink)'}}>
-   <BrandLogo logoKey={a.chainId===ARC?'arc':'base'} size={34}/>
+   <BrandLogo logoKey={a.chainId===ARC?'arc':a.chainId===1?'ethereum':'base'} size={34}/>
    <span className="min-w-0"><span className="block font-semibold">{nameOf(a.chainId)}</span>
-    <span className="block text-xs" style={{color:'var(--muted)'}}>Mainnet</span></span>
+    <span className="block text-xs" style={{color:'var(--muted)'}}>Mainnet · USDC</span></span><ChevronDown className="ml-auto size-4 shrink-0"/>
   </button>
  );
  return <main className="veyra-page veyra-route-page mx-auto w-full max-w-2xl space-y-4 px-4 py-5 md:px-7 md:py-8">
   <header>
    <p className="veyra-eyebrow">VEYRA · MAINNET</p>
    <h1 className="veyra-page-title">{mode==='swap'?'Swap':'Bridge'}</h1>
-   <p className="veyra-page-subtitle">{mode==='swap'?'Exchange USDC and EURC on Arc.':'Move USDC between Arc and Base.'}</p>
+   <p className="veyra-page-subtitle">{mode==='swap'?'Exchange USDC and EURC on Arc.':'Move native USDC between Ethereum and Base.'}</p>
   </header>
   <section className="veyra-card space-y-4 p-4 sm:p-5" aria-label={mode==='swap'?'Swap form':'Bridge form'}>
    <div role="status" className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold"
@@ -225,8 +271,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    </>:<>
     <div className="space-y-2">
      <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>FROM NETWORK</p>
-     <div className="flex gap-2">{reviewedExchangeNetworks(mode,'from').map(x=>
-      networkButton(x.asset,'from',from.chainId===x.chainId))}</div>
+     <div className="flex">{networkButton(from,'from',true)}</div>
     </div>
     <div className="flex items-center justify-center">
      <button type="button" disabled={locked} onClick={reverse} aria-label="Reverse bridge direction"
@@ -234,8 +279,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
     </div>
     <div className="space-y-2">
      <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>TO NETWORK</p>
-     <div className="flex gap-2">{reviewedExchangeNetworks(mode,'to',from).map(x=>
-      networkButton(x.asset,'to',to.chainId===x.chainId))}</div>
+     <div className="flex">{networkButton(to,'to',true)}</div>
     </div>
    </>}
    {canQuote?<MainnetCirclePage key={mode+':'+exchangeAssetId(from)+':'+exchangeAssetId(to)}
@@ -264,5 +308,8 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   {picking&&mode==='swap'&&<AssetPicker key={picking} side={picking} mode={mode} value={picking==='from'?from:to}
    other={picking==='from'?to:from} balances={balances}
    onChoose={picking==='from'?chooseSource:chooseDestination} onClose={()=>setPicking(null)}/>}
+  {picking&&mode==='bridge'&&<BridgeNetworkPicker side={picking} from={from}
+    balances={balances} onChoose={picking==='from'?chooseSource:chooseDestination}
+    onClose={()=>setPicking(null)}/>}
  </main>;
 }

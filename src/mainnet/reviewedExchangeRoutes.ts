@@ -26,7 +26,7 @@ export function reviewedExchangeAssets(mode:ReviewedExchangeMode,side:ReviewedSi
 }
 export function reviewedExchangeNetworks(mode:ReviewedExchangeMode,side:ReviewedSide,fixed?:ExchangeAsset){
  return reviewedExchangeAssets(mode,side,fixed).map(asset=>({chainId:asset.chainId,
-  name:asset.network,logo:asset.chainId===5042?'arc' as const:'base' as const,
+  name:asset.network,logo:asset.chainId===5042?'arc' as const:asset.chainId===1?'ethereum' as const:'base' as const,
   asset}));
 }
 export function reviewedRouteStatus(
