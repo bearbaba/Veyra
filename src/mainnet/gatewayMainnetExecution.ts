@@ -4,16 +4,23 @@
  */
 import {AppKit} from '@circle-fin/app-kit';
 import {createViemAdapterFromProvider} from '@circle-fin/adapter-viem-v2';
-import {erc20Abi,getAddress,isAddress,parseUnits,type EIP1193Provider,type PublicClient} from 'viem';
+import {erc20Abi,formatUnits,getAddress,isAddress,parseUnits,type EIP1193Provider,type PublicClient} from 'viem';
 import {GATEWAY_MAINNET_CHAINS,GATEWAY_MAINNET_WRITE_ENABLED,
  gatewayMainnetAmount,type GatewayMainnetBalance} from './gatewayMainnetBalances';
-import {readGatewayMainnetOperation,writeGatewayMainnetOperation,
+import {hasUnresolvedGatewayMainnetOperation,writeGatewayMainnetOperation,
  type GatewayMainnetOperation} from './gatewayMainnetJournal';
 import {activeSignedIdentityToken} from '@/lib/api/liveIdentitySession';
 import {MAINNET_CANARY_OWNER,MAINNET_CANARY_MAX_UNITS} from './releaseGates';
 import {parseGatewaySdkFees,assertGatewaySdkFeesUnchanged,type GatewaySdkFee} from '@/core/gateway/gatewaySdkSpend';
 
-type Connection={getProvider:()=>Promise<unknown>};
+/** SDK fee amounts are exact six-decimal USDC; preserve reviewed minimum. */
+function minimumGatewayReceive(review:GatewayMainnetReview):string{
+ if(review.kind!=='spend'||!review.fees.length)throw Error('Circle fees have not been reviewed.');
+ const costs=review.fees.reduce((total,fee)=>total+parseUnits(fee.amount.startsWith('.')?'0'+fee.amount:fee.amount,6),0n);
+ const value=parseUnits(review.amount,6);
+ if(value<=costs)throw Error('Circle fees exceed this transfer amount.');
+ return formatUnits(value-costs,6);
+}
 const HASH=/^0x[0-9a-fA-F]{64}$/;
 const chains=GATEWAY_MAINNET_CHAINS;
 const picked=(id:number)=>{
@@ -79,12 +86,12 @@ export async function submitGatewayMainnetReview(review:GatewayMainnetReview,
  if(!GATEWAY_MAINNET_WRITE_ENABLED)
   throw Error('Unified Mainnet writes are not enabled in Veyra until a real transfer is accepted.');
  const {owner,source,amount}=validate(review);
- if(readGatewayMainnetOperation(owner)!==null)
+ if(hasUnresolvedGatewayMainnetOperation(owner))
   throw Error('Original Unified operation is unresolved. Refresh Activity; never sign twice.');
  if(await publicClient.getChainId()!==source.chainId)
   throw Error('Source RPC chain ID differs from review. No signature requested.');
  const gas=await publicClient.getBalance({address:getAddress(owner)});
- if(gas<=0n)throw Error('Source wallet has no native ETH for the network fee.');
+ if(review.kind==='deposit'&&gas<=0n)throw Error('Source wallet needs network gas for the deposit. Arc uses USDC as gas.');
  if(review.kind==='deposit'){
   const balance=await publicClient.readContract({address:source.usdc,abi:erc20Abi,
    functionName:'balanceOf',args:[getAddress(owner)]});
@@ -99,13 +106,16 @@ export async function submitGatewayMainnetReview(review:GatewayMainnetReview,
   assertGatewaySdkFeesUnchanged(review.fees,latest);
  }
  await assertGatewayMainnetWallet(provider,owner,source.chainId);
- if(readGatewayMainnetOperation(owner)!==null)
+ if(hasUnresolvedGatewayMainnetOperation(owner))
   throw Error('Unresolved Unified checkpoint; signing is blocked.');
  const operation:GatewayMainnetOperation={
   version:1,id:crypto.randomUUID(),owner,kind:review.kind,chainId:source.chainId,
   ...(review.destinationChainId?{destinationChainId:review.destinationChainId}:{}),
   recipient:getAddress(review.recipient),amount:review.amount,createdAt:Date.now(),
   status:'UNKNOWN',
+  ...(review.kind==='deposit'?{
+   beforeAvailable:formatUnits(review.balance.chains.find(c=>c.chainId===source.chainId)?.available??0n,6),
+  }:{minimumReceive:minimumGatewayReceive(review)}),
  };
  if(!writeGatewayMainnetOperation(operation))
   throw Error('Recovery checkpoint storage failed. No wallet signature requested.');

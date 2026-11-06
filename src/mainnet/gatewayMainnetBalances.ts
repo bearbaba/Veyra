@@ -1,11 +1,12 @@
 /** Mainnet Circle Gateway ledger, NOT ERC20 wallet balances. 
- * Network support is Circle's published subset, independent of Veyra signing release.
+ * Gateway supports Arc, Base and Ethereum; SDK reads do not authorize signing.
  * Pending is never spendable. Unreadable/missing data is UNKNOWN, never zero.
  */
 import {AppKit} from '@circle-fin/app-kit';
 import {getAddress,isAddress,parseUnits,formatUnits} from 'viem';
 import {getMainnetChain} from '@/config/mainnetCatalog';
 export const GATEWAY_MAINNET_CHAINS=[
+ {chainId:5042,chain:'Arc',name:'Arc',domain:26,logo:'arc',gas:'USDC',usdc:getMainnetChain(5042)!.usdc},
  {chainId:1,chain:'Ethereum',name:'Ethereum',domain:0,logo:'ethereum',gas:'ETH',usdc:getMainnetChain(1)!.usdc},
  {chainId:8453,chain:'Base',name:'Base',domain:6,logo:'base',gas:'ETH',usdc:getMainnetChain(8453)!.usdc},
 ] as const;

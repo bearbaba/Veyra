@@ -27,7 +27,7 @@ describe('Mainnet Unified is a real Circle ledger, not a wallet-balance decorati
  it('groups original unified request and refuses to invent proof',()=>{
   const act=src('components/pages/MainnetUnifiedActivity.tsx');
   expect(act).toContain('readGatewayMainnetOperation');
-  expect(act).toContain('NOT destination settlement proof');
+  expect(act).toContain('reconcileGatewayMainnetOperation');
   const exchange=src('components/pages/MainnetExchangePage.tsx');
   expect(exchange).toContain('BridgeNetworkPicker');
   expect(exchange).toContain('reviewedExchangeNetworks');

@@ -136,15 +136,15 @@ function BridgeNetworkPicker({side,from,balances,onChoose,onClose}:{
       </span>
      </button>)}
    </div>
-   <p className="text-xs" style={{color:'var(--muted)'}}>Arc Mainnet has no published CCTP V2 Mainnet domain.</p>
+   <p className="text-xs" style={{color:'var(--muted)'}}>Arc routes require independent quote, contract and destination mint acceptance.</p>
   </section>
  </div>;
 }
 export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolean}){
  const {address}=useAccount();
  const mode:ReviewedExchangeMode=initialBridge?'bridge':'swap';
- const [from,setFrom]=useState<ExchangeAsset>(()=>asset(initialBridge?BASE:ARC,'USDC'));
- const [to,setTo]=useState<ExchangeAsset>(()=>initialBridge?asset(1,'USDC'):asset(ARC,'EURC'));
+ const [from,setFrom]=useState<ExchangeAsset>(()=>asset(initialBridge?ARC:ARC,'USDC'));
+ const [to,setTo]=useState<ExchangeAsset>(()=>initialBridge?asset(BASE,'USDC'):asset(ARC,'EURC'));
  const [picking,setPicking]=useState<ReviewedSide|null>(null);
  const [prior,setPrior]=useState<ReturnType<typeof recordedExchange>>(null);
  const [unknownPrior,setUnknownPrior]=useState(false);
@@ -237,7 +237,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   <header>
    <p className="veyra-eyebrow">VEYRA · MAINNET</p>
    <h1 className="veyra-page-title">{mode==='swap'?'Swap':'Bridge'}</h1>
-   <p className="veyra-page-subtitle">{mode==='swap'?'Exchange USDC and EURC on Arc.':'Move native USDC between Ethereum and Base.'}</p>
+   <p className="veyra-page-subtitle">{mode==='swap'?'Exchange USDC and EURC on Arc.':'Move native USDC across supported Circle CCTP networks.'}</p>
   </header>
   <section className="veyra-card space-y-4 p-4 sm:p-5" aria-label={mode==='swap'?'Swap form':'Bridge form'}>
    <div role="status" className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold"

@@ -33,7 +33,7 @@ describe('Exchange selects assets first; routes are proof-gated',()=>{
   const combined=resolveExchangeRoute(selected(5042,'EURC'),selected(8453,'USDC'));
   expect(combined).toMatchObject({kind:'unavailable'});
   if(combined.kind==='unavailable')expect(combined.reason).toContain('Bridge + Swap');
-  expect(resolveExchangeRoute(selected(5042,'USDC'),selected(1,'USDC')).kind).toBe('unavailable');
+  expect(resolveExchangeRoute(selected(5042,'USDC'),selected(1,'USDC')).kind).toBe('bridge');
  });
  it('includes wrapped Ether by chain-specific contract without claiming a supported route',()=>{
   const baseWeth=selected(8453,'WETH'),ethWeth=selected(1,'WETH');

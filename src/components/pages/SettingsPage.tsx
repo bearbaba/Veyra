@@ -221,7 +221,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
               <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
                 {VEYRA_ENV==='mainnet'
                   ?MAINNET_EMERGENCY_READ_ONLY?'Financial signing is paused. You can still review onchain receipts safely.':
-                   MAINNET_CANARY_ONLY?'Mainnet pilot: contract Settlement Pay is limited to the authorized wallet and 0.01 USDC per payment. Swap and Bridge signing are paused; Veyra Gateway Mainnet deposits are not enabled; Circle supports Ethereum and Base, not Arc Mainnet.':
+                   MAINNET_CANARY_ONLY?'Mainnet pilot: contract Settlement Pay is limited to the authorized wallet and 0.01 USDC per payment. Swap and Bridge signing are paused; Veyra Gateway Mainnet deposits are not enabled; Arc, Ethereum and Base require independent Veyra execution acceptance.':
                    'Veyra Settlement Pay requires review, wallet confirmation and an onchain receipt. Quotes are not completed transactions.'
                   :'Every payment is reviewed before wallet approval. Testnet funds only.'}
               </p>

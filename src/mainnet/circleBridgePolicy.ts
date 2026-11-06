@@ -1,11 +1,14 @@
-/** Reviewed Circle CCTP V2 Mainnet routes; 2026-11-06.
- * Arc domain 26 belongs to Arc TESTNET, not Arc Mainnet (chainId 5042).
- * Metadata and quote availability never authorize a financial signature.
- * https://developers.circle.com/cctp/concepts/supported-chains-and-domains
+/** Circle CCTP catalog: provider support, Veyra quote integration and authorized signing
+ * are independent properties. Arc Mainnet and Arc Testnet both use domain 26;
+ * their chain IDs, RPC endpoints, contracts and signing environments differ.
+ * Catalog metadata never unlocks wallet signing or implies a successful quote.
  */
 import {getMainnetChain} from '@/config/mainnetCatalog';
-export type ReviewedCctpChainId=1|8453;
+export type ReviewedCctpChainId=5042|1|8453;
+export type CircleRouteStage='provider-supported'|'quote-integrated'|'signing-accepted';
 export const CIRCLE_CCTP_MAINNET=[
+ {chainId:5042,domain:26,sdkChain:'Arc',logo:'arc',name:'Arc',decimals:6,
+  gasToken:'USDC',explorer:'https://explorer.arc.io',usdc:getMainnetChain(5042)!.usdc,forwarding:true},
  {chainId:1,domain:0,sdkChain:'Ethereum',logo:'ethereum',name:'Ethereum',decimals:6,
   gasToken:'ETH',explorer:'https://etherscan.io',usdc:getMainnetChain(1)!.usdc,forwarding:true},
  {chainId:8453,domain:6,sdkChain:'Base',logo:'base',name:'Base',decimals:6,
@@ -29,6 +32,6 @@ export function validateCircleCctpMainnet():string[]{
   if(!entry||entry.cctpDomain!==chain.domain||entry.usdc.toLowerCase()!==chain.usdc.toLowerCase()||
    entry.explorerUrl!==chain.explorer)issues.push('Mainnet Circle metadata mismatch: '+chain.chainId);
  }
- if(getMainnetChain(5042)?.cctpDomain!==null)issues.push('Arc Mainnet must not claim Arc Testnet domain 26.');
+ if(getMainnetChain(5042)?.cctpDomain!==26)issues.push('Arc Mainnet must use CCTP domain 26; chain ID 5042 remains separate.');
  return issues;
 }

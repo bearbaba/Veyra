@@ -20,9 +20,9 @@ describe('Mainnet Iris read-only recovery and strict mint linkage',()=>{
    {status:'complete',sourceTxHash:source,destinationMintTxHash:mint},
   ])).toBeNull();
  });
- it('rejects Arc Mainnet CCTP without calling Circle',async()=>{
+ it('rejects malformed CCTP source hash before calling Circle',async()=>{
   const fetcher=vi.fn();
-  await expect(findCctpDestinationMintHash(5042,8453,source,fetcher as typeof fetch)).rejects.toThrow();
+  await expect(findCctpDestinationMintHash(5042,8453,'0x1234',fetcher as typeof fetch)).rejects.toThrow();
   expect(fetcher).not.toHaveBeenCalled();
  });
 });

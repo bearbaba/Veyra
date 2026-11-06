@@ -8,7 +8,7 @@ const sample=()=>({token:'USDC',totalConfirmedBalance:'5.250001',totalPendingBal
   breakdown:[{chain:'Ethereum',confirmedBalance:'1.25'},{chain:'Base',confirmedBalance:'4.000001'}]}]});
 describe('Mainnet Circle Gateway exact balances',()=>{
  it('uses actual Circle Mainnet chains, not Arc Testnet contract mapping',()=>{
-  expect(GATEWAY_MAINNET_CHAINS.map(c=>[c.chainId,c.domain])).toEqual([[1,0],[8453,6]]);
+  expect(GATEWAY_MAINNET_CHAINS.map(c=>[c.chainId,c.domain])).toEqual([[5042,26],[1,0],[8453,6]]);
   const result=parseGatewayMainnetBalance(sample(),owner);
   expect(result.available).toBe(5250001n);
   expect(result.pending).toBe(2500000n);
@@ -24,13 +24,13 @@ describe('Mainnet Circle Gateway exact balances',()=>{
   expect(()=>parseGatewayMainnetBalance({...sample(),breakdown:[{...sample().breakdown[0],depositor:other}]},owner)).toThrow();
   expect(()=>parseGatewayMainnetBalance({...sample(),totalConfirmedBalance:'7.0'},owner)).toThrow();
   expect(()=>parseGatewayMainnetBalance({...sample(),breakdown:[{...sample().breakdown[0],
-   breakdown:[{chain:'Arc',confirmedBalance:'5.250001'}]}]},owner)).toThrow();
+   breakdown:[{chain:'UnknownChain',confirmedBalance:'5.250001'}]}]},owner)).toThrow();
  });
 });
 describe('Owner-local Gateway pending checkpoint',()=>{
  it('persists UNKNOWN and refuses silent overwrite or foreign owner',()=>{
   const map=new Map<string,string>();
-  const store={getItem:(key:string)=>map.get(key)??null,setItem:(key:string,v:string)=>{map.set(key,v);}};
+  const store={getItem:(key:string)=>map.get(key)??null,setItem:(key:string,v:string)=>{map.set(key,v);},removeItem:(key:string)=>{map.delete(key);}};
   const op={version:1 as const,id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',owner,
    kind:'deposit' as const,chainId:8453,recipient:owner,amount:'0.01',
    createdAt:Date.now(),status:'UNKNOWN' as const};

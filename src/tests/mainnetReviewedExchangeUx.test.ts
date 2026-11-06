@@ -13,11 +13,11 @@ describe('Veyra reviewed routes are the ONLY source for selectors and pause stat
   expect(reviewedExchangeAssets('swap','to',find(5042,'USDC')).map(x=>x.symbol)).toEqual(['EURC']);
   expect(reviewedExchangeAssets('swap','from').some(x=>x.chainId===1)).toBe(false);
  });
- it('Bridge source Ethereum/Base only; destination is derived from selected source',()=>{
+ it('Bridge Arc/Base/Ethereum quoted candidates; destination is derived from source',()=>{
   const sources=reviewedExchangeAssets('bridge','from');
-  expect(sources.map(x=>x.chainId)).toEqual([1,8453]);
-  expect(reviewedExchangeNetworks('bridge','to',find(1,'USDC')).map(x=>x.chainId)).toEqual([8453]);
-  expect(reviewedExchangeNetworks('bridge','to',find(8453,'USDC')).map(x=>x.chainId)).toEqual([1]);
+  expect(sources.map(x=>x.chainId)).toEqual([5042,1,8453]);
+  expect(reviewedExchangeNetworks('bridge','to',find(1,'USDC')).map(x=>x.chainId)).toEqual([5042,8453]);
+  expect(reviewedExchangeNetworks('bridge','to',find(8453,'USDC')).map(x=>x.chainId)).toEqual([5042,1]);
   expect(reviewedExchangeAssets('bridge','from').some(x=>x.chainId===137)).toBe(false);
  });
  it('never promotes a reference-only token to selectable on wallet balance',()=>{
@@ -26,7 +26,7 @@ describe('Veyra reviewed routes are the ONLY source for selectors and pause stat
   expect(reviewedRouteStatus('swap',ethereum,find(5042,'EURC'),false)).toBe('unsupported');
   expect(reviewedRouteStatus('bridge',find(1,'USDC'),find(8453,'USDC'),false)).toBe('paused');
   expect(reviewedRouteStatus('swap',find(5042,'USDC'),find(5042,'EURC'),true)).toBe('reviewable');
-  expect(resolveExchangeRoute(find(5042,'USDC'),find(8453,'USDC')).kind).toBe('unavailable');
+  expect(resolveExchangeRoute(find(5042,'USDC'),find(8453,'USDC')).kind).toBe('bridge');
  });
  it('has one coherent route form with visible quote-only status, Max and provider evidence',()=>{
   const page=source('components/pages/MainnetExchangePage.tsx');

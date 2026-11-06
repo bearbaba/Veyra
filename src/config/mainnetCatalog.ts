@@ -26,13 +26,14 @@ export const CCTP_V2_MAINNET = {
 
 export const MAINNET_CHAIN_CATALOG: readonly MainnetChainCatalogEntry[] = [
   // Arc is Veyra's home network. The ERC-20 facade uses 6 decimals; native gas uses 18.
-  // Circle CCTP domain 26 belongs to Arc TESTNET. Arc Mainnet is not listed as a CCTP V2 Mainnet domain.
+  // Arc (Mainnet chainId 5042, Testnet chainId 5042002) shares Circle domain 26.
+  // Domain is NOT a chain ID; provider support, deployed contracts and signing acceptance are separate.
   // RPC and chain ID: https://docs.arc.io/arc/references/connect-to-arc
   {
     chainId: 5042,
     name: 'Arc',
     usdc: '0x3600000000000000000000000000000000000000',
-    cctpDomain: null,
+    cctpDomain: 26,
     rpcEnvKey: 'ARC_MAINNET_RPC_URL',
     explorerUrl: 'https://explorer.arc.io',
   },
@@ -101,8 +102,8 @@ export function validateMainnetCatalog(): string[] {
   const seen = new Set<number>();
   const domains = new Set<number>();
   const arc = MAINNET_CHAIN_CATALOG.find((chain) => chain.chainId === 5042);
-  if (!arc || arc.usdc.toLowerCase() !== '0x3600000000000000000000000000000000000000' || arc.cctpDomain !== null || arc.rpcEnvKey !== 'ARC_MAINNET_RPC_URL') {
-    errors.push('Arc Mainnet USDC must not be assigned Arc Testnet domain 26, and requires dedicated mainnet RPC configuration.');
+  if (!arc || arc.usdc.toLowerCase() !== '0x3600000000000000000000000000000000000000' || arc.cctpDomain !== 26 || arc.rpcEnvKey !== 'ARC_MAINNET_RPC_URL') {
+    errors.push('Arc Mainnet must retain the verified USDC facade, Circle domain 26 and dedicated Mainnet RPC; domain 26 alone never authorizes CCTP signing.');
   }
   for (const chain of MAINNET_CHAIN_CATALOG) {
     if (seen.has(chain.chainId)) errors.push(`Duplicate mainnet chainId ${chain.chainId}.`);

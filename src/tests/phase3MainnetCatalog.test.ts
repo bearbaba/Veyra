@@ -17,7 +17,7 @@ describe('Phase 3B verified mainnet catalog', () => {
     expect(validateMainnetCatalog()).toEqual([]);
     expect(MAINNET_CHAIN_CATALOG).toHaveLength(7);
     const arc = MAINNET_CHAIN_CATALOG.find((chain) => chain.chainId === 5042);
-    expect(arc).toMatchObject({ cctpDomain: null, rpcEnvKey: 'ARC_MAINNET_RPC_URL', explorerUrl: 'https://explorer.arc.io' });
+    expect(arc).toMatchObject({ cctpDomain: 26, rpcEnvKey: 'ARC_MAINNET_RPC_URL', explorerUrl: 'https://explorer.arc.io' });
     for (const chain of MAINNET_CHAIN_CATALOG) expect(chain.usdc).toBe(expectedUsdc[chain.chainId]);
   });
 
