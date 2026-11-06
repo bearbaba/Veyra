@@ -50,6 +50,7 @@ export function MainnetUnifiedBalancePanel(){
  const [fees,setFees]=useState<GatewaySdkFee[]|null>(null);
  const [review,setReview]=useState(false);
  const reviewedPlan=useRef<GatewayMainnetReview|null>(null);
+ const [reviewedView,setReviewedView]=useState<GatewayMainnetReview|null>(null);
  const [advanced,setAdvanced]=useState(false);
  const [busy,setBusy]=useState(false);
  const owner=address?.toLowerCase()??'';
@@ -147,7 +148,8 @@ export function MainnetUnifiedBalancePanel(){
     const estimated=await estimateGatewayMainnetSpend(planned,provider);
     setFees(estimated);
     reviewedPlan.current={...planned,fees:estimated};
-   }else reviewedPlan.current=planned;
+    setReviewedView(reviewedPlan.current);
+   }else {reviewedPlan.current=planned;setReviewedView(planned);}
    setReview(true);
   }catch(e){setError(e instanceof Error?e.message:'Gateway estimate could not be verified.');}
   finally{setBusy(false);}
@@ -294,9 +296,9 @@ export function MainnetUnifiedBalancePanel(){
     Insufficient confirmed {mode==='spend'?'Gateway Available':'wallet USDC on '+activeSource.chain}.
    </p>}
    {review&&<div className="rounded-lg border p-3 text-xs" style={{borderColor:'var(--border)'}}>
-    <p className="font-semibold">Review · {reviewedPlan.current?.amount??amount} USDC {mode==='spend'?'· '+(reviewedPlan.current?.allocations?.length??allocations.length)+' source(s)':'· '+activeSource.chain}</p>
+    <p className="font-semibold">Review · {reviewedView?.amount??amount} USDC {mode==='spend'?'· '+(reviewedView?.allocations?.length??allocations.length)+' source(s)':'· '+activeSource.chain}</p>
     {mode==='spend'&&<div className="mt-2 space-y-1" aria-label="Reviewed source allocations">
-      {(reviewedPlan.current?.allocations??allocations).map(a=><p key={a.chainId}>{a.chain} · {a.amount} USDC</p>)}
+      {(reviewedView?.allocations??allocations).map(a=><p key={a.chainId}>{a.chain} · {a.amount} USDC</p>)}
     </div>}
     <p className="mt-1">{mode==='spend'?'To '+recipient+' on '+C.find(c=>c.chainId===destinationId)?.chain:
      'Deposit to Circle Gateway · same wallet owner'}</p>
