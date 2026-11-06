@@ -1176,6 +1176,22 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
         setStep('error');return;
       }
     }
+    // Crash barrier: immediately BEFORE invoking the wallet, move out of the
+    // resumable pre-sign state. A crash during wallet invocation must NEVER
+    // be mistaken for a safe pre-sign retry after reload.
+    if(isMainnet&&snapshot.mode==='pay'){
+      const existing=readSettlementIntent(address);
+      if(existing.kind!=='active'||existing.value.phase!=='PAYMENT'||
+        existing.value.stage!=='AWAITING_WALLET'||
+        existing.value.ref.toLowerCase()!==snapshot.ref.toLowerCase()||
+        existing.value.recipient.toLowerCase()!==snapshot.recipient.toLowerCase()||
+        existing.value.amount!==formatUnits(snapshot.amountParsed,6)||
+        (paymentRequest&&existing.value.attemptId!==claimAttemptId)||
+        !writeSettlementIntent({...existing.value,stage:'UNKNOWN'})){
+        setErrorMsg('Cannot persist the pre-wallet crash barrier. No signature requested.');
+        setStep('error');return;
+      }
+    }
     // Revalidation passed — broadcast
     setStep('execute');
     try {
