@@ -15,7 +15,7 @@ describe('Veyra one official domain — isolated Mainnet API release gate',()=>{
   expect(release).toContain("VITE_VEYRA_TESTNET_PAY:'0'");
   const settings=read('src/components/pages/SettingsPage.tsx');
   expect(settings).toContain('MAINNET_CANARY_ONLY?');
-  expect(settings).toContain('0.01 USDC per transfer');
+  expect(settings).toContain('0.01 USDC per payment');
   expect((staged.rewrites??[]).every(r=>r.destination.startsWith(bff+'/api/'))).toBe(true);
  });
  it('requires all critical endpoints to point to the same reviewed Mainnet BFF',()=>{
