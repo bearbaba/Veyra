@@ -209,6 +209,22 @@
     {
       "source": "/api/social/payment-requests/claim",
       "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/social/payment-requests/claim"
+    },
+    {
+      "source": "/api/social/payment-requests",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/social/payment-requests"
+    },
+    {
+      "source": "/api/social/payment-requests/create",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/social/payment-requests/create"
+    },
+    {
+      "source": "/api/social/payment-requests/review",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/social/payment-requests/review"
+    },
+    {
+      "source": "/api/social/payment-requests/cancel",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/social/payment-requests/cancel"
     }
   ]
 }

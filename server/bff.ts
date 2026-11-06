@@ -593,6 +593,48 @@ app.post('/api/social/chat/send',CHAT_SEND_RATE,async(req:Request,res:Response):
 // On-demand read-triggered chain reconciliation. The client cannot submit
 // transfer hashes, amounts, wallet addresses, or a claimed payment event.
 const INCOMING_SYNC_RATE=rateLimit(2,60_000);
+// Signed ID operations. No browser claim or message ever sets status PAID.
+app.get('/api/social/payment-requests',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ try{
+  const owner=getAuthenticatedVeyraUserId(req);
+  if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  const {db}=await import('./db/client.js');
+  const result=await listPeerPaymentRequests(db,owner,req.query.peerUserId);
+  res.setHeader('Cache-Control','no-store');res.json(result);
+ }catch(e){identityError(res,e);}
+});
+app.post('/api/social/payment-requests/create',CHAT_SEND_RATE,async(req:Request,res:Response):Promise<void>=>{
+ try{
+  const owner=getAuthenticatedVeyraUserId(req);
+  if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  const body=req.body as Record<string,unknown>|undefined;
+  const {db}=await import('./db/client.js');
+  const result=await createPaymentRequest(db,owner,{
+   peerUserId:body?.peerUserId,amount:body?.amount,clientRequestId:body?.clientRequestId});
+  res.setHeader('Cache-Control','no-store');res.json(result);
+ }catch(e){identityError(res,e);}
+});
+app.post('/api/social/payment-requests/review',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ try{
+  const owner=getAuthenticatedVeyraUserId(req);
+  if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  const body=req.body as Record<string,unknown>|undefined;
+  const {db}=await import('./db/client.js');
+  const result=await reviewPaymentRequest(db,owner,body?.requestId);
+  res.setHeader('Cache-Control','no-store');res.json(result);
+ }catch(e){identityError(res,e);}
+});
+app.post('/api/social/payment-requests/cancel',CHAT_SEND_RATE,async(req:Request,res:Response):Promise<void>=>{
+ try{
+  const owner=getAuthenticatedVeyraUserId(req);
+  if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  const body=req.body as Record<string,unknown>|undefined;
+  const {db}=await import('./db/client.js');
+  const result=await cancelPaymentRequest(db,owner,body?.requestId);
+  res.setHeader('Cache-Control','no-store');res.json(result);
+ }catch(e){identityError(res,e);}
+});
+
 app.post('/api/social/payment-requests/claim',CHAT_SEND_RATE,async(req:Request,res:Response):Promise<void>=>{
  try{
   const owner=getAuthenticatedVeyraUserId(req);

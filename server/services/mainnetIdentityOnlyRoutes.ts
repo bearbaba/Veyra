@@ -42,6 +42,11 @@ const allowed=new Set([
  'GET /api/social/chat/capability',
  'GET /api/social/chat',
  'POST /api/social/chat/send',
+ 'GET /api/social/payment-requests',
+ 'POST /api/social/payment-requests/create',
+ 'POST /api/social/payment-requests/review',
+ 'POST /api/social/payment-requests/cancel',
+ 'POST /api/social/payment-requests/claim',
  'GET /api/notifications',
  'POST /api/notifications/read',
 ]);
