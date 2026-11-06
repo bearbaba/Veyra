@@ -236,15 +236,15 @@ export function FriendChat({token,ownerId,friend,onClose,onPay,onTip,onPayReques
         </p>
         {request.paymentInProgress&&request.status==='PENDING'&&
           <p className="mt-2 font-semibold" style={{color:'var(--warning)'}}>
-            Original wallet attempt unresolved. Check Activity; never sign this request again from a new device.
+            Original wallet attempt is reserved. Only its saved local ID may resume after a confirmed wallet rejection or before signing. UNKNOWN transfers remain locked.
           </p>}
         {request.status==='PAID'&&request.txHash&&
           <a className="mt-2 inline-block underline" href={'https://explorer.arc.io/tx/'+request.txHash}
             target="_blank" rel="noreferrer">View verified Settlement receipt</a>}
-        {request.status==='PENDING'&&!request.paymentInProgress&&request.payerUserId===ownerId&&onPayRequest&&
+        {request.status==='PENDING'&&request.payerUserId===ownerId&&onPayRequest&&
           <button type="button" onClick={()=>onPayRequest(request)}
             className="veyra-btn-primary mt-2 rounded-lg px-3 py-2 font-semibold">
-            Pay request · review in Settlement</button>}
+            {request.paymentInProgress?'Recover original attempt':'Pay request · review in Settlement'}</button>}
         {requestsReady&&request.status==='PENDING'&&!request.paymentInProgress&&request.requesterUserId===ownerId&&
           <button type="button" onClick={()=>void cancelRequest(request.requestId)} disabled={requestBusy}
             className="veyra-btn-secondary mt-2 rounded-lg px-3 py-2 font-semibold disabled:opacity-50">
