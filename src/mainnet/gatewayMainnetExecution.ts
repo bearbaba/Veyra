@@ -31,7 +31,7 @@ const signingMethod=(method:string)=>method==='eth_sendTransaction'||method==='e
  method==='personal_sign'||method==='eth_sign'||method==='eth_signTypedData'||
  /^eth_signTypedData_v[0-9]+$/.test(method);
 const walletRejected=(error:unknown)=>!!error&&typeof error==='object'&&
- 'code' in error&&(error as {code:unknown}).code===4001;
+ 'code' in error&&error.code===4001;
 export function observeGatewayWalletSigning(provider:EIP1193Provider){
  let completedFinancialRequest=false;
  let rejectedBeforeAnySignature:string|null=null;
