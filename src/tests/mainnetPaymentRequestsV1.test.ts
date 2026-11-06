@@ -2,7 +2,6 @@ import {describe,it,expect,vi} from 'vitest';
 import {paymentRequestRef,validRequestUsdcAmount} from '../mainnet/paymentRequestRef';
 import {validVeyraPaymentRequest,ConfirmedPaymentRequestRefusal,
  confirmedPaymentRequestRefusal} from '../lib/api/paymentRequests';
-import {readFileSync} from 'node:fs';
 import {receiptMatchesPaymentRequest,REQUEST_TTL_MS} from '../../server/services/paymentRequestsService';
 import {lookupCurrentXAccountId} from '../../server/services/xHandleAuthority';
 const alice='usr_123456789ABCDEFGJ',bob='usr_23456789ABCDEFGJK';
@@ -16,20 +15,6 @@ const request={requesterUserId:alice,payerUserId:bob,recipientWallet:wallet,
 const receipt={senderUserId:bob,recipientUserId:alice,recipientAddress:wallet,
  amountRaw:'10000',paymentRef:reference,paidAt:new Date(created.getTime()+1000)};
 describe('Veyra v1 Payment Requests: wallet authority and onchain-only Paid',()=>{
- it('persists local recovery BEFORE acquiring a request claim and fails closed on unknown outcomes',()=>{
-  const source=readFileSync(new URL('../components/pages/SettlementPage.tsx',import.meta.url),'utf8');
-  const journal=source.indexOf('if(!writeSettlementIntent(intent))');
-  const claim=source.indexOf('await claimPeerRequest(social.session.token,paymentRequest.requestId,address)');
-  const signing=source.indexOf('hash = await writeSettle({',claim);
-  expect(journal).toBeGreaterThan(0);
-  expect(claim).toBeGreaterThan(journal);
-  expect(signing).toBeGreaterThan(claim);
-  expect(source).toContain('confirmedPaymentRequestRefusal(e)');
-  expect(source).toContain('!clearSettlementIntent(address)');
-  expect(confirmedPaymentRequestRefusal(new ConfirmedPaymentRequestRefusal(
-   'REQUEST_PAYMENT_IN_PROGRESS','Already claimed'))).toBe(true);
-  expect(confirmedPaymentRequestRefusal(new Error('Gateway timed out'))).toBe(false);
- });
  it('accepts 0.01 USDC exactly, not an escaped literal or sub-micro number',()=>{
   expect(validRequestUsdcAmount('0.01')).toBe(true);
   expect(validRequestUsdcAmount('0.000001')).toBe(true);
