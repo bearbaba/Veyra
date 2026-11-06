@@ -41,7 +41,7 @@ function checkedHex(value: unknown): Hex {
 function checkedQuantity(value: unknown): bigint { return BigInt(checkedHex(value)); }
 
 export function assertArcMainnetCatalog(): void {
-  if (!ARC || ARC.chainId !== ARC_MAINNET_CHAIN_ID || ARC.cctpDomain !== 26 ||
+  if (!ARC || ARC.chainId !== ARC_MAINNET_CHAIN_ID || ARC.cctpDomain !== null ||
     ARC.usdc.toLowerCase() !== ARC_MAINNET_USDC.toLowerCase() ||
     ARC.rpcEnvKey !== 'ARC_MAINNET_RPC_URL' || ARC.explorerUrl !== 'https://explorer.arc.io') {
     fail('Arc Mainnet is not verified in the Veyra catalog. All operations are blocked.');
