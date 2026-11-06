@@ -47,6 +47,7 @@ const allowed=new Set([
  'POST /api/social/payment-requests/review',
  'POST /api/social/payment-requests/cancel',
  'POST /api/social/payment-requests/claim',
+ 'POST /api/social/payment-requests/attempt',
  'GET /api/notifications',
  'POST /api/notifications/read',
 ]);
