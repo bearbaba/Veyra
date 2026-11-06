@@ -36,9 +36,9 @@ const balances=(base:string)=>parseGatewayMainnetBalance({
   breakdown:[{chain:'Base',confirmedBalance:base}]}],
 },owner);
 const deps:GatewayReconciliationDeps={
- getTransaction:async()=>tx,getTransactionReceipt:async()=>sourceReceipt,
- getConfirmedBalances:async()=>balances('1.51'),
- getForwardingStatus:async()=>null,
+ getTransaction:()=>Promise.resolve(tx),getTransactionReceipt:()=>Promise.resolve(sourceReceipt),
+ getConfirmedBalances:()=>Promise.resolve(balances('1.51')),
+ getForwardingStatus:()=>Promise.resolve(null),
 };
 afterEach(()=>vi.unstubAllGlobals());
 describe('Mainnet Gateway deposit reconciliation is receipt-bound and fail closed',()=>{
@@ -58,7 +58,7 @@ describe('Mainnet Gateway deposit reconciliation is receipt-bound and fail close
  it('source confirmed is NOT finality before exact Gateway credit',async()=>{
   const store=makeStore();writeGatewayMainnetOperation(deposit,store);
   const out=await reconcileGatewayMainnetOperation(owner,{
-   ...deps,getConfirmedBalances:async()=>balances('1.50')},store);
+   ...deps,getConfirmedBalances:()=>Promise.resolve(balances('1.50'))},store);
   expect(out.state).toBe('PENDING');
   expect(readGatewayMainnetOperation(owner,store)).not.toBeNull();
   expect(readGatewayMainnetHistory(owner,store)).toEqual([]);
@@ -66,14 +66,14 @@ describe('Mainnet Gateway deposit reconciliation is receipt-bound and fail close
  it('rejects unrelated deposit calldata or sender, even when Circle balance rises',async()=>{
   const store=makeStore();writeGatewayMainnetOperation(deposit,store);
   const out=await reconcileGatewayMainnetOperation(owner,{
-   ...deps,getTransaction:async()=>({...tx,from:recipient})},store);
+   ...deps,getTransaction:()=>Promise.resolve({...tx,from:recipient})},store);
   expect(out.state).toBe('PENDING');
   expect(readGatewayMainnetOperation(owner,store)).not.toBeNull();
  });
  it('reverted original deposit may be archived only with matched source transaction',async()=>{
   const store=makeStore();writeGatewayMainnetOperation(deposit,store);
   const out=await reconcileGatewayMainnetOperation(owner,{
-   ...deps,getTransactionReceipt:async()=>({...sourceReceipt,status:'reverted',logs:[]})},store);
+   ...deps,getTransactionReceipt:()=>Promise.resolve({...sourceReceipt,status:'reverted' as const,logs:[]})},store);
   expect(out.state).toBe('REVERTED');
   expect(readGatewayMainnetOperation(owner,store)).toBeNull();
   expect(readGatewayMainnetHistory(owner,store)).not.toBe('blocked');
@@ -109,8 +109,8 @@ describe('Gateway forwarded spend verification',()=>{
  it('archives only Circle confirmed matching reference and destination recipient Transfer',async()=>{
   const store=makeStore();writeGatewayMainnetOperation(spending,store);
   const result=await reconcileGatewayMainnetOperation(owner,{
-   ...deps,getForwardingStatus:async()=>forwarded,
-   getTransactionReceipt:async()=>destinationReceipt},store);
+   ...deps,getForwardingStatus:()=>Promise.resolve(forwarded),
+   getTransactionReceipt:()=>Promise.resolve(destinationReceipt)},store);
   expect(result.state).toBe('VERIFIED');
   expect(readGatewayMainnetOperation(owner,store)).toBeNull();
   const receipts=readGatewayMainnetHistory(owner,store);
@@ -123,8 +123,8 @@ describe('Gateway forwarded spend verification',()=>{
   expect(parseGatewayForwardedStatus({...forwarded,destinationRecipient:owner},spending)).toBeNull();
   expect(parseGatewayForwardedStatus({...forwarded,transferId:'someone-else'},spending)).toBeNull();
   const result=await reconcileGatewayMainnetOperation(owner,{
-   ...deps,getForwardingStatus:async()=>forwarded,
-   getTransactionReceipt:async()=>({...destinationReceipt,logs:[
+   ...deps,getForwardingStatus:()=>Promise.resolve(forwarded),
+   getTransactionReceipt:()=>Promise.resolve({...destinationReceipt,logs:[
     log('0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',owner,owner,9000n)]})},store);
   expect(result.state).toBe('PENDING');
   expect(readGatewayMainnetOperation(owner,store)).not.toBeNull();

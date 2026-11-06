@@ -61,7 +61,7 @@ export function MainnetUnifiedActivity(){
       cache:'no-store',signal:AbortSignal.timeout(12000),
      });
      if(!response.ok)throw Error('Circle Gateway forwarding status is unavailable. Original transfer remains locked.');
-     return response.json();
+     const payload:unknown=await response.json();return payload;
     },
    });
    setNotice(outcome.reason);

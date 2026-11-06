@@ -111,7 +111,7 @@ export function readGatewayMainnetHistory(owner:string,store?:GatewayStore):Gate
    return 'blocked';
   const ids=new Set(parsed.map((r:GatewayMainnetReceipt)=>r.operationId));
   if(ids.size!==parsed.length)return 'blocked';
-  return parsed as GatewayMainnetReceipt[];
+  return parsed;
  }catch{return 'blocked';}
 }
 export function archiveGatewayMainnetReceipt(receipt:GatewayMainnetReceipt,
