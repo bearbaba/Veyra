@@ -1,18 +1,21 @@
+import {formatUnits,parseUnits} from 'viem';
 import {describe,expect,it} from 'vitest';
 import {parseGatewayMainnetBalance} from '../mainnet/gatewayMainnetBalances';
 import {matchingGatewayAllocation,planGatewayMultiSource} from '../mainnet/gatewayMultiSourceAllocation';
 const owner='0x1111111111111111111111111111111111111111';
-const gateway=(base:string,arc:string,ethereum:string,pending='6')=>
- parseGatewayMainnetBalance({
-  token:'USDC',totalConfirmedBalance:String(Number(base)+Number(arc)+Number(ethereum)),
+const gateway=(base:string,arc:string,ethereum:string,pending='6')=>{
+ const total=formatUnits(parseUnits(base,6)+parseUnits(arc,6)+parseUnits(ethereum,6),6);
+ return parseGatewayMainnetBalance({
+  token:'USDC',totalConfirmedBalance:total,
   totalPendingBalance:pending,
-  breakdown:[{depositor:owner,totalConfirmed:String(Number(base)+Number(arc)+Number(ethereum)),
+  breakdown:[{depositor:owner,totalConfirmed:total,
    breakdown:[
     {chain:'Base',confirmedBalance:base},
     {chain:'Arc',confirmedBalance:arc},
     {chain:'Ethereum',confirmedBalance:ethereum},
    ]}],
  },owner);
+};
 describe('Gateway confirmed-only USDC source allocation',()=>{
  it('greedily splits a single reviewed amount across all confirmed sources',()=>{
   const result=planGatewayMultiSource(gateway('0.4','0.3','0.1','100'),'0.65');
