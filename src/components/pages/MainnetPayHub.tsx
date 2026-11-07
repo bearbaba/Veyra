@@ -107,8 +107,11 @@ export function MainnetPayHub({
   fundingJourney!==null&&sameFundingTarget&&
   (fundingState==='READY_TO_SETTLE'&&!needsFunding||
    fundingState==='SETTLEMENT_PENDING');
- const showSettlement=!fundingBlocked&&
-  (!showUnifiedFunding||
+ // The original Settlement component must stay mounted for wallet refusal
+ // and UNKNOWN recovery. Its own journal forbids a second financial attempt.
+ const recoveringSettlement=fundingState==='SETTLEMENT_PENDING'&&sameFundingTarget;
+ const showSettlement=(recoveringSettlement||!fundingBlocked)&&
+  (recoveringSettlement||!showUnifiedFunding||
    fundingJourney?settlementFromUnifiedReady:!unifiedNeedsFunding)&&
   fundingState!=='SETTLEMENT_ONCHAIN_VERIFIED';
  const pay=address?readMainnetJournal(address,storageForMainnet()):{kind:'empty' as const};
