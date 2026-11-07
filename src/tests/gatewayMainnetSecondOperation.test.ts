@@ -30,7 +30,7 @@ const pad=(address:string)=>'0x'+'0'.repeat(24)+address.slice(2).toLowerCase();
 const transfer={
  transfer:{status:'finalized',destinationDomain:0,transactionHash:destination,
   forwardingDetails:{forwardingEnabled:true},burnIntents:[{transferSpecHash:specHash}]},
- spec:{sourceDomain:6,destinationDomain:0,
+ spec:{transferSpecHash:specHash,sourceDomain:6,destinationDomain:0,
   sourceContract:pad(GATEWAY_MAINNET_WALLET),
   destinationContract:pad('0x2222222d7164433c4C09B0b0D809a9b52C04C205'),
   sourceToken:pad(baseUsdc),destinationToken:pad(ethUsdc),

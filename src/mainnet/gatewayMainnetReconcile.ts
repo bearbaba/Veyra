@@ -128,7 +128,7 @@ export function parseGatewayForwardedStatus(raw:unknown,op:GatewayMainnetOperati
    !intentRaw||typeof intentRaw!=='object'||Array.isArray(intentRaw))return null;
   const spec=specRaw as Record<string,unknown>,intent=intentRaw as Record<string,unknown>;
   if(typeof intent.transferSpecHash!=='string'||!HASH.test(intent.transferSpecHash)||
-   spec.transferSpecHash!==undefined&&spec.transferSpecHash!==intent.transferSpecHash)return null;
+   spec.transferSpecHash!==intent.transferSpecHash)return null;
   // Match the full set without trusting spec API ordering beyond its bound hash.
   const matched=allocations.find(a=>{
    if(used.has(a.chainId))return false;
@@ -206,7 +206,7 @@ export async function reconcileGatewayMainnetOperation(owner:string,
   if(!archiveGatewayMainnetReceipt(proof,store))
    return {state:'PENDING',reason:'Deposit finalized onchain, but its durable receipt could not be saved. Check status without signing again.'};
   return {state:'SOURCE_FINALIZED',
-   reason:'Deposit finalized onchain; credit attribution is unavailable. Only Circle live Available is spendable.',receipt:proof};
+   reason:'Deposit finalized onchain; credit is not individually attributed. Only Circle live Available is spendable.',receipt:proof};
  }
  if(!op.transferId||!deps.getForwardingStatus)
   return {state:'PENDING',reason:'Circle forwarding receipt lookup is not verified; signed transfer remains unresolved.'};
