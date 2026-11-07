@@ -32,13 +32,12 @@ import {readPayFundingJourney,genericPayFundingRef,samePayFundingTarget,derivePa
 declare const __VEYRA_RELEASE_SHA__:string;
 declare const __VEYRA_RELEASE_ENV__:string;
 export function MainnetPayHub({
- recipientWallet,verifiedRecipient,paymentRequest,onClearVerified,onRecipientUsed,onVerifiedSelected,onDirectPay,
+ recipientWallet,verifiedRecipient,paymentRequest,onClearVerified,onRecipientUsed,onVerifiedSelected,
 }:{
  recipientWallet?:string|null;
  verifiedRecipient?:VerifiedMainnetRecipient|null;paymentRequest?:VeyraPaymentRequest|null;
  onClearVerified?:()=>void;onRecipientUsed?:()=>void;
  onVerifiedSelected?:(recipient:VerifiedMainnetRecipient)=>void;
- onDirectPay?:()=>void;
 }){
  const {address,connector}=useAccount();
  const social=useUnifiedSocial();
@@ -282,16 +281,6 @@ export function MainnetPayHub({
    style={{borderColor:'var(--border)',color:'var(--warning)'}}>
    Payment still processing. Check Activity before trying again.
   </p>}
-  {address&&signedWallet&&!paymentRequest&&onDirectPay&&<div className="flex items-center justify-between gap-3 text-xs">
-   <p style={{color:'var(--muted)'}}>Prefer a wallet transfer without the Settlement contract?</p>
-   <button type="button"
-    disabled={MAINNET_EMERGENCY_READ_ONLY||address.toLowerCase()!==MAINNET_CANARY_OWNER.toLowerCase()||
-     !remoteReady||!!remotePending||locked||fundingRead.kind!=='empty'}
-    onClick={onDirectPay}
-    className="veyra-btn-secondary min-h-10 shrink-0 px-3 text-xs disabled:opacity-45">
-    Direct USDC · pilot
-   </button>
-  </div>}
   {paymentRequest&&<section role="status" className="rounded-xl border p-3 text-sm" style={{borderColor:"var(--border-strong)"}}>
     <p className="font-semibold">Payment Request · {paymentRequest.requestId.slice(0,16)}…</p>
     <p className="mt-1">{requestAmount} USDC to the requester. Amount, recipient and payment reference are locked to the request.</p>
