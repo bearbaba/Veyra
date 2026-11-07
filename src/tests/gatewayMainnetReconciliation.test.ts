@@ -145,7 +145,7 @@ describe('Gateway forwarded spend finality and source identity',()=>{
   transfer:{destinationDomain:0,status:'finalized',transactionHash:destinationHash,
    forwardingDetails:{forwardingEnabled:true},
    burnIntents:[{transferSpecHash}]},
-  spec:{sourceDomain:6,destinationDomain:0,
+  spec:{transferSpecHash,sourceDomain:6,destinationDomain:0,
    sourceContract:padded(GATEWAY_MAINNET_WALLET),
    destinationContract:padded('0x2222222d7164433c4C09B0b0D809a9b52C04C205'),
    sourceToken:padded(token),
