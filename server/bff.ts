@@ -390,7 +390,8 @@ app.get('/api/health/capabilities',IDENTITY_RATE,async(req:Request,res:Response)
   res.setHeader('Cache-Control','no-store');
   res.json({ok:true,environment:'mainnet',databaseReachable:true,
    identity:{available:identity},
-   x:{...x,available:x.oauthClientIdConfigured&&x.exactCallbackConfigured&&identity},
+   x:{...x,available:x.oauthClientIdConfigured&&x.oauthClientSecretConfigured&&
+     x.exactCallbackConfigured&&identity,endToEndAccepted:false},
    chat:{available:chat,encryptionKeyConfigured:chatKeyConfigured,
     chatTablePresent:Boolean(row?.chat)},
    paymentRequests:{available:requests&&chat,tablePresent:Boolean(row?.requests),
