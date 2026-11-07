@@ -72,6 +72,7 @@ jobs:
           src/tests/mainnetPilotMigrationGate.test.ts
           src/tests/mainnetPilotBootstrap.test.ts
           src/tests/mainnetSettlementMigrationPreflight.test.ts
+          src/tests/mainnetV1JourneysUpgrade.test.ts
           src/tests/mainnetSettlementRestoreRehearsal.test.ts
           src/tests/mainnetSettlementIdentityUnification.test.ts
           src/tests/mainnetPaymentRequestsV1.test.ts

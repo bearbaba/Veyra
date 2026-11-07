@@ -31,7 +31,8 @@
     "check:prod-bundle": "bun run scripts/check-prod-bundle-isolation.ts",
     "check:repository-trust": "bun run scripts/check-repository-trust.ts",
     "check:vercel-preview-bundle": "bun run scripts/check-vercel-preview-bundle.ts",
-    "lint:fix": "oxlint --type-aware --quiet src scripts --fix && oxlint --quiet --fix ."
+    "lint:fix": "oxlint --type-aware --quiet src scripts --fix && oxlint --quiet --fix .",
+    "db:migrate:mainnet-v1": "bun server/db/migrateMainnetV1Journeys.ts"
   },
   "dependencies": {
     "@circle-fin/adapter-viem-v2": "^1.18.0",
