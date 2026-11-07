@@ -14,7 +14,7 @@ export class ConfirmedPaymentRequestRefusal extends Error {
   super(message);this.name='ConfirmedPaymentRequestRefusal';
  }
 }
-export function confirmedPaymentRequestRefusal(error:unknown):boolean{
+export function confirmedPaymentRequestRefusal(error:unknown):error is ConfirmedPaymentRequestRefusal{
  return error instanceof ConfirmedPaymentRequestRefusal;
 }
 
