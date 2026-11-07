@@ -1,0 +1,66 @@
+name: Veyra Calm UI Browser QA
+
+on:
+  push:
+    branches:
+      - feature/veyra-v1-calm-ui
+    paths:
+      - src/components/layout/AppShell.tsx
+      - src/components/pages/MainnetHomePage.tsx
+      - src/components/pages/MainnetPayHub.tsx
+      - src/components/pages/MainnetPeoplePage.tsx
+      - src/components/pages/MainnetUnifiedBalancePanel.tsx
+      - src/index.css
+      - e2e/mainnet-calm-ui-browser.mjs
+      - .github/workflows/veyra-calm-ui-browser.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Install project dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Build exact safe Mainnet pilot frontend
+        run: bun scripts/build-mainnet-pilot.ts
+      - name: Install pinned browser runner
+        run: |
+          npm install --prefix /tmp/veyra-browser --no-save --no-audit --no-fund playwright@1.55.0
+          node /tmp/veyra-browser/node_modules/playwright/cli.js install --with-deps chromium
+      - name: Start local production-shaped preview
+        run: |
+          bunx vite preview --host 127.0.0.1 --port 4173 --strictPort > /tmp/veyra-ui-server.log 2>&1 &
+          for attempt in $(seq 1 35); do
+            if curl --fail --silent http://127.0.0.1:4173/ >/dev/null; then
+              echo "Mainnet UI local HTTP ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/veyra-ui-server.log
+          exit 1
+      - name: Desktop and mobile real Chromium UI regression
+        env:
+          VEYRA_PLAYWRIGHT_MODULE: file:///tmp/veyra-browser/node_modules/playwright/index.mjs
+          VEYRA_BROWSER_URL: http://127.0.0.1:4173/
+        run: node e2e/mainnet-calm-ui-browser.mjs
+      - name: Preserve browser screenshots for visual inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: veyra-calm-ui-browser-shots
+          path: e2e-results
+          if-no-files-found: ignore
+          retention-days: 7
