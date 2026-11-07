@@ -230,8 +230,8 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
      <p className="mt-1 text-2xl font-bold tabular-nums" style={{color:'var(--ink)'}}>
       {canRead?fmt(current?.available??null):'—'} <span className="text-xs font-medium" style={{color:'var(--muted)'}}>USDC Available</span>
      </p>
-     {current?.pending!==undefined&&current.pending>0n&&<p className="mt-1 text-xs tabular-nums" style={{color:'var(--warning)'}}>
-      {fmt(current.pending)} USDC Pending · not spendable
+     {(current?.pending??0n)>0n&&<p className="mt-1 text-xs tabular-nums" style={{color:'var(--warning)'}}>
+      {fmt(current?.pending??null)} USDC Pending · not spendable
      </p>}
     </div>
     <div className="flex flex-wrap items-center gap-2">
