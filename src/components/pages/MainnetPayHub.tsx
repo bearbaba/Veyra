@@ -421,8 +421,10 @@ export function MainnetPayHub({
     style={{borderColor:'var(--border)',color:'var(--warning)'}}>
     Previous wallet payment is pending or unknown. Check Activity; do not sign another payment.
    </p>:!showSettlement?<p role="status" className="rounded-xl border p-3 text-sm"
-    style={{borderColor:"var(--border)",color:"var(--warning)"}}>
-    {fundingState==='SETTLEMENT_ONCHAIN_VERIFIED'?
+    style={{borderColor:"var(--border)",color:!address?'var(--muted)':'var(--warning)' }}>
+    {!address?'Connect a wallet to review this payment.':
+     !signedWallet?'Sign in to your Veyra ID to review payment details.':
+     fundingState==='SETTLEMENT_ONCHAIN_VERIFIED'?
      'Settlement verified onchain. Check Activity for synced sender and recipient receipts; do not send again.':
      'Complete or recover the original Unified funding journey before signing Settlement. No automatic resend.'}
    </p>:<section aria-label="Contract payment">

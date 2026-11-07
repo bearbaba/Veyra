@@ -317,3 +317,10 @@ body {
   .veyra-btn-primary:not(:disabled):hover,
   .veyra-home .veyra-action-card:hover {filter:none;}
 }
+
+/* Arc Studio attribution must never cover Veyra's primary mobile navigation.
+ * Keep the provider credit accessible on desktop and in page metadata.
+ * On touch viewports, the payment controls take visual precedence. */
+@media (max-width: 767px) {
+ .arc-studio-attribution { display:none!important; }
+}

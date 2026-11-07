@@ -84,6 +84,7 @@ jobs:
           src/tests/mainnetPayFundingJourney.test.ts
           src/tests/mainnetServerPayJourney.test.ts
           src/tests/mainnetArcSharedUsdcFunding.test.ts
+          src/tests/mainnetSettlementV2Candidate.test.ts
           src/tests/mainnetRecipientLookupBehavior.test.ts
           src/tests/mainnetWalletSigningLock.test.ts
           src/tests/mainnetPersistentReceipt.test.ts
