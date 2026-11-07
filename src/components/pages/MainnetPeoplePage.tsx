@@ -114,8 +114,8 @@ export function MainnetPeoplePage({onPayVerified,onPayRequest,onPayWallet,initia
  return <main className="veyra-page mx-auto w-full max-w-[760px] space-y-4 px-4 py-6 md:px-6 md:py-9">
   <header>
    <p className="veyra-eyebrow">VEYRA</p>
-   <h1 className="veyra-page-title">People</h1>
-   <p className="veyra-page-subtitle">Your friends, messages and payments.</p>
+   <h1 className="veyra-page-title">Friends</h1>
+   <p className="veyra-page-subtitle">Message and pay your friends.</p>
   </header>
   {ready&&social.session?<details className="veyra-card rounded-2xl p-4">
    <summary className="flex cursor-pointer items-center justify-between text-sm font-semibold" style={{color:'var(--ink)'}}>
