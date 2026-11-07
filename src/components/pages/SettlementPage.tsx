@@ -89,7 +89,7 @@ import {
   getVeyraSettlementDeployment,
 } from '@/config/veyraSettlement';
 import { gasNativeToUsdcMicro, fmtGasUsdc } from '@/lib/settlementGas';
-import {assertArcLivePayFunds} from '@/mainnet/arcSharedUsdcFunding';
+import {arcReviewedPayGasBudget,assertArcLivePayFunds} from '@/mainnet/arcSharedUsdcFunding';
 import {
   verifyPaymentReceipt,
   type VerifySnapshot,
@@ -188,6 +188,7 @@ interface ReviewSnapshot {
   feePercent: number;
   // gas estimate (in 6-decimal USDC micro-units for display; raw native stored for pre-sign refresh)
   gasEstimateNative: bigint;
+  gasEstimateProvisional: boolean;
   approveGasNative: bigint;
   // payment reference (fixed at review entry)
   ref: `0x${string}`;
@@ -837,6 +838,16 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
       typeof liveFeeBps === 'number' ? BigInt(liveFeeBps) : 0n;
     const fee = amountParsed > 0n ? (amountParsed * bps) / BPS_DENOM : 0n;
     const net = amountParsed - fee;
+    // pay() may revert during pre-approval gas estimation because no
+    // allowance exists yet. Show a conservative gas budget based on a real
+    // RPC gas price; always require a fresh successful gas estimate,
+    // sufficient funds and pay() simulation before wallet signing.
+    const reviewedGas=isMainnet&&effectiveMode==='pay'?
+      arcReviewedPayGasBudget({estimatedGasNative:payGasNative,gasPriceWei:gasPriceNative}):null;
+    if(isMainnet&&effectiveMode==='pay'&&!reviewedGas){
+      setErrorMsg('Arc network gas price is unavailable. Refresh and review again; no payment signature requested.');
+      setStep('error');return;
+    }
 
     setSnapshot({
       walletAddress: address,
@@ -853,7 +864,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
       feeAmount: fee,
       netAmount: net,
       feePercent: Number(bps) / 100,
-      gasEstimateNative: payGasNative,
+      gasEstimateNative: reviewedGas?.wei??payGasNative,
+      gasEstimateProvisional: reviewedGas?.provisional??false,
       approveGasNative: approveGasNative,
       ref: paymentRequest?paymentRequestRef(paymentRequest.requestId):journeyRef??buildRef(),
       ...(paymentRequest?{requestId:paymentRequest.requestId}:{}),
@@ -1524,9 +1536,15 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
             <div className="rounded-xl border divide-y" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
               {needsApproval && <GasRow label="Approve network fee (est.)"
                 native={snapshot.approveGasNative} loading={approveGasLoading} error={false}/>}
-              <GasRow label="Payment network fee (est.)"
-                native={snapshot.gasEstimateNative} loading={payGasLoading} error={payGasError}/>
+              <GasRow label={snapshot.gasEstimateProvisional?'Payment gas budget (provisional)':'Payment network fee (est.)'}
+                native={snapshot.gasEstimateNative}
+                loading={!snapshot.gasEstimateProvisional&&payGasLoading}
+                error={!snapshot.gasEstimateProvisional&&payGasError}/>
             </div>
+            {snapshot.gasEstimateProvisional&&<p className="text-xs" style={{color:'var(--muted)'}}>
+              Provisional budget from the current Arc gas price, not a successful payment estimate.
+              After approval, Veyra checks the real gas, balance and payment simulation again before requesting a signature.
+            </p>}
             <details className="rounded-xl border px-4 py-3 text-xs" style={{borderColor:'var(--border)',color:'var(--muted)'}}>
               <summary className="cursor-pointer font-semibold">Details</summary>
               <div className="mt-3 space-y-2">
