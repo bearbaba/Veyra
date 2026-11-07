@@ -9,7 +9,7 @@
  * fail closed. This is NOT an independent funded end-to-end acceptance.
  */
 import {formatUnits,parseUnits} from 'viem';
-const AMOUNT=/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/;
+const AMOUNT=/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/;
 const error='Circle Bridge has no complete, fee-capped USDC quote. No wallet signature was requested.';
 const micro=(v:unknown,zero=false):bigint|null=>{
  if(typeof v!=='string'||!AMOUNT.test(v))return null;
