@@ -22,7 +22,7 @@ import {withMainnetWalletSigningLock} from '@/mainnet/mainnetWalletSigningLock';
 import {recordVerifiedExchangeProof,recordVerifiedSourceRevert} from '@/mainnet/recordVerifiedExchangeProof';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked,findCctpDestinationMintHash} from '@/mainnet/verifyCctpBridgeLink';
-import {assertMainnetSigningAllowed,MAINNET_CANARY_ONLY,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
+import {assertMainnetConsumerSigningAllowed,MAINNET_PUBLIC_BETA,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
 import {readBridgeQuoteAmounts} from '@/mainnet/bridgeQuoteGuard';
 
 const kit=new AppKit();
@@ -33,13 +33,14 @@ const TRANSFER=parseAbi(['event Transfer(address indexed from,address indexed to
 const HASH=/^0x[0-9a-fA-F]{64}$/;
 declare const __VEYRA_RELEASE_ENV__:string;
 const BRIDGE_WRITE_ENABLED=__VEYRA_RELEASE_ENV__==='production' &&
- import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_WRITE_ENABLED==='1'&&
- import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_E2E_ACCEPTED==='1';
+ ((MAINNET_PUBLIC_BETA&&import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_BETA_ENABLED==='1') ||
+ (import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_WRITE_ENABLED==='1'&&
+ import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_E2E_ACCEPTED==='1'));
 type Mode='swap'|'bridge';
 /** Keep display readiness and the signing decision on the same release gates. */
 export function isCircleSigningReady(mode:Mode):boolean{
  return __VEYRA_RELEASE_ENV__==='production'&&!MAINNET_EMERGENCY_READ_ONLY&&
-  !MAINNET_CANARY_ONLY&&(mode==='swap'||BRIDGE_WRITE_ENABLED);
+  MAINNET_PUBLIC_BETA&&(mode==='swap'||BRIDGE_WRITE_ENABLED);
 }
 type Token='USDC'|'EURC';
 export type ExchangeExecutionSelection={fromChainId:number;toChainId:number;fromToken:Token;toToken:Token};
@@ -61,7 +62,8 @@ function transferSum(receipt:{logs:ReadonlyArray<{address:string;data:string;top
  return sum;
 }
 function feeLines(result:unknown):string[]{
- if(!result||typeof result!=='object'||!('fees' in result)||!Array.isArray(result.fees))return ['Fees not itemized by provider'];
+ if(!result||typeof result!=='object'||!('fees' in result)||!Array.isArray(result.fees))
+  throw Error('Circle cannot provide itemized fees. Signing remains disabled.');
  return result.fees.map((f:unknown)=>{
   if(!f||typeof f!=='object')return 'Fee details unavailable';
   const x=f as Record<string,unknown>;
@@ -207,7 +209,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    await withMainnetWalletSigningLock(address,async()=>{
    if(__VEYRA_RELEASE_ENV__!=='production')
     throw Error('Preview is read-only for real Mainnet Exchange. No wallet signature requested.');
-   assertMainnetSigningAllowed();
+   assertMainnetConsumerSigningAllowed();
    if(mode==='swap'){
     assertArcSwapCandidate(quote.source,TOKENS[quote.fromToken]);
     assertArcSwapCandidate(quote.destination,TOKENS[quote.toToken]);
