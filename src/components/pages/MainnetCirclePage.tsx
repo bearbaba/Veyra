@@ -470,7 +470,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     </div>
     {mode==='swap'&&receiveSelector}
     <div className="space-y-2 rounded-xl border p-3" style={{background:'var(--surface-raised)',borderColor:'var(--border)'}}>
-     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU RECEIVE · {mode==='swap'?toToken:'USDC'}{mode==='bridge'?' · '+label(selectedDest):''}</p>
+     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>{mode==='bridge'?'MINIMUM RECEIVE':'YOU RECEIVE'} · {mode==='swap'?toToken:'USDC'}{mode==='bridge'?' · '+label(selectedDest):''}</p>
      <p className="display text-2xl font-bold tabular-nums" style={{color:'var(--ink)'}}>
       {quote&&!quoteExpired?quote.expected:'—'}
       <span className="ml-2 text-sm" style={{color:'var(--muted)'}}>{mode==='swap'?toToken:'USDC'}</span>
@@ -496,7 +496,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        <p className="mt-1 font-semibold">{quote.fees.length?quote.fees.join(' · '):'Not supplied'}</p></div>
      </div>
      <div className="text-xs" style={{color:'var(--muted)'}}>
-      {mode==='swap'?'Slippage limit: 1%':'Estimated arrival: Provider ETA unavailable'}
+      {mode==='swap'?'Slippage limit: 1%':'CCTP source burn caps on-chain fee to '+quote.bridgeMaxFee+' USDC; destination verified separately'}
      </div>
      <details className="border-t pt-3 text-xs" style={{color:'var(--muted)',borderColor:'var(--border)'}}>
       <summary className="cursor-pointer font-semibold">Details</summary>
