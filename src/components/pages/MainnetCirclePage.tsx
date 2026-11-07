@@ -231,13 +231,18 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    const fresh=mode==='swap'?
     await kit.estimateSwap(p as Parameters<AppKit['estimateSwap']>[0]):
     await kit.estimateBridge(p as Parameters<AppKit['estimateBridge']>[0]);
-   if(mode==='bridge'&&(!quote.bridgeMaxFee||
-     readBridgeQuoteAmounts(fresh,amount).maxFee!==quote.bridgeMaxFee))
-    throw Error('Circle fee cap changed. Review again before signing.');
-   if(JSON.stringify(feeLines(fresh))!==JSON.stringify(quote.fees)||
-    mode==='swap'&&String((fresh as Awaited<ReturnType<AppKit['estimateSwap']>>).stopLimit.amount)!==quote.minimum||
-    mode==='bridge'&&readBridgeQuoteAmounts(fresh,amount).minimum!==quote.minimum)
-    throw Error('Provider quote changed. Review it again before signing.');
+   // CCTP forwarding fees are dynamic. The signed on-chain maxFee protects
+   // the user's minimum. An improved (lower) fresh fee is safe under the
+   // frozen cap; a higher fee must be explicitly reviewed again.
+   if(mode==='bridge'){
+    if(!quote.bridgeMaxFee)throw Error('Bridge fee cap is unavailable. Get a new quote.');
+    const updated=readBridgeQuoteAmounts(fresh,amount);
+    if(parseUnits(updated.maxFee,6)>parseUnits(quote.bridgeMaxFee,6)||
+       parseUnits(updated.minimum,6)<parseUnits(quote.minimum,6))
+     throw Error('Bridge fees increased. Refresh the quote to approve the new minimum.');
+   }else if(JSON.stringify(feeLines(fresh))!==JSON.stringify(quote.fees)||
+    String((fresh as Awaited<ReturnType<AppKit['estimateSwap']>>).stopLimit.amount)!==quote.minimum)
+    throw Error('Swap price changed. Refresh the quote before signing.');
    if(Date.now()-quote.at>30000)throw Error('Quote expired.');
    await wallet(selectedSource);
    const intentId=crypto.randomUUID();
@@ -293,8 +298,12 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        message:'Provider outcome uncertain. Verify original wallet activity; do not repeat the source.'});
     }catch{/* Original recovery lock stays in storage. */}
    }
-   setError((e instanceof Error?e.message:'Provider outcome uncertain.')+
-    (saved?' Original operation remains locked. Do not sign again.':''));
+   const reason=e instanceof Error?e.message:'Provider outcome uncertain.';
+   // Before the journal is reserved no wallet request occurred. Return to the
+   // SAME quote control instead of leaving an expired Confirm button visible.
+   if(!saved&&(/Refresh the quote|quote expired|Quote expired|price changed/i).test(reason))
+    setQuote(null);
+   setError(reason+(saved?' Original operation remains locked. Do not sign again.':''));
   }finally{lock.current=false;setBusy(false);}
  }
  async function verify(){
