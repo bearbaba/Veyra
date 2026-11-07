@@ -111,11 +111,11 @@ export function MainnetPeoplePage({onPayVerified,onPayRequest,onPayWallet,initia
   }catch(e){setFriendActionError(e instanceof Error?e.message:'Could not respond to friend request.');}
   finally{setFriendActionBusy(false);}
  }
- return <main className="veyra-page mx-auto w-full max-w-3xl space-y-4 px-4 py-5 md:px-7 md:py-8">
+ return <main className="veyra-page mx-auto w-full max-w-[760px] space-y-4 px-4 py-6 md:px-6 md:py-9">
   <header>
    <p className="veyra-eyebrow">VEYRA</p>
-   <h1 className="veyra-page-title">Friends</h1>
-   <p className="veyra-page-subtitle">Your contacts, one tap away.</p>
+   <h1 className="veyra-page-title">People</h1>
+   <p className="veyra-page-subtitle">Your friends, messages and payments.</p>
   </header>
   {ready&&social.session?<details className="veyra-card rounded-2xl p-4">
    <summary className="flex cursor-pointer items-center justify-between text-sm font-semibold" style={{color:'var(--ink)'}}>
@@ -157,13 +157,24 @@ export function MainnetPeoplePage({onPayVerified,onPayRequest,onPayWallet,initia
     </div>}
     {social.friends.filter(x=>x.state==='CONNECTED').length===0?
       <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>{social.friendsHasMore?'No connected friends on this page. Load more to find your contacts.':'No connected friends yet. Find a Veyra ID and send an invitation.'}</p>:
-      <div className="mt-2 space-y-2">{social.friends.filter(x=>x.state==='CONNECTED').map(x=><button key={x.veyraUserId}
-       onClick={()=>{if(!x.veyraHandle)return;setFriendLookup('@'+x.veyraHandle+'.veyra');setFindOpen(true);}}
-       disabled={!x.veyraHandle} type="button"
-       className="flex w-full items-center justify-between rounded-lg border px-3 py-3 text-sm disabled:opacity-50"
-       style={{borderColor:'var(--border)',color:'var(--ink)'}}>{friendLabel(x)}<span style={{color:'var(--accent)'}}>
-        {x.veyraHandle?'Choose':'No verified handle'}
-       </span></button>)}</div>}
+      <div className="mt-2 space-y-2">{social.friends.filter(x=>x.state==='CONNECTED').map(x=>
+       <div key={x.veyraUserId} className="veyra-calm-person flex flex-wrap items-center gap-3 rounded-xl border px-3 py-3"
+        style={{borderColor:'var(--border)'}}>
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
+         style={{background:'var(--accent-muted)',color:'var(--accent)'}}>
+         {(x.veyraHandle??'?').slice(0,1).toUpperCase()}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold" style={{color:'var(--ink)'}}>{friendLabel(x)}</span>
+        <button type="button" disabled={!chatReady||!x.veyraHandle} onClick={()=>setChatPeer(x.veyraUserId)}
+         className="veyra-btn-secondary rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-40">
+         <MessageCircle className="mr-1 inline size-3.5"/>Chat
+        </button>
+        <button type="button" disabled={!x.veyraHandle}
+         onClick={()=>{setFriendLookup('@'+x.veyraHandle+'.veyra');setFindOpen(true);}}
+         className="veyra-btn-secondary rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-40">
+         <Send className="mr-1 inline size-3.5"/>Pay
+        </button>
+       </div>)}</div>}
     {social.friendsHasMore&&<button type="button" disabled={social.loadingMoreFriends}
      onClick={()=>void social.loadMoreFriends()}
      className="mt-3 w-full rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-50"
@@ -214,14 +225,6 @@ export function MainnetPeoplePage({onPayVerified,onPayRequest,onPayWallet,initia
     <div className="flex items-center justify-between gap-2">
      <h2 className="veyra-section-title">Chat</h2>
      <span className="text-xs" style={{color:'var(--muted)'}}>Signed Veyra ID · synced messages</span>
-    </div>
-    <div className="mt-3 flex flex-wrap gap-2">
-     {social.friends.filter(x=>x.state==='CONNECTED').map(peer=><button key={peer.veyraUserId}
-      type="button" disabled={!chatReady||!peer.veyraHandle}
-      onClick={()=>setChatPeer(peer.veyraUserId)}
-      className="veyra-btn-secondary inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50">
-      <MessageCircle className="size-4"/>{friendLabel(peer)}
-     </button>)}
     </div>
     {!chatReady&&<p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
      Chat requires the encrypted backend and a connected friend. Pay and Tip do not require friendship.
