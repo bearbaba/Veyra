@@ -170,7 +170,7 @@ export function MainnetPeoplePage({onPayVerified,onPayRequest,onPayWallet,initia
          <MessageCircle className="mr-1 inline size-3.5"/>Chat
         </button>
         <button type="button" disabled={!x.veyraHandle}
-         onClick={()=>{setFriendLookup('@'+x.veyraHandle+'.veyra');setFindOpen(true);}}
+         onClick={()=>void payFriend(x.veyraUserId,'pay')}
          className="veyra-btn-secondary rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-40">
          <Send className="mr-1 inline size-3.5"/>Pay
         </button>
