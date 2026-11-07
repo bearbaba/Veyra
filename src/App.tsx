@@ -150,11 +150,11 @@ export default function App() {
             if(address)clearRequestNavigation(address);
             setPaymentRequest(null);setContactRecipient(null);setVerifiedRecipient(recipient);setFriendPayment(null);setPage('settlement');
           }} onPayRequest={(recipient,request)=>{
-            if(address)saveRequestNavigation({
+            if(!address||!saveRequestNavigation({
               version:1,owner:address.toLowerCase(),requestId:request.requestId,
               requesterHandle:recipient.veyraHandle,requesterUserId:request.requesterUserId,
               payerUserId:request.payerUserId,savedAt:Date.now(),
-            });
+            }))throw Error('Browser storage is unavailable. Payment Request was not opened; no transaction was sent.');
             setPaymentRequest(request);setContactRecipient(null);
             setVerifiedRecipient(recipient);setFriendPayment(null);setPage('settlement');
           }} onPayWallet={recipient=>{
