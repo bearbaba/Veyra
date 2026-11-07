@@ -75,10 +75,11 @@ export function expectedSettlementMigrationHistory():MigrationRecord[]{
   entries?:Array<{idx:number;when:number;tag:string}>;
  };
  const entries=journal.entries??[];
- if(journal.version!=='7'||journal.dialect!=='postgresql'||(entries.length!==22&&entries.length!==23)||
+ if(journal.version!=='7'||journal.dialect!=='postgresql'||(entries.length!==22&&entries.length!==23&&entries.length!==24)||
     entries[20]?.tag!=='0020_mainnet_direct_pay_receipts'||
     entries[21]?.tag!=='0021_mainnet_settlement_receipts'||
-    (entries.length===23&&entries[22]?.tag!=='0022_veyra_payment_requests'))
+    (entries.length>=23&&entries[22]?.tag!=='0022_veyra_payment_requests')||
+    (entries.length===24&&entries[23]?.tag!=='0023_mainnet_pay_journeys'))
   throw Error('SETTLEMENT_MIGRATION_JOURNAL_UNEXPECTED');
  let prev=0;
  return entries.map((entry,i)=>{
@@ -93,8 +94,8 @@ export function expectedSettlementMigrationHistory():MigrationRecord[]{
 export function assertExactSettlementMigrationHistory(
  actual:MigrationRecord[]|undefined, expected:MigrationRecord[]|undefined,count:number,
 ):void{
- if(!actual||!expected||(expected.length!==22&&expected.length!==23)||actual.length!==count||
-    (count!==21&&count!==22&&count!==23)||
+ if(!actual||!expected||(expected.length!==22&&expected.length!==23&&expected.length!==24)||actual.length!==count||
+    (count!==21&&count!==22&&count!==23&&count!==24)||
     actual.some((entry,i)=>entry.hash!==expected[i]?.hash||
       !Number.isSafeInteger(entry.createdAt)||entry.createdAt!==expected[i]?.createdAt))
   throw Error('SETTLEMENT_MIGRATION_HISTORY_MISMATCH');
@@ -138,7 +139,7 @@ export function evaluateSettlementUpgradeSchema(
  assertExactSettlementMigrationHistory(state.actualHistory,state.expectedHistory,state.migrations);
  const settlement=tables.has('mainnet_settlement_receipts');
  if(state.migrations===21&&!settlement)return 'upgrade-0021';
- if((state.migrations===22||state.migrations===23)&&settlement){
+ if((state.migrations===22||state.migrations===23||state.migrations===24)&&settlement){
   const columns=new Map<string,SchemaColumn>((state.settlementColumns??[]).map(c=>[c.name,c] as const));
   const constraints=new Map<string,SchemaConstraint>(
    (state.settlementConstraints??[]).map(c=>[c.name,c] as const));
@@ -198,7 +199,7 @@ export async function checkSettlementUpgradeSchema(
    let settlementColumns:SchemaColumn[]|undefined;
    let settlementIndexes:SchemaIndex[]|undefined;
    let settlementConstraints:SchemaConstraint[]|undefined;
-   if((migrations===22||migrations===23)&&hasReceipt){
+   if((migrations===22||migrations===23||migrations===24)&&hasReceipt){
     const [cols,idx,checks]=await Promise.all([
      c.query<{column_name:string;is_nullable:string}>(
       "SELECT column_name,is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='mainnet_settlement_receipts'"),
