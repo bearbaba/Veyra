@@ -148,7 +148,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
      </button>
     </div>
    </div>
-   <div className="veyra-profile-card relative min-w-0 overflow-hidden rounded-2xl border p-5 sm:p-6" aria-label="Your Veyra identity">
+   <div className="veyra-profile-card relative flex min-h-[257px] min-w-0 flex-col justify-between overflow-hidden rounded-2xl border p-5 max-[359px]:min-h-[273px] sm:p-6 lg:min-h-[265px]" aria-label="Your Veyra identity">
     <div aria-hidden="true" className="veyra-profile-glow"/>
     <div className="relative z-10 flex items-start gap-3">
      <div className="flex size-14 shrink-0 items-center justify-center rounded-full border sm:size-16"
