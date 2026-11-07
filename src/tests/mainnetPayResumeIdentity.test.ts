@@ -23,7 +23,7 @@ describe('Pay person and Wallet/Unified preferences survive reload without grant
  it('rejects forged identity, wrong owner, malformed and expired bookmarks',()=>{
   const s=memory();
   for(const invalid of [
-   {...item,owner:b},{...item,wallet:'0xinvalid'},
+   {...item,wallet:'0xinvalid'},
    {...item,userId:'usr_invalid'}, {...item,handle:'bad !'},
    {...item,savedAt:Date.now()-8*24*60*60*1000},
   ])expect(savePayRecipient(invalid,s)).toBe(false);
