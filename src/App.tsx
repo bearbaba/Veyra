@@ -194,11 +194,7 @@ export default function App() {
         return VEYRA_ENV === 'mainnet' ? <section className="veyra-page mx-auto w-full max-w-[620px] space-y-4 px-4 py-6 md:px-6 md:py-9">
           <button type="button" onClick={()=>setPage('settlement')} className="text-sm font-semibold"
             style={{color:'var(--accent)'}}>← Back to Pay</button>
-          <header>
-            <h1 className="veyra-page-title">Direct USDC</h1>
-            <p className="veyra-page-subtitle">Wallet transfer · pilot only. Review the exact receiver and network before signing.</p>
-          </header>
-          <MainnetPayPage embedded
+          <MainnetPayPage
             sharedDraft={address?readPayDraft(address):undefined}
             verifiedRecipient={verifiedRecipient}
             recipientWallet={contactRecipient}
