@@ -1,15 +1,15 @@
 import {describe,it,expect,vi} from 'vitest';
 import {keccak256} from 'viem';
 import {v2RequestTypedData,v2RequestAuthorizationDigest,
- simulateV2RequestCandidate,LEGACY_VEYRA_SETTLEMENT}
+ simulateV2RequestCandidate,LEGACY_VEYRA_SETTLEMENT,type CandidateV2Deployment}
  from '../mainnet/settlementV2Candidate';
 const addr='0x1111111111111111111111111111111111111111';
 const other='0x2222222222222222222222222222222222222222';
 const token='0x3333333333333333333333333333333333333333';
 const code='0x6001600055' as const;
-const registry={address:addr,runtimeCodeHash:keccak256(code),usdc:token,
+const registry:CandidateV2Deployment={address:addr as `0x${string}`,runtimeCodeHash:keccak256(code),usdc:token as `0x${string}`,
  chainId:5042 as const,reviewedByOwner:true as const};
-const fields={payer:other,recipient:token,amount:10000n,
+const fields={payer:other as `0x${string}`,recipient:token as `0x${string}`,amount:10000n,
  ref:'0x'+'4'.repeat(64) as `0x${string}`,deadline:9999999999n};
 const sig='0x'+'5'.repeat(130) as `0x${string}`;
 const client={
