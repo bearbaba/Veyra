@@ -243,7 +243,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
      <button type="button" onClick={()=>{selectMode('spend');setExpanded(true);}}
       disabled={Boolean(fundingToWallet)||!canRead||!current||previous||current.available<=0n}
       className="veyra-btn-secondary inline-flex min-h-10 items-center gap-1.5 px-3 text-xs font-semibold disabled:opacity-40">
-      <SendHorizontal className="size-4"/>Send
+      <SendHorizontal className="size-4"/>Send to wallet
      </button>
      <button type="button" onClick={()=>setExpanded(x=>!x)} aria-expanded={expanded}
       aria-label={expanded?'Hide Unified details':'Show Unified details'}
