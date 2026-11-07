@@ -25,10 +25,10 @@ describe('Official Circle Gateway forwarding REST GET reads',()=>{
   await expect(fetchGatewayForwardingProof('../../balance',fetcher as typeof fetch)).rejects.toThrow('UUID');
   expect(fetcher).not.toHaveBeenCalled();
  });
- it('preserves a pending lock on ambiguous/multiple burn intents',async()=>{
+ it('refuses duplicate burn-intent hashes without any outbound spec lookup',async()=>{
   const fetcher=vi.fn(()=>Promise.resolve(response({status:'finalized',
    burnIntents:[{transferSpecHash:hash},{transferSpecHash:hash}]})));
-  await expect(fetchGatewayForwardingProof(id,fetcher as typeof fetch)).rejects.toThrow('burn-intent');
+  await expect(fetchGatewayForwardingProof(id,fetcher as typeof fetch)).rejects.toThrow('Duplicate Circle transfer specification hash');
   expect(fetcher).toHaveBeenCalledTimes(1);
  });
  it('treats HTTP 404 as unavailable evidence, not a failed transfer or success',async()=>{
