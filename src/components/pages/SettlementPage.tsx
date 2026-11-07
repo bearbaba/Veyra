@@ -89,6 +89,7 @@ import {
   getVeyraSettlementDeployment,
 } from '@/config/veyraSettlement';
 import { gasNativeToUsdcMicro, fmtGasUsdc } from '@/lib/settlementGas';
+import {assertArcLivePayFunds} from '@/mainnet/arcSharedUsdcFunding';
 import {
   verifyPaymentReceipt,
   type VerifySnapshot,
@@ -1092,6 +1093,21 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
       try {
         if(await publicClient.getChainId()!==ARC_MAINNET_CHAIN_ID)
           throw new Error('Wallet network and Arc Mainnet RPC differ.');
+        const [native,tokenBalance,gasPrice,gasUnits]=await Promise.all([
+          publicClient.getBalance({address}),
+          publicClient.readContract({address:snapshot.usdcAddress,
+           abi:erc20Abi,functionName:'balanceOf',args:[address]}),
+          publicClient.getGasPrice(),
+          publicClient.estimateContractGas({
+           account:address,address:snapshot.contractAddress,
+           abi:VEYRA_SETTLEMENT_ABI,functionName:'pay',
+           args:[snapshot.recipient,snapshot.amountParsed,snapshot.ref],
+          }),
+        ]);
+        assertArcLivePayFunds({grossMicro:snapshot.amountParsed,
+         nativeBalanceWei:native,erc20BalanceMicro:tokenBalance,
+         gasEstimateUnits:gasUnits,gasPriceWei:gasPrice,
+         reviewedGasWei:snapshot.gasEstimateNative});
         await publicClient.simulateContract({
           account:address,
           address:snapshot.contractAddress,

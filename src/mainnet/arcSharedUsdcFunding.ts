@@ -46,3 +46,27 @@ export function quoteSettlementProtocolNet(gross:string,feeBps:bigint|null){
  return {gross:formatUnits(amount,6),protocolFee:formatUnits(fee,6),
   recipientNet:formatUnits(amount-fee,6)};
 }
+
+/** Exact pre-sign Arc invariant: gas + ERC20 are a single USDC asset.
+ * Fresh chain reads must cover payment and buffered network gas. Material
+ * fee drift requires another explicit Review rather than silent signing.
+ */
+export function assertArcLivePayFunds(input:{
+ grossMicro:bigint;nativeBalanceWei:bigint;erc20BalanceMicro:bigint;
+ gasEstimateUnits:bigint;gasPriceWei:bigint;reviewedGasWei:bigint;
+}):void{
+ const {grossMicro:gross,nativeBalanceWei:native,
+  erc20BalanceMicro:token,gasEstimateUnits:units,
+  gasPriceWei:price,reviewedGasWei:reviewed}=input;
+ if(gross<=0n||native<0n||token<0n||units<=0n||price<=0n||reviewed<=0n)
+  throw Error('Current Arc USDC and gas review are unavailable. No signing.');
+ const observed=native/OFFSET;
+ const delta=observed>token?observed-token:token-observed;
+ if(delta>1n)throw Error('Arc USDC balance views disagree. Refresh before signing.');
+ const gas=units*price;
+ if(gas>ceil(reviewed*125n,100n))
+  throw Error('Arc gas changed since Review. Review fees again before signing.');
+ const buffered=ceil(gas*BUFFER_NUM,BUFFER_DEN);
+ if(native<gross*OFFSET+buffered||token<gross)
+  throw Error('Arc USDC cannot cover payment and network gas. Top up or reduce amount before signing.');
+}

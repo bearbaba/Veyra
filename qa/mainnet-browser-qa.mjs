@@ -36,7 +36,7 @@ async function run(name,viewport,mobile){
   report.push({name,stage,pass:true,...measured,screenshot:path});
  }
  await page.goto(origin,{waitUntil:'domcontentloaded',timeout:30000});
- await page.getByText('Veyra',{exact:true}).first().waitFor({timeout:15000});
+ await page.locator('aside .display:visible, header .display:visible').first().waitFor({timeout:15000});
  await check('home');
  const steps=['Pay','Friends','Activity','Swap','Bridge'];
  for(const step of steps){
