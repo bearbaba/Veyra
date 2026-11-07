@@ -41,9 +41,10 @@ describe('Multi-source Gateway original transfer proof is exact and fail-closed'
  });
  it('rejects omission, duplication, switched owner, wrong USDC and changed values',()=>{
   expect(parseGatewayForwardedStatus({...response,specs:response.specs.slice(0,1)},op)).toBeNull();
+  expect(parseGatewayForwardedStatus({...response,specs:response.specs.map((x,i)=>i?{...x,transferSpecHash:undefined}:x)},op)).toBeNull();
   expect(parseGatewayForwardedStatus({...response,specs:[response.specs[0],response.specs[0]]},op)).toBeNull();
   expect(parseGatewayForwardedStatus({...response,specs:response.specs.map((x,i)=>i?{...x,sourceSigner:padded(receiver)}:x)},op)).toBeNull();
-  expect(parseGatewayForwardedStatus({...response,specs:response.specs.map((x,i)=>i?{...x,sourceToken:padded(tokenBase)}:x)},op)).toBeNull();
+  expect(parseGatewayForwardedStatus({...response,specs:response.specs.map((x,i)=>i?{...x,sourceToken:padded(tokenEth)}:x)},op)).toBeNull();
   expect(parseGatewayForwardedStatus({...response,specs:response.specs.map((x,i)=>i?{...x,value:'5001'}:x)},op)).toBeNull();
  });
  it('rejects any signed source allocation edit without matching original intent',()=>{
