@@ -18,6 +18,7 @@ import {estimateGatewayMainnetSpend,submitGatewayMainnetReview,
  type GatewayMainnetReview} from '@/mainnet/gatewayMainnetExecution';
 import type {GatewaySdkFee} from '@/core/gateway/gatewaySdkSpend';
 import {assertGatewayFundingNet,gatewayFundingGrossForNet} from '@/mainnet/unifiedSettlementFunding';
+import {ensurePayFundingJourney} from '@/mainnet/payFundingJourney';
 import {MAINNET_CANARY_OWNER} from '@/mainnet/releaseGates';
 const C=GATEWAY_MAINNET_CHAINS;
 /** One-click funding picks an adequate confirmed source automatically;
@@ -31,7 +32,10 @@ export function chooseGatewaySource(balance:GatewayMainnetBalance,raw:string):nu
  })[0]?.chainId??null;
 }
 type Mode='deposit'|'spend';
-export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded}:{fundingToWallet?:string;fundingNeeded?:string}={}){
+export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundingTarget}:{
+ fundingToWallet?:string;fundingNeeded?:string;
+ fundingTarget?:{payee:string;grossUsdc:string;requestId?:string};
+}={}){
  const {address,connector}=useAccount();
  const social=useUnifiedSocial();
  const signed= social.identityOrigin==='ready'&&
@@ -202,7 +206,13 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded}:{fund
    const id=frozen.sourceChainId;
    const client=id===1?eth:id===8453?base:arc;
    if(!client)throw Error('Source network RPC unavailable.');
-   const confirmed=await submitGatewayMainnetReview(frozen,provider,client);
+   const payJourneyId=fundingToWallet?ensurePayFundingJourney({
+    owner:frozen.owner,payee:fundingTarget?.payee??'',
+    grossUsdc:fundingTarget?.grossUsdc??'',
+    ...(fundingTarget?.requestId?{requestId:fundingTarget.requestId}:{}),
+   }).id:undefined;
+   const confirmed=await submitGatewayMainnetReview(
+    {...frozen,...(payJourneyId?{payJourneyId}:{})},provider,client);
    setOperation(confirmed);setReview(false);setFees(null);
    setError('Original transaction saved in Activity. Wait for independent Gateway confirmation; do not submit again.');
   }catch(e){

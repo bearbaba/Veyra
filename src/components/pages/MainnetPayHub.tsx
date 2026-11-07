@@ -3,7 +3,7 @@
  * Signing is still gated by the separate wallet journals and canonical receipt checks.
  */
 import {useEffect,useState} from 'react';
-import {useAccount,useReadContract} from 'wagmi';
+import {useAccount,useReadContract,useBalance} from 'wagmi';
 import {erc20Abi,formatUnits} from 'viem';
 import {settlementFundingShortfall} from '@/mainnet/unifiedSettlementFunding';
 import {ARC_MAINNET_USDC} from '@/mainnet/arcMainnetPay';
@@ -22,6 +22,9 @@ import {MAINNET_EMERGENCY_READ_ONLY,MAINNET_SETTLEMENT_CANARY_ONLY,MAINNET_CANAR
 import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 import type {VeyraPaymentRequest} from '@/lib/api/paymentRequests';
 import {MainnetUnifiedBalancePanel} from './MainnetUnifiedBalancePanel';
+import {readGatewayMainnetOperation,readGatewayMainnetHistory} from '@/mainnet/gatewayMainnetJournal';
+import {readPayFundingJourney,samePayFundingTarget,derivePayFundingJourneyState,
+ dismissPayFundingJourney,type FundingJourneyState} from '@/mainnet/payFundingJourney';
 
 declare const __VEYRA_RELEASE_SHA__:string;
 declare const __VEYRA_RELEASE_ENV__:string;
@@ -45,6 +48,8 @@ export function MainnetPayHub({
  });
  const [draftHolder,setDraftHolder]=useState<{owner:string;value:MainnetPayDraft}>(()=>({owner,value:readPayDraft(owner)}));
  const [revision,setRevision]=useState(0);
+ const {data:arcGas,isError:gasError}=useBalance({address,chainId:5042,
+  query:{enabled:!!address,staleTime:10000}});
  const [showUnifiedFunding,setShowUnifiedFunding]=useState(()=>readPaySource(owner)==='unified');
  useEffect(()=>{setShowUnifiedFunding(readPaySource(owner)==='unified');},[owner]);
  function selectPaymentSource(source:PaySource){
@@ -66,15 +71,45 @@ export function MainnetPayHub({
  useEffect(()=>{
   const sync=()=>setRevision(i=>i+1);
   window.addEventListener('veyra:mainnet:journal',sync);
+  window.addEventListener('veyra:gateway:mainnet',sync);
+  window.addEventListener('veyra:pay:funding',sync);
   window.addEventListener('focus',sync);
   window.addEventListener('storage',sync);
   return()=>{
    window.removeEventListener('veyra:mainnet:journal',sync);
+   window.removeEventListener('veyra:gateway:mainnet',sync);
+   window.removeEventListener('veyra:pay:funding',sync);
    window.removeEventListener('focus',sync);
    window.removeEventListener('storage',sync);
   };
  },[]);
  void revision;
+ const fundingRead=address?readPayFundingJourney(address):{kind:'empty' as const};
+ const fundingGateway=address?readGatewayMainnetOperation(address):null;
+ const fundingHistory=address?readGatewayMainnetHistory(address):[];
+ const fundingJourney=fundingRead.kind==='active'?fundingRead.value:null;
+ const fundingState:FundingJourneyState=fundingJourney?
+  derivePayFundingJourneyState({journey:fundingJourney,gatewayOperation:fundingGateway,
+   history:fundingHistory,settlement:address?readSettlementIntent(address):{kind:'empty'},
+   arcWalletUsdc:walletBalance===undefined?null:walletBalance}):
+  fundingRead.kind==='blocked'?'BLOCKED':'NOT_STARTED';
+ const sameFundingTarget=fundingJourney?samePayFundingTarget(fundingJourney,{
+  owner, payee:draft.recipient,grossUsdc:draft.amount,
+  ...(paymentRequest?{requestId:paymentRequest.requestId}:{})}):true;
+ const fundingUnresolved=['FUNDING_UNKNOWN','FUNDING_PENDING','SETTLEMENT_PENDING','BLOCKED'].includes(fundingState);
+ const fundingBlocked=fundingRead.kind==='blocked'||fundingJourney!==null&&
+  (!sameFundingTarget||fundingUnresolved||fundingState==='SETTLEMENT_ONCHAIN_VERIFIED');
+ const unifiedNeedsFunding=showUnifiedFunding&&needsFunding;
+ // A gateway receipt is not a Settlement payment. Never expose the contract
+ // signing surface until a separate funding receipt and live wallet read pass.
+ const settlementFromUnifiedReady=(!fundingJourney&& !unifiedNeedsFunding)||
+  fundingJourney!==null&&sameFundingTarget&&
+  (fundingState==='READY_TO_SETTLE'&&!needsFunding||
+   fundingState==='SETTLEMENT_PENDING');
+ const showSettlement=!fundingBlocked&&
+  (!showUnifiedFunding||
+   fundingJourney?settlementFromUnifiedReady:!unifiedNeedsFunding)&&
+  fundingState!=='SETTLEMENT_ONCHAIN_VERIFIED';
  const pay=address?readMainnetJournal(address,storageForMainnet()):{kind:'empty' as const};
  const settlement=address?readSettlementIntent(address):{kind:'empty' as const};
  const payLocked=pay.kind==='blocked'||pay.kind==='active'&&
@@ -205,37 +240,84 @@ export function MainnetPayHub({
     </p></div>
   </div>
   {address&&signedWallet&&draft.amount&&<section aria-label="Choose payment source" className="rounded-xl border p-3 space-y-3" style={{borderColor:"var(--border)"}}>
-    <p className="text-sm font-semibold" style={{color:"var(--ink)"}}>Pay with</p>
+    <p className="text-sm font-semibold" style={{color:"var(--ink)"}}>Fund this payment</p>
     <div className="grid grid-cols-2 gap-2" role="group" aria-label="USDC source">
      <button type="button" aria-pressed={!showUnifiedFunding} disabled={locked&&!resumable}
       className="veyra-btn-secondary min-h-11 rounded-lg p-2 text-sm disabled:opacity-50"
       onClick={()=>selectPaymentSource('wallet')}>Arc wallet</button>
      <button type="button" aria-pressed={showUnifiedFunding} disabled={locked&&!resumable}
       className="veyra-btn-secondary min-h-11 rounded-lg p-2 text-sm disabled:opacity-50"
-      onClick={()=>selectPaymentSource('unified')}>Unified</button>
+      onClick={()=>selectPaymentSource('unified')}>Unified · top up Arc</button>
     </div>
+    {fundingRead.kind==='blocked'&&<p role="alert" className="text-xs"
+      style={{color:"var(--warning)"}}>Saved funding context is unreadable. Do not initiate another transfer.</p>}
+    {fundingJourney&&<section role="status" aria-label="Unified payment progress"
+      className="space-y-2 rounded-xl border p-3 text-xs" style={{borderColor:"var(--border)"}}>
+      <p className="font-semibold">Unified → Arc wallet → Settlement</p>
+      <p>Funding: {fundingState==='FUNDING_PENDING'||fundingState==='FUNDING_UNKNOWN'?
+       'Original transfer still being recovered':fundingState==='READY_TO_SETTLE'?'Verified onchain':
+       fundingState==='SETTLEMENT_ONCHAIN_VERIFIED'?'Finished; verify the private receipt in Activity':
+       fundingState==='FUNDING_DECLINED'?'Wallet signature declined before transfer':
+       fundingState==='FUNDING_REVERTED'?'Source transfer reverted':
+       fundingState==='WALLET_SHORTFALL'?'Verified transfer, Arc wallet still below required amount':
+       fundingState==='CHECKING_ARC_WALLET'?'Checking destination wallet':
+       fundingState==='SETTLEMENT_PENDING'?'Settlement signature or receipt pending':
+       fundingState==='BLOCKED'?'Recovery needs attention':'Review required'}</p>
+      <p>Settlement: {fundingState==='SETTLEMENT_ONCHAIN_VERIFIED'?
+       'Verified onchain · backend receipt sync may still be pending':
+       fundingState==='SETTLEMENT_PENDING'?'Pending · do not resend':
+       fundingState==='READY_TO_SETTLE'?'Ready for a separate signing review':'Not yet sent'}</p>
+      {!sameFundingTarget&&<p style={{color:"var(--warning)"}}>
+       Current payee/amount differs from the saved journey. Resolve or dismiss the earlier journey before signing.
+      </p>}
+      {fundingHistory!=='blocked'&&
+       ['NOT_STARTED','FUNDING_DECLINED','FUNDING_REVERTED','SETTLEMENT_ONCHAIN_VERIFIED'].includes(fundingState)&&
+       <button type="button" className="veyra-btn-secondary rounded-lg px-3 py-2"
+        onClick={()=>{if(address&&dismissPayFundingJourney(address,fundingGateway,settlement))
+         setRevision(n=>n+1);}}>
+         Close this journey after reviewing Activity
+       </button>}
+    </section>}
     {showUnifiedFunding&&<>
      <p className="text-xs" style={{color:"var(--muted)"}}>
       Step 1: fund your Arc wallet from Gateway. Step 2: sign Settlement to the person.
       Funding alone never pays the recipient.
      </p>
+     <p className="text-xs" style={{color:"var(--muted)"}}>
+      The Settlement protocol fee is deducted from the gross payment amount, not added to wallet funding.
+      Arc network gas and any approval gas are separate from Gateway fees; final live gas review is required.
+      {gasError?' Arc gas lookup is unavailable.':arcGas?.value===0n?
+       ' No Arc native gas is available. Signing will require gas funding.':
+       arcGas===undefined?' Checking Arc native gas.':''}
+     </p>
      {shortfall===null?<p role="status" className="text-xs" style={{color:"var(--warning)"}}>
        Check your wallet USDC before funding. No amount is guessed.
       </p>:!needsFunding?<p role="status" className="text-xs" style={{color:"var(--success)"}}>
-       Arc wallet covers the USDC payment amount. Keep sufficient native gas for Settlement.
+       Arc wallet covers the gross USDC amount. You can pay from the Arc wallet without another Gateway transfer.
       </p>:<>
        <p className="text-sm font-semibold">Wallet shortfall: {shortfall} USDC</p>
        <p className="text-xs" style={{color:"var(--muted)"}}>
         Gateway fees are additional. The quoted net amount must cover this shortfall before any funding signature.
         After a verified Gateway receipt, wallet balance and Settlement fees are checked again.
        </p>
-       <MainnetUnifiedBalancePanel fundingToWallet={address} fundingNeeded={shortfall}/>
+       {fundingJourney&&fundingState!=='NOT_STARTED'&&fundingState!=='FUNDING_DECLINED'&&fundingState!=='FUNDING_REVERTED'?
+        <p className="text-xs" style={{color:"var(--warning)"}}>
+         A funding attempt is already recorded. Follow its original transaction in Activity; no retry is initiated.
+        </p>:
+        <MainnetUnifiedBalancePanel fundingToWallet={address} fundingNeeded={shortfall}
+         fundingTarget={{payee:draft.recipient,grossUsdc:draft.amount,
+          ...(paymentRequest?{requestId:paymentRequest.requestId}:{})}}/>}
       </>}
     </>}
    </section>}
    {payLocked?<p role="status" className="rounded-xl border p-3 text-sm"
     style={{borderColor:'var(--border)',color:'var(--warning)'}}>
     Previous wallet payment is pending or unknown. Check Activity; do not sign another payment.
+   </p>:!showSettlement?<p role="status" className="rounded-xl border p-3 text-sm"
+    style={{borderColor:"var(--border)",color:"var(--warning)"}}>
+    {fundingState==='SETTLEMENT_ONCHAIN_VERIFIED'?
+     'Settlement verified onchain. Check Activity for synced sender and recipient receipts; do not send again.':
+     'Complete or recover the original Unified funding journey before signing Settlement. No automatic resend.'}
    </p>:<section aria-label="Contract payment">
     <SettlementPage key={owner+":"+(paymentRequest?.requestId??"")} embedded sharedDraft={draft} onDraftChange={changeDraft}
       verifiedRecipient={selectedVerified} paymentRequest={paymentRequest}/>

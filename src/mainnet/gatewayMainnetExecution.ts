@@ -14,6 +14,7 @@ import {activeSignedIdentityToken} from '@/lib/api/liveIdentitySession';
 import {MAINNET_CANARY_OWNER,MAINNET_CANARY_MAX_UNITS} from './releaseGates';
 import {parseGatewaySdkFees,assertGatewaySdkFeesUnchanged,type GatewaySdkFee} from '@/core/gateway/gatewaySdkSpend';
 import {planGatewayMultiSource,matchingGatewayAllocation,type GatewayAllocation} from './gatewayMultiSourceAllocation';
+import {readPayFundingJourney} from './payFundingJourney';
 
 /** SDK fee amounts are exact six-decimal USDC; preserve reviewed minimum. */
 function minimumGatewayReceive(review:GatewayMainnetReview):string{
@@ -63,7 +64,7 @@ export type GatewayMainnetReview={
  kind:'deposit'|'spend';owner:string;sourceChainId:number;destinationChainId?:number;
  recipient:string;amount:string;balance:GatewayMainnetBalance;sessionToken:string;
  fees:GatewaySdkFee[];
- allocations?:GatewayAllocation[];manualSourceChainId?:number;
+ allocations?:GatewayAllocation[];manualSourceChainId?:number;payJourneyId?:string;
 };
 export async function assertGatewayMainnetWallet(provider:EIP1193Provider,owner:string,chainId:number){
  if(!isAddress(owner))throw Error('Invalid connected owner wallet.');
@@ -97,6 +98,13 @@ function validate(review:GatewayMainnetReview,execution=true){
  if(!review.sessionToken||activeSignedIdentityToken()!==review.sessionToken)
   throw Error('Veyra ID session changed. Sign in again.');
  const amount=parseUnits(review.amount,6);
+ if(review.payJourneyId){
+  const journey=readPayFundingJourney(owner);
+  if(review.kind!=='spend'||review.destinationChainId!==5042||
+   review.recipient.toLowerCase()!==owner||
+   journey.kind!=='active'||journey.value.id!==review.payJourneyId)
+   throw Error('Pay funding journey has changed. No wallet signature requested.');
+ }
  // New real-money operations begin with an explicit, owner-only small-value canary.
  if(execution)assertGatewayMainnetCanaryExecution(owner,amount);
  if(review.kind==='spend'){
@@ -162,6 +170,7 @@ export async function submitGatewayMainnetReview(review:GatewayMainnetReview,
   ...(review.destinationChainId?{destinationChainId:review.destinationChainId}:{}),
   recipient:getAddress(review.recipient),amount:review.amount,createdAt:Date.now(),
   status:'UNKNOWN',
+  ...(review.payJourneyId?{payJourneyId:review.payJourneyId}:{}),
   ...(review.kind==='spend'?{allocations:review.allocations?.map(x=>({chainId:x.chainId,amount:x.amount}))}:{}),
   ...(review.kind==='deposit'?{
    beforeAvailable:formatUnits(review.balance.chains.find(c=>c.chainId===source.chainId)?.available??0n,6),
@@ -184,6 +193,7 @@ export async function submitGatewayMainnetReview(review:GatewayMainnetReview,
      version:1,operationId:operation.id,owner,kind:'deposit',status:'CANCELLED_BEFORE_SOURCE',
      chainId:operation.chainId,recipient:operation.recipient,amount:operation.amount,
      verifiedAt:Date.now(),rejectionMethod:watched.rejectedBeforeSignature,
+     ...(operation.payJourneyId?{payJourneyId:operation.payJourneyId}:{}),
     });
     if(archived)throw Error('Wallet declined before any signature. No Gateway deposit was sent; you can review a new request.');
    }
@@ -210,6 +220,7 @@ export async function submitGatewayMainnetReview(review:GatewayMainnetReview,
     chainId:operation.chainId,destinationChainId:operation.destinationChainId,
     recipient:operation.recipient,amount:operation.amount,
     verifiedAt:Date.now(),rejectionMethod:watched.rejectedBeforeSignature,
+     ...(operation.payJourneyId?{payJourneyId:operation.payJourneyId}:{}),
    });
    if(archived)throw Error('Wallet declined before any signature. No Gateway transfer was signed; you can review again.');
   }

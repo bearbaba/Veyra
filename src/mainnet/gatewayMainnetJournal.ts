@@ -12,6 +12,8 @@ export type GatewayMainnetOperation={
  status:GatewayOperationStatus;sourceHash?:string;transferId?:string;destinationHash?:string;
  beforeAvailable?:string;minimumReceive?:string;
  allocations?:ReadonlyArray<{chainId:number;amount:string}>;
+ /** Same-device funding flow correlation, not payment proof. */
+ payJourneyId?:string;
 };
 export type GatewayMainnetReceipt={
  version:1;operationId:string;owner:string;kind:'deposit'|'spend';status:'VERIFIED'|'REVERTED'|'SOURCE_FINALIZED'|'CANCELLED_BEFORE_SOURCE';
@@ -23,8 +25,10 @@ export type GatewayMainnetReceipt={
  /** Provider-attested *individual* deposit reference, never an aggregate balance delta. */
  gatewayCreditReference?:string;
  allocations?:ReadonlyArray<{chainId:number;amount:string}>;
+ payJourneyId?:string;
 };
 const HASH=/^0x[0-9a-fA-F]{64}$/;
+const JOURNEY=/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const AMOUNT=/^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,6})?$/;
 const supported=(id:number)=>id===1||id===8453||id===5042;
 const prefix='veyra:gateway:mainnet:v1:';
@@ -60,7 +64,9 @@ export function validGatewayMainnetOperation(x:unknown,owner:string):x is Gatewa
   (o.transferId===undefined||typeof o.transferId==='string'&&o.transferId.length<160)&&
   (o.beforeAvailable===undefined||amountOk(o.beforeAvailable))&&
   (o.minimumReceive===undefined||amountOk(o.minimumReceive))&&
-  (o.allocations===undefined||o.kind==='spend'&&validGatewayAllocationGroup(o.allocations,o.amount));
+  (o.allocations===undefined||o.kind==='spend'&&validGatewayAllocationGroup(o.allocations,o.amount))&&
+  (o.payJourneyId===undefined||o.kind==='spend'&&JOURNEY.test(o.payJourneyId)&&
+   o.destinationChainId===5042&&o.recipient.toLowerCase()===o.owner);
 }
 export function validGatewayMainnetReceipt(x:unknown,owner:string):x is GatewayMainnetReceipt{
  if(!x||typeof x!=='object'||Array.isArray(x)||!isAddress(owner))return false;
@@ -85,6 +91,8 @@ export function validGatewayMainnetReceipt(x:unknown,owner:string):x is GatewayM
   (r.gatewayConfirmedAfter===undefined||amountOk(r.gatewayConfirmedAfter))&&
   (r.received===undefined||amountOk(r.received))&&
   (r.allocations===undefined||r.kind==='spend'&&validGatewayAllocationGroup(r.allocations,r.amount))&&
+  (r.payJourneyId===undefined||r.kind==='spend'&&JOURNEY.test(r.payJourneyId)&&
+   r.destinationChainId===5042&&r.recipient.toLowerCase()===r.owner)&&
   (r.gatewayCreditReference===undefined||typeof r.gatewayCreditReference==='string'&&
    r.gatewayCreditReference.length>0&&r.gatewayCreditReference.length<=160)&&
   (r.status!=='CANCELLED_BEFORE_SOURCE'||(
@@ -124,6 +132,7 @@ export function writeGatewayMainnetOperation(op:GatewayMainnetOperation,store?:G
     prev.kind!==op.kind||prev.recipient.toLowerCase()!==op.recipient.toLowerCase()||
     prev.amount!==op.amount||prev.chainId!==op.chainId||
     prev.destinationChainId!==op.destinationChainId||
+    prev.payJourneyId!==op.payJourneyId||
     JSON.stringify(prev.allocations??null)!==JSON.stringify(op.allocations??null)||
     prev.sourceHash&&prev.sourceHash!==op.sourceHash||
     prev.destinationHash&&prev.destinationHash!==op.destinationHash||
@@ -194,7 +203,7 @@ export function gatewayReceiptEvidenceKey(r:GatewayMainnetReceipt):string{
   r.sourceHash?.toLowerCase()??'',r.sourceBlockHash?.toLowerCase()??'',
   r.destinationHash?.toLowerCase()??'',r.destinationBlockHash?.toLowerCase()??'',
   r.transferId??'',r.received??'',r.rejectionMethod??'',r.gatewayCreditReference??'',
-  JSON.stringify(r.allocations??null)].join('|');
+  JSON.stringify(r.allocations??null),r.payJourneyId??''].join('|');
 }
 export function archiveGatewayMainnetReceipt(receipt:GatewayMainnetReceipt,
  store?:GatewayStore):boolean{
@@ -213,6 +222,7 @@ export function archiveGatewayMainnetReceipt(receipt:GatewayMainnetReceipt,
    active.destinationChainId!==receipt.destinationChainId||
    active.recipient.toLowerCase()!==receipt.recipient.toLowerCase()||
    active.amount!==receipt.amount||
+   active.payJourneyId!==receipt.payJourneyId||
    (receipt.allocations!==undefined&&JSON.stringify(active.allocations??null)!==JSON.stringify(receipt.allocations))||
    (receipt.kind==='deposit'&&active.sourceHash?.toLowerCase()!==receipt.sourceHash?.toLowerCase())||
    (receipt.kind==='spend'&&active.transferId!==receipt.transferId))return false;

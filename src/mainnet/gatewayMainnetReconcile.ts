@@ -227,6 +227,7 @@ export async function reconcileGatewayMainnetOperation(owner:string,
   status:'VERIFIED',chainId:op.chainId,destinationChainId:op.destinationChainId,
   recipient:op.recipient,amount:op.amount,transferId:op.transferId,
   ...(op.allocations?{allocations:op.allocations}:{}),
+  ...(op.payJourneyId?{payJourneyId:op.payJourneyId}:{}),
   destinationHash:hash,destinationBlockHash:receipt.blockHash,
   received:formatUnits(received,6),verifiedAt:Date.now()};
  if(!archiveGatewayMainnetReceipt(proof,store))
