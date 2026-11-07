@@ -42,3 +42,18 @@ export function readBridgeQuoteAmounts(estimate:unknown,sent:string):BridgeQuote
  const min=input-total;
  return {minimum:formatUnits(min,6),expected:formatUnits(min,6),maxFee:formatUnits(total,6)};
 }
+
+/** Accept only fresh CCTP fees covered by the user's frozen onchain fee cap.
+ * An equal/lower total is safe under that cap even if fee components changed;
+ * an increased total requires explicit review and no wallet signature.
+ */
+export function assertBridgeQuoteWithinReviewedCap(
+ freshEstimate:unknown,sent:string,reviewed:{minimum:string;maxFee:string}
+):BridgeQuoteAmounts{
+ const latest=readBridgeQuoteAmounts(freshEstimate,sent);
+ const cap=micro(reviewed.maxFee,true),floor=micro(reviewed.minimum);
+ if(cap===null||floor===null||parseUnits(latest.maxFee,6)>cap||
+   parseUnits(latest.minimum,6)<floor)
+  throw Error('Bridge fees increased. Refresh the quote to approve the new minimum.');
+ return latest;
+}
