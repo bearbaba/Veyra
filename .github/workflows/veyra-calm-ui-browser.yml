@@ -8,6 +8,7 @@ on:
       - src/components/layout/AppShell.tsx
       - src/components/pages/MainnetHomePage.tsx
       - src/components/pages/MainnetPayHub.tsx
+      - src/components/pages/MainnetPayRecipientPicker.tsx
       - src/components/pages/MainnetPeoplePage.tsx
       - src/components/pages/MainnetUnifiedBalancePanel.tsx
       - src/index.css
