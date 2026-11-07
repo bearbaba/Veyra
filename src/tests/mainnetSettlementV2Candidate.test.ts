@@ -27,7 +27,7 @@ describe('V2 contract approval is never silently bypassed by a frontend flag',()
    v2RequestAuthorizationDigest(registry,{...fields,amount:10001n}));
   expect(v2RequestTypedData(registry,fields).domain.version).toBe('2');
  });
- it('rejects legacy address, nonexistent code, and a wrong USDC contract',()=>{
+ it('rejects legacy address, nonexistent code, and a wrong USDC contract',async()=>{
   expect(()=>v2RequestTypedData({...registry,address:LEGACY_VEYRA_SETTLEMENT},fields)).toThrow();
   expect(()=>v2RequestTypedData({...registry,reviewedByOwner:false as never},fields)).toThrow();
   await expect(simulateV2RequestCandidate(client as never,registry,fields,sig,1n)).resolves.toMatchObject({
@@ -37,7 +37,7 @@ describe('V2 contract approval is never silently bypassed by a frontend flag',()
   await expect(simulateV2RequestCandidate({...client,readContract:()=>other} as never,
    registry,fields,sig,1n)).rejects.toThrow('canonical USDC');
  });
- it('does not invoke wallet simulation if deadline or chain invalid',()=>{
+ it('does not invoke wallet simulation if deadline or chain invalid',async()=>{
   await expect(simulateV2RequestCandidate(client as never,registry,fields,sig,fields.deadline)).rejects.toThrow('expired');
   await expect(simulateV2RequestCandidate({...client,getChainId:()=>8453} as never,
    registry,fields,sig,1n)).rejects.toThrow('chain mismatch');
