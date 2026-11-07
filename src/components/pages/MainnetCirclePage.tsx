@@ -23,7 +23,7 @@ import {recordVerifiedExchangeProof,recordVerifiedSourceRevert} from '@/mainnet/
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked,findCctpDestinationMintHash} from '@/mainnet/verifyCctpBridgeLink';
 import {assertMainnetConsumerSigningAllowed,MAINNET_PUBLIC_BETA,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
-import {readBridgeQuoteAmounts} from '@/mainnet/bridgeQuoteGuard';
+import {readBridgeQuoteAmounts,assertBridgeQuoteWithinReviewedCap} from '@/mainnet/bridgeQuoteGuard';
 
 const kit=new AppKit();
 const ARC=5042,BASE=8453;
@@ -231,13 +231,16 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    const fresh=mode==='swap'?
     await kit.estimateSwap(p as Parameters<AppKit['estimateSwap']>[0]):
     await kit.estimateBridge(p as Parameters<AppKit['estimateBridge']>[0]);
-   if(mode==='bridge'&&(!quote.bridgeMaxFee||
-     readBridgeQuoteAmounts(fresh,amount).maxFee!==quote.bridgeMaxFee))
-    throw Error('Circle fee cap changed. Review again before signing.');
-   if(JSON.stringify(feeLines(fresh))!==JSON.stringify(quote.fees)||
-    mode==='swap'&&String((fresh as Awaited<ReturnType<AppKit['estimateSwap']>>).stopLimit.amount)!==quote.minimum||
-    mode==='bridge'&&readBridgeQuoteAmounts(fresh,amount).minimum!==quote.minimum)
-    throw Error('Provider quote changed. Review it again before signing.');
+   // CCTP forwarding fees are dynamic. The signed on-chain maxFee protects
+   // the user's minimum. An improved (lower) fresh fee is safe under the
+   // frozen cap; a higher fee must be explicitly reviewed again.
+   if(mode==='bridge'){
+    if(!quote.bridgeMaxFee)throw Error('Bridge fee cap is unavailable. Get a new quote.');
+    assertBridgeQuoteWithinReviewedCap(fresh,amount,{
+     minimum:quote.minimum,maxFee:quote.bridgeMaxFee});
+   }else if(JSON.stringify(feeLines(fresh))!==JSON.stringify(quote.fees)||
+    String((fresh as Awaited<ReturnType<AppKit['estimateSwap']>>).stopLimit.amount)!==quote.minimum)
+    throw Error('Swap price changed. Refresh the quote before signing.');
    if(Date.now()-quote.at>30000)throw Error('Quote expired.');
    await wallet(selectedSource);
    const intentId=crypto.randomUUID();
@@ -293,8 +296,12 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        message:'Provider outcome uncertain. Verify original wallet activity; do not repeat the source.'});
     }catch{/* Original recovery lock stays in storage. */}
    }
-   setError((e instanceof Error?e.message:'Provider outcome uncertain.')+
-    (saved?' Original operation remains locked. Do not sign again.':''));
+   const reason=e instanceof Error?e.message:'Provider outcome uncertain.';
+   // Before the journal is reserved no wallet request occurred. Return to the
+   // SAME quote control instead of leaving an expired Confirm button visible.
+   if(!saved&&(/Refresh the quote|quote expired|Quote expired|price changed/i).test(reason))
+    setQuote(null);
+   setError(reason+(saved?' Original operation remains locked. Do not sign again.':''));
   }finally{lock.current=false;setBusy(false);}
  }
  async function verify(){
@@ -429,6 +436,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     <p className="text-xs" style={{color:'var(--muted)'}}>Connect your wallet to check the balance and request a live quote. No signing is enabled in this pilot.</p>
     <ConnectKitButton/>
    </div>:<>
+    {!recovery&&!unknownStorage&&<>
     {!embedded&&(mode==='bridge'?<div className="grid gap-3 sm:grid-cols-2">
      <label className="text-sm" style={{color:'var(--muted)'}}>From
       <select className={input} value={source} disabled={!!recovery||busy}
@@ -477,50 +485,46 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
      </p>
      {!quote||quoteExpired?<p className="text-xs" style={{color:'var(--muted)'}}>Estimated amount will appear after a live provider quote.</p>:null}
     </div>
-    {!quote&&!recovery&&<button type="button" disabled={busy||unknownStorage||!validAmount(amount)}
-     className="veyra-btn-primary w-full disabled:opacity-40" onClick={()=>void quoteNow()}>
-     {busy?'Requesting live quote…':mode==='swap'?'Review swap quote':'Review bridge quote'}
-    </button>}
-    {quote&&!recovery&&<div className="space-y-3 rounded-xl border p-4 text-sm"
-      style={{borderColor:'var(--border)',color:'var(--ink)'}}>
-     <div className="flex items-center justify-between gap-2">
-      <p className="font-bold">{quoteExpired?'Quote expired':'Live provider quote'}</p>
-      <span className="text-xs" style={{color:quoteExpired?'var(--warning)':'var(--muted)'}}>
-       {quoteExpired?'Refresh required':Math.max(0,30-Math.floor((quoteClock-quote.at)/1000))+'s remaining'}
-      </span>
-     </div>
-     <div className="grid grid-cols-2 gap-3">
-      <div><p className="text-xs" style={{color:'var(--muted)'}}>Minimum received</p>
-       <p className="mt-1 font-semibold">{quote.minimum} {mode==='swap'?quote.toToken:'USDC'}</p></div>
-      <div><p className="text-xs" style={{color:'var(--muted)'}}>Provider fees</p>
-       <p className="mt-1 font-semibold">{quote.fees.length?quote.fees.join(' · '):'Not supplied'}</p></div>
-     </div>
-     <div className="text-xs" style={{color:'var(--muted)'}}>
-      {mode==='swap'?'Slippage limit: 1%':'CCTP source burn caps on-chain fee to '+quote.bridgeMaxFee+' USDC; destination verified separately'}
-     </div>
-     <details className="border-t pt-3 text-xs" style={{color:'var(--muted)',borderColor:'var(--border)'}}>
-      <summary className="cursor-pointer font-semibold">Details</summary>
-      <div className="mt-2 space-y-1 break-all">
-       <p>Source: {label(quote.source)} · {quote.fromToken}</p>
-       <p>Destination: {label(quote.destination)} · {mode==='swap'?quote.toToken:'USDC'}</p>
-       <p>Recipient: {address}</p>
-       <p>Provider: Circle App Kit {mode==='bridge'?'· CCTP':'· Swap'}</p>
-       <p>Source token: {token}</p>
-       <p>Destination token: {destToken}</p>
-       <p>Network fees and any extra wallet approval are confirmed by your wallet.</p>
+    {!recovery&&!unknownStorage&&<div className="space-y-2" aria-label="Transaction action">
+     <button type="button" aria-live="polite"
+      disabled={busy||!validAmount(amount)||!!quote&&!quoteExpired&&!signingReady}
+      className="veyra-btn-primary flex min-h-12 w-full items-center justify-center gap-2 disabled:opacity-40"
+      onClick={()=>void(quote&&!quoteExpired?signNow():quoteNow())}>
+      {busy&&<RefreshCw className="size-4 animate-spin" aria-hidden="true"/>}
+      {busy?(quote&&!quoteExpired?'Checking live quote…':'Getting live quote…'):
+       quote&&!quoteExpired?'Confirm in wallet':quoteExpired?'Refresh quote':
+       mode==='swap'?'Review swap':'Review bridge'}
+     </button>
+     {quote&&!quoteExpired&&<div role="status" aria-label="Live provider quote"
+       className="rounded-xl border px-3 py-2.5 text-xs"
+       style={{borderColor:'var(--border)',background:'var(--surface-raised)',color:'var(--muted)'}}>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+       <span className="font-semibold" style={{color:'var(--ink)'}}>Minimum {quote.minimum} {mode==='swap'?quote.toToken:'USDC'}</span>
+       <span>{Math.max(0,30-Math.floor((quoteClock-quote.at)/1000))}s · Live quote</span>
       </div>
-     </details>
-     {quoteExpired?<button type="button" onClick={()=>setQuote(null)}
-       className="veyra-btn-secondary w-full">Get a fresh quote</button>:
-      signingReady?<button type="button" disabled={busy} onClick={()=>void signNow()}
-       className="veyra-btn-primary w-full disabled:opacity-40">Confirm in wallet</button>:
-       <p role="status" className="text-xs" style={{color:'var(--warning)'}}>
-        Quotes only. Transfers are paused; no transaction has been sent.
-       </p>}
+      <p className="mt-1">Fee: {quote.fees.length?quote.fees.join(' · '):'Unavailable'}</p>
+      <details className="mt-1"><summary className="cursor-pointer font-semibold">Fee & route details</summary>
+       <div className="mt-2 space-y-1 break-all">
+        <p>{label(quote.source)} → {label(quote.destination)} · {quote.fromToken} → {mode==='swap'?quote.toToken:'USDC'}</p>
+        <p>Recipient: {address}</p>
+        <p>{mode==='swap'?'Slippage limit: 1%':
+         'CCTP onchain fee cap: '+quote.bridgeMaxFee+' USDC; destination independently verified'}</p>
+        <p>Source token: {token} · Destination token: {destToken}</p>
+        <p>Network gas and wallet approvals are reviewed before signing.</p>
+       </div>
+      </details>
+      {!signingReady&&<p role="status" className="mt-1" style={{color:'var(--warning)'}}>
+       Quotes only. Signing is paused.</p>}
+     </div>}
+     {quoteExpired&&<p role="status" className="text-xs" style={{color:'var(--warning)'}}>
+      Quote expired. Refresh before signing. No transaction was submitted.
+     </p>}
     </div>}
-    {(recovery||unknownStorage)&&<div role="status" className="space-y-3 rounded-xl border p-4 text-sm"
+    </>}
+    {(recovery||unknownStorage)&&<div role="status" className="space-y-2 rounded-xl border p-3 text-sm"
      style={{borderColor:'var(--border)',color:'var(--ink)'}}>
      <p className="flex items-center gap-2 font-bold">
+      {busy&&<RefreshCw className="size-4 animate-spin" aria-label="Checking original transaction"/>}
       {recovery?.status==='VERIFIED'?<ShieldCheck className="size-5" style={{color:'var(--success)'}}/>:
        <RefreshCw className="size-4" style={{color:'var(--muted)'}}/>}
       {recovery?.status==='VERIFIED'?'Destination verified':
@@ -532,14 +536,18 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        recovery?.status==='REVERTED'?'Review the original transaction before starting a new request.':
        'Previous outcome is pending or uncertain. Veyra will not submit a duplicate transaction. Status rechecks never request a signature.'}
      </p>
-     {recovery?.hash&&<p className="break-all text-xs">Swap: {recovery.hash}</p>}
-     {recovery?.burnHash&&<p className="break-all text-xs">Burn: {recovery.burnHash}</p>}
-     {recovery?.mintHash&&<p className="break-all text-xs">Destination: {recovery.mintHash}</p>}
-     {(recovery?.mintHash||recovery?.hash)&&<a target="_blank" rel="noreferrer"
-      className="block break-all text-xs underline" style={{color:'var(--accent)'}}
-      href={(recovery.destination===BASE?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+(recovery.mintHash||recovery.hash)}>
-      View transaction on explorer
-     </a>}
+     {(recovery?.hash||recovery?.burnHash||recovery?.mintHash)&&<details className="text-xs">
+      <summary className="cursor-pointer" style={{color:'var(--muted)'}}>Transaction details</summary>
+      <div className="mt-2 space-y-1 break-all">
+       {recovery?.hash&&<p>Swap: {recovery.hash}</p>}
+       {recovery?.burnHash&&<p>Burn: {recovery.burnHash}</p>}
+       {recovery?.mintHash&&<p>Destination: {recovery.mintHash}</p>}
+       {(recovery?.mintHash||recovery?.hash)&&<a target="_blank" rel="noreferrer"
+        className="block underline" style={{color:'var(--accent)'}}
+        href={(recovery.destination===BASE?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+(recovery.mintHash||recovery.hash)}>
+        View transaction on explorer</a>}
+      </div>
+     </details>}
      {recovery&&recovery.status!=='VERIFIED'&&recovery.status!=='REVERTED'&&<>
       {mode==='bridge'&&!recovery.burnHash&&<p className="text-xs" style={{color:'var(--warning)'}}>
        Source transaction hash was not returned. Inspect your wallet/Activity; original attempt remains locked.

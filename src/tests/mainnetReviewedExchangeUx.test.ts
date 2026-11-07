@@ -41,10 +41,10 @@ describe('Veyra reviewed routes are the ONLY source for selectors and pause stat
   expect(page).not.toContain('Show unsupported');
   expect(page).not.toContain('Owned first');
   expect(page).not.toContain('No reviewed token matched');
-  expect(circle).toContain('Review swap quote');
-  expect(circle).toContain('Review bridge quote');
-  expect(circle).toContain('Minimum received');
-  expect(circle).toContain('Get a fresh quote');
+  expect(circle).toContain("mode==='swap'?'Review swap':'Review bridge'");
+  expect(circle).toContain('aria-label="Transaction action"');
+  expect(circle).toContain('Minimum {quote.minimum}');
+  expect(circle).toContain('Refresh quote');
   expect(circle).toContain('Max</button>');
   expect(circle).toContain('recovery||unknownStorage');
   const settings=source('components/pages/SettingsPage.tsx');

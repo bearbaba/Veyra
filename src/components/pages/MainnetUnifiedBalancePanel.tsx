@@ -322,18 +322,20 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
     style={{color:'var(--warning)'}}>Quotes and review only · Mainnet transfers paused</p>}
    <div className="flex items-center justify-between">
     <p className="text-sm font-bold">{mode==='deposit'?'Add USDC':'Send Unified USDC'}</p>
-    {!fundingToWallet&&<button type="button" onClick={()=>setMode(null)} className="veyra-btn-secondary px-2 text-xs">Close</button>}
+    {(review||!fundingToWallet)&&<button type="button" onClick={()=>{if(review){setReview(false);setFees(null);}else{setMode(null);}}} className="veyra-btn-secondary px-2 text-xs">{review?'Edit':'Close'}</button>}
    </div>
-   <p className="text-xs" style={{color:'var(--muted)'}}>
-    {mode==='deposit'?'Source deposit finality and Circle Gateway Available are separate milestones. Only the provider ledger is spendable.':
-     'The Circle forwarding service pays destination gas from its quoted fee. No automatic trustless withdrawal.'}
-   </p>
+   {!review&&<>
+   <details className="text-xs" style={{color:'var(--muted)'}}>
+    <summary className="cursor-pointer">How this transfer works</summary>
+    <p className="mt-1">{mode==='deposit'?'Source deposit finality and Circle Gateway Available are separate milestones. Only the provider ledger is spendable.':
+     'The Circle forwarding service pays destination gas from its quoted fee. No automatic trustless withdrawal.'}</p>
+   </details>
    {mode==='spend'&&<button type="button" className="text-xs underline"
     onClick={()=>{setAdvanced(value=>!value);setReview(false);setFees(null);}}>
     {advanced?'Automatic source selection':'Advanced · select one source'}
    </button>}
    {(mode==='deposit'||advanced)&&<div><p className="mb-1 text-xs font-semibold">Source network</p>
-    <div className="grid grid-cols-2 gap-2">{C.map(c=><button type="button" key={c.chainId}
+    <div className="grid grid-cols-3 gap-1.5">{C.map(c=><button type="button" key={c.chainId}
      onClick={()=>selectSource(c.chainId)} aria-pressed={sourceId===c.chainId}
      className="veyra-route-control flex min-w-0 items-center gap-2 rounded-xl border p-2 text-left"
      style={{background:sourceId===c.chainId?'var(--accent-muted)':'var(--surface)',
@@ -341,7 +343,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
      <BrandLogo logoKey={c.logo} size={26}/><span className="truncate text-xs font-semibold">{c.chain}</span>
     </button>)}</div></div>}
    {mode==='spend'&&!fundingToWallet&&<div><p className="mb-1 text-xs font-semibold">Destination network</p>
-    <div className="grid grid-cols-2 gap-2">{C.map(c=><button type="button" key={c.chainId}
+    <div className="grid grid-cols-3 gap-1.5">{C.map(c=><button type="button" key={c.chainId}
      onClick={()=>selectDestination(c.chainId)} aria-pressed={destinationId===c.chainId}
      className="veyra-route-control flex min-w-0 items-center gap-2 rounded-xl border p-2 text-left"
      style={{background:destinationId===c.chainId?'var(--accent-muted)':'var(--surface)',
@@ -377,30 +379,35 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
    {!enough&&validAmount&&<p className="text-xs" style={{color:'var(--warning)'}}>
     Insufficient confirmed {mode==='spend'?'Gateway Available':'wallet USDC on '+activeSource.chain}.
    </p>}
+   </>}
    {review&&<div className="rounded-lg border p-3 text-xs" style={{borderColor:'var(--border)'}}>
     <p className="font-semibold">Review · {reviewedView?.amount??amount} USDC {mode==='spend'?'· '+(reviewedView?.allocations?.length??allocations.length)+' source(s)':'· '+activeSource.chain}</p>
-    {mode==='spend'&&<div className="mt-2 space-y-1" aria-label="Reviewed source allocations">
+    {mode==='spend'&&<details className="mt-2">
+     <summary className="cursor-pointer">Source allocations · {(reviewedView?.allocations??allocations).length}</summary>
+     <div className="mt-2 space-y-1" aria-label="Reviewed source allocations">
       {(reviewedView?.allocations??allocations).map(a=><p key={a.chainId}>{a.chain} · {a.amount} USDC</p>)}
-    </div>}
+     </div>
+    </details>}
     <p className="mt-1">{mode==='spend'?'To '+recipient+' on '+C.find(c=>c.chainId===destinationId)?.chain:
      'Deposit to Circle Gateway · same wallet owner'}</p>
     {fundingToWallet&&reviewedView&&
      <p className="mt-1">Funding gross: {reviewedView.amount} USDC · Arc shortfall: {fundingNeeded} USDC</p>}
     <p className="mt-1">Fees: {mode==='spend'?(fees?.map(f=>f.type+': '+f.amount+' '+f.token).join(' · ')||'Unavailable'):
      'Network gas shown by wallet; not estimated by Veyra'}</p>
-    <p className="mt-1">A provider result is not final settlement. Each source and destination must be independently verified; no automatic resend.</p>
+    <details className="mt-1"><summary className="cursor-pointer">Payment safety</summary>
+     <p className="mt-1">A provider result is not a destination receipt. Verify the original operation; never resend an unknown outcome.</p></details>
    </div>}
-   <button type="button" disabled={!good||busy||review}
-    onClick={()=>void preview()} className="veyra-btn-secondary w-full py-3 disabled:opacity-40">
-    {busy?'Checking…':mode==='deposit'?'Review deposit':'Review transfer fees'}
+   <button type="button" disabled={!good||busy||review&&!canPilot}
+    onClick={()=>void(review?execute():preview())}
+    className={'flex min-h-12 w-full items-center justify-center gap-2 py-3 disabled:opacity-40 '+(review?'veyra-btn-primary':'veyra-btn-secondary')}>
+    {busy&&<RefreshCw className="size-4 animate-spin" aria-hidden="true"/>}
+    {busy?'Checking live status…':review?'Confirm in wallet':
+      mode==='deposit'?'Review deposit':'Review transfer fees'}
    </button>
-   {review&&<button type="button" onClick={()=>void execute()} disabled={!canPilot||busy||!good}
-    className="veyra-btn-primary w-full py-3 disabled:opacity-40">
-    {canPilot?'Confirm in wallet':'Transfers paused · Mainnet canary not accepted'}
-   </button>}
-   <p className="text-[11px]" style={{color:'var(--muted)'}}>
-    Circle Gateway standard trustless withdrawal is a separate seven-day recovery process and is not enabled here.
-   </p>
+   <details className="text-[11px]" style={{color:'var(--muted)'}}>
+    <summary className="cursor-pointer">Withdrawal conditions</summary>
+    <p className="mt-1">Circle Gateway standard trustless withdrawal is a separate seven-day process and is not enabled here.</p>
+   </details>
   </section>}
   </div>}
  </div>;
