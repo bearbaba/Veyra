@@ -369,7 +369,7 @@ jobs:
             if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then break; fi
             sleep 1
           done
-          VEYRA_QA_URL=http://127.0.0.1:4173 node scripts/mainnet-browser-qa.mjs
+          VEYRA_QA_URL=http://127.0.0.1:4173 node qa/mainnet-browser-qa.mjs
       - name: Upload browser measurements, viewport screenshots and failures
         if: always()
         uses: actions/upload-artifact@v4
