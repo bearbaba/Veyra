@@ -114,3 +114,19 @@ export const IS_TESTNET = VEYRA_ENV === 'testnet' || VEYRA_ENV === 'local';
 
 /** Convenience: true only for a production mainnet build. */
 export const IS_MAINNET = VEYRA_ENV === 'mainnet';
+
+declare const __VEYRA_BUILD_STAMP__: string;
+
+/**
+ * Build stamp. Compiled into the JavaScript so a deployed artifact can be
+ * audited without trusting build logs: `veyra-build:env=<env>;sha=<commit>`.
+ * scripts/assertMainnetArtifact.ts fails the build when this is not the
+ * expected environment. Also readable in a browser as `window.__VEYRA_BUILD__`.
+ */
+// Outside a Vite build (unit tests) the constant is not defined. The fallback
+// intentionally does not match the stamp pattern the artifact assertion scans for.
+export const VEYRA_BUILD_STAMP: string =
+  typeof __VEYRA_BUILD_STAMP__ === 'string' ? __VEYRA_BUILD_STAMP__ : 'unbundled';
+if (typeof window !== 'undefined') {
+  (window as unknown as { __VEYRA_BUILD__?: string }).__VEYRA_BUILD__ = VEYRA_BUILD_STAMP;
+}

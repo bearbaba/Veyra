@@ -51,7 +51,8 @@ export function verifyProductionMainnetRouting(
    issues.push('Missing or wrong Mainnet BFF rewrite: '+path);
  }
  for(const r of all){
-  if(r.source.startsWith('/api/')&&(/testnet|sepolia/i.test(r.destination)||!r.destination.startsWith('https://')))
+  if(r.source.startsWith('/api/')&&(/testnet|sepolia/i.test(r.destination)||!r.destination.startsWith('https://')||
+    origin===''||!r.destination.startsWith(origin+'/api/')))
    issues.push('Unsafe API rewrite: '+r.source);
  }
  return {ok:issues.length===0,issues};

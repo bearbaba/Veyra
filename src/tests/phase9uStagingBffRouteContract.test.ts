@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { productionBuildMode, mainnetRoutingIssues } from './support/productionProfile';
 import {
   STAGING_ALLOWED_PATHS,
   STAGING_APPROVED_REWRITES,
@@ -48,8 +49,12 @@ describe('full Testnet BFF routing is exact, implemented and owner-protected', (
         source: path, destination: STAGING_BFF_ORIGIN + path,
       });
     }
-    expect(vercel.rewrites).toEqual(STAGING_APPROVED_REWRITES);
-    expect(isExactStagingBffAllowlist(vercel.rewrites)).toBe(true);
+    if (productionBuildMode() === 'mainnet') {
+      expect(mainnetRoutingIssues()).toEqual([]);
+    } else {
+      expect(vercel.rewrites).toEqual(STAGING_APPROVED_REWRITES);
+      expect(isExactStagingBffAllowlist(vercel.rewrites)).toBe(true);
+    }
   });
 
   it('owner-scoped contacts and receive settings reject unsigned access before DB work',()=>{

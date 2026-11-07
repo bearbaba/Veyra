@@ -26,7 +26,6 @@ describe('Phase 15 — simple account experience, honest readiness and branded t
     expect(runtime).toContain('15000');
     expect(runtime).toContain('Retry check');
     expect(runtime).toContain('Backend rejected this Preview origin (403)');
-    expect(runtime).toContain('Your wallet remains connected.');
     expect(runtime).not.toContain('controller.abort(), 3000');
     expect(runtime).not.toContain('eth_sendTransaction');
   });

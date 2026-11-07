@@ -23,7 +23,7 @@ export function readBridgeQuoteAmounts(estimate:unknown,sent:string):BridgeQuote
  const input=micro(sent),quoted=micro(v.amount);
  if(input===null||quoted!==input||v.token!=='USDC'||!Array.isArray(v.fees)||
   v.fees.length===0||!Array.isArray(v.gasFees)||
-  v.gasFees.some(item=>!!item&&typeof item==='object'&&'error' in item&&item.error!=null)||
+  v.gasFees.some((item:unknown)=>!!item&&typeof item==='object'&&'error' in item&&(item as Record<string,unknown>).error!=null)||
   (Array.isArray(v.warnings)&&v.warnings.length>0))
   throw Error(error);
  let total=0n;
