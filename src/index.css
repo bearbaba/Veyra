@@ -324,50 +324,25 @@ body {
 @media (max-width: 767px) {
  .arc-studio-attribution { display:none!important; }
 }
-
-/* Compact Mainnet layout only. Preserve original Veyra blue/violet tokens,
-   hero, profile card, wallet gradient, and financial signing presentation. */
-.veyra-calm {background:var(--bg-gradient);color:var(--ink);}
-.veyra-calm-header {
-  border-color:var(--border);
-  background:rgba(5,17,40,.96);
-  backdrop-filter:blur(16px);
+ 
+/* Scoped component-content polish only; original desktop sidebar, page
+   widths, Home geometry and mobile shell remain unchanged. */
+.veyra-mainnet-classic .veyra-pay-page .veyra-pay-panel {
+  padding: clamp(1rem, 3vw, 1.25rem);
 }
-.veyra-calm-nav-item {color:var(--muted);transition:background-color .15s ease,color .15s ease;}
-.veyra-calm-nav-item:hover {color:var(--ink);background:rgba(109,152,228,.11);}
-.veyra-calm-nav-item[data-active="true"] {
-  color:var(--ink);background:var(--surface-strong);border:1px solid var(--border-strong);
+.veyra-mainnet-classic .veyra-pay-page .veyra-pay-panel > section[aria-label="Payment details"] {
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
 }
-.veyra-calm-nav-item:not([data-active="true"]) {border:1px solid transparent;}
-.veyra-calm-nav-item svg {width:17px;height:17px;}
-.veyra-calm-dropdown,.veyra-calm-mobile-more {
-  border-color:var(--border-strong);
-  background:#0e2347;color:var(--ink);
+.veyra-mainnet-classic .veyra-pay-page .veyra-page-title {
+  font-size: clamp(1.6rem, 3vw, 1.95rem);
 }
-.veyra-calm-dropdown-item {color:var(--muted);}
-.veyra-calm-dropdown-item:hover:not(:disabled) {color:var(--ink);background:var(--surface-strong);}
-.veyra-calm-mobile-nav {
-  border-color:var(--border);
-  background:rgba(5,17,40,.98);
-  backdrop-filter:blur(14px);
+.veyra-calm-unified-toggle { color: var(--ink); }
+.veyra-calm-unified-toggle:hover { background: rgba(109,152,228,.075); }
+.veyra-mainnet-classic .veyra-calm-person:hover {
+  border-color: var(--border-strong) !important;
 }
-.veyra-calm-mobile-item {color:var(--subtle);}
-.veyra-calm-mobile-item[data-active="true"] {color:var(--accent);}
-.veyra-calm .veyra-pay-page .veyra-pay-panel {
-  padding:clamp(1rem,3vw,1.25rem);
-}
-.veyra-calm .veyra-pay-page .veyra-pay-panel > section[aria-label="Payment details"] {
-  padding:0!important;border:0!important;background:transparent!important;
-}
-.veyra-calm .veyra-page-title {font-size:clamp(1.6rem,3vw,1.95rem);}
-.veyra-calm-unified-toggle {color:var(--ink);}
-.veyra-calm-unified-toggle:hover {background:rgba(109,152,228,.075);}
-.veyra-calm .veyra-calm-person:hover {border-color:var(--border-strong)!important;}
-@media (max-width:767px) {
-  .veyra-calm .veyra-page {padding-top:1.2rem;padding-bottom:1.5rem;}
-  .veyra-calm .veyra-pay-page .veyra-pay-panel {padding:1rem;}
-  .veyra-calm .veyra-home .veyra-brand-balance {padding:1rem;}
-}
-@media (prefers-reduced-motion:reduce) {
-  .veyra-calm-nav-item {transition:none;}
+@media (max-width: 767px) {
+  .veyra-mainnet-classic .veyra-pay-page .veyra-pay-panel { padding: 1rem; }
 }

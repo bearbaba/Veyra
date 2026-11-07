@@ -110,6 +110,16 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  const wrong=isConnected&&chainId!==ARC;
  const available=!address?'—':isError?'Unavailable':data!==undefined?formatUnits(data,6):'Reading…';
  const pending=scopedLocal.filter(x=>x.status==='SUBMITTED');
+ const actions:{id:'send'|'people'|'swap'|'bridge'|'activity';label:string;hint:string;tint:string;icon:React.ReactNode}[]=[
+  {id:'send',label:'Pay',hint:'To · Amount · Note',tint:'#35bbff',icon:<SendHorizontal className="size-5"/>},
+  {id:'people',label:'Friends',hint:'Find a Veyra ID',tint:'#ae86ff',icon:<Users className="size-5"/>},
+  {id:'swap',label:'Swap',hint:'You pay · You receive',tint:'#44d9e8',icon:<ArrowLeftRight className="size-5"/>},
+  {id:'bridge',label:'Bridge',hint:'From · To · Amount',tint:'#ffce6a',icon:<Route className="size-5"/>},
+  {id:'activity',label:'Activity',hint:'Your transactions',tint:'#bb87ff',icon:<LayoutList className="size-5"/>},
+ ];
+ function selectAction(id:(typeof actions)[number]['id']){
+  onNavigate(id==='send'?'settlement':id==='people'?'social':id==='swap'?'convert':id==='bridge'?'bridge':'activity');
+ }
  const card='veyra-card p-5 sm:p-6';
  const cardStyle={background:'var(--surface)',border:'1px solid var(--border)'};
  async function copy(){
@@ -117,11 +127,11 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
   try{await navigator.clipboard.writeText(address);setCopied(true);setCopyError(false);}
   catch{setCopyError(true);}
  }
- return <div className="veyra-page veyra-home mx-auto w-full max-w-[1020px] space-y-4 px-4 py-6 md:px-6 md:py-9">
+ return <div className="veyra-page veyra-home mx-auto w-full max-w-7xl space-y-5 px-4 py-5 md:px-7 md:py-8">
   <section className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]" aria-label="Veyra overview">
-   <div className="flex min-h-[180px] flex-col justify-center py-1 lg:pr-3">
+   <div className="flex min-h-[250px] flex-col justify-center py-3 lg:pr-5">
     <p className="text-[11px] font-bold uppercase tracking-[0.25em]" style={{color:'var(--accent)'}}>WELCOME TO VEYRA</p>
-    <h1 className="display mt-2 text-3xl font-bold leading-[1.1] tracking-tight sm:text-4xl xl:text-[2.7rem]" style={{color:'var(--ink)'}}>
+    <h1 className="display mt-3 text-4xl font-bold leading-[1.08] tracking-tight sm:text-5xl xl:text-[3.45rem]" style={{color:'var(--ink)'}}>
      Your money,<span className="block veyra-headline-accent">more capable.</span>
     </h1>
     <p className="mt-2 text-sm leading-5 sm:text-base" style={{color:'var(--muted)'}}>Pay friends by name. Keep every receipt.</p>
@@ -138,7 +148,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
      </button>
     </div>
    </div>
-   <div className="veyra-profile-card relative min-w-0 overflow-hidden rounded-2xl border p-4 sm:p-5" aria-label="Your Veyra identity">
+   <div className="veyra-profile-card relative flex min-h-[257px] min-w-0 flex-col justify-between overflow-hidden rounded-2xl border p-5 max-[359px]:min-h-[273px] sm:p-6 lg:min-h-[265px]" aria-label="Your Veyra identity">
     <div aria-hidden="true" className="veyra-profile-glow"/>
     <div className="relative z-10 flex items-start gap-3">
      <div className="flex size-14 shrink-0 items-center justify-center rounded-full border sm:size-16"
@@ -191,6 +201,16 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
      className="veyra-btn-secondary inline-flex items-center gap-2 disabled:opacity-50"><ArrowDownLeft className="size-4"/>Receive</button>
    </div>
    <MainnetUnifiedBalancePanel compact/>
+  </section>
+  <section aria-label="Quick actions">
+   <h2 className="veyra-section-title mb-3">Quick actions</h2>
+   <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+    {actions.map(item=><button key={item.id} type="button"
+     onClick={()=>selectAction(item.id)} className="veyra-action-card group flex min-h-[94px] flex-col items-start justify-center gap-2 rounded-2xl border p-4 text-left">
+     <span style={{color:'var(--accent)'}}>{item.icon}</span>
+     <span className="text-sm font-semibold" style={{color:'var(--ink)'}}>{item.label}</span>
+    </button>)}
+   </div>
   </section>
   {receive&&<section className="rounded-xl border p-4" style={cardStyle} aria-label="Receive USDC on Arc Mainnet">
     <div className="flex items-center justify-between gap-3">

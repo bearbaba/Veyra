@@ -47,11 +47,10 @@ async function assertMenu(page,isMobile) {
     await sub.getByRole('button',{name:'Swap'}).click();
     assert.equal(await sub.count(),0,'Mobile More did not close after navigation');
   }else{
-    const nav=page.getByRole('navigation',{name:'Main navigation'});
-    await nav.locator('summary[aria-label="More features"]').click();
-    assert(await nav.getByRole('button',{name:'Swap'}).isVisible());
-    assert(await nav.getByRole('button',{name:'Bridge'}).isVisible());
-    await nav.getByRole('button',{name:'Swap'}).click();
+    const sidebar=page.locator('aside');
+    assert(await sidebar.getByRole('button',{name:'Swap',exact:true}).isVisible());
+    assert(await sidebar.getByRole('button',{name:'Bridge',exact:true}).isVisible());
+    await sidebar.getByRole('button',{name:'Swap',exact:true}).click();
   }
   await page.getByRole('heading',{name:'Swap',exact:true}).waitFor();
   await noOverflow(page,isMobile?'mobile Swap':'desktop Swap');
@@ -62,9 +61,8 @@ async function assertMenu(page,isMobile) {
     await page.getByRole('region',{name:'More Veyra features'})
       .getByRole('button',{name:'Bridge'}).click();
   }else{
-    const nav=page.getByRole('navigation',{name:'Main navigation'});
-    await nav.locator('summary[aria-label="More features"]').click();
-    await nav.getByRole('button',{name:'Bridge'}).click();
+    const sidebar=page.locator('aside');
+    await sidebar.getByRole('button',{name:'Bridge',exact:true}).click();
   }
   await page.getByRole('heading',{name:'Bridge',exact:true}).waitFor();
   await noOverflow(page,isMobile?'mobile Bridge':'desktop Bridge');
@@ -74,8 +72,11 @@ async function assertMenu(page,isMobile) {
 async function runDesktop(browser){
   const {page,errors}=await makePage(browser,1440,900);
   try{
-    const nav=page.getByRole('navigation',{name:'Main navigation'});
-    for(const name of ['Home','Pay','Friends','Activity']){
+    const nav=page.locator('aside');
+    const sidebarRect=await nav.boundingBox();
+    assert(sidebarRect&&Math.abs(sidebarRect.width-208)<2,
+      'Pre-92 desktop sidebar width 208px not restored: '+JSON.stringify(sidebarRect));
+    for(const name of ['Home','Pay','Friends','Activity','Swap','Bridge']){
       assert.equal(await nav.getByRole('button',{name,exact:true}).count(),1,
         'Desktop primary menu missing '+name);
     }
@@ -110,7 +111,7 @@ async function runDesktop(browser){
     await page.getByRole('heading',{name:/Your money,/}).waitFor();
     assert.equal(await page.getByRole('heading',{name:'Pay',exact:true}).count(),0,'Tab change retained wrong view');
     assert.deepEqual(errors,[],'Browser JS errors: '+errors.join(' | '));
-    console.log('[browser] desktop Home, Pay, Friends, Activity, Unified, Swap, Bridge, tabs, width: PASS');
+    console.log('[browser] desktop original 208px sidebar + direct Swap/Bridge, Home/Pay/Friends/Unified, tabs, width: PASS');
   }finally{await page.close();}
 }
 async function runMobile(browser,width,height){
@@ -126,6 +127,8 @@ async function runMobile(browser,width,height){
     assert(await unified.getByRole('button',{name:'Send to wallet'}).isVisible());
     await noOverflow(page,'mobile '+width+' Home');
     await snapshot(page,'mobile-'+width+'-home.png');
+    assert.equal(await page.locator('aside').isVisible(),false,
+      'Desktop sidebar visible on a phone');
     await nav.getByRole('button',{name:'Pay',exact:true}).click();
     await page.getByRole('heading',{name:'Pay',exact:true}).waitFor();
     await noOverflow(page,'mobile '+width+' Pay');
