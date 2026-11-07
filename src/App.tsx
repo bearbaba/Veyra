@@ -30,6 +30,7 @@ import {isMainnetSessionForWallet} from '@/mainnet/signedWalletReceiptScope';
 import { SocialPage } from './components/pages/SocialPage';
 import { SettlementPage } from './components/pages/SettlementPage';
 import { MainnetPayHub } from './components/pages/MainnetPayHub';
+import { MainnetPayPage } from './components/pages/MainnetPayPage';
 import { MainnetExchangePage } from './components/pages/MainnetExchangePage';
 import {MainnetSoonPage} from './components/pages/MainnetSoonPage';
 import { MainnetPeoplePage } from './components/pages/MainnetPeoplePage';
@@ -144,8 +145,8 @@ export default function App() {
     }
   },[]);
   function setPage(next:VeyraPage){
-    const target=VEYRA_ENV==='mainnet'&&next==='pay'?'settlement':next;
-    if(VEYRA_ENV==='mainnet'&&target!=='settlement'){
+    const target=next;
+    if(VEYRA_ENV==='mainnet'&&target!=='settlement'&&target!=='pay'){
       if(address){clearRequestNavigation(address);clearPayRecipient(address);}
       setPaymentRequest(null);setVerifiedRecipient(null);setContactRecipient(null);
     }
@@ -190,11 +191,19 @@ export default function App() {
       case 'exchange':
         return <MainnetSoonPage feature="Exchange"/>;
       case 'pay':
-        return VEYRA_ENV === 'mainnet' ? <MainnetPayHub recipientWallet={contactRecipient}
-          verifiedRecipient={verifiedRecipient} paymentRequest={paymentRequest} onClearVerified={()=>{setVerifiedRecipient(null);setPaymentRequest(null);
-           if(address){clearRequestNavigation(address);clearPayRecipient(address);}}}
-          onVerifiedSelected={onVerifiedSelected}
-          onRecipientUsed={() => setContactRecipient(null)} /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
+        return VEYRA_ENV === 'mainnet' ? <section className="veyra-page mx-auto w-full max-w-[620px] space-y-4 px-4 py-6 md:px-6 md:py-9">
+          <button type="button" onClick={()=>setPage('settlement')} className="text-sm font-semibold"
+            style={{color:'var(--accent)'}}>← Back to Pay</button>
+          <header>
+            <h1 className="veyra-page-title">Direct USDC</h1>
+            <p className="veyra-page-subtitle">Wallet transfer · pilot only. Review the exact receiver and network before signing.</p>
+          </header>
+          <MainnetPayPage embedded
+            sharedDraft={address?readPayDraft(address):undefined}
+            verifiedRecipient={verifiedRecipient}
+            recipientWallet={contactRecipient}
+            onRecipientUsed={()=>setContactRecipient(null)}/>
+        </section> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
       case 'convert':
         return VEYRA_ENV === 'mainnet' ? <MainnetExchangePage /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="convert" /> : <ConvertPage />;
       case 'bridge':
@@ -227,7 +236,7 @@ export default function App() {
             setPaymentRequest(null);setVerifiedRecipient(null);setContactRecipient(recipient);setFriendPayment(null);setPage('settlement');
           }}/> : <SocialPage onPayFriend={startFriendPayment} />);
       case 'settlement':
-        return VEYRA_ENV === 'mainnet' ? <MainnetPayHub recipientWallet={contactRecipient}
+        return VEYRA_ENV === 'mainnet' ? <MainnetPayHub onDirectPay={()=>setPage('pay')} recipientWallet={contactRecipient}
           verifiedRecipient={verifiedRecipient} paymentRequest={paymentRequest} onClearVerified={()=>{setVerifiedRecipient(null);setPaymentRequest(null);
            if(address){clearRequestNavigation(address);clearPayRecipient(address);}}}
           onVerifiedSelected={onVerifiedSelected}
