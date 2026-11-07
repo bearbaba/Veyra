@@ -225,21 +225,21 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   <button type="button" key={exchangeAssetId(a)}
    disabled={locked} onClick={()=>setPicking(side)}
    aria-pressed={active}
-   className="flex min-h-16 min-w-0 flex-1 items-center gap-3 rounded-xl border p-3 text-left disabled:opacity-50"
+   className="flex min-h-14 min-w-0 flex-1 items-center gap-1.5 rounded-xl border p-2 text-left disabled:opacity-50 sm:gap-2 sm:p-3"
    style={{background:active?'var(--accent-muted)':'var(--veyra-control)',
     borderColor:active?'var(--border-strong)':'var(--border)',color:'var(--ink)'}}>
-   <BrandLogo logoKey={a.chainId===ARC?'arc':a.chainId===1?'ethereum':'base'} size={34}/>
-   <span className="min-w-0"><span className="block font-semibold">{nameOf(a.chainId)}</span>
-    <span className="block text-xs" style={{color:'var(--muted)'}}>Mainnet · USDC</span></span><ChevronDown className="ml-auto size-4 shrink-0"/>
+   <BrandLogo logoKey={a.chainId===ARC?'arc':a.chainId===1?'ethereum':'base'} size={26}/>
+   <span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold sm:text-sm">{nameOf(a.chainId)}</span>
+    <span className="block truncate text-[10px]" style={{color:'var(--muted)'}}>USDC <span className="hidden sm:inline">· Mainnet</span></span></span><ChevronDown className="size-3.5 shrink-0"/>
   </button>
  );
- return <main className="veyra-page veyra-route-page mx-auto w-full max-w-2xl space-y-4 px-4 py-5 md:px-7 md:py-8">
+ return <main className="veyra-page veyra-route-page mx-auto w-full max-w-2xl space-y-3 px-4 py-4 md:px-7 md:py-6">
   <header>
    <p className="veyra-eyebrow">VEYRA · MAINNET</p>
    <h1 className="veyra-page-title">{mode==='swap'?'Swap':'Bridge'}</h1>
    <p className="veyra-page-subtitle">{mode==='swap'?'Exchange USDC and EURC on Arc.':'Move native USDC across supported Circle CCTP networks.'}</p>
   </header>
-  <section className="veyra-card space-y-4 p-4 sm:p-5" aria-label={mode==='swap'?'Swap form':'Bridge form'}>
+  <section className="veyra-card space-y-3 p-3 sm:p-5" aria-label={mode==='swap'?'Swap form':'Bridge form'}>
    <div role="status" className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold"
     style={{color:status==='paused'?'var(--warning)':'var(--muted)',borderColor:'var(--border)',
      background:'var(--surface-raised)'}}>
@@ -269,17 +269,19 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
      </button>
     </div>
    </>:<>
-    <div className="space-y-2">
-     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>FROM NETWORK</p>
-     <div className="flex">{networkButton(from,'from',true)}</div>
-    </div>
-    <div className="flex items-center justify-center">
+    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2"
+     aria-label="Bridge route">
+     <div className="min-w-0 space-y-1.5">
+      <p className="text-[11px] font-semibold" style={{color:'var(--muted)'}}>FROM</p>
+      <div className="flex min-w-0">{networkButton(from,'from',true)}</div>
+     </div>
      <button type="button" disabled={locked} onClick={reverse} aria-label="Reverse bridge direction"
-      className="veyra-btn-secondary rounded-xl p-2.5 disabled:opacity-50"><ArrowDownUp className="size-4"/></button>
-    </div>
-    <div className="space-y-2">
-     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>TO NETWORK</p>
-     <div className="flex">{networkButton(to,'to',true)}</div>
+      className="veyra-btn-secondary mb-1 flex size-9 shrink-0 items-center justify-center rounded-full p-0 disabled:opacity-50"
+      ><ArrowRightLeft className="size-4"/></button>
+     <div className="min-w-0 space-y-1.5">
+      <p className="text-[11px] font-semibold" style={{color:'var(--muted)'}}>TO</p>
+      <div className="flex min-w-0">{networkButton(to,'to',true)}</div>
+     </div>
     </div>
    </>}
    {canQuote?<MainnetCirclePage key={mode+':'+exchangeAssetId(from)+':'+exchangeAssetId(to)}
