@@ -70,9 +70,10 @@ describe('Backed-up Mainnet Settlement additive migration preflight',()=>{
    .toThrow('SETTLEMENT_UPGRADE_WRONG_DATABASE');
  });
 
- it('checks the complete canonical SQL history including the additive request migration',()=>{
+ it('checks the complete canonical SQL history including additive requests and cross-device journey migrations',()=>{
   const real=expectedSettlementMigrationHistory();
-  expect(real).toHaveLength(23);
+  expect(real).toHaveLength(24);
+  expect(real[23]?.createdAt).toBeGreaterThan(real[22]?.createdAt??0);
   expect(real[22]?.createdAt).toBeGreaterThan(real[21]?.createdAt??0);
   expect(real.every(x=>/^[0-9a-f]{64}$/.test(x.hash))).toBe(true);
  });
