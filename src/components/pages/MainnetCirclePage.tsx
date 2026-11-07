@@ -24,6 +24,8 @@ import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked,findCctpDestinationMintHash} from '@/mainnet/verifyCctpBridgeLink';
 import {assertMainnetConsumerSigningAllowed,MAINNET_PUBLIC_BETA,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
 import {readBridgeQuoteAmounts,assertBridgeQuoteWithinReviewedCap} from '@/mainnet/bridgeQuoteGuard';
+import {assessFeeBurden,feeBurdenMessage} from '@/mainnet/feeBurden';
+import {Notice} from '@/components/ui/primitives';
 
 const kit=new AppKit();
 const ARC=5042,BASE=8453;
@@ -503,6 +505,11 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        <span>{Math.max(0,30-Math.floor((quoteClock-quote.at)/1000))}s · Live quote</span>
       </div>
       <p className="mt-1">Fee: {quote.fees.length?quote.fees.join(' · '):'Unavailable'}</p>
+      {(()=>{
+       const burden=quote.mode==='bridge'&&quote.bridgeMaxFee!==undefined?assessFeeBurden(quote.amount,quote.bridgeMaxFee):null;
+       const message=burden?feeBurdenMessage(burden):null;
+       return message?<div className="mt-2"><Notice tone="warning">{message}</Notice></div>:null;
+      })()}
       <details className="mt-1"><summary className="cursor-pointer font-semibold">Fee & route details</summary>
        <div className="mt-2 space-y-1 break-all">
         <p>{label(quote.source)} → {label(quote.destination)} · {quote.fromToken} → {mode==='swap'?quote.toToken:'USDC'}</p>
