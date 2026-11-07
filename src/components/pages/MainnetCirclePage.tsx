@@ -44,7 +44,7 @@ export function isCircleSigningReady(mode:Mode):boolean{
 }
 type Token='USDC'|'EURC';
 export type ExchangeExecutionSelection={fromChainId:number;toChainId:number;fromToken:Token;toToken:Token};
-type Quote={owner:string;at:number;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;expected:string;fees:string[]};
+type Quote={owner:string;at:number;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;expected:string;fees:string[];bridgeMaxFee?:string};
 type Recovery={owner:string;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;status:'UNKNOWN'|'PENDING'|'VERIFIED'|'REVERTED';hash?:string;burnHash?:string;mintHash?:string;intentId?:string};
 const key=(mode:Mode,owner:string)=>'veyra:mainnet:circle:v1:'+mode+':'+owner.toLowerCase();
 const label=(id:number)=>id===ARC?'Arc Mainnet':id===1?'Ethereum Mainnet':'Base Mainnet';
@@ -155,7 +155,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    throw Error('Wallet address or network changed. Review again.');
   return p;
  }
- const params=async()=>{
+ const params=async(bridgeMaxFee?:string)=>{
   const p=await wallet(selectedSource);
   const adapter=await createViemAdapterFromProvider({provider:p});
   if(mode==='swap'){
@@ -164,7 +164,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
   }
   return {adapter,params:{from:{adapter,chain:sdkChain(selectedSource)},
    to:{chain:sdkChain(selectedDest),recipientAddress:address!,useForwarder:true},
-   amount,token:'USDC',config:{transferSpeed:'SLOW'}}};
+   amount,token:'USDC',config:{transferSpeed:'SLOW',...(bridgeMaxFee!==undefined?{maxFee:bridgeMaxFee}:{})}}};
  };
  async function quoteNow(){
   if(!address||!validAmount(amount)||lock.current||unknownStorage||recovery)return;
@@ -197,7 +197,8 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     throw Error('Provider did not return a usable minimum-output quote.');
    const at=Date.now();setQuoteClock(at);
    setQuote({owner,at,mode,amount,source:selectedSource,destination:selectedDest,
-    fromToken,toToken,minimum:min,expected,fees:feeLines(estimate)});
+    fromToken,toToken,minimum:min,expected,fees:feeLines(estimate),
+    ...(bridgeOutput?{bridgeMaxFee:bridgeOutput.maxFee}:{})});
   }catch(e){setError(e instanceof Error?e.message:'Circle Mainnet quote unavailable.');}
   finally{setBusy(false);lock.current=false;}
  }
@@ -226,10 +227,13 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    if(existingIntents.kind!=='ready'||existingIntents.items.some(task=>
     !['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(task.stage)))
     throw Error('Unresolved Exchange intent or unreadable recovery storage. Inspect Activity first.');
-   const {params:p}=await params();
+   const {params:p}=await params(mode==='bridge'?quote.bridgeMaxFee:undefined);
    const fresh=mode==='swap'?
     await kit.estimateSwap(p as Parameters<AppKit['estimateSwap']>[0]):
     await kit.estimateBridge(p as Parameters<AppKit['estimateBridge']>[0]);
+   if(mode==='bridge'&&(!quote.bridgeMaxFee||
+     readBridgeQuoteAmounts(fresh,amount).maxFee!==quote.bridgeMaxFee))
+    throw Error('Circle fee cap changed. Review again before signing.');
    if(JSON.stringify(feeLines(fresh))!==JSON.stringify(quote.fees)||
     mode==='swap'&&String((fresh as Awaited<ReturnType<AppKit['estimateSwap']>>).stopLimit.amount)!==quote.minimum||
     mode==='bridge'&&readBridgeQuoteAmounts(fresh,amount).minimum!==quote.minimum)
@@ -466,7 +470,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     </div>
     {mode==='swap'&&receiveSelector}
     <div className="space-y-2 rounded-xl border p-3" style={{background:'var(--surface-raised)',borderColor:'var(--border)'}}>
-     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU RECEIVE · {mode==='swap'?toToken:'USDC'}{mode==='bridge'?' · '+label(selectedDest):''}</p>
+     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>{mode==='bridge'?'MINIMUM RECEIVE':'YOU RECEIVE'} · {mode==='swap'?toToken:'USDC'}{mode==='bridge'?' · '+label(selectedDest):''}</p>
      <p className="display text-2xl font-bold tabular-nums" style={{color:'var(--ink)'}}>
       {quote&&!quoteExpired?quote.expected:'—'}
       <span className="ml-2 text-sm" style={{color:'var(--muted)'}}>{mode==='swap'?toToken:'USDC'}</span>
@@ -492,7 +496,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        <p className="mt-1 font-semibold">{quote.fees.length?quote.fees.join(' · '):'Not supplied'}</p></div>
      </div>
      <div className="text-xs" style={{color:'var(--muted)'}}>
-      {mode==='swap'?'Slippage limit: 1%':'Estimated arrival: Provider ETA unavailable'}
+      {mode==='swap'?'Slippage limit: 1%':'CCTP source burn caps on-chain fee to '+quote.bridgeMaxFee+' USDC; destination verified separately'}
      </div>
      <details className="border-t pt-3 text-xs" style={{color:'var(--muted)',borderColor:'var(--border)'}}>
       <summary className="cursor-pointer font-semibold">Details</summary>

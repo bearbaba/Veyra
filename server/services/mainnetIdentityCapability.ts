@@ -15,3 +15,15 @@ export function evaluateMainnetIdentityAuthority(
  return {ok:true,environment:'mainnet',origin:OFFICIAL_VEYRA_ORIGIN,
   chainId:5042,walletLogin:true,recipientSnapshots:true,cookieRestore:true};
 }
+/** Browser same-origin GETs often omit the Origin header. A missing Origin on a
+ * strictly read-only, Bearer-authenticated endpoint is not a deployment failure.
+ * Explicit foreign origins still fail and ALL write routes keep the strict gate.
+ * Browsers cannot read this private response from another origin through CORS.
+ */
+export function evaluateMainnetIdentityAuthenticatedReadAuthority(
+ config:Parameters<typeof evaluateMainnetIdentityAuthority>[0],
+ origin:string|undefined,
+):MainnetIdentityAuthority|null{
+ return evaluateMainnetIdentityAuthority(config,origin??OFFICIAL_VEYRA_ORIGIN);
+}
+

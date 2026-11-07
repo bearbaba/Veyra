@@ -89,14 +89,30 @@ describe('Human-first Home cannot treat browser records as server receipts',()=>
   expect(home).toContain('remote:');
  });
 });
-describe('CCTP quote cannot invent the guaranteed minimum',()=>{
- it('rejects provider responses with only estimated fees',()=>{
-  expect(()=>readBridgeQuoteAmounts({fees:[{type:'forwarder',amount:'0.1',token:'USDC'}]},'10'))
-   .toThrow('guaranteed destination minimum');
+describe('Circle CCTP bridge preview: enforce onchain maximum fee',()=>{
+ const quote=(amount='10',fee='0.1')=>({
+  amount,token:'USDC',gasFees:[],fees:[
+   {type:'forwarder',amount:fee,token:'USDC'},
+   {type:'provider',amount:'0',token:'USDC'},
+  ],
  });
- it('uses only an explicit provider floor no higher than quoted expected output',()=>{
-  expect(readBridgeQuoteAmounts({minimumReceived:{amount:'9.9'},estimatedOutput:{amount:'10'}},'10'))
-   .toEqual({minimum:'9.9',expected:'10'});
-  expect(()=>readBridgeQuoteAmounts({minimumReceived:'10.1',estimatedOutput:'10.1'},'10')).toThrow();
+ it('fails closed on fee-only payloads without the SDK amount, token and gas scope',()=>{
+  expect(()=>readBridgeQuoteAmounts({fees:[{type:'forwarder',amount:'0.1',token:'USDC'}]},'10'))
+   .toThrow('fee-capped USDC quote');
+ });
+ it('locks a fee cap to the reviewed amount with exact six-decimal math',()=>{
+  expect(readBridgeQuoteAmounts(quote(),'10')).toEqual({
+   minimum:'9.9',expected:'9.9',maxFee:'0.1'});
+  expect(readBridgeQuoteAmounts(quote('0.1','0.0025'),'0.1')).toEqual({
+   minimum:'0.0975',expected:'0.0975',maxFee:'0.0025'});
+ });
+ it('rejects a mutated quoted amount, unknown currencies or unresolved provider fees',()=>{
+  expect(()=>readBridgeQuoteAmounts(quote('11'),'10')).toThrow();
+  expect(()=>readBridgeQuoteAmounts({...quote(),token:'WETH'},'10')).toThrow();
+  expect(()=>readBridgeQuoteAmounts({...quote(),fees:[{type:'forwarder',amount:null,token:'USDC'}]},'10')).toThrow();
+  expect(()=>readBridgeQuoteAmounts({...quote(),fees:[{type:'forwarder',amount:'0.1',token:'ETH'}]},'10')).toThrow();
+  expect(()=>readBridgeQuoteAmounts(quote('10','10'),'10')).toThrow('fees exceed');
+  expect(()=>readBridgeQuoteAmounts({...quote(),gasFees:[{error:'no gas quote'}]},'10')).toThrow();
+  expect(()=>readBridgeQuoteAmounts({...quote(),warnings:[{code:'SPEED_DOWNGRADED'}]},'10')).toThrow();
  });
 });
