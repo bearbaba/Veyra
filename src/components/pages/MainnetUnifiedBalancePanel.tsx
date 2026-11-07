@@ -32,8 +32,10 @@ export function chooseGatewaySource(balance:GatewayMainnetBalance,raw:string):nu
  })[0]?.chainId??null;
 }
 type Mode='deposit'|'spend';
-export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundingTarget,compact=false}:{
+export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundingTarget,compact=false,standalone=false}:{
  fundingToWallet?:string;fundingNeeded?:string;compact?:boolean;
+ /** Render without the nested divider when the panel sits in its own card. */
+ standalone?:boolean;
  fundingTarget?:{payee:string;grossUsdc:string;requestId?:string};
 }={}){
  const {address,connector}=useAccount();
@@ -222,7 +224,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
  }
  const [expanded,setExpanded]=useState(false);
  const fmt=(x:bigint|null)=>formatGatewayUsdc(x);
- return <div className="mt-4 border-t pt-4" style={{borderColor:'var(--border)'}} aria-label="Unified Balance">
+ return <div className={standalone?'':'mt-4 border-t pt-4'} style={standalone?undefined:{borderColor:'var(--border)'}} aria-label="Unified Balance">
   {compact&&<div className="space-y-2" aria-label="Unified Gateway summary">
    <div className="flex flex-wrap items-center justify-between gap-3">
     <div className="min-w-0">

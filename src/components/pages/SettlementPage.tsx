@@ -89,6 +89,8 @@ import {
   getVeyraSettlementDeployment,
 } from '@/config/veyraSettlement';
 import { gasNativeToUsdcMicro, fmtGasUsdc } from '@/lib/settlementGas';
+import { settlementStageView, type SettlementStep } from '@/lib/settlementStage';
+import { TxStepper } from '@/components/ui/primitives';
 import {arcReviewedPayGasBudget,assertArcLivePayFunds} from '@/mainnet/arcSharedUsdcFunding';
 import {
   verifyPaymentReceipt,
@@ -151,17 +153,7 @@ function ReviewRow({ label, value, mono = false, accent = false, warn = false }:
 // ─── types ─────────────────────────────────────────────────────────────────────
 
 type Mode = 'pay' | 'escrow';
-type Step =
-  | 'form'
-  | 'loading-fees'
-  | 'review'
-  | 'approve'
-  | 'revalidating'
-  | 'execute'
-  | 'pending'
-  | 'verified'
-  | 'confirmed'
-  | 'error';
+type Step = SettlementStep;
 
 /**
  * Immutable snapshot of every parameter shown to the user at review time.
@@ -1328,6 +1320,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
     );
   }
 
+  const stageView = settlementStageView(step);
   // ── render ────────────────────────────────────────────────────────────────────
   return (
     <div className={embedded?'flex flex-col':'flex flex-col h-full overflow-y-auto'}>
@@ -1339,6 +1332,10 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
       </div>}
 
       <div className="flex-1 px-4 py-6 space-y-5 max-w-2xl mx-auto w-full">
+
+        {isConnected && onArc && !!deployment && stageView && (
+          <TxStepper stage={stageView.stage} stalled={stageView.stalled} />
+        )}
 
         {isMainnet&&settlementUnresolved(intentState)&&<div role="alert"
           className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
