@@ -21,7 +21,7 @@ import { UiOnlyPreviewPage } from './components/pages/UiOnlyPreviewPage';
 import { IS_UI_ONLY_PREVIEW } from './lib/env';
 import { SettingsPage } from './components/pages/SettingsPage';
 import {readPayDraft,writePayDraft} from '@/mainnet/payDraft';
-import {reviewPeerRequest,type VeyraPaymentRequest} from '@/lib/api/paymentRequests';
+import {reviewPeerRequest,confirmedPaymentRequestRefusal,type VeyraPaymentRequest} from '@/lib/api/paymentRequests';
 import {readRequestNavigation,saveRequestNavigation,clearRequestNavigation} from '@/mainnet/paymentRequestNavigation';
 import {lookupMainnetRecipient} from '@/mainnet/recipientLookup';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
@@ -77,7 +77,12 @@ function RestoreSignedPaymentRequest({onRecovered}:{
     setNotice(null);onRecovered(found.person,request);
    }
   })().catch((e:unknown)=>{
-   if(live)setNotice(e instanceof Error?e.message:'Saved request could not be restored.');
+   if(!live)return;
+   // A definitive server terminal status retires the navigation hint. A
+   // timeout or 5xx never erases a potentially unresolved wallet attempt.
+   if(confirmedPaymentRequestRefusal(e)&&e.code==='REQUEST_NOT_PENDING')
+    clearRequestNavigation(address);
+   setNotice(e instanceof Error?e.message:'Saved request could not be restored.');
   });
   return()=>{live=false;};
  },[address,connector?.uid,token,userId,trusted,onRecovered]);
