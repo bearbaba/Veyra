@@ -49,7 +49,7 @@ function headers(token:string){return {Authorization:'Bearer '+requireSignedIden
 export async function readServerPayJourney(token:string,owner:string,signal?:AbortSignal):
  Promise<ServerPayJourney|null>{
  if(!isAddress(owner))throw new ServerJourneyError('INVALID_JOURNEY_OWNER',400);
- const path='/api/mainnet/pay/journeys?'+new URLSearchParams({ownerWallet:owner});
+ const path='/api/mainnet/pay/journeys?'+new URLSearchParams({ownerWallet:owner}).toString();
  const response=await fetch(path,{headers:headers(token),credentials:'same-origin',cache:'no-store',
   signal:signal?AbortSignal.any([signal,AbortSignal.timeout(14000)]):AbortSignal.timeout(14000)});
  const data=await parseResponse(response);
