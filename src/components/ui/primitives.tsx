@@ -81,7 +81,7 @@ export function TxStepper({ stage, stalled = false }: { stage: TxStage; stalled?
           <li key={name} className="flex min-w-0 flex-1 flex-col gap-1.5" aria-current={active ? 'step' : undefined}>
             <span className="h-1 rounded-full" aria-hidden="true"
               style={{ background: done || active ? (stalled && active ? 'var(--warning)' : 'var(--accent)') : 'var(--border)' }} />
-            <span className={`truncate text-[11px] ${active ? 'font-semibold' : ''} max-[389px]:${active ? 'block' : 'hidden'}`}
+            <span className={`truncate text-[11px] ${active ? 'font-semibold max-[389px]:block' : 'max-[389px]:hidden'}`}
               style={{ color: active ? 'var(--ink)' : 'var(--muted)' }}>
               {name}
             </span>
