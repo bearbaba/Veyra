@@ -162,6 +162,13 @@
       "when": 1793990000000,
       "tag": "0022_veyra_payment_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794086400000,
+      "tag": "0023_mainnet_pay_journeys",
+      "breakpoints": true
     }
   ]
 }

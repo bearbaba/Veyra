@@ -229,6 +229,18 @@
     {
       "source": "/api/social/payment-requests/attempt",
       "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/social/payment-requests/attempt"
+    },
+    {
+      "source": "/api/mainnet/pay/journeys",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/mainnet/pay/journeys"
+    },
+    {
+      "source": "/api/mainnet/pay/journeys/lock",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/mainnet/pay/journeys/lock"
+    },
+    {
+      "source": "/api/health/capabilities",
+      "destination": "https://veyra-mainnet-v1-bff.onrender.com/api/health/capabilities"
     }
   ]
 }

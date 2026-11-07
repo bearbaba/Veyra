@@ -3,9 +3,10 @@
  * Signing is still gated by the separate wallet journals and canonical receipt checks.
  */
 import {useEffect,useState} from 'react';
-import {useAccount,useReadContract,useBalance} from 'wagmi';
-import {erc20Abi,formatUnits} from 'viem';
-import {settlementFundingShortfall} from '@/mainnet/unifiedSettlementFunding';
+import {useAccount,useReadContract,useBalance,usePublicClient} from 'wagmi';
+import {erc20Abi,formatUnits,parseUnits} from 'viem';
+import {arcSharedUsdcFunding,quoteSettlementProtocolNet} from '@/mainnet/arcSharedUsdcFunding';
+import {getVeyraSettlementDeployment,VEYRA_SETTLEMENT_ABI} from '@/config/veyraSettlement';
 import {ARC_MAINNET_USDC} from '@/mainnet/arcMainnetPay';
 import {ShieldCheck} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
@@ -23,8 +24,9 @@ import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 import type {VeyraPaymentRequest} from '@/lib/api/paymentRequests';
 import {MainnetUnifiedBalancePanel} from './MainnetUnifiedBalancePanel';
 import {MainnetPayFundingRecoveryWorker} from '@/mainnet/MainnetPayFundingRecoveryWorker';
+import {readServerPayJourney,type ServerPayJourney} from '@/lib/api/mainnetPayJourneys';
 import {readGatewayMainnetOperation,readGatewayMainnetHistory} from '@/mainnet/gatewayMainnetJournal';
-import {readPayFundingJourney,samePayFundingTarget,derivePayFundingJourneyState,
+import {readPayFundingJourney,genericPayFundingRef,samePayFundingTarget,derivePayFundingJourneyState,
  dismissPayFundingJourney,type FundingJourneyState} from '@/mainnet/payFundingJourney';
 
 declare const __VEYRA_RELEASE_SHA__:string;
@@ -42,15 +44,32 @@ export function MainnetPayHub({
  const signedWallet=social.identityOrigin==='ready'&&
   isMainnetSessionForWallet(social.session,address,connector?.uid);
  const owner=(address??'').toLowerCase();
+ const arcClient=usePublicClient({chainId:5042});
+ const [gasPrice,setGasPrice]=useState<bigint|null>(null);
+ useEffect(()=>{
+  if(!address||!arcClient){setGasPrice(null);return;}
+  let active=true;
+  const refresh=()=>{void arcClient.getGasPrice().then(x=>{if(active)setGasPrice(x);})
+   .catch(()=>{if(active)setGasPrice(null);});};
+  refresh();
+  const timer=window.setInterval(refresh,25000);
+  window.addEventListener('focus',refresh);
+  return()=>{active=false;window.clearInterval(timer);window.removeEventListener('focus',refresh);};
+ },[address,arcClient]);
+ const registry=getVeyraSettlementDeployment(5042);
+ const {data:protocolFeeBps}=useReadContract({
+  address:registry?.address,abi:VEYRA_SETTLEMENT_ABI,functionName:'feeBps',
+  chainId:5042,query:{enabled:!!address&&!!registry,staleTime:25000,refetchInterval:30000},
+ });
  const {data:walletBalance,isError:balanceError,isLoading:balanceLoading}=useReadContract({
   address:ARC_MAINNET_USDC,abi:erc20Abi,functionName:'balanceOf',
   args:address?[address]:undefined,chainId:5042,
-  query:{enabled:!!address,staleTime:10000},
+  query:{enabled:!!address,staleTime:10000,refetchInterval:15000},
  });
  const [draftHolder,setDraftHolder]=useState<{owner:string;value:MainnetPayDraft}>(()=>({owner,value:readPayDraft(owner)}));
  const [revision,setRevision]=useState(0);
  const {data:arcGas,isError:gasError}=useBalance({address,chainId:5042,
-  query:{enabled:!!address,staleTime:10000}});
+  query:{enabled:!!address,staleTime:10000,refetchInterval:15000}});
  const [showUnifiedFunding,setShowUnifiedFunding]=useState(()=>readPaySource(owner)==='unified');
  useEffect(()=>{setShowUnifiedFunding(readPaySource(owner)==='unified');},[owner]);
  function selectPaymentSource(source:PaySource){
@@ -61,9 +80,14 @@ export function MainnetPayHub({
  const draft=draftHolder.owner===owner?draftHolder.value:readPayDraft(owner);
  const requestAmount=paymentRequest?formatUnits(BigInt(paymentRequest.amountRaw),6):'';
  const requestLocked=Boolean(paymentRequest);
- const shortfall=settlementFundingShortfall(draft.amount,
-  walletBalance===undefined?null:walletBalance);
+ const fundingQuote=arcSharedUsdcFunding({
+  gross:draft.amount,nativeBalanceWei:arcGas?.value??null,
+  erc20BalanceMicro:walletBalance??null,gasPriceWei:gasPrice,
+ });
+ const shortfall=fundingQuote?.shortfall??null;
  const needsFunding=shortfall!==null&&shortfall!=='0';
+ const settlementCost=quoteSettlementProtocolNet(draft.amount,
+  typeof protocolFeeBps==='bigint'?protocolFeeBps:null);
  const selectedVerified=signedWallet&&verifiedRecipient&&verifiedRecipient.owner.toLowerCase()===owner&&
   verifiedRecipient.wallet.toLowerCase()===draft.recipient.toLowerCase()?verifiedRecipient:
   signedWallet&&localVerified&&localVerified.owner.toLowerCase()===owner&&
@@ -85,10 +109,50 @@ export function MainnetPayHub({
   };
  },[]);
  void revision;
+ const token=social.session?.token;
+ const scope=owner+':'+(signedWallet?token??'':'');
+ const [remote,setRemote]=useState<{
+  scope:string;status:'checking'|'ready'|'unavailable';
+  journey:ServerPayJourney|null;
+ }>({scope:'',status:'checking',journey:null});
+ useEffect(()=>{
+  if(!signedWallet||!address||!token){setRemote({scope:'',status:'checking',journey:null});return;}
+  let live=true;
+  const activeScope=address.toLowerCase()+':'+token;
+  setRemote({scope:activeScope,status:'checking',journey:null});
+  const refresh=()=>{
+   void readServerPayJourney(token,address).then(journey=>{
+    if(live)setRemote({scope:activeScope,status:'ready',journey});
+   }).catch(()=>{
+    if(live)setRemote({scope:activeScope,status:'unavailable',journey:null});
+   });
+  };
+  refresh();
+  const timer=window.setInterval(refresh,20000);
+  window.addEventListener('focus',refresh);
+  window.addEventListener('veyra:pay:funding',refresh);
+  window.addEventListener('veyra:mainnet:server-receipt',refresh);
+  return()=>{live=false;window.clearInterval(timer);
+   window.removeEventListener('focus',refresh);
+   window.removeEventListener('veyra:pay:funding',refresh);
+   window.removeEventListener('veyra:mainnet:server-receipt',refresh);
+  };
+ },[address,signedWallet,token]);
+ const currentRemote=remote.scope===scope?remote:null;
  const fundingRead=address?readPayFundingJourney(address):{kind:'empty' as const};
  const fundingGateway=address?readGatewayMainnetOperation(address):null;
  const fundingHistory=address?readGatewayMainnetHistory(address):[];
  const fundingJourney=fundingRead.kind==='active'?fundingRead.value:null;
+ const remotePending=currentRemote?.status==='ready'&&currentRemote.journey?.status==='RESERVED'?
+  currentRemote.journey:null;
+ const remoteMismatch=remotePending!==null&&
+  (!fundingJourney||remotePending.journeyId!==fundingJourney.id||
+   remotePending.ownerWallet.toLowerCase()!==owner||
+   remotePending.payeeWallet.toLowerCase()!==fundingJourney.payee.toLowerCase()||
+   remotePending.amountRaw!==parseUnits(fundingJourney.grossUsdc,6).toString()||
+   (fundingJourney.fundingOperationId!==undefined&&
+    remotePending.gatewayOperationId!==fundingJourney.fundingOperationId));
+ const remoteReady=currentRemote?.status==='ready'&&!remoteMismatch;
  const fundingState:FundingJourneyState=fundingJourney?
   derivePayFundingJourneyState({journey:fundingJourney,gatewayOperation:fundingGateway,
    history:fundingHistory,settlement:address?readSettlementIntent(address):{kind:'empty'},
@@ -110,7 +174,7 @@ export function MainnetPayHub({
  // The original Settlement component must stay mounted for wallet refusal
  // and UNKNOWN recovery. Its own journal forbids a second financial attempt.
  const recoveringSettlement=fundingState==='SETTLEMENT_PENDING'&&sameFundingTarget;
- const showSettlement=(recoveringSettlement||!fundingBlocked)&&
+ const showSettlement=remoteReady&&(recoveringSettlement||!fundingBlocked)&&
   (recoveringSettlement||!showUnifiedFunding||
    (fundingJourney?settlementFromUnifiedReady:!unifiedNeedsFunding))&&
   fundingState!=='SETTLEMENT_ONCHAIN_VERIFIED';
@@ -198,6 +262,12 @@ export function MainnetPayHub({
     </details>}
   {address&&!signedWallet&&
    <section aria-label="Sign in to send USDC"><VeyraIdentityAccess/></section>}
+  {signedWallet&&address&&!remoteReady&&<p role="alert"
+    className="rounded-xl border p-3 text-sm" style={{borderColor:"var(--border)",color:"var(--warning)"}}>
+    {remoteMismatch?
+     'Another device already has a payment journey. The original proof can be inspected, but no new signature is allowed.':
+     'Cross-device coordination is unavailable. Signing is paused to prevent duplicate transfers.'}
+   </p>}
   {locked&&!resumable&&<p role="status" className="rounded-xl border p-3 text-sm"
    style={{borderColor:'var(--border)',color:'var(--warning)'}}>
    Payment still processing. Check Activity before trying again.
@@ -236,6 +306,16 @@ export function MainnetPayHub({
      </details>
    </div>
   </section>
+  {draft.amount&&<section aria-label="Pay preview" className="rounded-xl border p-3 space-y-1"
+    style={{borderColor:"var(--border)",color:"var(--muted)"}}>
+    <p className="font-semibold text-sm" style={{color:"var(--ink)"}}>Payment preview</p>
+    <div className="flex justify-between gap-3 text-xs"><span>You pay</span><span>{draft.amount} USDC</span></div>
+    <div className="flex justify-between gap-3 text-xs"><span>Settlement fee</span>
+     <span>{settlementCost?settlementCost.protocolFee+' USDC':'Checking live fee…'}</span></div>
+    <div className="flex justify-between gap-3 text-sm font-semibold" style={{color:"var(--ink)"}}>
+     <span>Recipient receives</span><span>{settlementCost?settlementCost.recipientNet+' USDC':'—'}</span></div>
+    <p className="text-xs">Final Review refreshes gas, fees, allowances and contract simulation.</p>
+   </section>}
   <div className="flex items-start gap-2 border-t pt-4 text-sm" style={{borderColor:'var(--border)'}}>
    <ShieldCheck className="mt-0.5 size-4 shrink-0" style={{color:'var(--accent)'}}/>
    <div><p className="font-semibold" style={{color:'var(--ink)'}}>Veyra Settlement</p>
@@ -289,18 +369,26 @@ export function MainnetPayHub({
       Funding alone never pays the recipient.
      </p>
      <p className="text-xs" style={{color:"var(--muted)"}}>
-      The Settlement protocol fee is deducted from the gross payment amount, not added to wallet funding.
-      Arc network gas and any approval gas are separate from Gateway fees; final live gas review is required.
-      {gasError?' Arc gas lookup is unavailable.':arcGas?.value===0n?
-       ' No Arc native gas is available. Signing will require gas funding.':
-       arcGas===undefined?' Checking Arc native gas.':''}
+      Native Arc gas and ERC-20 USDC are the same underlying balance.
+      Gateway fees are separate. Settlement protocol fee is deducted from gross.
+      A provisional gas reserve is checked again during the final Settlement Review.
+      {gasError?' Arc balance lookup unavailable.':arcGas===undefined?
+       ' Checking Arc USDC balance.':''}
      </p>
+     {fundingQuote&&<div className="rounded-lg p-3 space-y-1 text-xs"
+      style={{background:"var(--surface-raised)"}}>
+      <div className="flex justify-between gap-2"><span>Payment gross</span><span>{fundingQuote.paymentGross} USDC</span></div>
+      <div className="flex justify-between gap-2"><span>Provisional Arc gas reserve</span><span>{fundingQuote.gasReserve} USDC</span></div>
+      <div className="flex justify-between gap-2 font-semibold"><span>Minimum Arc balance before Review</span>
+       <span>{fundingQuote.minimumTotal} USDC</span></div>
+      <p>Planning buffer only; gas can change before signature.</p>
+     </div>}
      {shortfall===null?<p role="status" className="text-xs" style={{color:"var(--warning)"}}>
-       Check your wallet USDC before funding. No amount is guessed.
+       Arc balance or gas price could not be verified, or native/ERC-20 views disagree. Funding is paused.
       </p>:!needsFunding?<p role="status" className="text-xs" style={{color:"var(--success)"}}>
-       Arc wallet covers the gross USDC amount. You can pay from the Arc wallet without another Gateway transfer.
+       Arc wallet covers payment gross plus provisional gas. Final Review checks actual fees.
       </p>:<>
-       <p className="text-sm font-semibold">Wallet shortfall: {shortfall} USDC</p>
+       <p className="text-sm font-semibold">Arc shortfall including gas reserve: {shortfall} USDC</p>
        <p className="text-xs" style={{color:"var(--muted)"}}>
         Gateway fees are additional. The quoted net amount must cover this shortfall before any funding signature.
         After a verified Gateway receipt, wallet balance and Settlement fees are checked again.
@@ -309,9 +397,13 @@ export function MainnetPayHub({
         <p className="text-xs" style={{color:"var(--warning)"}}>
          A funding attempt is already recorded. Follow its original transaction in Activity; no retry is initiated.
         </p>:
+        remoteReady?
         <MainnetUnifiedBalancePanel fundingToWallet={address} fundingNeeded={shortfall}
          fundingTarget={{payee:draft.recipient,grossUsdc:draft.amount,
-          ...(paymentRequest?{requestId:paymentRequest.requestId}:{})}}/>}
+          ...(paymentRequest?{requestId:paymentRequest.requestId}:{})}}/>:
+        <p role="alert" className="text-xs" style={{color:"var(--warning)"}}>
+         Funding is paused until the backend confirms no other device reserved this payment.
+        </p>}
       </>}
     </>}
    </section>}
@@ -325,7 +417,8 @@ export function MainnetPayHub({
      'Complete or recover the original Unified funding journey before signing Settlement. No automatic resend.'}
    </p>:<section aria-label="Contract payment">
     <SettlementPage key={owner+":"+(paymentRequest?.requestId??"")} embedded sharedDraft={draft} onDraftChange={changeDraft}
-      verifiedRecipient={selectedVerified} paymentRequest={paymentRequest}/>
+      verifiedRecipient={selectedVerified} paymentRequest={paymentRequest}
+      journeyRef={fundingJourney&&!paymentRequest?genericPayFundingRef(fundingJourney.id):undefined}/>
    </section>}
   </div>
  </main>;

@@ -3,7 +3,7 @@
  * Only independently reconciled Gateway receipts and Settlement receipts
  * can move the visible state; no SDK success or wallet balance delta suffices.
  */
-import {getAddress,isAddress,parseUnits} from 'viem';
+import {getAddress,isAddress,keccak256,parseUnits,stringToHex} from 'viem';
 import type {GatewayMainnetOperation,GatewayMainnetReceipt} from './gatewayMainnetJournal';
 import type {SettlementRead} from './settlementJournal';
 
@@ -24,6 +24,10 @@ export type FundingJourneyState=
  'FUNDING_DECLINED'|'CHECKING_ARC_WALLET'|'WALLET_SHORTFALL'|
  'READY_TO_SETTLE'|'SETTLEMENT_PENDING'|'SETTLEMENT_ONCHAIN_VERIFIED'|'BLOCKED';
 
+export function genericPayFundingRef(journeyId:string):`0x${string}`{
+ if(!ID.test(journeyId))throw Error('Invalid funding journey reference.');
+ return keccak256(stringToHex('VEYRA_PAY_FUNDING_V1:'+journeyId));
+}
 export const payFundingJourneyKey=(owner:string)=>
  'veyra:mainnet:pay-funding-journey:v1:'+getAddress(owner).toLowerCase();
 

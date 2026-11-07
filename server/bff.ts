@@ -66,6 +66,7 @@ import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead
 import { getProfile, updateProfile, revokeXIdentity, ProfileError } from './services/profileService.js';
 import {DirectMessageError,encryptionKey,chatPage,listDirectMessages,sendDirectMessage} from './services/directMessageService.js';
 import {PaymentRequestError,createPaymentRequest,listPeerPaymentRequests,reviewPaymentRequest,cancelPaymentRequest,claimPaymentRequest,getPaymentRequestClaim} from './services/paymentRequestsService.js';
+import {PayJourneyError,readOwnedPayJourney,lockOwnerPayJourney} from './services/mainnetPayJourneyService.js';
 import {IncomingUsdcError,reconcileIncomingUsdc} from './services/incomingUsdcService.js';
 import { beginXOAuthLink, completeXOAuthCallback, finishXOAuthLink, XOAuthError,checkedXReturnOrigin,buildXLinkedReturnUrl,isConfiguredXOAuth,resolveXCallbackUrl } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
@@ -342,6 +343,67 @@ app.get('/api/mainnet/exchange/across/status', IDENTITY_RATE, async(req:Request,
   res.json({ok:true,provider:'Across',originalHash:hash,evidence,
    verification:'PROVIDER_REPORTED_NOT_INDEPENDENT_ONCHAIN_PROOF'});
  }catch{res.status(503).json({ok:false,error:'ACROSS_STATUS_UNAVAILABLE'});}
+});
+
+/** Non-secret production capability map, read from the backend process and
+ * its internal PostgreSQL connection. HTTP 200 is never itself a PASS:
+ * every feature is an independently reported boolean or reason code.
+ */
+app.get('/api/health/capabilities',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ if(runtimeConfig.environment!=='mainnet'){
+  res.status(503).json({ok:false,error:'MAINNET_ONLY'});return;
+ }
+ const callback=resolveXCallbackUrl();
+ const x={
+  oauthClientIdConfigured:Boolean(process.env.X_CLIENT_ID),
+  oauthClientSecretConfigured:Boolean(process.env.X_CLIENT_SECRET),
+  exactCallbackConfigured:callback==='https://veyra-mainnet-v1-bff.onrender.com/api/auth/x/callback',
+  xLookupConfigured:Boolean(process.env.X_BEARER_TOKEN),
+  externalPortalCallbackVerified:false,
+ };
+ const chatKeyConfigured=encryptionKey()!==null;
+ try{
+  const {db}=await import('./db/client.js');
+  const result=await db.execute(sql`
+   SELECT to_regclass('public.veyra_users') IS NOT NULL AS identity,
+    to_regclass('public.wallet_bindings') IS NOT NULL AS wallet_bindings,
+    to_regclass('public.veyra_direct_messages') IS NOT NULL AS chat,
+    to_regclass('public.veyra_payment_requests') IS NOT NULL AS requests,
+    to_regclass('public.mainnet_pay_journeys') IS NOT NULL AS journeys,
+    to_regclass('public.mainnet_settlement_receipts') IS NOT NULL AS receipts,
+    (SELECT count(*) FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='veyra_payment_requests'
+       AND column_name IN ('request_id','payer_user_id','requester_user_id',
+         'recipient_wallet','payment_ref','amount_raw','expires_at','status',
+         'claim_id','claim_wallet','claimed_at','tx_hash')) AS request_columns,
+    (SELECT count(*) FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='mainnet_pay_journeys'
+       AND column_name IN ('journey_id','owner_user_id','owner_wallet','payee_wallet',
+         'amount_raw','payment_ref','gateway_operation_id','verified_tx_hash'))
+       AS journey_columns
+  `);
+  const row=result.rows[0] as Record<string,unknown>|undefined;
+  const identity=Boolean(row?.identity&&row?.wallet_bindings);
+  const chat=Boolean(row?.chat)&&chatKeyConfigured;
+  const requests=Boolean(row?.requests)&&Number(row?.request_columns)===12;
+  const journeys=Boolean(row?.journeys)&&Number(row?.journey_columns)===8;
+  res.setHeader('Cache-Control','no-store');
+  res.json({ok:true,environment:'mainnet',databaseReachable:true,
+   identity:{available:identity},
+   x:{...x,available:x.oauthClientIdConfigured&&x.exactCallbackConfigured&&identity},
+   chat:{available:chat,encryptionKeyConfigured:chatKeyConfigured,
+    chatTablePresent:Boolean(row?.chat)},
+   paymentRequests:{available:requests&&chat,tablePresent:Boolean(row?.requests),
+    requiredColumnsPresent:Number(row?.request_columns)===12},
+   payJourneySync:{available:journeys&&identity,tablePresent:Boolean(row?.journeys),
+    requiredColumnsPresent:Number(row?.journey_columns)===8},
+   settlementReceipts:{available:Boolean(row?.receipts)},
+   publicSettlementV2:{available:false,reason:'OWNER_REVIEW_AND_DEPLOY_REQUIRED'}});
+ }catch{
+  res.status(503).json({ok:false,environment:'mainnet',databaseReachable:false,
+   x,chat:{encryptionKeyConfigured:chatKeyConfigured},
+   payJourneySync:{available:false,reason:'INTERNAL_DATABASE_PROBE_UNAVAILABLE'}});
+ }
 });
 
 app.post('/api/identity/mainnet-capability', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
@@ -2405,6 +2467,41 @@ app.get('/api/mainnet/pay/receipts', IDENTITY_RATE, async(req:Request,res:Respon
  }catch(e){
   console.error('[BFF] Mainnet Pay receipt history:',e instanceof Error?e.message:'unknown');
   res.status(503).json({ok:false,error:'RECEIPT_HISTORY_UNAVAILABLE'});
+ }
+});
+
+// Cross-device read-only arbitration of a single owner-bound Gateway → Pay
+// journey. A browser never supplies paid/completed status, an accepted hash,
+// recipient USDC proof or an override to erase a competing operation.
+app.get('/api/mainnet/pay/journeys',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ if(!evaluateMainnetIdentityAuthority(runtimeConfig,req.header('origin'))){
+  res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;
+ }
+ const userId=getAuthenticatedVeyraUserId(req);
+ if(!userId){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+ try{
+  const ownerWallet=typeof req.query.ownerWallet==='string'?req.query.ownerWallet:'';
+  const {db}=await import('./db/client.js');
+  const journey=await readOwnedPayJourney(db,userId,ownerWallet);
+  res.setHeader('Cache-Control','no-store');res.json({ok:true,journey});
+ }catch(e){
+  if(e instanceof PayJourneyError){res.status(e.httpStatus).json({ok:false,error:e.code});return;}
+  res.status(503).json({ok:false,error:'JOURNEY_DATABASE_UNAVAILABLE'});
+ }
+});
+app.post('/api/mainnet/pay/journeys/lock',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ if(!evaluateMainnetIdentityAuthority(runtimeConfig,req.header('origin'))){
+  res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;
+ }
+ const userId=getAuthenticatedVeyraUserId(req);
+ if(!userId){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+ try{
+  const {db}=await import('./db/client.js');
+  const journey=await lockOwnerPayJourney(db,userId,req.body);
+  res.setHeader('Cache-Control','no-store');res.status(200).json({ok:true,journey});
+ }catch(e){
+  if(e instanceof PayJourneyError){res.status(e.httpStatus).json({ok:false,error:e.code});return;}
+  res.status(503).json({ok:false,error:'JOURNEY_DATABASE_UNAVAILABLE'});
  }
 });
 

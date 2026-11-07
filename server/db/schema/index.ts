@@ -14,6 +14,7 @@ export * from './payments.js';
 export * from './mainnetDirectPay.js';
 export * from './mainnetSettlement.js';
 export * from './paymentRequests.js';
+export * from './mainnetPayJourneys.js';
 export * from './stableFx.js';
 // posts.ts is exported here for Drizzle migration generation ONLY.
 // Application code must not import post tables directly — see posts.ts header.

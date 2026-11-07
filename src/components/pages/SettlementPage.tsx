@@ -217,10 +217,11 @@ function buildRef(): `0x${string}` {
 
 // ─── component ─────────────────────────────────────────────────────────────────
 
-export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifiedRecipient,paymentRequest}:{
+export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifiedRecipient,paymentRequest,journeyRef}:{
  embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void;
  verifiedRecipient?:VerifiedMainnetRecipient|null;
  paymentRequest?:VeyraPaymentRequest|null;
+ journeyRef?:`0x${string}`;
 }) {
   const { address, isConnected, chainId,connector } = useAccount();
   const social=useUnifiedSocial();
@@ -847,7 +848,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
       feePercent: Number(bps) / 100,
       gasEstimateNative: payGasNative,
       approveGasNative: approveGasNative,
-      ref: paymentRequest?paymentRequestRef(paymentRequest.requestId):buildRef(),
+      ref: paymentRequest?paymentRequestRef(paymentRequest.requestId):journeyRef??buildRef(),
       ...(paymentRequest?{requestId:paymentRequest.requestId}:{}),
       ...(effectiveMode === 'escrow' ? { escrowHours } : {}),
     });

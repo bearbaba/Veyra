@@ -15,6 +15,7 @@ import {MAINNET_CANARY_OWNER,MAINNET_CANARY_MAX_UNITS} from './releaseGates';
 import {parseGatewaySdkFees,assertGatewaySdkFeesUnchanged,type GatewaySdkFee} from '@/core/gateway/gatewaySdkSpend';
 import {planGatewayMultiSource,matchingGatewayAllocation,type GatewayAllocation} from './gatewayMultiSourceAllocation';
 import {readPayFundingJourney,markPayFundingAttempt} from './payFundingJourney';
+import {lockServerPayJourney} from '../lib/api/mainnetPayJourneys';
 
 /** SDK fee amounts are exact six-decimal USDC; preserve reviewed minimum. */
 function minimumGatewayReceive(review:GatewayMainnetReview):string{
@@ -178,8 +179,21 @@ export async function submitGatewayMainnetReview(review:GatewayMainnetReview,
  };
  if(!writeGatewayMainnetOperation(operation))
   throw Error('Recovery checkpoint storage failed. No wallet signature requested.');
- if(review.payJourneyId&&!markPayFundingAttempt(owner,review.payJourneyId,operation.id))
-  throw Error('Funding journey checkpoint failed. No wallet signature requested; original Gateway lock retained.');
+ if(review.payJourneyId){
+  if(!markPayFundingAttempt(owner,review.payJourneyId,operation.id))
+   throw Error('Funding journey checkpoint failed. No wallet signature requested; original Gateway lock retained.');
+  // The server's owner-scoped CAS lock precedes any Gateway wallet signature.
+  // A missing reply is UNKNOWN, never permission to create a second attempt.
+  const journey=readPayFundingJourney(owner);
+  if(journey.kind!=='active'||journey.value.id!==review.payJourneyId)
+   throw Error('Original funding journal is missing. No wallet signature requested.');
+  await lockServerPayJourney(review.sessionToken,{
+   journeyId:journey.value.id,gatewayOperationId:operation.id,
+   ownerWallet:owner,payeeWallet:journey.value.payee,
+   grossUsdc:journey.value.grossUsdc,
+   ...(journey.value.requestId?{requestId:journey.value.requestId}:{}),
+  });
+ }
  // SDK may have initiated approval or signed the spend when a provider throws;
  // never delete the UNKNOWN checkpoint after any error.
  if(review.kind==='deposit'){

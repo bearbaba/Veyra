@@ -31,6 +31,9 @@ const allowed=new Set([
  // Read-only canonical contract proof indexing; these routes never sign or relay.
  'POST /api/mainnet/settlement/receipt/verify',
  'GET /api/mainnet/settlement/receipts',
+ 'GET /api/mainnet/pay/journeys',
+ 'POST /api/mainnet/pay/journeys/lock',
+ 'GET /api/health/capabilities',
  'POST /api/mainnet/exchange/across/quote',
  'GET /api/mainnet/exchange/across/capability',
  'GET /api/mainnet/exchange/across/status',
