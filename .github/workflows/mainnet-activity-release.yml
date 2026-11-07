@@ -275,6 +275,13 @@ jobs:
            BEGIN
             UPDATE mainnet_pay_journeys SET verified_tx_hash=
              '0x8888888888888888888888888888888888888888888888888888888888888888';
+            RAISE EXCEPTION 'Incomplete client completion was accepted';
+           EXCEPTION WHEN check_violation THEN NULL;
+           END;
+           BEGIN
+            UPDATE mainnet_pay_journeys
+             SET verified_at=now(),verified_tx_hash=
+             '0x8888888888888888888888888888888888888888888888888888888888888888';
             RAISE EXCEPTION 'Unverified client-style completion was accepted';
            EXCEPTION WHEN foreign_key_violation THEN NULL;
            END;
@@ -338,3 +345,35 @@ jobs:
       - run: bun run check:prod-bundle
       - name: Read-only live Mainnet BFF health and identity schema smoke
         run: bun scripts/smoke-mainnet-bff.ts
+
+  browser_ui:
+    name: Real Chromium desktop/mobile unsigned UI
+    needs: web
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/build-mainnet-pilot.ts
+      - name: Install isolated Playwright QA runner and Chromium
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Navigate actual Mainnet UI in a real browser (no wallets or transfers)
+        run: |
+          ./node_modules/.bin/vite preview --host 127.0.0.1 --port 4173 > /tmp/veyra-qa-vite.log 2>&1 &
+          for i in $(seq 1 35); do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then break; fi
+            sleep 1
+          done
+          VEYRA_QA_URL=http://127.0.0.1:4173 node scripts/mainnet-browser-qa.mjs
+      - name: Upload browser measurements, viewport screenshots and failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: veyra-mainnet-browser-qa
+          path: /tmp/veyra-browser-qa/
+          retention-days: 14
