@@ -32,8 +32,8 @@ export function chooseGatewaySource(balance:GatewayMainnetBalance,raw:string):nu
  })[0]?.chainId??null;
 }
 type Mode='deposit'|'spend';
-export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundingTarget}:{
- fundingToWallet?:string;fundingNeeded?:string;
+export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundingTarget,compact=false}:{
+ fundingToWallet?:string;fundingNeeded?:string;compact?:boolean;
  fundingTarget?:{payee:string;grossUsdc:string;requestId?:string};
 }={}){
  const {address,connector}=useAccount();
@@ -220,8 +220,21 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
    setError(e instanceof Error?e.message:'Original transfer outcome is uncertain. Do not sign again.');
   }finally{setBusy(false);}
  }
+ const [expanded,setExpanded]=useState(false);
  const fmt=(x:bigint|null)=>formatGatewayUsdc(x);
  return <div className="mt-4 border-t pt-4" style={{borderColor:'var(--border)'}} aria-label="Unified Balance">
+  {compact&&<button type="button" onClick={()=>setExpanded(x=>!x)} aria-expanded={expanded}
+   className="veyra-calm-unified-toggle flex w-full items-center gap-3 rounded-xl p-2 text-left">
+   <span className="flex-1 min-w-0">
+    <span className="block text-xs font-semibold" style={{color:'var(--muted)'}}>Unified · Circle Gateway</span>
+    <span className="mt-1 block text-lg font-bold tabular-nums" style={{color:'var(--ink)'}}>
+     {canRead?fmt(current?.available??null):'—'} <span className="text-xs font-medium" style={{color:'var(--muted)'}}>USDC available</span>
+    </span>
+   </span>
+   <span className="text-xs" style={{color:'var(--muted)'}}>Details</span>
+   <ChevronDown className={'size-4 transition-transform '+(expanded?'rotate-180':'')} aria-hidden="true"/>
+  </button>}
+  {(!compact||expanded)&&<div className={compact?'mt-3 rounded-xl border p-3 sm:p-4':'contents'} style={compact?{borderColor:'var(--border)'}:undefined}>
   <div className="flex flex-wrap items-start justify-between gap-3">
    <div><p className="text-sm font-bold" style={{color:'var(--ink)'}}>Unified Balance</p>
     <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Circle Gateway · Arc, Ethereum and Base</p></div>
@@ -360,5 +373,6 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
     Circle Gateway standard trustless withdrawal is a separate seven-day recovery process and is not enabled here.
    </p>
   </section>}
+  </div>}
  </div>;
 }
