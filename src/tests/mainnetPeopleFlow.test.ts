@@ -47,7 +47,10 @@ describe('Server-verifiable Veyra ID send safety',()=>{
   expect(shared).toContain('lookupMainnetRecipient');
   expect(people).toContain('Saved wallet contacts · Details');
   expect(people).toContain('aria-expanded={findOpen}');
-  expect(people).toContain("setFriendLookup('@'+x.veyraHandle+'.veyra');setFindOpen(true);");
+  // Shared verified search now returns a pinned recipient instead of a repeated query string.
+  expect(people).toContain('onSelection={select}');
+  expect(people).toContain('lookupMainnetRecipient');
+  expect(people).toContain('verifiedRecipient');
   expect(people).toContain("social.invite('@'+selected.veyraHandle+'.veyra')");
   expect(people).toContain('social.respond(userId,decision)');
   expect(people).toContain('Friend invitations');
