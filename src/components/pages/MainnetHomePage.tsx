@@ -110,14 +110,6 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  const wrong=isConnected&&chainId!==ARC;
  const available=!address?'—':isError?'Unavailable':data!==undefined?formatUnits(data,6):'Reading…';
  const pending=scopedLocal.filter(x=>x.status==='SUBMITTED');
- const actions:{id:'send'|'people'|'swap';label:string;icon:React.ReactNode}[]=[
-  {id:'send',label:'Send',icon:<SendHorizontal className="size-5"/>},
-  {id:'people',label:'People',icon:<Users className="size-5"/>},
-  {id:'swap',label:'Swap',icon:<ArrowLeftRight className="size-5"/>},
- ];
- function selectAction(id:(typeof actions)[number]['id']){
-  onNavigate(id==='send'?'settlement':id==='people'?'social':'convert');
- }
  const card='veyra-card p-5 sm:p-6';
  const cardStyle={background:'var(--surface)',border:'1px solid var(--border)'};
  async function copy(){
@@ -125,27 +117,58 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
   try{await navigator.clipboard.writeText(address);setCopied(true);setCopyError(false);}
   catch{setCopyError(true);}
  }
- return <div className="veyra-page veyra-home mx-auto w-full max-w-[900px] space-y-4 px-4 py-6 md:px-6 md:py-9">
-  <section className="veyra-calm-home-heading flex flex-wrap items-center justify-between gap-4" aria-label="Veyra overview">
-  <div className="min-w-0">
-   <h1 className="display text-[1.85rem] font-bold tracking-tight sm:text-[2.2rem]" style={{color:'var(--ink)'}}>Your money</h1>
-   <p className="mt-1 text-sm" style={{color:'var(--muted)'}}>Pay, connect and track — all in one place.</p>
-  </div>
-  <button type="button" onClick={()=>onNavigate('social')} className="veyra-calm-id-chip flex max-w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left">
-   <span className="flex size-9 shrink-0 items-center justify-center rounded-lg" style={{background:'var(--accent-muted)',color:'var(--accent)'}}>
-    <UserRound className="size-[19px]"/>
-   </span>
-   <span className="min-w-0">
-    <span className="block text-[11px]" style={{color:'var(--muted)'}}>Veyra ID</span>
-    <span className="block max-w-[240px] truncate text-sm font-semibold" style={{color:'var(--ink)'}}>
-     {signedWallet&&social.identityOrigin==='ready'&&social.session?.profile.veyraHandle
-       ? '@'+social.session.profile.veyraHandle+'.veyra'
-       : address?'Set up your ID':'Connect to begin'}
-    </span>
-   </span>
-   <ChevronRight className="size-4 shrink-0" style={{color:'var(--muted)'}}/>
-  </button>
- </section>
+ return <div className="veyra-page veyra-home mx-auto w-full max-w-[1020px] space-y-4 px-4 py-6 md:px-6 md:py-9">
+  <section className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]" aria-label="Veyra overview">
+   <div className="flex min-h-[180px] flex-col justify-center py-1 lg:pr-3">
+    <p className="text-[11px] font-bold uppercase tracking-[0.25em]" style={{color:'var(--accent)'}}>WELCOME TO VEYRA</p>
+    <h1 className="display mt-2 text-3xl font-bold leading-[1.1] tracking-tight sm:text-4xl xl:text-[2.7rem]" style={{color:'var(--ink)'}}>
+     Your money,<span className="block veyra-headline-accent">more capable.</span>
+    </h1>
+    <p className="mt-2 text-sm leading-5 sm:text-base" style={{color:'var(--muted)'}}>Pay friends by name. Keep every receipt.</p>
+    <div className="mt-4 flex flex-wrap gap-2">
+     {address?<button type="button" onClick={()=>onNavigate('settlement')}
+       className="veyra-btn-primary inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-sm font-bold">
+       <SendHorizontal className="size-4"/> Send USDC <ArrowRight className="size-4"/>
+      </button>:<div className="self-start"><ConnectKitButton/></div>}
+     <button type="button" onClick={()=>onNavigate('social')}
+      className="veyra-btn-secondary inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-sm font-semibold"
+      >
+      <Users className="size-4"/>
+      Friends
+     </button>
+    </div>
+   </div>
+   <div className="veyra-profile-card relative min-w-0 overflow-hidden rounded-2xl border p-4 sm:p-5" aria-label="Your Veyra identity">
+    <div aria-hidden="true" className="veyra-profile-glow"/>
+    <div className="relative z-10 flex items-start gap-3">
+     <div className="flex size-14 shrink-0 items-center justify-center rounded-full border sm:size-16"
+      style={{background:'linear-gradient(135deg,#0c85ff,#7f4dff 60%,#ec5eb5)',borderColor:'rgba(210,218,255,.45)',color:'#fff'}}>
+      <UserRound className="size-7"/>
+     </div>
+     <div className="min-w-0 flex-1">
+      <p className="truncate text-lg font-bold sm:text-xl" style={{color:'var(--ink)'}}>
+       {signedWallet&&social.identityOrigin==='ready'&&social.session?.profile.veyraHandle
+        ? '@'+social.session.profile.veyraHandle+'.veyra':'Your Veyra ID'}
+      </p>
+      <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
+       {signedWallet&&social.identityOrigin==='ready'?'Ready to pay and receive':
+        address?'Create your ID to pay by name':'Connect a wallet to get started'}
+      </p>
+     </div>
+     <span className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+      style={{color:signedWallet&&social.identityOrigin==='ready'?'var(--success)':'var(--muted)',
+       background:'rgba(3,18,45,.65)',borderColor:'var(--border)'}}>
+      {signedWallet&&social.identityOrigin==='ready'?'Active':'Not set up'}
+     </span>
+    </div>
+    <p className="relative z-10 mt-3 truncate text-xs" style={{color:'var(--muted)'}}>
+     {address?'Wallet · '+address.slice(0,6)+'…'+address.slice(-4):'Set up your ID to get started'}
+    </p>
+    {copyError&&<p role="alert" className="relative z-10 mt-2 text-xs" style={{color:'var(--warning)'}}>Copy unavailable. Use your wallet.</p>}
+    <button type="button" onClick={()=>onNavigate('social')} className="relative z-10 mt-3 inline-flex items-center gap-1 text-xs font-semibold"
+     style={{color:'var(--accent)'}}>{signedWallet&&social.identityOrigin==='ready'?'Manage identity':'Set up Veyra ID'} <ChevronRight className="size-4"/></button>
+   </div>
+  </section>
  <section className="veyra-card veyra-brand-balance p-5 sm:p-6" aria-label="Wallet balance">
    <div className="flex items-center justify-between gap-3">
     <span className="inline-flex items-center gap-2 text-sm font-semibold" style={{color:'var(--muted)'}}>
@@ -168,16 +191,6 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
      className="veyra-btn-secondary inline-flex items-center gap-2 disabled:opacity-50"><ArrowDownLeft className="size-4"/>Receive</button>
    </div>
    <MainnetUnifiedBalancePanel compact/>
-  </section>
-  <section aria-label="Quick actions">
-   <div className="grid grid-cols-3 gap-2.5">
-    {actions.map(item=><button key={item.id} type="button"
-     onClick={()=>selectAction(item.id)}
-     className="veyra-action-card flex min-h-[74px] items-center justify-center gap-2.5 rounded-xl border px-3 text-sm font-semibold">
-     <span style={{color:'var(--accent)'}}>{item.icon}</span>
-     <span style={{color:'var(--ink)'}}>{item.label}</span>
-    </button>)}
-   </div>
   </section>
   {receive&&<section className="rounded-xl border p-4" style={cardStyle} aria-label="Receive USDC on Arc Mainnet">
     <div className="flex items-center justify-between gap-3">
