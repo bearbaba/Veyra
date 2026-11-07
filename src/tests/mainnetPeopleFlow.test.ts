@@ -1,7 +1,7 @@
 import {describe,it,expect,afterEach,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {validVerifiedRecipient,isSameVerifiedPaymentReceiver,type VerifiedMainnetRecipient} from '../mainnet/verifiedRecipient';
-import {readBridgeQuoteAmounts} from '../mainnet/bridgeQuoteGuard';
+import {readBridgeQuoteAmounts,assertBridgeQuoteWithinReviewedCap} from '../mainnet/bridgeQuoteGuard';
 import {readLocalOperations,recordLocalOperation} from '../mainnet/localOperations';
 const src=(p:string)=>readFileSync(new URL('../'+p,import.meta.url),'utf8');
 const a='0x1111111111111111111111111111111111111111';
@@ -87,6 +87,20 @@ describe('Human-first Home cannot treat browser records as server receipts',()=>
   expect(home).toContain('listVerifiedMainnetPayReceipts');
   expect(home).toContain('knownHashes');
   expect(home).toContain('remote:');
+ });
+});
+describe('CCTP fresh quote bound by the original maximum fee',()=>{
+ const q=(fee:string)=>({amount:'0.1',token:'USDC',gasFees:[],
+  fees:[{type:'forwarder',token:'USDC',amount:fee}]});
+ const frozen={minimum:'0.043115',maxFee:'0.056885'};
+ it('permits equal or lower live fees without weakening the signed minimum',()=>{
+  expect(assertBridgeQuoteWithinReviewedCap(q('0.056885'),'0.1',frozen).minimum).toBe('0.043115');
+  expect(assertBridgeQuoteWithinReviewedCap(q('0.04'),'0.1',frozen).minimum).toBe('0.06');
+ });
+ it('refuses higher fees and modified amount before wallet signing',()=>{
+  expect(()=>assertBridgeQuoteWithinReviewedCap(q('0.056886'),'0.1',frozen))
+   .toThrow('fees increased');
+  expect(()=>assertBridgeQuoteWithinReviewedCap({...q('0.04'),amount:'0.2'},'0.1',frozen)).toThrow();
  });
 });
 describe('Circle CCTP bridge preview: enforce onchain maximum fee',()=>{
