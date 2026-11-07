@@ -23,7 +23,7 @@ import {recordVerifiedExchangeProof,recordVerifiedSourceRevert} from '@/mainnet/
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked,findCctpDestinationMintHash} from '@/mainnet/verifyCctpBridgeLink';
 import {assertMainnetConsumerSigningAllowed,MAINNET_PUBLIC_BETA,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
-import {readBridgeQuoteAmounts} from '@/mainnet/bridgeQuoteGuard';
+import {readBridgeQuoteAmounts,assertBridgeQuoteWithinReviewedCap} from '@/mainnet/bridgeQuoteGuard';
 
 const kit=new AppKit();
 const ARC=5042,BASE=8453;
@@ -236,10 +236,8 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    // frozen cap; a higher fee must be explicitly reviewed again.
    if(mode==='bridge'){
     if(!quote.bridgeMaxFee)throw Error('Bridge fee cap is unavailable. Get a new quote.');
-    const updated=readBridgeQuoteAmounts(fresh,amount);
-    if(parseUnits(updated.maxFee,6)>parseUnits(quote.bridgeMaxFee,6)||
-       parseUnits(updated.minimum,6)<parseUnits(quote.minimum,6))
-     throw Error('Bridge fees increased. Refresh the quote to approve the new minimum.');
+    assertBridgeQuoteWithinReviewedCap(fresh,amount,{
+     minimum:quote.minimum,maxFee:quote.bridgeMaxFee});
    }else if(JSON.stringify(feeLines(fresh))!==JSON.stringify(quote.fees)||
     String((fresh as Awaited<ReturnType<AppKit['estimateSwap']>>).stopLimit.amount)!==quote.minimum)
     throw Error('Swap price changed. Refresh the quote before signing.');
