@@ -18,6 +18,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  settlement_v2:
+    name: Settlement V2 unsigned contract review
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: Compile and adversarially test V2 without any deployment
+        run: |
+          forge build --contracts contracts/VeyraSettlementV2.sol
+          forge test --match-contract VeyraSettlementV2Test -vv
+      - name: Export reproducible reviewed V2 ABI and creation bytecode
+        run: |
+          mkdir -p settlement-v2-review
+          cp contracts/out/VeyraSettlementV2.sol/VeyraSettlementV2.json settlement-v2-review/VeyraSettlementV2.json
+          sha256sum contracts/VeyraSettlementV2.sol > settlement-v2-review/source.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: veyra-settlement-v2-unsigned-review
+          path: settlement-v2-review/
+          retention-days: 30
   web:
     name: Mainnet typecheck, lint, tests, production build
     runs-on: ubuntu-latest
