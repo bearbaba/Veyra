@@ -7,16 +7,16 @@ const addr='0x1111111111111111111111111111111111111111';
 const other='0x2222222222222222222222222222222222222222';
 const token='0x3333333333333333333333333333333333333333';
 const code='0x6001600055' as const;
-const registry:CandidateV2Deployment={address:addr as `0x${string}`,runtimeCodeHash:keccak256(code),usdc:token as `0x${string}`,
+const registry:CandidateV2Deployment={address:addr,runtimeCodeHash:keccak256(code),usdc:token,
  chainId:5042 as const,reviewedByOwner:true as const};
 const fields={payer:other as `0x${string}`,recipient:token as `0x${string}`,amount:10000n,
  ref:'0x'+'4'.repeat(64) as `0x${string}`,deadline:9999999999n};
 const sig='0x'+'5'.repeat(130) as `0x${string}`;
 const client={
- getChainId:vi.fn(async()=>5042),
- getCode:vi.fn(async()=>code),
- readContract:vi.fn(async()=>token),
- simulateContract:vi.fn(async()=>({request:{functionName:'payRequest'}})),
+ getChainId:vi.fn(()=>5042),
+ getCode:vi.fn(()=>code),
+ readContract:vi.fn(()=>token),
+ simulateContract:vi.fn(()=>({request:{functionName:'payRequest'}})),
 };
 describe('V2 contract approval is never silently bypassed by a frontend flag',()=>{
  it('builds deterministic EIP712 digest bound to new contract, chain and payer',()=>{
@@ -27,19 +27,19 @@ describe('V2 contract approval is never silently bypassed by a frontend flag',()
    v2RequestAuthorizationDigest(registry,{...fields,amount:10001n}));
   expect(v2RequestTypedData(registry,fields).domain.version).toBe('2');
  });
- it('rejects legacy address, nonexistent code, and a wrong USDC contract',async()=>{
+ it('rejects legacy address, nonexistent code, and a wrong USDC contract',()=>{
   expect(()=>v2RequestTypedData({...registry,address:LEGACY_VEYRA_SETTLEMENT},fields)).toThrow();
   expect(()=>v2RequestTypedData({...registry,reviewedByOwner:false as never},fields)).toThrow();
   await expect(simulateV2RequestCandidate(client as never,registry,fields,sig,1n)).resolves.toMatchObject({
    request:{functionName:'payRequest'}});
-  await expect(simulateV2RequestCandidate({...client,getCode:async()=>'0x1234'} as never,
+  await expect(simulateV2RequestCandidate({...client,getCode:()=>'0x1234'} as never,
    registry,fields,sig,1n)).rejects.toThrow('runtime code hash');
-  await expect(simulateV2RequestCandidate({...client,readContract:async()=>other} as never,
+  await expect(simulateV2RequestCandidate({...client,readContract:()=>other} as never,
    registry,fields,sig,1n)).rejects.toThrow('canonical USDC');
  });
- it('does not invoke wallet simulation if deadline or chain invalid',async()=>{
+ it('does not invoke wallet simulation if deadline or chain invalid',()=>{
   await expect(simulateV2RequestCandidate(client as never,registry,fields,sig,fields.deadline)).rejects.toThrow('expired');
-  await expect(simulateV2RequestCandidate({...client,getChainId:async()=>8453} as never,
+  await expect(simulateV2RequestCandidate({...client,getChainId:()=>8453} as never,
    registry,fields,sig,1n)).rejects.toThrow('chain mismatch');
  });
 });
