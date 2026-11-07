@@ -65,6 +65,11 @@ export async function fetchGatewayMainnetBalances(owner:string):Promise<GatewayM
  });
  return parseGatewayMainnetBalance(response,owner);
 }
+/** Public-beta execution is a separate authorization, not an E2E acceptance claim.
+ * Quote, wallet signature, source confirmations and destination proof remain required.
+ */
 export const GATEWAY_MAINNET_WRITE_ENABLED =
  import.meta.env.VITE_VEYRA_GATEWAY_MAINNET_WRITE_ENABLED==='1'&&
- import.meta.env.VITE_VEYRA_GATEWAY_MAINNET_E2E_ACCEPTED==='1';
+ ((import.meta.env.VITE_VEYRA_PUBLIC_BETA==='1'&&
+   import.meta.env.VITE_VEYRA_GATEWAY_MAINNET_BETA_ENABLED==='1')||
+  import.meta.env.VITE_VEYRA_GATEWAY_MAINNET_E2E_ACCEPTED==='1');
