@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { productionBuildMode, mainnetRoutingIssues } from './support/productionProfile';
 import { MAINNET_PROVIDER_MANIFEST } from '../providers/registry/mainnetProviderManifest';
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
@@ -31,8 +32,15 @@ describe('Core Four App Kit release discipline — Pay, Unified, Bridge, Swap', 
     expect(MAINNET_PROVIDER_MANIFEST.every(item => !item.enabled)).toBe(true);
     expect(read('src/preview/PreviewServiceStatus.tsx')).toContain('Awaiting live acceptance');
   });
-  it('retains Testnet as the public Vercel finance build without Mainnet or Earn flags', async () => {
+  it('retains an explicit reviewed build profile without Earn flags', async () => {
     const vercel = JSON.parse(read('vercel.json')) as { buildCommand?: string };
+    if (productionBuildMode() === 'mainnet') {
+      const profile = read('scripts/build-mainnet-pilot.ts');
+      expect(profile).toContain("VITE_VEYRA_ENV:'mainnet'");
+      expect(profile).toContain("VITE_VEYRA_TESTNET_PAY:'0'");
+      expect(profile).not.toMatch(/EARN/);
+      return;
+    }
     expect(vercel.buildCommand).toContain('VITE_VEYRA_ENV=testnet');
     if (vercel.buildCommand?.includes('VITE_VEYRA_UNIFIED_STAGING=1')) {
       expect(vercel.buildCommand).toContain('VITE_VEYRA_UI_ONLY=0');

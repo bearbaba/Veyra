@@ -41,6 +41,10 @@ export default defineConfig({
   define: {
     __VEYRA_RELEASE_SHA__: JSON.stringify(process.env.VERCEL_GIT_COMMIT_SHA || 'local'),
     __VEYRA_RELEASE_ENV__: JSON.stringify(process.env.VERCEL_ENV || 'local'),
+    // One literal, so the stamp survives minification verbatim.
+    __VEYRA_BUILD_STAMP__: JSON.stringify(
+      'veyra-build:env=' + (process.env.VITE_VEYRA_ENV || 'local') +
+      ';sha=' + (process.env.VERCEL_GIT_COMMIT_SHA || 'local')),
   },
   plugins: [
     react(),

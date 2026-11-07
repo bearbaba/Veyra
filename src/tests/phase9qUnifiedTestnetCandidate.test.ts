@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { productionBuildMode, mainnetRoutingIssues } from './support/productionProfile';
 import { STAGING_APPROVED_REWRITES, STAGING_ALLOWED_PATHS } from '../../scripts/stagingBffAllowlist';
 const read = (p: string) => readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
 
 describe('Phase 9Q — the one protected Veyra Core Testnet build', () => {
   it('uses the full app and locked Mainnet without touching the original static Preview config', () => {
+    if (productionBuildMode() === 'mainnet') {
+      // This branch deploys the Mainnet profile; the Testnet staging contract is exercised by its own allowlist tests below.
+      expect(mainnetRoutingIssues()).toEqual([]);
+      return;
+    }
     const config = JSON.parse(read('vercel.json')) as { buildCommand: string; rewrites: unknown[]; env?: unknown };
     expect(config.buildCommand).toContain('VITE_VEYRA_UNIFIED_STAGING=1');
     expect(config.buildCommand).toContain('VITE_VEYRA_UI_ONLY=0');

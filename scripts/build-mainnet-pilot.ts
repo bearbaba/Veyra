@@ -1,5 +1,7 @@
 /** One exact Mainnet pilot build profile for Vercel and CI. */
 import {spawnSync} from 'node:child_process';
+import {join} from 'node:path';
+import {assertAndPublish} from './assertMainnetArtifact';
 const profile={
  VITE_VEYRA_ENV:'mainnet',
  VITE_VEYRA_UI_ONLY:'0',
@@ -17,4 +19,10 @@ const profile={
 } as const;
 const result=spawnSync('bun',['run','build'],{env:{...process.env,...profile},stdio:'inherit'});
 if(result.error)throw result.error;
-process.exitCode=result.status??1;
+if(result.status!==0){process.exitCode=result.status??1;}
+else{
+ // Inspect the emitted files, not the build log.
+ const sha=process.env.VERCEL_GIT_COMMIT_SHA;
+ const out=assertAndPublish(join(process.cwd(),'dist'),{expectedEnv:'mainnet',...(sha?{expectedSha:sha}:{})});
+ console.log('[artifact] verified env='+out.env+' sha='+out.sha);
+}
