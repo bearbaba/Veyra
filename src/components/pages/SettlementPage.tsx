@@ -219,11 +219,12 @@ function buildRef(): `0x${string}` {
 
 // ─── component ─────────────────────────────────────────────────────────────────
 
-export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifiedRecipient,paymentRequest,journeyRef}:{
+export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifiedRecipient,paymentRequest,journeyRef,onFlowStepChange}:{
  embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void;
  verifiedRecipient?:VerifiedMainnetRecipient|null;
  paymentRequest?:VeyraPaymentRequest|null;
  journeyRef?:`0x${string}`;
+ onFlowStepChange?:(active:boolean)=>void;
 }) {
   const { address, isConnected, chainId,connector } = useAccount();
   const social=useUnifiedSocial();
@@ -240,6 +241,9 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
 
   // lifecycle
   const [step, setStep] = useState<Step>('form');
+  // Embedded Pay keeps one visual stage at a time. Never unmount this
+  // component during REVIEW / SIGN / RECOVERY: wallet journals stay intact.
+  useEffect(()=>{if(embedded)onFlowStepChange?.(step!=='form');},[embedded,step,onFlowStepChange]);
   useEffect(()=>{
     if(!sharedDraft)return;
     // Recompute contract fee and approval review when a shared visible draft changes.
