@@ -17,7 +17,7 @@ import type {RecipientSearchResult} from '@/mainnet/recipientLookup';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {isMainnetSessionForWallet} from '@/mainnet/signedWalletReceiptScope';
 import {SettlementPage} from './SettlementPage';
-import {MAINNET_EMERGENCY_READ_ONLY,MAINNET_CANARY_ONLY,MAINNET_CANARY_OWNER} from '@/mainnet/releaseGates';
+import {MAINNET_EMERGENCY_READ_ONLY,MAINNET_SETTLEMENT_CANARY_ONLY,MAINNET_CANARY_OWNER} from '@/mainnet/releaseGates';
 import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 import type {VeyraPaymentRequest} from '@/lib/api/paymentRequests';
 import {MainnetUnifiedBalancePanel} from './MainnetUnifiedBalancePanel';
@@ -136,10 +136,10 @@ export function MainnetPayHub({
   {MAINNET_EMERGENCY_READ_ONLY?<p role="alert" className="rounded-xl border p-3 text-sm"
     style={{borderColor:'var(--border)',color:'var(--warning)'}}>
      Payments are paused. Your receipts remain in Activity.
-   </p>:MAINNET_CANARY_ONLY&&address&&address.toLowerCase()!==MAINNET_CANARY_OWNER.toLowerCase()?
+   </p>:MAINNET_SETTLEMENT_CANARY_ONLY&&address&&address.toLowerCase()!==MAINNET_CANARY_OWNER.toLowerCase()?
     <p role="status" className="rounded-xl border p-3 text-sm" style={{borderColor:'var(--border)',color:'var(--warning)'}}>
      Payments are limited to the pilot wallet for now.
-    </p>:MAINNET_CANARY_ONLY&&<details className="text-xs" style={{color:'var(--muted)'}}>
+    </p>:MAINNET_SETTLEMENT_CANARY_ONLY&&<details className="text-xs" style={{color:'var(--muted)'}}>
      <summary className="cursor-pointer">Pilot · up to 0.01 USDC per payment</summary>
      <p className="mt-2">Only the authorized wallet can sign in Veyra. Public contracts may be called outside the app.</p>
     </details>}

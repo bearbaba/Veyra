@@ -80,7 +80,15 @@ async function adapterFor(input:{provider:EIP1193Provider;owner:string;chainId:n
  await assertGatewayMainnetWallet(input.provider,input.owner,input.chainId);
  return adapter;
 }
-function validate(review:GatewayMainnetReview){
+/** Quote calculation is read-only, but every execution still requires the
+ * hard-coded owner and micro-canary. Changing quote access NEVER opens spend.
+ */
+export function assertGatewayMainnetCanaryExecution(owner:string,amount:bigint):void{
+ if(owner.toLowerCase()!==MAINNET_CANARY_OWNER.toLowerCase()||
+  amount<=0n||amount>MAINNET_CANARY_MAX_UNITS)
+  throw Error('Unified Mainnet canary requires the authorized owner and up to 0.01 USDC.');
+}
+function validate(review:GatewayMainnetReview,execution=true){
  const owner=getAddress(review.owner).toLowerCase(),source=picked(review.sourceChainId);
  if(!gatewayMainnetAmount(review.amount)||!isAddress(review.recipient)||
   review.balance.owner!==owner||review.balance.readAt<Date.now()-60000||
@@ -90,8 +98,7 @@ function validate(review:GatewayMainnetReview){
   throw Error('Veyra ID session changed. Sign in again.');
  const amount=parseUnits(review.amount,6);
  // New real-money operations begin with an explicit, owner-only small-value canary.
- if(owner!==MAINNET_CANARY_OWNER.toLowerCase()||amount>MAINNET_CANARY_MAX_UNITS)
-  throw Error('Unified Mainnet canary requires the authorized owner and up to 0.01 USDC.');
+ if(execution)assertGatewayMainnetCanaryExecution(owner,amount);
  if(review.kind==='spend'){
   if(!review.destinationChainId)throw Error('Destination not reviewed.');
   picked(review.destinationChainId);
@@ -111,7 +118,7 @@ function reviewedSdkAllocations(review:GatewayMainnetReview){
 }
 export async function estimateGatewayMainnetSpend(review:GatewayMainnetReview,
  provider:EIP1193Provider):Promise<GatewaySdkFee[]>{
- const {owner,source}=validate({...review,kind:'spend'});
+ const {owner,source}=validate({...review,kind:'spend'},false);
  const adapter=await adapterFor({provider,owner,chainId:source.chainId});
  const destination=picked(review.destinationChainId!);
  const kit=new AppKit();

@@ -7,6 +7,11 @@ export const MAINNET_EMERGENCY_READ_ONLY =
 export const MAINNET_CANARY_ONLY = import.meta.env.VITE_VEYRA_CANARY_ONLY === '1';
 export const MAINNET_CANARY_OWNER = '0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb';
 export const MAINNET_CANARY_MAX_UNITS = 10_000n;
+/** The deployed Settlement contract has not passed a public, multi-account
+ * reference-uniqueness release. Never advertise public signing from a
+ * generic env flag while the contract-only guard is still a hard canary.
+ */
+export const MAINNET_SETTLEMENT_CANARY_ONLY = true;
 export function assertMainnetSigningAllowed(
  readOnly = MAINNET_EMERGENCY_READ_ONLY||MAINNET_CANARY_ONLY,
 ):void{
