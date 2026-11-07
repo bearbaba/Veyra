@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {validPayFundingJourney,readPayFundingJourney,ensurePayFundingJourney,
- derivePayFundingJourneyState,dismissPayFundingJourney,samePayFundingTarget,
+ derivePayFundingJourneyState,dismissPayFundingJourney,markPayFundingAttempt,samePayFundingTarget,
  payFundingJourneyKey,type PayFundingJourney} from '../mainnet/payFundingJourney';
 import {validGatewayMainnetOperation,validGatewayMainnetReceipt,
  type GatewayMainnetOperation,type GatewayMainnetReceipt} from '../mainnet/gatewayMainnetJournal';
@@ -50,9 +50,21 @@ describe('Unified → Settlement must recover one bound journey',()=>{
   s.setItem(payFundingJourneyKey(owner),'{"version":1,"id":"broken"}');
   expect(readPayFundingJourney(owner,s)).toEqual({kind:'blocked'});
   expect(()=>ensurePayFundingJourney({owner,payee,grossUsdc:'0.01'},s)).toThrow();
-  expect(dismissPayFundingJourney(owner,pending,empty,s)).toBe(false);
-  expect(dismissPayFundingJourney(owner,null,{kind:'blocked'},s)).toBe(false);
-  expect(dismissPayFundingJourney(owner,null,empty,s)).toBe(true);
+  expect(dismissPayFundingJourney(owner,pending,empty,[],s)).toBe(false);
+  expect(dismissPayFundingJourney(owner,null,{kind:'blocked'},[],s)).toBe(false);
+  expect(dismissPayFundingJourney(owner,null,empty,[],s)).toBe(true);
+ });
+ it('writes an immutable attempt link before signing and refuses missing archived proofs',()=>{
+  const s=store();
+  const saved=ensurePayFundingJourney({owner,payee,grossUsdc:'0.01'},s);
+  expect(markPayFundingAttempt(owner,saved.id,opId,s)).toBe(true);
+  expect(markPayFundingAttempt(owner,saved.id,opId,s)).toBe(true);
+  expect(markPayFundingAttempt(owner,saved.id,id,s)).toBe(false);
+  expect(()=>ensurePayFundingJourney({owner,payee,grossUsdc:'0.01'},s)).toThrow('already exists');
+  expect(state({j:{...journey,fundingOperationId:opId},wallet:1000000n}))
+   .toBe('FUNDING_UNKNOWN');
+  expect(dismissPayFundingJourney(owner,null,empty,[],s)).toBe(false);
+  expect(dismissPayFundingJourney(owner,null,empty,[proof],s)).toBe(true);
  });
  it('never treats Gateway UNKNOWN, SDK submission or a wallet balance as funding proof',()=>{
   expect(validPayFundingJourney(journey,owner)).toBe(true);

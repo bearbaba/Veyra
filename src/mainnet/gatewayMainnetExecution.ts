@@ -14,7 +14,7 @@ import {activeSignedIdentityToken} from '@/lib/api/liveIdentitySession';
 import {MAINNET_CANARY_OWNER,MAINNET_CANARY_MAX_UNITS} from './releaseGates';
 import {parseGatewaySdkFees,assertGatewaySdkFeesUnchanged,type GatewaySdkFee} from '@/core/gateway/gatewaySdkSpend';
 import {planGatewayMultiSource,matchingGatewayAllocation,type GatewayAllocation} from './gatewayMultiSourceAllocation';
-import {readPayFundingJourney} from './payFundingJourney';
+import {readPayFundingJourney,markPayFundingAttempt} from './payFundingJourney';
 
 /** SDK fee amounts are exact six-decimal USDC; preserve reviewed minimum. */
 function minimumGatewayReceive(review:GatewayMainnetReview):string{
@@ -178,6 +178,8 @@ export async function submitGatewayMainnetReview(review:GatewayMainnetReview,
  };
  if(!writeGatewayMainnetOperation(operation))
   throw Error('Recovery checkpoint storage failed. No wallet signature requested.');
+ if(review.payJourneyId&&!markPayFundingAttempt(owner,review.payJourneyId,operation.id))
+  throw Error('Funding journey checkpoint failed. No wallet signature requested; original Gateway lock retained.');
  // SDK may have initiated approval or signed the spend when a provider throws;
  // never delete the UNKNOWN checkpoint after any error.
  if(review.kind==='deposit'){

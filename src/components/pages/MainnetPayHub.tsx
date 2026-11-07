@@ -275,7 +275,7 @@ export function MainnetPayHub({
       {fundingHistory!=='blocked'&&
        ['NOT_STARTED','FUNDING_DECLINED','FUNDING_REVERTED','SETTLEMENT_ONCHAIN_VERIFIED'].includes(fundingState)&&
        <button type="button" className="veyra-btn-secondary rounded-lg px-3 py-2"
-        onClick={()=>{if(address&&dismissPayFundingJourney(address,fundingGateway,settlement))
+        onClick={()=>{if(address&&dismissPayFundingJourney(address,fundingGateway,settlement,fundingHistory))
          setRevision(n=>n+1);}}>
          Close this journey after reviewing Activity
        </button>}

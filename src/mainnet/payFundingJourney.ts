@@ -14,6 +14,8 @@ type Store=Pick<Storage,'getItem'|'setItem'|'removeItem'>;
 export type PayFundingJourney={
  version:1; id:string;owner:string;payee:string;grossUsdc:string;
  requestId?:string;createdAt:number;
+ /** Immutable Gateway operation ID reserved before SDK can ask for a wallet signature. */
+ fundingOperationId?:string;
 };
 export type FundingJourneyRead=
  |{kind:'empty'}|{kind:'blocked'}|{kind:'active';value:PayFundingJourney};
@@ -34,6 +36,7 @@ export function validPayFundingJourney(value:unknown,owner:string):value is PayF
   typeof j.grossUsdc==='string'&&AMOUNT.test(j.grossUsdc)&&
   parseUnits(j.grossUsdc,6)>0n&&
   (j.requestId===undefined||typeof j.requestId==='string'&&REQUEST.test(j.requestId))&&
+  (j.fundingOperationId===undefined||typeof j.fundingOperationId==='string'&&ID.test(j.fundingOperationId))&&
   typeof j.createdAt==='number'&&Number.isSafeInteger(j.createdAt)&&
   j.createdAt>0&&j.createdAt<Date.now()+5000;
 }
@@ -57,6 +60,8 @@ export function ensurePayFundingJourney(input:{
   if(p.payee.toLowerCase()!==input.payee.toLowerCase()||
    p.grossUsdc!==input.grossUsdc||p.requestId!==input.requestId)
    throw Error('Another Pay funding journey is saved. Resolve it before creating a new one.');
+  if(p.fundingOperationId)
+   throw Error('Original Gateway funding attempt already exists. Recover its proof; do not sign again.');
   return p;
  }
  if(!isAddress(input.owner)||!isAddress(input.payee))
@@ -74,6 +79,26 @@ export function ensurePayFundingJourney(input:{
   if(typeof window!=='undefined')window.dispatchEvent(new Event('veyra:pay:funding'));
   return journey;
  }catch{throw Error('Funding checkpoint storage failed. No wallet signature requested.');}
+}
+/** Bind precisely one Gateway operation before any wallet signature is requested.
+ * If this durable write fails, the SDK must NOT invoke a wallet.
+ */
+export function markPayFundingAttempt(owner:string,journeyId:string,operationId:string,
+ store?:Store):boolean{
+ if(!isAddress(owner)||!ID.test(journeyId)||!ID.test(operationId))return false;
+ const existing=readPayFundingJourney(owner,store);
+ if(existing.kind!=='active'||existing.value.id!==journeyId||
+  existing.value.fundingOperationId&&existing.value.fundingOperationId!==operationId)return false;
+ if(existing.value.fundingOperationId===operationId)return true;
+ try{
+  const s=store??localStorage,key=payFundingJourneyKey(owner);
+  const updated={...existing.value,fundingOperationId:operationId};
+  const raw=JSON.stringify(updated);
+  s.setItem(key,raw);
+  const ok=s.getItem(key)===raw;
+  if(ok&&typeof window!=='undefined')window.dispatchEvent(new Event('veyra:pay:funding'));
+  return ok;
+ }catch{return false;}
 }
 export function samePayFundingTarget(j:PayFundingJourney,input:{
  owner:string;payee:string;grossUsdc:string;requestId?:string
@@ -102,13 +127,15 @@ export function derivePayFundingJourneyState(args:{
  }
  if(op){
   if(op.kind!=='spend'||op.payJourneyId!==j.id||
+   j.fundingOperationId!==undefined&&j.fundingOperationId!==op.id||
    op.recipient.toLowerCase()!==j.owner||op.destinationChainId!==5042)
    return 'BLOCKED';
   return op.status==='UNKNOWN'?'FUNDING_UNKNOWN':'FUNDING_PENDING';
  }
  const receipt=history.find(r=>r.kind==='spend'&&r.payJourneyId===j.id&&
+  (j.fundingOperationId===undefined||r.operationId===j.fundingOperationId)&&
   r.owner===j.owner&&r.recipient.toLowerCase()===j.owner&&r.destinationChainId===5042);
- if(!receipt)return 'NOT_STARTED';
+ if(!receipt)return j.fundingOperationId?'FUNDING_UNKNOWN':'NOT_STARTED';
  if(receipt.status==='CANCELLED_BEFORE_SOURCE')return 'FUNDING_DECLINED';
  if(receipt.status==='REVERTED')return 'FUNDING_REVERTED';
  if(receipt.status!=='VERIFIED')return 'FUNDING_UNKNOWN';
@@ -122,11 +149,17 @@ export function derivePayFundingJourneyState(args:{
  */
 export function dismissPayFundingJourney(owner:string,
  gateway:GatewayMainnetOperation|null|'blocked',
- settlement:SettlementRead,store?:Store):boolean{
+ settlement:SettlementRead,history:GatewayMainnetReceipt[]|'blocked',store?:Store):boolean{
  if(!isAddress(owner)||gateway!==null||
   settlement.kind==='blocked'||
   settlement.kind==='active'&&!['VERIFIED','REVERTED'].includes(settlement.value.stage))
   return false;
+ const saved=readPayFundingJourney(owner,store);
+ if(saved.kind==='blocked'||history==='blocked')return false;
+ if(saved.kind==='active'&&saved.value.fundingOperationId&&
+  !history.some(x=>x.operationId===saved.value.fundingOperationId&&
+   x.payJourneyId===saved.value.id&&
+   ['VERIFIED','REVERTED','CANCELLED_BEFORE_SOURCE'].includes(x.status)))return false;
  try{
   const s=store??localStorage,key=payFundingJourneyKey(owner);
   s.removeItem(key);
