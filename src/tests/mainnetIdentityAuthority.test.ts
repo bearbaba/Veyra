@@ -1,6 +1,6 @@
 import {describe,it,expect,vi,afterEach} from 'vitest';
 import {readFileSync} from 'node:fs';
-import {evaluateMainnetIdentityAuthority,OFFICIAL_VEYRA_ORIGIN} from '../../server/services/mainnetIdentityCapability';
+import {evaluateMainnetIdentityAuthority,evaluateMainnetIdentityAuthenticatedReadAuthority,OFFICIAL_VEYRA_ORIGIN} from '../../server/services/mainnetIdentityCapability';
 import {isWalletLoginChainAllowed,resolveTrustedLoginOriginForEnv} from '../../server/services/walletLoginService';
 import {issueBrowserRestoreCookie,verifyBrowserRestoreCookie} from '../../server/auth/browserRestoreSession';
 import {isMainnetIdentityCapability,probeMainnetIdentityOrigin} from '../lib/api/identityOriginProbe';
@@ -13,6 +13,21 @@ const runtime={environment:'mainnet' as const,nodeEnv:'production',hostedBackend
 const json=(status:number,data:unknown):Response=>({status,headers:{get:()=> 'application/json'},json:()=>Promise.resolve(data)}) as unknown as Response;
 afterEach(()=>vi.unstubAllGlobals());
 describe('Exactly one authorized Veyra Mainnet identity origin',()=>{
+ it('allows omitted browser Origin only on authenticated read-only route, never on write authority',()=>{
+  expect(evaluateMainnetIdentityAuthority(runtime,undefined)).toBeNull();
+  expect(evaluateMainnetIdentityAuthenticatedReadAuthority(runtime,undefined)?.ok).toBe(true);
+  expect(evaluateMainnetIdentityAuthenticatedReadAuthority(runtime,OFFICIAL_VEYRA_ORIGIN)?.ok).toBe(true);
+  expect(evaluateMainnetIdentityAuthenticatedReadAuthority(runtime,'https://attacker.example')).toBeNull();
+  expect(evaluateMainnetIdentityAuthenticatedReadAuthority({...runtime,environment:'testnet'},undefined)).toBeNull();
+  expect(evaluateMainnetIdentityAuthenticatedReadAuthority({...runtime,sessionSecretConfigured:false},undefined)).toBeNull();
+  const bff=source('server/bff.ts');
+  const get=bff.split("app.get('/api/mainnet/pay/journeys'")[1]?.split("app.post('/api/mainnet/pay/journeys/lock'")[0]??'';
+  const post=bff.split("app.post('/api/mainnet/pay/journeys/lock'")[1]?.slice(0,600)??'';
+  expect(get).toContain("evaluateMainnetIdentityAuthenticatedReadAuthority(runtimeConfig,req.header('origin'))");
+  expect(get).toContain('getAuthenticatedVeyraUserId(req)');
+  expect(post).toContain("evaluateMainnetIdentityAuthority(runtimeConfig,req.header('origin'))");
+ });
+
  it('accepts only the canonical hosted Mainnet service and explicit Arc chain authority',()=>{
   const good=evaluateMainnetIdentityAuthority(runtime,OFFICIAL_VEYRA_ORIGIN);
   expect(good).toEqual({ok:true,environment:'mainnet',origin:OFFICIAL_VEYRA_ORIGIN,
