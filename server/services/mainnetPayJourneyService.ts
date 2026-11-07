@@ -107,11 +107,15 @@ export async function readOwnedPayJourney(db:DbClient,userId:string,ownerWallet:
   eq(mainnetPayJourneys.ownerUserId,userId),
   eq(mainnetPayJourneys.ownerWallet,getAddress(ownerWallet).toLowerCase()),
  )).orderBy(sql`created_at DESC`).limit(50);
+ let mostRecentVerified:ReturnType<typeof visiblePayJourney>|null=null;
  for(const row of rows){
   const latest=await reconcileServerReceipt(db,row);
+  // Unresolved original always wins; other devices may inspect but cannot
+  // create a second signing operation.
   if(latest.verifiedTxHash===null)return visiblePayJourney(latest);
+  if(!mostRecentVerified)mostRecentVerified=visiblePayJourney(latest);
  }
- return null;
+ return mostRecentVerified;
 }
 export async function lockOwnerPayJourney(
  db:DbClient,userId:string,payload:unknown,

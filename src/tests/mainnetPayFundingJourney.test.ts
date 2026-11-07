@@ -94,7 +94,11 @@ describe('Unified → Settlement must recover one bound journey',()=>{
    settlement:{kind:'active',value:intent}})).toBe('SETTLEMENT_PENDING');
   expect(state({history:[proof],wallet:10000n,
    settlement:{kind:'active',value:{...intent,stage:'VERIFIED',hash:'0x'+'4'.repeat(64)}}}))
-   .toBe('SETTLEMENT_ONCHAIN_VERIFIED');
+   .toBe('SETTLEMENT_PENDING');
+  // Only server-indexed canonical receipts may render a completed journey.
+  expect(derivePayFundingJourneyState({journey,gatewayOperation:null,history:[proof],
+   settlement:{kind:'active',value:{...intent,stage:'VERIFIED',hash:'0x'+'4'.repeat(64)}},
+   arcWalletUsdc:10000n,serverSettlementVerified:true})).toBe('SETTLEMENT_ONCHAIN_VERIFIED');
   expect(state({history:[proof],wallet:10000n,
    settlement:{kind:'active',value:{...intent,recipient:owner}}})).toBe('BLOCKED');
  });

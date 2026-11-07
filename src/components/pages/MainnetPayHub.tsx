@@ -143,6 +143,15 @@ export function MainnetPayHub({
  const fundingGateway=address?readGatewayMainnetOperation(address):null;
  const fundingHistory=address?readGatewayMainnetHistory(address):[];
  const fundingJourney=fundingRead.kind==='active'?fundingRead.value:null;
+ const remoteVerified=Boolean(fundingJourney&&currentRemote?.status==='ready'&&
+  currentRemote.journey?.status==='SETTLEMENT_VERIFIED'&&
+  currentRemote.journey.journeyId===fundingJourney.id&&
+  currentRemote.journey.ownerWallet.toLowerCase()===owner&&
+  currentRemote.journey.payeeWallet.toLowerCase()===fundingJourney.payee.toLowerCase()&&
+  currentRemote.journey.amountRaw===parseUnits(fundingJourney.grossUsdc,6).toString()&&
+  currentRemote.journey.gatewayOperationId===fundingJourney.fundingOperationId&&
+  currentRemote.journey.paymentRef.toLowerCase()===(paymentRequest?
+   paymentRequest.paymentRef:genericPayFundingRef(fundingJourney.id)).toLowerCase());
  const remotePending=currentRemote?.status==='ready'&&currentRemote.journey?.status==='RESERVED'?
   currentRemote.journey:null;
  const remoteMismatch=remotePending!==null&&
@@ -156,7 +165,8 @@ export function MainnetPayHub({
  const fundingState:FundingJourneyState=fundingJourney?
   derivePayFundingJourneyState({journey:fundingJourney,gatewayOperation:fundingGateway,
    history:fundingHistory,settlement:address?readSettlementIntent(address):{kind:'empty'},
-   arcWalletUsdc:walletBalance===undefined?null:walletBalance}):
+   arcWalletUsdc:walletBalance===undefined?null:walletBalance,
+   serverSettlementVerified:remoteVerified}):
   fundingRead.kind==='blocked'?'BLOCKED':'NOT_STARTED';
  const sameFundingTarget=fundingJourney?samePayFundingTarget(fundingJourney,{
   owner, payee:draft.recipient,grossUsdc:draft.amount,

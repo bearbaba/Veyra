@@ -360,8 +360,10 @@ jobs:
       - run: bun scripts/build-mainnet-pilot.ts
       - name: Install isolated Playwright QA runner and Chromium
         run: |
-          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
-          npx playwright install --with-deps chromium
+          mkdir -p /tmp/veyra-browser-runner
+          npm --prefix /tmp/veyra-browser-runner install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          ln -s /tmp/veyra-browser-runner/node_modules/playwright ./node_modules/playwright
+          /tmp/veyra-browser-runner/node_modules/.bin/playwright install --with-deps chromium
       - name: Navigate actual Mainnet UI in a real browser (no wallets or transfers)
         run: |
           ./node_modules/.bin/vite preview --host 127.0.0.1 --port 4173 > /tmp/veyra-qa-vite.log 2>&1 &

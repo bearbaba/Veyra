@@ -117,14 +117,20 @@ export function derivePayFundingJourneyState(args:{
  history:GatewayMainnetReceipt[]|'blocked';
  settlement:SettlementRead;
  arcWalletUsdc:bigint|null;
+ /** Only a server-indexed, verified Settlement receipt can close the UI journey. */
+ serverSettlementVerified?:boolean;
 }):FundingJourneyState{
  const {journey:j,gatewayOperation:op,history,settlement,arcWalletUsdc:wallet}=args;
+ // Server receipt is independent of browser storage; it can survive a
+ // different device and must be scoped to this exact journey by the caller.
+ if(args.serverSettlementVerified)return 'SETTLEMENT_ONCHAIN_VERIFIED';
  if(op==='blocked'||history==='blocked'||settlement.kind==='blocked')return 'BLOCKED';
  if(settlement.kind==='active'){
   const p=settlement.value;
   if(p.owner.toLowerCase()===j.owner&&p.recipient.toLowerCase()===j.payee.toLowerCase()&&
    p.amount===j.grossUsdc&&p.requestId===j.requestId){
-   if(p.stage==='VERIFIED'&&p.phase==='PAYMENT')return 'SETTLEMENT_ONCHAIN_VERIFIED';
+   if(p.stage==='VERIFIED'&&p.phase==='PAYMENT')
+    return args.serverSettlementVerified?'SETTLEMENT_ONCHAIN_VERIFIED':'SETTLEMENT_PENDING';
    if(['PENDING','UNKNOWN','AWAITING_WALLET','REJECTED'].includes(p.stage))
     return 'SETTLEMENT_PENDING';
   }else if(!['VERIFIED','REVERTED'].includes(p.stage))return 'BLOCKED';
