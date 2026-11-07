@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, CircleAlert, ChevronDown, Loader2, RefreshCw, Server } from 'lucide-react';
 import {useUnifiedSocial} from '../../features/social/UnifiedSocial';
+import {VEYRA_ENV} from '@/lib/env';
 
 type Status = 'loading' | 'online' | 'degraded' | 'offline';
 interface ReadinessPayload {
@@ -25,7 +26,7 @@ export function RuntimeStatusCard() {
     // failures during normal sign-in. Bound the request but allow a real boot.
     const timer=window.setTimeout(()=>controller.abort(),15000);
     setStatus('loading');setSummary('Checking the secure Veyra service…');
-    void fetch('/api/health/readiness',{
+    void fetch(VEYRA_ENV==='mainnet'?'/api/health/database':'/api/health',{
       signal:controller.signal,credentials:'same-origin',cache:'no-store',
       headers:{Accept:'application/json'},
     }).then(async response=>{
@@ -36,10 +37,10 @@ export function RuntimeStatusCard() {
         typeof payload.ok!=='boolean')throw new Error('Invalid readiness response');
       const result=payload as ReadinessPayload;
       if(!active)return;
-      setEnvironment(typeof result.environment==='string'?result.environment:'unknown');
+      setEnvironment(VEYRA_ENV==='mainnet'?'Arc Mainnet (app)':typeof result.environment==='string'?result.environment:VEYRA_ENV+' (app)');
       if(result.ok===true){
         setStatus('online');
-        setSummary('Infrastructure reachable. Signing and payment verification remain separate checks.');
+        setSummary('Backend database is reachable. Veyra ID and payment signing require separate verification.');
       }else{
         setStatus('degraded');
         setSummary('Some service checks are unavailable. Wallet funds are unaffected.');
@@ -47,7 +48,7 @@ export function RuntimeStatusCard() {
     }).catch(()=>{
       if(!active)return;
       setStatus('offline');
-      setSummary('Unable to verify backend readiness. Your wallet remains connected.');
+      setSummary('Backend could not be verified. Wallet connection is a separate state.');
     }).finally(()=>window.clearTimeout(timer));
     return()=>{active=false;window.clearTimeout(timer);controller.abort();};
   },[attempt]);
@@ -87,7 +88,7 @@ export function RuntimeStatusCard() {
           <p>Veyra ID sign-in on this domain: {social.identityOrigin==='ready'?'origin allowed · wallet sign-in still required':
             social.identityOrigin==='origin_blocked'?'not authorized':
             social.identityOrigin==='checking'?'checking origin':'unavailable'}</p>
-          <p className="text-[11px]">Backend environment: {environment}</p>
+          <p className="text-[11px]">App environment: {environment}</p>
         </div>
         <button type="button" onClick={()=>setAttempt(n=>n+1)}
           className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold"

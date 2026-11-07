@@ -4,30 +4,30 @@
 
 /* ── Arc Dark tokens (Veyra: AI command center / fintech) ─────────────────── */
 :root {
-  --bg: #0d1b2f;
-  --bg-gradient: linear-gradient(180deg, #0a1525 0%, #0d1b2f 58%, #112240 100%);
-  --surface: rgba(255, 255, 255, 0.06);
-  --surface-strong: rgba(255, 255, 255, 0.10);
-  --surface-muted: #141f30;
+  --bg: #050f26;
+  --bg-gradient: radial-gradient(ellipse at 73% 6%,rgba(62,67,161,.15),transparent 46%),linear-gradient(155deg,#031027 0%,#061832 58%,#08152e 100%);
+  --surface: rgba(12, 29, 63, 0.88);
+  --surface-strong: rgba(17, 42, 86, 0.90);
+  --surface-muted: #0b1d3d;
   --surface-elevated: rgba(255, 255, 255, 0.08);
   --ink: #f0f4fb;
   --ink-2: #c8d8f0;
-  --muted: #94a3b8;
+  --muted: #a9bddd;
   --subtle: #64748b;
-  --border: rgba(255, 255, 255, 0.09);
+  --border: rgba(109, 152, 228, 0.20);
   --border-strong: rgba(172, 198, 233, 0.40);
-  --accent: #acc6e9;
-  --accent-hover: #c8daf5;
-  --accent-muted: rgba(172, 198, 233, 0.12);
-  --focus: #acc6e9;
-  --success: #4ade80;
+  --accent: #69b9ff;
+  --accent-hover: #a5d8ff;
+  --accent-muted: rgba(46, 125, 231, 0.18);
+  --focus: #69b9ff;
+  --success: #14e4a3;
   --success-muted: rgba(74, 222, 128, 0.12);
   --danger: #f87171;
   --danger-muted: rgba(248, 113, 113, 0.12);
   --warning: #fbbf24;
   --warning-muted: rgba(251, 191, 36, 0.12);
   /* Veyra identity accent — used sparingly */
-  --veyra: #7c9fd4;
+  --veyra: #a07bff;
   --veyra-glow: rgba(124, 159, 212, 0.20);
 }
 
@@ -103,4 +103,246 @@ body {
   --normal-bg: #1a2b42;
   --normal-border: rgba(172, 198, 233, 0.20);
   --normal-text: #f0f4fb;
+}
+
+/* Veyra brand system — one palette, one set of controls.
+ * Keep the original Home hero/profile proportions and all financial boundaries.
+ * Primary = electric blue → violet; secondary = navy; inputs/route controls
+ * share the same surface. These are presentation tokens, not execution gates.
+ */
+:root {
+  --bg: #061329;
+  --bg-gradient: linear-gradient(180deg,#051128 0%,#07182f 100%);
+  --surface: #102342;
+  --surface-strong: #13294d;
+  --surface-raised: #162d51;
+  --border: rgba(129,164,223,.18);
+  --border-strong: rgba(108,157,237,.35);
+  --muted: #aabbd6;
+  --subtle: #8094b5;
+  --ink: #f7f9ff;
+  --accent: #78baff;
+  --primary-gradient: linear-gradient(105deg,#0a91fa,#536cf4 58%,#9454ef);
+  --veyra-cta: var(--primary-gradient);
+  --veyra-brand-card: linear-gradient(132deg,rgba(15,43,92,.97),rgba(10,29,64,.97) 67%,rgba(29,24,79,.9));
+  --veyra-brand-stroke: rgba(107,155,244,.31);
+  --veyra-control: rgba(15,39,81,.89);
+  --veyra-secondary: rgba(23,51,101,.69);
+  --veyra-secondary-hover: rgba(33,71,133,.79);
+  --veyra-focus-ring: rgba(120,186,255,.48);
+}
+
+.veyra-premium-panel {
+  background: radial-gradient(ellipse at 90% 0%,rgba(91,66,215,.16),transparent 54%),var(--surface)!important;
+}
+.veyra-headline-accent {
+  background: linear-gradient(105deg,#9cdeff,#71a4ff,#b071ff);
+  -webkit-background-clip:text;
+  background-clip:text;
+  color:transparent;
+}
+.veyra-page {color:var(--ink);}
+.veyra-page-title {
+  font-family:'Space Grotesk',sans-serif;
+  font-size:clamp(1.65rem,3vw,2rem);
+  font-weight:700;
+  line-height:1.18;
+  letter-spacing:-.035em;
+  margin-top:.35rem;
+}
+.veyra-page-subtitle {font-size:.875rem;line-height:1.5;color:var(--muted);margin-top:.35rem;}
+.veyra-eyebrow {font-size:.68rem;font-weight:700;letter-spacing:.14em;color:var(--accent);}
+.veyra-section-title {font-family:'Space Grotesk',sans-serif;font-size:1.02rem;font-weight:700;letter-spacing:-.01em;}
+
+/* One shared panel treatment for Home, Friends, Activity, Pay, Swap, Bridge. */
+.veyra-page .veyra-card,
+.veyra-home .veyra-panel,
+.veyra-home .veyra-action-card,
+.veyra-pay-page .veyra-pay-panel {
+  background:var(--veyra-brand-card)!important;
+  border:1px solid var(--veyra-brand-stroke)!important;
+  border-radius:1rem;
+  box-shadow:inset 0 1px rgba(210,226,255,.055),0 10px 28px rgba(2,8,28,.14)!important;
+}
+.veyra-home .veyra-profile-card {
+  background:linear-gradient(127deg,#0c316a,#121e4f 67%,#251747);
+  border-color:rgba(113,111,248,.49);
+  box-shadow:inset 0 1px rgba(206,216,255,.11),0 18px 50px rgba(3,7,29,.17);
+}
+.veyra-home .veyra-profile-glow {
+  position:absolute;
+  inset:-20% -18% 0 35%;
+  pointer-events:none;
+  background:radial-gradient(ellipse at 67% 22%,rgba(109,66,246,.24),transparent 65%);
+}
+/* Preserve the original distinctive Home wallet/balance surfaces. */
+.veyra-home .veyra-brand-balance,
+.veyra-home .veyra-balance-card {
+  background:linear-gradient(120deg,#0d336b,#0a244d 70%,#171942)!important;
+}
+.veyra-home .veyra-action-card:hover {
+  background:var(--veyra-brand-card)!important;
+  border-color:#74bcff!important;
+  filter:brightness(1.07);
+}
+
+/* The ONLY gradient action treatment — primary CTA and enabled review/quote. */
+.veyra-btn-primary,
+.veyra-home .veyra-gradient-button,
+.veyra-pay-page .veyra-pay-review:enabled {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  background:var(--veyra-cta)!important;
+  border:1px solid rgba(131,157,245,.5)!important;
+  border-radius:.75rem;
+  color:#fff!important;
+  min-height:2.75rem;
+  font-weight:700;
+  box-shadow:0 6px 18px rgba(44,93,212,.18)!important;
+  transition:filter .16s ease;
+}
+.veyra-btn-primary:not(:disabled):hover,
+.veyra-home .veyra-gradient-button:not(:disabled):hover,
+.veyra-pay-page .veyra-pay-review:enabled:hover {filter:brightness(1.08);}
+.veyra-btn-primary:disabled,
+.veyra-home .veyra-gradient-button:disabled,
+.veyra-pay-page .veyra-pay-review:disabled {
+  background:#405477!important;
+  border-color:rgba(131,157,245,.22)!important;
+  color:#acbdd6!important;
+  box-shadow:none!important;
+  filter:none!important;
+  cursor:not-allowed;
+  opacity:.68;
+}
+
+/* Dark navy for all secondary buttons and token/route selectors. */
+.veyra-btn-secondary,
+.veyra-icon-button,
+.veyra-route-control {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid var(--veyra-brand-stroke)!important;
+  background:var(--veyra-secondary)!important;
+  color:#dceaff!important;
+  border-radius:.75rem;
+  box-shadow:none!important;
+  font-weight:600;
+}
+.veyra-btn-secondary,
+.veyra-icon-button {min-height:2.5rem;padding:.55rem .85rem;font-size:.8rem;}
+.veyra-icon-button {padding:.6rem;}
+.veyra-route-control {width:100%;justify-content:flex-start;transition:background-color .15s,border-color .15s;}
+.veyra-btn-secondary:hover:not(:disabled),
+.veyra-icon-button:hover:not(:disabled),
+.veyra-route-control:hover:not(:disabled) {
+  background:var(--veyra-secondary-hover)!important;
+  border-color:#76bcff!important;
+}
+.veyra-btn-secondary:disabled,
+.veyra-icon-button:disabled,
+.veyra-route-control:disabled {opacity:.55;cursor:not-allowed;}
+
+/* Shared form surfaces: same height/radius/focus and legible placeholder. */
+.veyra-page .veyra-field,
+.veyra-pay-page .veyra-pay-input,
+.veyra-route-page .veyra-route-input {
+  background:var(--veyra-control)!important;
+  color:var(--ink)!important;
+  border:1px solid var(--veyra-brand-stroke)!important;
+  border-radius:.75rem;
+}
+.veyra-page .veyra-field::placeholder,
+.veyra-pay-page .veyra-pay-input::placeholder,
+.veyra-route-page .veyra-route-input::placeholder {color:#91a8cb;}
+.veyra-page :is(button,input,select,textarea,summary):focus-visible,
+.veyra-pay-page .veyra-pay-input:focus-visible,
+.veyra-route-page .veyra-route-input:focus-visible {
+  outline:2px solid var(--veyra-focus-ring)!important;
+  outline-offset:2px;
+  border-color:#78baff!important;
+}
+
+/* Payment: method / recipient tabs are navy selected states, not rival CTAs. */
+.veyra-pay-page .veyra-pay-panel > section[aria-label="Payment details"] {
+  background:transparent!important;
+  border:0!important;
+  padding:0!important;
+}
+.veyra-pay-page .veyra-pay-tab {
+  color:var(--muted);
+  transition:background-color .16s ease,color .16s ease;
+}
+.veyra-pay-page .veyra-pay-tab[data-active="true"] {
+  background:rgba(53,107,192,.47)!important;
+  color:#edf5ff!important;
+  box-shadow:inset 0 0 0 1px rgba(112,159,245,.38)!important;
+}
+.veyra-pay-page [role="group"][aria-label="Choose payment method"] > button {
+  border-color:var(--veyra-brand-stroke)!important;
+  background:var(--veyra-secondary)!important;
+  border-radius:.75rem;
+}
+.veyra-pay-page [role="group"][aria-label="Choose payment method"] > button[aria-pressed="true"] {
+  border-color:#78baff!important;
+  background:rgba(53,107,192,.47)!important;
+}
+.veyra-pay-page [role="group"][aria-label="Choose payment method"] > button:hover:not(:disabled) {
+  border-color:#78baff!important;
+}
+
+/* Route-picker modal shares Pay input surface and navy list interactions. */
+.veyra-route-page [role="dialog"] {
+  background:var(--surface)!important;
+  border-color:var(--veyra-brand-stroke)!important;
+}
+.veyra-route-page [role="dialog"] :is(input[aria-label^="Search assets"],select) {
+  background:var(--veyra-control)!important;
+  border-color:var(--veyra-brand-stroke)!important;
+  color:var(--ink)!important;
+}
+.veyra-route-page [role="dialog"] button[role="option"]:hover:not(:disabled) {
+  background:var(--veyra-secondary)!important;
+  opacity:1;
+}
+
+/* Calm transitions and reliable touch feedback on small screens. */
+@media (prefers-reduced-motion:reduce) {
+  .veyra-btn-primary,
+  .veyra-home .veyra-gradient-button,
+  .veyra-pay-page .veyra-pay-tab,
+  .veyra-route-control {transition:none!important;}
+  .veyra-btn-primary:not(:disabled):hover,
+  .veyra-home .veyra-action-card:hover {filter:none;}
+}
+
+/* Arc Studio attribution must never cover Veyra's primary mobile navigation.
+ * Keep the provider credit accessible on desktop and in page metadata.
+ * On touch viewports, the payment controls take visual precedence. */
+@media (max-width: 767px) {
+ .arc-studio-attribution { display:none!important; }
+}
+ 
+/* Scoped component-content polish only; original desktop sidebar, page
+   widths, Home geometry and mobile shell remain unchanged. */
+.veyra-mainnet-classic .veyra-pay-page .veyra-pay-panel {
+  padding: clamp(1rem, 3vw, 1.25rem);
+}
+.veyra-mainnet-classic .veyra-pay-page .veyra-pay-panel > section[aria-label="Payment details"] {
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+.veyra-mainnet-classic .veyra-pay-page .veyra-page-title {
+  font-size: clamp(1.6rem, 3vw, 1.95rem);
+}
+.veyra-calm-unified-toggle { color: var(--ink); }
+.veyra-calm-unified-toggle:hover { background: rgba(109,152,228,.075); }
+.veyra-mainnet-classic .veyra-calm-person:hover {
+  border-color: var(--border-strong) !important;
+}
+@media (max-width: 767px) {
+  .veyra-mainnet-classic .veyra-pay-page .veyra-pay-panel { padding: 1rem; }
 }

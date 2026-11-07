@@ -141,6 +141,34 @@
       "when": 1793260800000,
       "tag": "0019_stablefx_owner_bound_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793610000000,
+      "tag": "0020_mainnet_direct_pay_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793790000000,
+      "tag": "0021_mainnet_settlement_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1793990000000,
+      "tag": "0022_veyra_payment_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794086400000,
+      "tag": "0023_mainnet_pay_journeys",
+      "breakpoints": true
     }
   ]
 }

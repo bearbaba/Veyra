@@ -1,7 +1,7 @@
 /**
  * Veyra App Shell
  *
- * Human-first navigation: Home / Pay / Agent / Activity stay primary.
+ * Human-first navigation: Home / Settlement / People / Activity stay primary.
  * Advanced flows (Convert / Bridge) remain reachable through Agent/Command,
  * while Settings is deliberately secondary.
  */
@@ -28,19 +28,22 @@ import { WalletAccountControls } from './WalletAccountControls';
 import { GlobalWalletBalance } from './GlobalWalletBalance';
 import { VEYRA_ENV } from '@/lib/env';
 
-export type VeyraPage = 'home' | 'agent' | 'pay' | 'convert' | 'bridge' | 'activity' | 'social' | 'settings' | 'settlement';
+export type VeyraPage = 'home' | 'agent' | 'pay' | 'convert' | 'bridge' | 'exchange' | 'activity' | 'social' | 'settings' | 'settlement';
 
 interface NavItem {
   id: VeyraPage;
   label: string;
   icon: React.ReactNode;
+  soon?: boolean;
 }
 
 const PRIMARY_NAV: NavItem[] = VEYRA_ENV === 'mainnet' ? [
   { id: 'home', label: 'Home', icon: <Home className="size-5" /> },
-  { id: 'pay', label: 'Pay', icon: <SendHorizontal className="size-5" /> },
-  { id: 'social', label: 'People', icon: <Users className="size-5" /> },
+  { id: 'settlement', label: 'Pay', icon: <SendHorizontal className="size-5" /> },
+  { id: 'social', label: 'Friends', icon: <Users className="size-5" /> },
   { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
+  { id: 'convert', label: 'Swap', icon: <ArrowLeftRight className="size-5" /> },
+  { id: 'bridge', label: 'Bridge', icon: <Route className="size-5" /> },
 ] : [
   { id: 'home', label: 'Home', icon: <Home className="size-5" /> },
   { id: 'pay', label: 'Pay', icon: <SendHorizontal className="size-5" /> },
@@ -50,9 +53,8 @@ const PRIMARY_NAV: NavItem[] = VEYRA_ENV === 'mainnet' ? [
   { id: 'activity', label: 'Activity', icon: <LayoutList className="size-5" /> },
 ];
 const SECONDARY_NAV: NavItem[] = VEYRA_ENV === 'mainnet' ? [
-  { id: 'convert', label: 'Swap', icon: <ArrowLeftRight className="size-5" /> },
-  { id: 'bridge', label: 'Bridge', icon: <Route className="size-5" /> },
-  { id: 'agent', label: 'Agent', icon: <Bot className="size-5" /> },
+  { id: 'exchange', label: 'Exchange', icon: <ArrowLeftRight className="size-5" />, soon: true },
+  { id: 'agent', label: 'Agent', icon: <Bot className="size-5" />, soon: true },
   { id: 'settings', label: 'Settings', icon: <Settings className="size-5" /> },
 ] : [
   { id: 'social', label: 'Friends', icon: <Users className="size-5" /> },
@@ -60,10 +62,10 @@ const SECONDARY_NAV: NavItem[] = VEYRA_ENV === 'mainnet' ? [
   { id: 'settings', label: 'Settings', icon: <Settings className="size-5" /> },
 ];
 const MOBILE_NAV = PRIMARY_NAV.filter(item => VEYRA_ENV === 'mainnet'
-  ? ['home', 'pay', 'social', 'activity'].includes(item.id)
+  ? ['home', 'settlement', 'social', 'activity'].includes(item.id)
   : ['home', 'pay', 'agent', 'activity'].includes(item.id));
 const MOBILE_MORE_NAV = VEYRA_ENV === 'mainnet'
-  ? SECONDARY_NAV
+  ? [...PRIMARY_NAV.filter(item => item.id === 'convert' || item.id === 'bridge'), ...SECONDARY_NAV]
   : [...PRIMARY_NAV.filter(item => item.id === 'convert' || item.id === 'bridge'), ...SECONDARY_NAV];
 
 interface AppShellProps {
@@ -90,18 +92,18 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
   }, []);
 
   return (
-    <div className="flex min-h-dvh w-full">
+    <div className={VEYRA_ENV === 'mainnet' ? 'veyra-mainnet-classic flex min-h-dvh w-full' : 'flex min-h-dvh w-full'}>
       <aside
-        className="hidden md:flex flex-col w-56 shrink-0 border-r px-3 py-5 gap-1"
-        style={{ borderColor: 'var(--border)', background: 'rgba(13,27,47,0.85)', backdropFilter: 'blur(24px)' }}
+        className="hidden md:flex flex-col w-52 shrink-0 border-r px-3 py-5 gap-1"
+        style={{ borderColor: 'var(--border)', background: 'rgba(4,15,34,.97)', backdropFilter: 'blur(24px)' }}
       >
-        <div className="flex items-center gap-2.5 px-3 mb-6">
+        <div className="flex items-center gap-3 px-3 mb-7 pt-1">
           <VeyraLogoMark />
-          <span className="display text-lg font-bold" style={{ color: 'var(--ink)' }}>Veyra</span>
+          <span className="display text-xl font-bold" style={{ color: 'var(--ink)' }}>Veyra</span>
         </div>
 
         {PRIMARY_NAV.map((item) => (
-          <NavButton key={item.id} item={item} active={page === item.id || (VEYRA_ENV==='mainnet'&&item.id==='pay'&&page==='settlement')} onClick={() => onNavigate(item.id)} />
+          <NavButton key={item.id} item={item} active={page === item.id || (VEYRA_ENV==='mainnet'&&item.id==='settlement'&&page==='pay')} onClick={() => onNavigate(item.id)} />
         ))}
 
         <div className="mt-4 border-t pt-3 space-y-1" style={{borderColor:'var(--border)'}}>
@@ -110,7 +112,14 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
             <NavButton key={item.id} item={item} active={page === item.id} onClick={() => navigate(item.id)} />
           ))}
         </div>
-        <div className="mt-auto space-y-1">
+        {VEYRA_ENV==='mainnet'&&<div className="mt-auto rounded-xl border p-3"
+          style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+          <p className="flex items-center gap-2 text-xs font-semibold" style={{color:'var(--ink)'}}>
+            <span className="size-2 rounded-full" style={{background:'var(--success)'}}/> Arc Mainnet
+          </p>
+          <p className="mt-1 text-[11px]" style={{color:'var(--muted)'}}>Network</p>
+        </div>}
+        <div className={VEYRA_ENV==='mainnet'?'mt-3 space-y-1':'mt-auto space-y-1'}>
           <button
             onClick={() => setCmdOpen(true)}
             className="flex w-full items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors hover:bg-white/5"
@@ -131,7 +140,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
       <main className="flex-1 flex flex-col min-h-dvh overflow-hidden">
         <header
           className="md:hidden flex items-center justify-between px-4 py-3 border-b"
-          style={{ borderColor: 'var(--border)', background: 'rgba(13,27,47,0.90)', backdropFilter: 'blur(20px)' }}
+          style={{ borderColor: 'var(--border)', background: 'rgba(5,19,42,.94)', backdropFilter: 'blur(20px)' }}
         >
           <div className="flex items-center gap-2">
             <VeyraLogoMark />
@@ -156,7 +165,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
           <NotificationBell openSocial={() => onNavigate('social')} />
         </div>
         <WebPreviewBanner />
-        <GlobalWalletBalance />
+        {VEYRA_ENV!=='mainnet'&&<GlobalWalletBalance />}
 
         <div className="flex-1 overflow-y-auto">
           <AnimatePresence mode="wait">
@@ -177,24 +186,24 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
           <div role="region" aria-label="More Veyra features" className="md:hidden grid grid-cols-2 gap-2 border-t p-3"
             style={{borderColor:'var(--border)',background:'var(--surface-strong)'}}>
             {MOBILE_MORE_NAV.map(item => (
-              <button type="button" key={item.id} onClick={() => navigate(item.id)}
+              <button type="button" key={item.id} disabled={item.soon} aria-label={item.soon?item.label+" coming soon":item.label} onClick={() => navigate(item.id)}
                 className="flex min-w-0 items-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold"
                 style={{borderColor:'var(--border)',color:page===item.id?'var(--accent)':'var(--ink)'}}>
-                {item.icon}<span>{item.label}</span>
+                {item.icon}<span className="flex-1 text-left">{item.label}</span>{item.soon&&<span className="text-[10px] opacity-65">Soon</span>}
               </button>
             ))}
           </div>
         )}
         <nav aria-label="Primary navigation"
           className="md:hidden flex items-center border-t"
-          style={{ borderColor: 'var(--border)', background: 'rgba(13,27,47,0.92)', backdropFilter: 'blur(20px)' }}
+          style={{ borderColor: 'var(--border)', background: 'rgba(5,19,42,.95)', backdropFilter: 'blur(20px)' }}
         >
           {MOBILE_NAV.map((item) => (
             <button type="button"
               key={item.id}
               onClick={() => navigate(item.id)}
               className="flex min-w-0 flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors"
-              aria-current={page === item.id || (VEYRA_ENV==='mainnet'&&item.id==='pay'&&page==='settlement') ? 'page' : undefined}
+              aria-current={page === item.id || (VEYRA_ENV==='mainnet'&&item.id==='settlement'&&page==='pay') ? 'page' : undefined}
               style={{ color: page === item.id ? 'var(--accent)' : 'var(--subtle)' }}
             >
               <span style={{ color: page === item.id ? 'var(--accent)' : 'var(--subtle)' }}>{item.icon}</span>
@@ -217,15 +226,15 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
 function NavButton({ item, active, onClick }: { item: NavItem; active: boolean; onClick: () => void }) {
   return (
     <button
-      onClick={onClick}
-      className="relative flex w-full items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all"
-      style={{ color: active ? 'var(--accent)' : 'var(--muted)', background: active ? 'var(--accent-muted)' : 'transparent' }}
+      onClick={onClick} disabled={item.soon} aria-label={item.soon?item.label+" coming soon":item.label}
+      className="relative flex w-full items-center gap-2.5 px-3 py-3 rounded-xl text-sm font-semibold transition-all"
+      style={{ color: active ? 'var(--accent)' : 'var(--muted)', background: active ? 'rgba(44,105,198,.22)' : 'transparent' }}
     >
       {active && (
         <motion.span layoutId="nav-indicator" className="absolute left-0 inset-y-2 w-0.5 rounded-r-full" style={{ background: 'var(--accent)' }} />
       )}
       <span style={{ color: active ? 'var(--accent)' : 'var(--muted)' }}>{item.icon}</span>
-      {item.label}
+      <span className="flex-1 text-left">{item.label}</span>{item.soon&&<span className="text-[10px] font-medium opacity-65">Soon</span>}
     </button>
   );
 }

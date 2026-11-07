@@ -9,6 +9,7 @@ import {useAccount,useSwitchChain,useChainId} from 'wagmi';
 import {ShieldCheck} from 'lucide-react';
 import {useUnifiedSocial} from '../../features/social/UnifiedSocial';
 import {readLastVerifiedVeyraId} from '../../lib/api/lastVerifiedVeyraId';
+import {VEYRA_ENV} from '../../lib/env';
 
 export function VeyraIdentityAccess(){
   const social=useUnifiedSocial();
@@ -38,34 +39,21 @@ export function VeyraIdentityAccess(){
     return <section role="status" className="space-y-3 rounded-2xl border p-4"
       style={{borderColor:refused?'var(--warning)':'var(--border)',background:'var(--surface)'}}>
       <p className="text-sm font-semibold">
-        {checking?'Checking Veyra ID connection…':refused?'This Preview is not authorized for Veyra ID':'Veyra ID service unavailable'}
+        {checking?'Checking Veyra ID connection…':refused?'Veyra ID is unavailable on this origin':'Veyra ID service unavailable'}
       </p>
       {lastKnownId&&<p className="text-sm" style={{color:'var(--ink)'}}>Last used: <b>@{lastKnownId}.veyra</b> · Sign-in required</p>}
       <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
         {checking?'Verifying the backend before requesting any wallet signature.'
-          :refused?'Your wallet is connected. This Preview cannot access private Veyra ID or Friends data. No signature was requested.'
+          :refused?'Your wallet is connected. This domain is not approved for Veyra ID. No signature was requested.'
           :'The identity service could not be verified. Your connected wallet remains safe; no signature or payment was submitted.'}
       </p>
-      {refused && (
-        <div className="flex flex-wrap items-center gap-3">
-          <a href="https://veyra-unified-testnet-v2.vercel.app"
-            target="_blank" rel="noopener noreferrer"
-            className="rounded-lg border px-3 py-2 text-xs font-semibold"
-            style={{borderColor:'var(--border-strong)',color:'var(--accent)'}}>
-            Open stable Testnet site
-          </a>
-          <span className="text-xs" style={{color:'var(--muted)'}}>
-            Separate release · Your wallet stays connected here
-          </span>
-        </div>
-      )}
       {!checking&&<button type="button" onClick={()=>void social.recheckIdentityOrigin()}
         className="rounded-lg border px-3 py-2 text-xs font-semibold"
         style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>Retry connection check</button>}
       {refused && (
         <details className="text-xs" style={{color:'var(--muted)'}}>
           <summary className="cursor-pointer">Technical details</summary>
-          <p className="mt-1">Server rejected the browser origin: 403 ORIGIN_NOT_ALLOWED. Only exact, configured Testnet domains may sign in.</p>
+          <p className="mt-1">Server rejected the browser origin: 403 ORIGIN_NOT_ALLOWED. Only the exact configured origin may sign in.</p>
         </details>
       )}
     </section>;
@@ -75,15 +63,15 @@ export function VeyraIdentityAccess(){
     return <section className="space-y-3 rounded-2xl border p-4" style={{borderColor:'var(--border)',background:'var(--surface)'}}>
       <p className="text-sm font-semibold">Arc network required for Veyra ID</p>
       {lastKnownId&&<p className="text-xs" style={{color:'var(--ink)'}}>Last used Veyra ID: <b>@{lastKnownId}.veyra</b> (display only)</p>}
-      <p className="text-xs" style={{color:'var(--muted)'}}>Connected: {address?.slice(0,6)}…{address?.slice(-4)} (chain {chainId}). Switch to Arc Testnet or Arc Mainnet.</p>
+      <p className="text-xs" style={{color:'var(--muted)'}}>Connected: {address?.slice(0,6)}…{address?.slice(-4)} (chain {chainId}). Switch to the network authorized for this environment.</p>
       <div className="flex flex-wrap gap-2">
-        <button type="button" disabled={social.busy} onClick={()=>{
+        {VEYRA_ENV!=='mainnet'&&<button type="button" disabled={social.busy} onClick={()=>{
           setSwitchError(null);
           void switchChainAsync({chainId:5042002}).catch(()=>{
             setSwitchError('Switch to Arc Testnet (5042002) in your wallet, then try again.');
           });
         }} className="rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-40"
-          style={{background:'var(--accent)',color:'var(--bg)'}}>Arc Testnet</button>
+          style={{background:'var(--accent)',color:'var(--bg)'}}>Arc Testnet</button>}
         <button type="button" disabled={social.busy} onClick={()=>{
           setSwitchError(null);
           void switchChainAsync({chainId:5042}).catch(()=>{

@@ -4,7 +4,7 @@
  * The SDK may submit multiple transactions; local recovery locks prevent blind repeats.
  * VERIFIED requires independently checked destination USDC or swap output logs.
  */
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {AppKit} from '@circle-fin/app-kit';
 import {createViemAdapterFromProvider} from '@circle-fin/adapter-viem-v2';
 import {useAccount,usePublicClient,useReadContract,useSwitchChain} from 'wagmi';
@@ -12,28 +12,43 @@ import {ConnectKitButton} from 'connectkit';
 import {decodeEventLog,erc20Abi,formatUnits,getAddress,isAddress,parseAbi,parseUnits,type EIP1193Provider,type Hash} from 'viem';
 import {ArrowLeftRight,Route,ShieldCheck,AlertTriangle,ExternalLink,RefreshCw} from 'lucide-react';
 import {getMainnetChain,CCTP_V2_MAINNET} from '@/config/mainnetCatalog';
-import { recordLocalOperation } from '@/mainnet/localOperations';
+import {circleCctpBridgePair} from '@/mainnet/circleBridgePolicy';
+import {ARC_VERIFIED_ASSETS,assertArcSwapCandidate} from '@/config/arcVerifiedAssets';
+import {recordLocalOperation} from '@/mainnet/localOperations';
+import {recordExchangeActivity} from '@/mainnet/exchangeActivity';
+import {advanceExchangeIntent,readExchangeIntents} from '@/mainnet/exchangeIntentJournal';
+import {reserveCircleExchangeBeforeSigning} from '@/mainnet/reserveCircleExchange';
+import {withMainnetWalletSigningLock} from '@/mainnet/mainnetWalletSigningLock';
+import {recordVerifiedExchangeProof,recordVerifiedSourceRevert} from '@/mainnet/recordVerifiedExchangeProof';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
-import {assertCctpBridgeLinked} from '@/mainnet/verifyCctpBridgeLink';
-import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
-import {readBridgeQuoteAmounts} from '@/mainnet/bridgeQuoteGuard';
+import {assertCctpBridgeLinked,findCctpDestinationMintHash} from '@/mainnet/verifyCctpBridgeLink';
+import {assertMainnetConsumerSigningAllowed,MAINNET_PUBLIC_BETA,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
+import {readBridgeQuoteAmounts,assertBridgeQuoteWithinReviewedCap} from '@/mainnet/bridgeQuoteGuard';
 
 const kit=new AppKit();
 const ARC=5042,BASE=8453;
-const EURC='0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1' as const;
-const TOKENS={USDC:'0x3600000000000000000000000000000000000000',EURC} as const;
+const TOKENS={USDC:ARC_VERIFIED_ASSETS.USDC.contractAddress,
+ EURC:ARC_VERIFIED_ASSETS.EURC.contractAddress} as const;
 const TRANSFER=parseAbi(['event Transfer(address indexed from,address indexed to,uint256 value)']);
 const HASH=/^0x[0-9a-fA-F]{64}$/;
 declare const __VEYRA_RELEASE_ENV__:string;
-const BRIDGE_WRITE_ENABLED=__VEYRA_RELEASE_ENV__==='preview' ||
- (__VEYRA_RELEASE_ENV__==='production' && import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_WRITE_ENABLED==='1');
+const BRIDGE_WRITE_ENABLED=__VEYRA_RELEASE_ENV__==='production' &&
+ ((MAINNET_PUBLIC_BETA&&import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_BETA_ENABLED==='1') ||
+ (import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_WRITE_ENABLED==='1'&&
+ import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_E2E_ACCEPTED==='1'));
 type Mode='swap'|'bridge';
+/** Keep display readiness and the signing decision on the same release gates. */
+export function isCircleSigningReady(mode:Mode):boolean{
+ return __VEYRA_RELEASE_ENV__==='production'&&!MAINNET_EMERGENCY_READ_ONLY&&
+  MAINNET_PUBLIC_BETA&&(mode==='swap'||BRIDGE_WRITE_ENABLED);
+}
 type Token='USDC'|'EURC';
-type Quote={owner:string;at:number;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;expected:string;fees:string[]};
-type Recovery={owner:string;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;status:'UNKNOWN'|'PENDING'|'VERIFIED'|'REVERTED';hash?:string;burnHash?:string;mintHash?:string};
+export type ExchangeExecutionSelection={fromChainId:number;toChainId:number;fromToken:Token;toToken:Token};
+type Quote={owner:string;at:number;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;expected:string;fees:string[];bridgeMaxFee?:string};
+type Recovery={owner:string;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;status:'UNKNOWN'|'PENDING'|'VERIFIED'|'REVERTED';hash?:string;burnHash?:string;mintHash?:string;intentId?:string};
 const key=(mode:Mode,owner:string)=>'veyra:mainnet:circle:v1:'+mode+':'+owner.toLowerCase();
-const label=(id:number)=>id===ARC?'Arc Mainnet':'Base Mainnet';
-const sdkChain=(id:number)=>id===ARC?'Arc' as const:'Base' as const;
+const label=(id:number)=>id===ARC?'Arc Mainnet':id===1?'Ethereum Mainnet':'Base Mainnet';
+const sdkChain=(id:number)=>id===1?'Ethereum' as const:id===BASE?'Base' as const:'Arc' as const;
 const validAmount=(amount:string)=>/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amount)&&parseUnits(amount,6)>0n&&parseUnits(amount,6)<=100_000_000n;
 function transferSum(receipt:{logs:ReadonlyArray<{address:string;data:string;topics:ReadonlyArray<string>}>},token:string,receiver:string):bigint {
  let sum=0n;
@@ -47,7 +62,8 @@ function transferSum(receipt:{logs:ReadonlyArray<{address:string;data:string;top
  return sum;
 }
 function feeLines(result:unknown):string[]{
- if(!result||typeof result!=='object'||!('fees' in result)||!Array.isArray(result.fees))return ['Fees not itemized by provider'];
+ if(!result||typeof result!=='object'||!('fees' in result)||!Array.isArray(result.fees))
+  throw Error('Circle cannot provide itemized fees. Signing remains disabled.');
  return result.fees.map((f:unknown)=>{
   if(!f||typeof f!=='object')return 'Fee details unavailable';
   const x=f as Record<string,unknown>;
@@ -63,20 +79,28 @@ function parseSaved(raw:string|null,owner:string,mode:Mode):Recovery|null {
  if(p.owner!==owner.toLowerCase()||p.mode!==mode||!['UNKNOWN','PENDING','VERIFIED','REVERTED'].includes(p.status)||
  (p.hash!==undefined&&!HASH.test(p.hash))||(p.burnHash!==undefined&&!HASH.test(p.burnHash))||
  (p.mintHash!==undefined&&!HASH.test(p.mintHash)))throw Error('Invalid prior operation');
- return p.status==='VERIFIED'||p.status==='REVERTED'?{...p,status:'PENDING'}:p;
+ return p;
 }
-export function MainnetCirclePage({mode}:{mode:Mode}){
+export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusyChange,receiveSelector}:{
+ mode:Mode;selection?:ExchangeExecutionSelection;embedded?:boolean;
+ onFinancialBusyChange?:(blocked:boolean)=>void;receiveSelector?:ReactNode;
+}){
  const {address,connector}=useAccount();
  const {switchChainAsync}=useSwitchChain();
  const arc=usePublicClient({chainId:ARC});
  const base=usePublicClient({chainId:BASE});
- const [source,setSource]=useState(ARC);
- const [destination,setDestination]=useState(BASE);
- const [fromToken,setFromToken]=useState<Token>('USDC');
- const toToken:Token=fromToken==='USDC'?'EURC':'USDC';
+ const ethereum=usePublicClient({chainId:1});
+ const [legacySource,setSource]=useState(ARC);
+ const [legacyDestination,setDestination]=useState(BASE);
+ const [legacyFromToken,setFromToken]=useState<Token>('USDC');
+ const source=selection?.fromChainId??legacySource;
+ const destination=selection?.toChainId??legacyDestination;
+ const fromToken=selection?.fromToken??legacyFromToken;
+ const toToken:Token=selection?.toToken??(fromToken==='USDC'?'EURC':'USDC');
  const [amount,setAmount]=useState('');
  const [minimum,setMinimum]=useState('');
  const [quote,setQuote]=useState<Quote|null>(null);
+ const [quoteClock,setQuoteClock]=useState(Date.now());
  const [recovery,setRecovery]=useState<Recovery|null>(null);
  const [unknownStorage,setUnknownStorage]=useState(false);
  const [busy,setBusy]=useState(false);
@@ -85,8 +109,12 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
  const [manualMint,setManualMint]=useState('');
  const [manualSource,setManualSource]=useState('');
  const lock=useRef(false);
+ useEffect(()=>{
+  onFinancialBusyChange?.(busy||!!recovery);
+  return()=>onFinancialBusyChange?.(false);
+ },[busy,recovery,onFinancialBusyChange]);
  const owner=address?.toLowerCase()??'';
- const card='rounded-2xl border p-5 sm:p-6';
+ const card=embedded?'rounded-2xl border p-4 sm:p-5':'rounded-2xl border p-5 sm:p-6';
  const input='mt-2 w-full rounded-xl border p-3 text-sm';
  const selectedSource=mode==='swap'?ARC:source;
  const selectedDest=mode==='swap'?ARC:destination;
@@ -98,14 +126,22 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
   query:{enabled:!!address&&!!token,refetchInterval:15000,staleTime:8000},
  });
  const title=mode==='swap'?'Swap':'Bridge';
+ // A quote is informational. Mainnet pilot forbids signatures for Swap/Bridge.
+ const signingReady=isCircleSigningReady(mode);
  useEffect(()=>{
   setQuote(null);setProof('');setError('');setManualMint('');setManualSource('');
   if(!address){setRecovery(null);setUnknownStorage(false);return;}
   try{setRecovery(parseSaved(localStorage.getItem(key(mode,address)),address,mode));setUnknownStorage(false);}
   catch{setRecovery(null);setUnknownStorage(true);}
  },[address,mode]);
- useEffect(()=>{setQuote(null);},[source,destination,fromToken,amount]);
- const client=(id:number)=>id===ARC?arc:id===BASE?base:undefined;
+ useEffect(()=>{setQuote(null);},[source,destination,fromToken,toToken,amount]);
+ useEffect(()=>{
+  if(!quote)return;
+  const tick=window.setInterval(()=>setQuoteClock(Date.now()),1000);
+  return()=>window.clearInterval(tick);
+ },[quote]);
+ const quoteExpired=!!quote&&quoteClock-quote.at>=30000;
+ const client=(id:number)=>id===ARC?arc:id===BASE?base:id===1?ethereum:undefined;
  async function wallet(id:number):Promise<EIP1193Provider>{
   if(!address||!connector)throw Error('Connect your wallet first.');
   await switchChainAsync({chainId:id});
@@ -119,7 +155,7 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
    throw Error('Wallet address or network changed. Review again.');
   return p;
  }
- const params=async()=>{
+ const params=async(bridgeMaxFee?:string)=>{
   const p=await wallet(selectedSource);
   const adapter=await createViemAdapterFromProvider({provider:p});
   if(mode==='swap'){
@@ -128,20 +164,27 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
   }
   return {adapter,params:{from:{adapter,chain:sdkChain(selectedSource)},
    to:{chain:sdkChain(selectedDest),recipientAddress:address!,useForwarder:true},
-   amount,token:'USDC',config:{transferSpeed:'SLOW'}}};
+   amount,token:'USDC',config:{transferSpeed:'SLOW',...(bridgeMaxFee!==undefined?{maxFee:bridgeMaxFee}:{})}}};
  };
  async function quoteNow(){
   if(!address||!validAmount(amount)||lock.current||unknownStorage||recovery)return;
   lock.current=true;setBusy(true);setError('');setProof('');
   try{
-   if(!token||!destToken||!isAddress(address)||selectedSource===selectedDest&&mode==='bridge')
+   if(!token||!destToken||!isAddress(address)||selectedSource===selectedDest&&mode==='bridge'||
+     mode==='bridge'&&!circleCctpBridgePair(selectedSource,selectedDest,'USDC','USDC'))
     throw Error('Choose valid supported Mainnet chains and tokens.');
+   if(mode==='swap'){
+    assertArcSwapCandidate(selectedSource,token);
+    assertArcSwapCandidate(selectedDest,destToken);
+   }
 
    const c=client(selectedSource);
    if(!c||await c.getChainId()!==selectedSource)throw Error('Mainnet RPC is not available.');
    const available=await c.readContract({address:getAddress(token),abi:erc20Abi,
     functionName:'balanceOf',args:[address]});
    if(available<parseUnits(amount,6))throw Error('Insufficient source wallet balance.');
+   const gas=await c.getBalance({address});
+   if(gas<=0n)throw Error('Insufficient native gas on source network. Add ETH before requesting a quote.');
    const {params:p}=await params();
    const estimate=mode==='swap'?
     await kit.estimateSwap(p as Parameters<AppKit['estimateSwap']>[0]):
@@ -152,8 +195,10 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
    if(mode==='bridge')setMinimum(min);
    if(!validAmount(min)||parseUnits(min,6)>parseUnits(expected,6)&&mode==='swap')
     throw Error('Provider did not return a usable minimum-output quote.');
-   setQuote({owner,at:Date.now(),mode,amount,source:selectedSource,destination:selectedDest,
-    fromToken,toToken,minimum:min,expected,fees:feeLines(estimate)});
+   const at=Date.now();setQuoteClock(at);
+   setQuote({owner,at,mode,amount,source:selectedSource,destination:selectedDest,
+    fromToken,toToken,minimum:min,expected,fees:feeLines(estimate),
+    ...(bridgeOutput?{bridgeMaxFee:bridgeOutput.maxFee}:{})});
   }catch(e){setError(e instanceof Error?e.message:'Circle Mainnet quote unavailable.');}
   finally{setBusy(false);lock.current=false;}
  }
@@ -162,8 +207,15 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
   lock.current=true;setBusy(true);setError('');setProof('');
   let saved=false;
   try{
-   assertMainnetSigningAllowed();
-   if(mode==='bridge'&&!BRIDGE_WRITE_ENABLED)
+   await withMainnetWalletSigningLock(address,async()=>{
+   if(__VEYRA_RELEASE_ENV__!=='production')
+    throw Error('Preview is read-only for real Mainnet Exchange. No wallet signature requested.');
+   assertMainnetConsumerSigningAllowed();
+   if(mode==='swap'){
+    assertArcSwapCandidate(quote.source,TOKENS[quote.fromToken]);
+    assertArcSwapCandidate(quote.destination,TOKENS[quote.toToken]);
+   }
+   if(mode==='bridge'&&(!BRIDGE_WRITE_ENABLED||!circleCctpBridgePair(selectedSource,selectedDest,'USDC','USDC')))
     throw Error('Bridge signing is paused on Production until source-to-destination proof is accepted.');
    if(quote.owner!==owner||quote.mode!==mode||quote.amount!==amount||
     quote.source!==selectedSource||quote.destination!==selectedDest||
@@ -171,38 +223,85 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
     mode==='bridge'&&quote.minimum!==minimum||Date.now()-quote.at>30000)
     throw Error('Payment route changed or quote expired. Review again.');
    if(localStorage.getItem(key(mode,address)))throw Error('Previous operation must be resolved first.');
-   const {params:p}=await params();
+   const existingIntents=readExchangeIntents(owner);
+   if(existingIntents.kind!=='ready'||existingIntents.items.some(task=>
+    !['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(task.stage)))
+    throw Error('Unresolved Exchange intent or unreadable recovery storage. Inspect Activity first.');
+   const {params:p}=await params(mode==='bridge'?quote.bridgeMaxFee:undefined);
    const fresh=mode==='swap'?
     await kit.estimateSwap(p as Parameters<AppKit['estimateSwap']>[0]):
     await kit.estimateBridge(p as Parameters<AppKit['estimateBridge']>[0]);
-   if(JSON.stringify(feeLines(fresh))!==JSON.stringify(quote.fees)||
-    mode==='swap'&&String((fresh as Awaited<ReturnType<AppKit['estimateSwap']>>).stopLimit.amount)!==quote.minimum||
-    mode==='bridge'&&readBridgeQuoteAmounts(fresh,amount).minimum!==quote.minimum)
-    throw Error('Provider quote changed. Review it again before signing.');
+   // CCTP forwarding fees are dynamic. The signed on-chain maxFee protects
+   // the user's minimum. An improved (lower) fresh fee is safe under the
+   // frozen cap; a higher fee must be explicitly reviewed again.
+   if(mode==='bridge'){
+    if(!quote.bridgeMaxFee)throw Error('Bridge fee cap is unavailable. Get a new quote.');
+    assertBridgeQuoteWithinReviewedCap(fresh,amount,{
+     minimum:quote.minimum,maxFee:quote.bridgeMaxFee});
+   }else if(JSON.stringify(feeLines(fresh))!==JSON.stringify(quote.fees)||
+    String((fresh as Awaited<ReturnType<AppKit['estimateSwap']>>).stopLimit.amount)!==quote.minimum)
+    throw Error('Swap price changed. Refresh the quote before signing.');
    if(Date.now()-quote.at>30000)throw Error('Quote expired.');
    await wallet(selectedSource);
+   const intentId=crypto.randomUUID();
    const record:Recovery={owner,mode,amount,source:selectedSource,destination:selectedDest,
-    fromToken,toToken,minimum:quote.minimum,status:'UNKNOWN'};
-   localStorage.setItem(key(mode,address),JSON.stringify(record));
-   if(localStorage.getItem(key(mode,address))!==JSON.stringify(record))
-    throw Error('Cannot persist recovery lock.');
+    fromToken,toToken,minimum:quote.minimum,status:'UNKNOWN',intentId};
+   const intentTime=Date.now();
+   const reservation=reserveCircleExchangeBeforeSigning({legacyKey:key(mode,address),
+    recoveryRecord:JSON.stringify(record),storage:localStorage,
+    intent:{id:intentId,owner,provider:'Circle App Kit',mode,fromChainId:selectedSource,
+     toChainId:selectedDest,tokenIn:fromToken,tokenOut:toToken,amountIn:amount,
+     minimumOut:quote.minimum,createdAt:intentTime,updatedAt:intentTime,stage:'REVIEWED',steps:[]}});
+   if(reservation.kind!=='reserved')throw Error(reservation.message);
    saved=true;setRecovery(record);setQuote(null);
    if(mode==='swap'){
     const result=await kit.swap(p as Parameters<AppKit['swap']>[0]);
     const hash=typeof result.txHash==='string'&&HASH.test(result.txHash)?result.txHash:undefined;
     const next:Recovery={...record,status:'PENDING',...(hash?{hash}:{})};
     localStorage.setItem(key(mode,address),JSON.stringify(next));setRecovery(next);
-    if(hash)recordLocalOperation({type:'Swap',hash,owner:address,amount,asset:fromToken,chainId:ARC,status:'SUBMITTED'});
+    advanceExchangeIntent(owner,intentId,hash?'SOURCE_SUBMITTED':'SOURCE_UNKNOWN',
+     hash?{sourceHash:hash,steps:[{stage:'source',chainId:ARC,token:fromToken,
+      status:'submitted',hash}]}:{message:'Wallet returned no original hash. Check wallet; do not re-sign.'});
+    if(hash){
+     recordLocalOperation({type:'Swap',hash,owner:address,amount,asset:fromToken,chainId:ARC,status:'SUBMITTED'});
+     recordExchangeActivity({owner,mode:'swap',source:ARC,destination:ARC,tokenIn:fromToken,
+      tokenOut:toToken,amountIn:amount,minOut:record.minimum,originalHash:hash,
+      status:'SUBMITTED',createdAt:Date.now()});
+    }
    }else{
     const result=await kit.bridge(p as Parameters<AppKit['bridge']>[0]);
     const steps=getAppKitBridgeSteps(result);
     const next:Recovery={...record,status:'PENDING',...steps};
     localStorage.setItem(key(mode,address),JSON.stringify(next));setRecovery(next);
-    if(steps.burnHash)recordLocalOperation({type:'Bridge',hash:steps.burnHash,owner:address,amount,asset:'USDC',chainId:selectedSource,status:'SUBMITTED'});
+    advanceExchangeIntent(owner,intentId,steps.burnHash?'SOURCE_SUBMITTED':'SOURCE_UNKNOWN',
+     steps.burnHash?{sourceHash:steps.burnHash,steps:[{stage:'source',chainId:selectedSource,
+      token:'USDC',status:'submitted',hash:steps.burnHash}]}:
+      {message:'Provider returned no original source burn. Do not create a new transfer.'});
+    if(steps.burnHash){
+     recordLocalOperation({type:'Bridge',hash:steps.burnHash,owner:address,amount,asset:'USDC',chainId:selectedSource,status:'SUBMITTED'});
+     recordExchangeActivity({owner,mode:'bridge',source:selectedSource,destination:selectedDest,
+      tokenIn:'USDC',tokenOut:'USDC',amountIn:amount,minOut:record.minimum,
+      originalHash:steps.burnHash,destinationHash:steps.mintHash,status:'SUBMITTED',createdAt:Date.now()});
+    }
    }
+   });
   }catch(e){
-   setError((e instanceof Error?e.message:'Provider outcome uncertain.')+
-    (saved?' Original operation remains locked. Do not sign again.':''));
+   if(saved&&address){
+    // SDK may have broadcast before returning an error or timeout.
+    // This journal state can only be cleared by original evidence.
+    try{
+     const original=JSON.parse(localStorage.getItem(key(mode,address))??'null') as Recovery|null;
+     if(original?.intentId)
+      advanceExchangeIntent(owner,original.intentId,'SOURCE_UNKNOWN',{
+       message:'Provider outcome uncertain. Verify original wallet activity; do not repeat the source.'});
+    }catch{/* Original recovery lock stays in storage. */}
+   }
+   const reason=e instanceof Error?e.message:'Provider outcome uncertain.';
+   // Before the journal is reserved no wallet request occurred. Return to the
+   // SAME quote control instead of leaving an expired Confirm button visible.
+   if(!saved&&(/Refresh the quote|quote expired|Quote expired|price changed/i).test(reason))
+    setQuote(null);
+   setError(reason+(saved?' Original operation remains locked. Do not sign again.':''));
   }finally{lock.current=false;setBusy(false);}
  }
  async function verify(){
@@ -210,9 +309,16 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
   lock.current=true;setBusy(true);setError('');
   try{
    if(recovery.owner!==owner)throw Error('Owner changed.');
-   const hash=mode==='swap'?(recovery.hash||manualSource):
-    (recovery.mintHash||manualMint);
-   if(!HASH.test(hash))throw Error('Supply the original output transaction hash from wallet/SDK; do not retry.');
+   let hash=mode==='swap'?recovery.hash:recovery.mintHash;
+   if(mode==='bridge'&&!hash&&recovery.burnHash){
+    const found=await findCctpDestinationMintHash(recovery.source,recovery.destination,recovery.burnHash);
+    if(!found)throw Error('Waiting for Circle destination mint or attestation. Original source remains locked; never resend.');
+    hash=found;
+    const next:Recovery={...recovery,mintHash:found};
+    localStorage.setItem(key(mode,address),JSON.stringify(next));setRecovery(next);
+   }
+   if(!hash||!HASH.test(hash))
+    throw Error('Original transaction hash is not known. Review wallet Activity; do not re-sign.');
    const destinationClient=client(recovery.destination);
    const receivedToken=mode==='swap'?TOKENS[recovery.toToken]:getMainnetChain(recovery.destination)?.usdc;
    if(!destinationClient||!receivedToken||await destinationClient.getChainId()!==recovery.destination)
@@ -230,6 +336,13 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
     if(!burn.logs.some(log=>log.address.toLowerCase()===CCTP_V2_MAINNET.tokenMessengerV2.toLowerCase()))
      throw Error('Canonical CCTP source burn event missing.');
     burnEvidence={sourceHash,receipt:burn};
+    if(recovery.intentId){
+     const task=readExchangeIntents(owner);
+     const status=task.kind==='ready'?task.items.find(v=>v.id===recovery.intentId)?.stage:undefined;
+     if(status==='SOURCE_UNKNOWN')
+      advanceExchangeIntent(owner,recovery.intentId,'SOURCE_SUBMITTED',{sourceHash});
+     advanceExchangeIntent(owner,recovery.intentId,'SOURCE_CONFIRMED',{sourceHash});
+    }
    }
    const receipt=await destinationClient.getTransactionReceipt({hash:hash as Hash});
    if(mode==='swap'){
@@ -237,7 +350,21 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
     if(submitted.from.toLowerCase()!==owner)throw Error('Swap transaction sender differs from the connected wallet.');
    }
    if(receipt.status==='reverted'){
+    if(mode==='bridge'&&recovery.intentId&&burnEvidence){
+     advanceExchangeIntent(owner,recovery.intentId,'PARTIAL',{
+      sourceHash:burnEvidence.sourceHash,destinationHash:hash,holdingChainId:recovery.source,
+      holdingToken:'CCTP burn confirmed; destination receipt reverted · funds not verified spendable',
+      message:'Destination receipt reverted. Inspect CCTP recovery or refund; never repeat the source burn.'});
+    }
     if(mode==='swap'){
+     if(recovery.intentId){
+      const savedRevert=recordVerifiedSourceRevert({
+       owner,intentId:recovery.intentId,sourceHash:hash,
+       chainId:recovery.source,sourceToken:recovery.fromToken,checkedAt:Date.now(),
+      });
+      if(savedRevert.kind==='blocked')throw Error(savedRevert.reason+
+       ' Source transaction is reverted onchain but its local journal remains locked.');
+     }
      const r:Recovery={...recovery,status:'REVERTED',hash};
      localStorage.setItem(key(mode,address),JSON.stringify(r));setRecovery(r);
     }
@@ -251,17 +378,32 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
    }
    const amountOut=transferSum(receipt,receivedToken,address);
    if(amountOut<parseUnits(recovery.minimum,6))throw Error('Destination Transfer amount below reviewed minimum or mint not found.');
+   if(recovery.intentId){
+    const originalHash=mode==='swap'?hash:(recovery.burnHash||manualSource);
+    const commit=recordVerifiedExchangeProof({
+     owner,intentId:recovery.intentId,sourceHash:originalHash,destinationHash:hash,
+     sourceChainId:recovery.source,destinationChainId:recovery.destination,
+     sourceToken:recovery.fromToken,destinationToken:recovery.toToken,checkedAt:Date.now(),
+    });
+    if(commit.kind==='blocked')throw Error(commit.reason+
+     ' The onchain result is not lost; do not submit this transfer again.');
+   }
    const r:Recovery={...recovery,status:'VERIFIED',...(mode==='swap'?{hash}:{mintHash:hash})};
    localStorage.setItem(key(mode,address),JSON.stringify(r));setRecovery(r);
    setProof('Destination verified: '+formatUnits(amountOut,6)+' '+(mode==='swap'?recovery.toToken:'USDC'));
    recordLocalOperation({type:mode==='swap'?'Swap':'Bridge',hash,owner:address,amount:formatUnits(amountOut,6),asset:mode==='swap'?recovery.toToken:'USDC',chainId:recovery.destination,status:'RECORDED'});
+   const original=mode==='swap'?hash:(recovery.burnHash||manualSource);
+   if(HASH.test(original))recordExchangeActivity({owner,mode,source:recovery.source,destination:recovery.destination,
+    tokenIn:recovery.fromToken,tokenOut:recovery.toToken,amountIn:recovery.amount,
+    minOut:recovery.minimum,originalHash:original,destinationHash:hash,
+    status:'DESTINATION_VERIFIED',createdAt:Date.now(),verifiedAt:Date.now()});
   }catch(e){setError(e instanceof Error?e.message:'Destination receipt unverified.');}
   finally{lock.current=false;setBusy(false);}
  }
  // Read-only automatic reconciliation; no second swap, approval or burn can be submitted.
  useEffect(()=>{
   if(!address||!recovery||recovery.status!=='PENDING')return;
-  const hasEvidence=mode==='swap'?!!recovery.hash:!!recovery.burnHash&&!!recovery.mintHash;
+  const hasEvidence=mode==='swap'?!!recovery.hash:!!recovery.burnHash;
   if(!hasEvidence)return;
   let active=true;
   const tick=()=>{if(active&&!lock.current)void verify();};
@@ -276,17 +418,26 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
    !['VERIFIED','REVERTED'].includes(recovery.status))return;
   localStorage.removeItem(key(mode,address));setRecovery(null);setProof('');setQuote(null);
  }
- return <div className="mx-auto w-full max-w-3xl space-y-5 px-4 py-7 md:px-7 md:py-9">
-  <div><p className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Veyra · Mainnet Circle App Kit</p>
+ return <div className={embedded?'w-full space-y-3':'mx-auto w-full max-w-3xl space-y-5 px-4 py-7 md:px-7 md:py-9'}>
+  {!embedded&&<div><p className="text-xs font-bold uppercase" style={{color:'var(--accent)'}}>Veyra · Mainnet Circle App Kit</p>
    <h1 className="display mt-2 text-3xl font-bold" style={{color:'var(--ink)'}}>{title}</h1>
    <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>
     {mode==='swap'?'Swap Arc Mainnet USDC and EURC with a live liquidity quote.':
      'Bridge USDC between Arc and Base Mainnet via CCTP. Destination verification is required.'}
    </p>
-  </div>
-  <div className={card+' space-y-4'} style={{borderColor:'var(--border)',background:'var(--surface)'}}>
-   {!address?<ConnectKitButton/>:<>
-    {mode==='bridge'?<div className="grid gap-3 sm:grid-cols-2">
+  </div>}
+  <div className={embedded?'space-y-4 border-t pt-4':card+' space-y-4'} style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+   {!address?<div className="space-y-3">
+    <label className="block text-xs font-semibold" style={{color:'var(--muted)'}}>AMOUNT
+     <input disabled placeholder="0.00" aria-label="Amount · connect wallet first"
+      className="veyra-route-input mt-2 w-full rounded-xl border p-3 text-3xl font-bold"
+      style={{background:'var(--surface-raised)',color:'var(--muted)',borderColor:'var(--border)'}}/>
+    </label>
+    <p className="text-xs" style={{color:'var(--muted)'}}>Connect your wallet to check the balance and request a live quote. No signing is enabled in this pilot.</p>
+    <ConnectKitButton/>
+   </div>:<>
+    {!recovery&&!unknownStorage&&<>
+    {!embedded&&(mode==='bridge'?<div className="grid gap-3 sm:grid-cols-2">
      <label className="text-sm" style={{color:'var(--muted)'}}>From
       <select className={input} value={source} disabled={!!recovery||busy}
        onChange={e=>{const id=Number(e.target.value);setSource(id);setDestination(id===ARC?BASE:ARC);}}
@@ -306,42 +457,74 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
      <button type="button" disabled={!!recovery||busy} className="rounded-xl border px-4 py-2 text-xs"
       style={{borderColor:'var(--border)',color:'var(--ink)'}}
       onClick={()=>setFromToken(t=>t==='USDC'?'EURC':'USDC')}><ArrowLeftRight className="inline size-4"/> Reverse</button>
-    </div>}
-    <label className="block text-sm" style={{color:'var(--muted)'}}>Amount ({mode==='swap'?fromToken:'USDC'})
-     <input className={input} value={amount} disabled={!!recovery||busy} inputMode="decimal"
-      placeholder="0.01" onChange={e=>setAmount(e.target.value)}
-      style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
-    </label>
-    <div className="flex flex-wrap items-center justify-between gap-2 text-xs" style={{color:'var(--muted)'}}>
-     <span>Source wallet balance ({label(selectedSource)}): {sourceBalanceError?'Unavailable':sourceBalance!==undefined?formatUnits(sourceBalance,6)+' '+(mode==='swap'?fromToken:'USDC'):'Reading…'}</span>
-     <button type="button" disabled={balanceLoading} onClick={()=>void refreshBalance()} className="underline">Refresh</button>
+    </div>)}
+    <div className="space-y-2">
+     <label className="block text-xs font-semibold" style={{color:'var(--muted)'}}>
+      {mode==='swap'?'YOU PAY · AMOUNT':'AMOUNT · USDC'}
+      <input className="veyra-route-input mt-2 w-full rounded-xl border p-3 text-3xl font-bold tabular-nums"
+       value={amount} disabled={!!recovery||busy} inputMode="decimal" maxLength={25}
+       placeholder="0.00" onChange={e=>setAmount(e.target.value)}
+       style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
+     </label>
+     <div className="flex flex-wrap items-center justify-between gap-2 text-xs" style={{color:'var(--muted)'}}>
+      <span>Wallet · {sourceBalanceError?'Unavailable':sourceBalance!==undefined?formatUnits(sourceBalance,6)+' '+(mode==='swap'?fromToken:'USDC'):'Reading…'}</span>
+      <span className="flex items-center gap-3">
+       <button type="button" className="font-semibold underline disabled:opacity-40"
+        disabled={busy||!!recovery||sourceBalance===undefined||sourceBalance===0n}
+        onClick={()=>setAmount(formatUnits(sourceBalance!>100_000_000n*1_000_000n?100_000_000n*1_000_000n:sourceBalance!,6))}>Max</button>
+       <button type="button" disabled={balanceLoading} onClick={()=>void refreshBalance()} className="underline">Refresh</button>
+      </span>
+     </div>
     </div>
-    {mode==='bridge'&&<p className="text-sm" style={{color:'var(--muted)'}}>
-      Destination: {address} · Standard CCTP transfer. Minimum received must come from the provider's quote.
-      If the provider gives no verifiable minimum, signing is unavailable.
-    </p>}
-    {!quote&&!recovery&&<button type="button" disabled={busy||unknownStorage||!validAmount(amount)}
-      className="w-full rounded-xl px-4 py-3 font-semibold disabled:opacity-40"
-      style={{background:'var(--accent)',color:'#0d1b2f'}} onClick={()=>void quoteNow()}>
-      {busy?'Getting live quote…':'Review live Mainnet quote'}
-    </button>}
-    {quote&&!recovery&&<div className="space-y-2 rounded-xl border p-4 text-sm"
-      style={{borderColor:'var(--border)',color:'var(--ink)'}}>
-      <p className="font-bold">{label(quote.source)} {mode==='bridge'?'→ '+label(quote.destination):'Swap'}</p>
-      <p>You pay: <strong>{quote.amount} {quote.fromToken}</strong></p>
-      <p>You receive (estimated): <strong>{quote.expected} {mode==='swap'?quote.toToken:'USDC'}</strong></p>
-      <p>Provider minimum: {quote.minimum} {mode==='swap'?quote.toToken:'USDC'}</p>
-      {mode==='swap'&&<p>Slippage limit: 1% · refresh quote if expired</p>}
-      <p>Recipient: {address}</p>
-      <p>Quote expires in 30 seconds · Real Mainnet assets</p>
-      {quote.fees.map((fee,i)=><p key={i} className="text-xs">{fee}</p>)}
-      <button type="button" disabled={busy} onClick={()=>void signNow()}
-       className="w-full rounded-xl px-4 py-3 font-bold disabled:opacity-40"
-       style={{background:'var(--accent)',color:'#0d1b2f'}}>Confirm and sign in wallet</button>
+    {mode==='swap'&&receiveSelector}
+    <div className="space-y-2 rounded-xl border p-3" style={{background:'var(--surface-raised)',borderColor:'var(--border)'}}>
+     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>{mode==='bridge'?'MINIMUM RECEIVE':'YOU RECEIVE'} · {mode==='swap'?toToken:'USDC'}{mode==='bridge'?' · '+label(selectedDest):''}</p>
+     <p className="display text-2xl font-bold tabular-nums" style={{color:'var(--ink)'}}>
+      {quote&&!quoteExpired?quote.expected:'—'}
+      <span className="ml-2 text-sm" style={{color:'var(--muted)'}}>{mode==='swap'?toToken:'USDC'}</span>
+     </p>
+     {!quote||quoteExpired?<p className="text-xs" style={{color:'var(--muted)'}}>Estimated amount will appear after a live provider quote.</p>:null}
+    </div>
+    {!recovery&&!unknownStorage&&<div className="space-y-2" aria-label="Transaction action">
+     <button type="button" aria-live="polite"
+      disabled={busy||!validAmount(amount)||!!quote&&!quoteExpired&&!signingReady}
+      className="veyra-btn-primary flex min-h-12 w-full items-center justify-center gap-2 disabled:opacity-40"
+      onClick={()=>void(quote&&!quoteExpired?signNow():quoteNow())}>
+      {busy&&<RefreshCw className="size-4 animate-spin" aria-hidden="true"/>}
+      {busy?(quote&&!quoteExpired?'Checking live quote…':'Getting live quote…'):
+       quote&&!quoteExpired?'Confirm in wallet':quoteExpired?'Refresh quote':
+       mode==='swap'?'Review swap':'Review bridge'}
+     </button>
+     {quote&&!quoteExpired&&<div role="status" aria-label="Live provider quote"
+       className="rounded-xl border px-3 py-2.5 text-xs"
+       style={{borderColor:'var(--border)',background:'var(--surface-raised)',color:'var(--muted)'}}>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+       <span className="font-semibold" style={{color:'var(--ink)'}}>Minimum {quote.minimum} {mode==='swap'?quote.toToken:'USDC'}</span>
+       <span>{Math.max(0,30-Math.floor((quoteClock-quote.at)/1000))}s · Live quote</span>
+      </div>
+      <p className="mt-1">Fee: {quote.fees.length?quote.fees.join(' · '):'Unavailable'}</p>
+      <details className="mt-1"><summary className="cursor-pointer font-semibold">Fee & route details</summary>
+       <div className="mt-2 space-y-1 break-all">
+        <p>{label(quote.source)} → {label(quote.destination)} · {quote.fromToken} → {mode==='swap'?quote.toToken:'USDC'}</p>
+        <p>Recipient: {address}</p>
+        <p>{mode==='swap'?'Slippage limit: 1%':
+         'CCTP onchain fee cap: '+quote.bridgeMaxFee+' USDC; destination independently verified'}</p>
+        <p>Source token: {token} · Destination token: {destToken}</p>
+        <p>Network gas and wallet approvals are reviewed before signing.</p>
+       </div>
+      </details>
+      {!signingReady&&<p role="status" className="mt-1" style={{color:'var(--warning)'}}>
+       Quotes only. Signing is paused.</p>}
+     </div>}
+     {quoteExpired&&<p role="status" className="text-xs" style={{color:'var(--warning)'}}>
+      Quote expired. Refresh before signing. No transaction was submitted.
+     </p>}
     </div>}
-    {(recovery||unknownStorage)&&<div role="status" className="space-y-3 rounded-xl border p-4 text-sm"
+    </>}
+    {(recovery||unknownStorage)&&<div role="status" className="space-y-2 rounded-xl border p-3 text-sm"
      style={{borderColor:'var(--border)',color:'var(--ink)'}}>
      <p className="flex items-center gap-2 font-bold">
+      {busy&&<RefreshCw className="size-4 animate-spin" aria-label="Checking original transaction"/>}
       {recovery?.status==='VERIFIED'?<ShieldCheck className="size-5" style={{color:'var(--success)'}}/>:
        <RefreshCw className="size-4" style={{color:'var(--muted)'}}/>}
       {recovery?.status==='VERIFIED'?'Destination verified':
@@ -353,22 +536,25 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
        recovery?.status==='REVERTED'?'Review the original transaction before starting a new request.':
        'Previous outcome is pending or uncertain. Veyra will not submit a duplicate transaction. Status rechecks never request a signature.'}
      </p>
-     {recovery?.hash&&<p className="break-all text-xs">Swap: {recovery.hash}</p>}
-     {recovery?.burnHash&&<p className="break-all text-xs">Burn: {recovery.burnHash}</p>}
-     {recovery?.mintHash&&<p className="break-all text-xs">Destination: {recovery.mintHash}</p>}
-     {(recovery?.mintHash||recovery?.hash)&&<a target="_blank" rel="noreferrer"
-      className="block break-all text-xs underline" style={{color:'var(--accent)'}}
-      href={(recovery.destination===BASE?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+(recovery.mintHash||recovery.hash)}>
-      View transaction on explorer
-     </a>}
+     {(recovery?.hash||recovery?.burnHash||recovery?.mintHash)&&<details className="text-xs">
+      <summary className="cursor-pointer" style={{color:'var(--muted)'}}>Transaction details</summary>
+      <div className="mt-2 space-y-1 break-all">
+       {recovery?.hash&&<p>Swap: {recovery.hash}</p>}
+       {recovery?.burnHash&&<p>Burn: {recovery.burnHash}</p>}
+       {recovery?.mintHash&&<p>Destination: {recovery.mintHash}</p>}
+       {(recovery?.mintHash||recovery?.hash)&&<a target="_blank" rel="noreferrer"
+        className="block underline" style={{color:'var(--accent)'}}
+        href={(recovery.destination===BASE?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+(recovery.mintHash||recovery.hash)}>
+        View transaction on explorer</a>}
+      </div>
+     </details>}
      {recovery&&recovery.status!=='VERIFIED'&&recovery.status!=='REVERTED'&&<>
-      {mode==='bridge'&&!recovery.burnHash&&<input className={input} value={manualSource}
-       placeholder="Original source burn hash" onChange={e=>setManualSource(e.target.value)}
-       style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>}
-      {!(mode==='bridge'?recovery.mintHash:recovery.hash)&&<input className={input}
-       value={mode==='swap'?manualSource:manualMint} placeholder="Original destination transaction hash"
-       onChange={e=>mode==='swap'?setManualSource(e.target.value):setManualMint(e.target.value)}
-       style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>}
+      {mode==='bridge'&&!recovery.burnHash&&<p className="text-xs" style={{color:'var(--warning)'}}>
+       Source transaction hash was not returned. Inspect your wallet/Activity; original attempt remains locked.
+      </p>}
+      {!recovery.hash&&mode==='swap'&&<p className="text-xs" style={{color:'var(--warning)'}}>
+       Swap transaction hash was not returned. Inspect wallet Activity; original attempt remains locked.
+      </p>}
       <button type="button" disabled={busy} onClick={()=>void verify()}
        className="w-full rounded-xl border px-4 py-3 font-semibold disabled:opacity-40"
        style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>
@@ -385,9 +571,9 @@ export function MainnetCirclePage({mode}:{mode:Mode}){
       <AlertTriangle className="size-4"/>{error}</p>}
    </>}
   </div>
-  <p className="flex items-start gap-2 text-xs leading-5" style={{color:'var(--muted)'}}>
+  {!embedded&&<p className="flex items-start gap-2 text-xs leading-5" style={{color:'var(--muted)'}}>
    <ShieldCheck className="size-4 shrink-0"/>Mainnet transactions are irreversible. Circle route availability depends on live SDK and liquidity.
    Approval, burn or source confirmation alone never counts as final settlement. No automatic retries.
-  </p>
+  </p>}
  </div>;
 }

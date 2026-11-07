@@ -149,6 +149,42 @@ export function validateServerRuntimeConfig(env: NodeJS.ProcessEnv = process.env
   if (!config.sessionSecretConfigured) errors.push('Mainnet requires VEYRA_SESSION_SECRET with at least 32 characters.');
   if (!isHttpsUrl(config.appOrigin)) errors.push('Mainnet requires VEYRA_APP_ORIGIN using https://.');
   if (env.RELAY_PRIVATE_KEY) errors.push('RELAY_PRIVATE_KEY is forbidden in mainnet. Use KMS/HSM signing.');
+  // V1 wallet-owned identity and independently verified receipts never ask the
+  // backend to sign or relay funds. This explicit restrictive mode can run on
+  // Starter without a KMS or financial relay. The route allowlist in bff.ts MUST remain
+  // active; full financial backend readiness still requires the original gates.
+  if (env.VEYRA_MAINNET_IDENTITY_ONLY === '1') {
+    if (!config.hostedBackend) errors.push('Identity-only Mainnet must be a hosted backend.');
+    if (config.appOrigin !== 'https://veyra-seven-beta.vercel.app')
+      errors.push('Identity-only Mainnet requires the single official Veyra browser origin.');
+    if (config.signerBackend !== 'none' || env.VEYRA_KMS_KEY_ID || env.VEYRA_SIGNER_URL ||
+        env.VEYRA_SIGNER_AUTH_TOKEN || env.CIRCLE_API_KEY || env.OPENAI_API_KEY ||
+        env.ANTHROPIC_API_KEY)
+      errors.push('Identity-only Mainnet must not be configured with financial signing, LLM or privileged provider secrets.');
+    try {
+      const db = new URL(config.databaseUrl??'');
+      if (!['postgres:','postgresql:'].includes(db.protocol)||!db.hostname||
+          /^(localhost|127\\.|10\\.|192\\.168\\.)/i.test(db.hostname))
+        throw Error('invalid database URI');
+      if (env.VEYRA_DATABASE_PRIVATE_NETWORK!=='1'&&
+          !['require','verify-ca','verify-full'].includes(db.searchParams.get('sslmode')??''))
+        throw Error('TLS or private Postgres network required');
+    }catch { errors.push('Identity-only Mainnet requires isolated non-local PostgreSQL with TLS or private-network flag.'); }
+    try {
+      const rpc = new URL(env.ARC_MAINNET_RPC_URL??'');
+      if(rpc.protocol!=='https:'||rpc.username||rpc.password||
+         /testnet|sepolia|localhost|127\\.|10\\.|192\\.168\\./i.test(rpc.host))
+        throw Error('invalid RPC URI');
+    }catch {errors.push('Identity-only Mainnet requires an approved HTTPS Arc Mainnet RPC.');}
+    // Only the single verified official callback may use X OAuth credentials;
+    // neither OAuth identity linking nor Chat can access fund-signing routes.
+    if (env.X_CLIENT_ID || env.X_REDIRECT_URI || env.X_CLIENT_SECRET) {
+      if (!config.xClientIdConfigured ||
+          config.xRedirectUri !== 'https://veyra-mainnet-v1-bff.onrender.com/api/auth/x/callback')
+        errors.push('X linking requires X_CLIENT_ID and the exact official Mainnet backend callback.');
+    } else warnings.push('X OAuth has no configured client and callback; feature stays unavailable.');
+    return {ok:errors.length===0,errors,warnings};
+  }
   if (config.signerBackend !== 'kms') errors.push('Mainnet requires VEYRA_SIGNER_BACKEND=kms.');
   if (!config.kmsKeyId) errors.push('Mainnet requires VEYRA_KMS_KEY_ID.');
   if (!isHttpsUrl(config.signerUrl)) errors.push('Mainnet requires VEYRA_SIGNER_URL using https://.');

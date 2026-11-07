@@ -64,11 +64,18 @@ import {
 import { ConnectKitButton } from 'connectkit';
 import { AlertTriangle, CheckCircle, Clock, ExternalLink, Lock, Send, Unlock, Loader2 } from 'lucide-react';
 import { VEYRA_ENV } from '@/lib/env';
+import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
+import {isMainnetSessionForWallet} from '@/mainnet/signedWalletReceiptScope';
+import {withMainnetWalletSigningLock} from '@/mainnet/mainnetWalletSigningLock';
+import {reverifySettlementRecipient} from '@/mainnet/reverifySettlementRecipient';
+import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 import {recordLocalOperation,readLocalOperations} from '@/mainnet/localOperations';
-import {readSettlementIntent,writeSettlementIntent,clearSettlementIntent,settlementUnresolved,type SettlementIntent} from '@/mainnet/settlementJournal';
+import {readSettlementIntent,writeSettlementIntent,clearSettlementIntent,settlementUnresolved,resumablePaymentAttempt,type SettlementIntent} from '@/mainnet/settlementJournal';
 import {inspectRecordedSettlement} from '@/mainnet/verifyRecordedSettlement';
 import type {MainnetPayDraft} from '@/mainnet/payDraft';
-import {assertMainnetSigningAllowed} from '@/mainnet/releaseGates';
+import {reviewPeerRequest,claimPeerRequest,readPeerRequestAttempt,explicitlyRejectedWallet,confirmedPaymentRequestRefusal,type VeyraPaymentRequest} from '@/lib/api/paymentRequests';
+import {paymentRequestRef} from '@/mainnet/paymentRequestRef';
+import {assertMainnetSigningAllowed,assertMainnetContractCanarySigningAllowed} from '@/mainnet/releaseGates';
 import { MainnetSettlementDeploy } from './MainnetSettlementDeploy';
 import { VEYRA_SETTLEMENT_CREATION_BYTECODE, VEYRA_SETTLEMENT_CREATION_KECCAK } from '@/generated/veyraSettlementCreation';
 import {
@@ -82,6 +89,7 @@ import {
   getVeyraSettlementDeployment,
 } from '@/config/veyraSettlement';
 import { gasNativeToUsdcMicro, fmtGasUsdc } from '@/lib/settlementGas';
+import {arcReviewedPayGasBudget,assertArcLivePayFunds} from '@/mainnet/arcSharedUsdcFunding';
 import {
   verifyPaymentReceipt,
   type VerifySnapshot,
@@ -89,6 +97,7 @@ import {
   type TransferLog,
 } from '@/lib/settlementVerify';
 
+declare const __VEYRA_RELEASE_ENV__:string;
 // ─── constants ────────────────────────────────────────────────────────────────
 
 /** USDC ERC-20 interface uses 6 decimals on Arc. */
@@ -166,6 +175,7 @@ interface ReviewSnapshot {
   // payment target
   mode: Mode;
   recipient: `0x${string}`;
+  verifiedRecipient?:VerifiedMainnetRecipient|null;
   amountParsed: bigint;
   // contract
   contractAddress: `0x${string}`;
@@ -178,9 +188,11 @@ interface ReviewSnapshot {
   feePercent: number;
   // gas estimate (in 6-decimal USDC micro-units for display; raw native stored for pre-sign refresh)
   gasEstimateNative: bigint;
+  gasEstimateProvisional: boolean;
   approveGasNative: bigint;
   // payment reference (fixed at review entry)
   ref: `0x${string}`;
+  requestId?:string;
   // escrow (only set when mode === 'escrow')
   escrowHours?: string;
 }
@@ -207,8 +219,17 @@ function buildRef(): `0x${string}` {
 
 // ─── component ─────────────────────────────────────────────────────────────────
 
-export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void}) {
-  const { address, isConnected, chainId } = useAccount();
+export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifiedRecipient,paymentRequest,journeyRef,onFlowStepChange}:{
+ embedded?:boolean;sharedDraft?:MainnetPayDraft;onDraftChange?:(patch:Partial<MainnetPayDraft>)=>void;
+ verifiedRecipient?:VerifiedMainnetRecipient|null;
+ paymentRequest?:VeyraPaymentRequest|null;
+ journeyRef?:`0x${string}`;
+ onFlowStepChange?:(active:boolean)=>void;
+}) {
+  const { address, isConnected, chainId,connector } = useAccount();
+  const social=useUnifiedSocial();
+  const signedForWallet=social.identityOrigin==='ready'&&
+    isMainnetSessionForWallet(social.session,address,connector?.uid);
   const { switchChain } = useSwitchChain();
   const publicClient = usePublicClient({ chainId });
 
@@ -220,6 +241,9 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
 
   // lifecycle
   const [step, setStep] = useState<Step>('form');
+  // Embedded Pay keeps one visual stage at a time. Never unmount this
+  // component during REVIEW / SIGN / RECOVERY: wallet journals stay intact.
+  useEffect(()=>{if(embedded)onFlowStepChange?.(step!=='form');},[embedded,step,onFlowStepChange]);
   useEffect(()=>{
     if(!sharedDraft)return;
     // Recompute contract fee and approval review when a shared visible draft changes.
@@ -589,7 +613,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
       failReasons: result.failReasons,
     });
     if(result.verified && VEYRA_ENV==='mainnet' && result.txHash){
-      recordLocalOperation({type:'Settlement',owner:snap.walletAddress,hash:result.txHash,amount:formatUnits(snap.amountParsed,6),asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,status:'RECORDED',destination:snap.recipient});
+      recordLocalOperation({type:'Settlement',owner:snap.walletAddress,hash:result.txHash,amount:formatUnits(snap.amountParsed,6),asset:'USDC',chainId:ARC_MAINNET_CHAIN_ID,status:'RECORDED',destination:snap.recipient,
+        ...(snap.verifiedRecipient?{recipientLabel:'@'+snap.verifiedRecipient.veyraHandle+'.veyra'}:{})});
     }
     if(VEYRA_ENV==='mainnet'&&result.verified){
       const intent=readSettlementIntent(snap.walletAddress);
@@ -757,9 +782,15 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
 
   // ── review entry: load fees, lock snapshot ─────────────────────────────────────
   function handleReview() {
-    if(address&&VEYRA_ENV==='mainnet'&&settlementUnresolved(readSettlementIntent(address))){
-      setErrorMsg('An earlier payment or approval request is unresolved. Check the original wallet request before signing again.');
-      setStep('error');return;
+    if(address&&VEYRA_ENV==='mainnet'){
+      const old=readSettlementIntent(address);
+      const recover=paymentRequest&&resumablePaymentAttempt(old,{
+       owner:address,requestId:paymentRequest.requestId,recipient:paymentRequest.recipientWallet,
+       amount:formatUnits(BigInt(paymentRequest.amountRaw),6),ref:paymentRequest.paymentRef});
+      if(settlementUnresolved(old)&&!recover){
+       setErrorMsg('An earlier payment or approval request is unresolved. Check the original wallet request before signing again.');
+       setStep('error');return;
+      }
     }
     if (!mainnetRegistryVerified) { setErrorMsg('Mainnet contract verification has not passed.'); setStep('error'); return; }
     if (!liveFeesReady) { setStep('loading-fees'); return; }
@@ -783,11 +814,44 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
       return;
     }
 
+    if(verifiedRecipient&&
+      (verifiedRecipient.owner.toLowerCase()!==address.toLowerCase()||
+       verifiedRecipient.wallet.toLowerCase()!==recipient.trim().toLowerCase())){
+      setErrorMsg('Selected Veyra ID is not the receiving wallet in this Settlement review.');
+      setStep('error');return;
+    }
+    // Legacy V1 pay() has no on-chain reference replay protection.
+    // Ordinary Pay/Tip remains available; signed Payment Requests require V2.
+    if(isMainnet&&paymentRequest){
+      setErrorMsg('Payment Request signing requires the replay-protected Settlement V2. Ordinary Pay and Tip remain available.');
+      setStep('error');return;
+    }
+    if(paymentRequest){
+      if(paymentRequest.status!=='PENDING'||Date.parse(paymentRequest.expiresAt)<=Date.now()||
+        !signedForWallet||social.session?.profile.veyraUserId!==paymentRequest.payerUserId||
+        !verifiedRecipient||verifiedRecipient.veyraUserId!==paymentRequest.requesterUserId||
+        verifiedRecipient.wallet.toLowerCase()!==paymentRequest.recipientWallet.toLowerCase()||
+        amountParsed!==BigInt(paymentRequest.amountRaw)||effectiveMode!=='pay'||
+        paymentRequest.paymentRef!==paymentRequestRef(paymentRequest.requestId)){
+        setErrorMsg('Request no longer matches payer, payee, wallet or amount. Refresh Chat.');
+        setStep('error');return;
+      }
+    }
     const bps =
       typeof liveFeeBps === 'bigint' ? liveFeeBps :
       typeof liveFeeBps === 'number' ? BigInt(liveFeeBps) : 0n;
     const fee = amountParsed > 0n ? (amountParsed * bps) / BPS_DENOM : 0n;
     const net = amountParsed - fee;
+    // pay() may revert during pre-approval gas estimation because no
+    // allowance exists yet. Show a conservative gas budget based on a real
+    // RPC gas price; always require a fresh successful gas estimate,
+    // sufficient funds and pay() simulation before wallet signing.
+    const reviewedGas=isMainnet&&effectiveMode==='pay'?
+      arcReviewedPayGasBudget({estimatedGasNative:payGasNative,gasPriceWei:gasPriceNative}):null;
+    if(isMainnet&&effectiveMode==='pay'&&!reviewedGas){
+      setErrorMsg('Arc network gas price is unavailable. Refresh and review again; no payment signature requested.');
+      setStep('error');return;
+    }
 
     setSnapshot({
       walletAddress: address,
@@ -795,6 +859,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
       chainLabel,
       mode: effectiveMode,
       recipient: recipient.trim() as `0x${string}`,
+      verifiedRecipient:verifiedRecipient??null,
       amountParsed,
       contractAddress: deployment.address,
       usdcAddress: activeUsdcAddress,
@@ -803,9 +868,11 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
       feeAmount: fee,
       netAmount: net,
       feePercent: Number(bps) / 100,
-      gasEstimateNative: payGasNative,
+      gasEstimateNative: reviewedGas?.wei??payGasNative,
+      gasEstimateProvisional: reviewedGas?.provisional??false,
       approveGasNative: approveGasNative,
-      ref: buildRef(),
+      ref: paymentRequest?paymentRequestRef(paymentRequest.requestId):journeyRef??buildRef(),
+      ...(paymentRequest?{requestId:paymentRequest.requestId}:{}),
       ...(effectiveMode === 'escrow' ? { escrowHours } : {}),
     });
     setStep('review');
@@ -823,8 +890,29 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
 
   // ── approve ──────────────────────────────────────────────────────────────────
   async function handleApprove() {
+    if(VEYRA_ENV==='mainnet'){
+      if(__VEYRA_RELEASE_ENV__!=='production'){
+        setErrorMsg('Mainnet Settlement signing is disabled in Preview and local builds.');
+        setStep('error');return;
+      }
+      if(!address||!signedForWallet){
+        setErrorMsg('Sign in with the connected Veyra ID before approving Settlement.');
+        setStep('error');return;
+      }
+      try{await withMainnetWalletSigningLock(address,performApprove);}
+      catch(e){setErrorMsg(e instanceof Error?e.message:'Settlement approval unavailable.');setStep('error');}
+      return;
+    }
+    await performApprove();
+  }
+  async function performApprove() {
     if (!deployment || !address || !snapshot) return;
-    try{assertMainnetSigningAllowed();}catch(e){
+    if(isMainnet&&paymentRequest){
+      setErrorMsg('Payment Request signing requires replay-protected Settlement V2. No approval or transfer started.');
+      setStep('error');return;
+    }
+    try{if(isMainnet)assertMainnetContractCanarySigningAllowed(address,snapshot.amountParsed,snapshot.mode);
+      else assertMainnetSigningAllowed();}catch(e){
       setErrorMsg(e instanceof Error?e.message:'New signing disabled.');
       setStep('error');return;
     }
@@ -870,9 +958,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
       if(isMainnet){
         const current=readSettlementIntent(address);
         if(current.kind==='active'){
-          const code=typeof e==='object'&&e!==null&&'code' in e?e.code:undefined;
-          if(code===4001||code==='ACTION_REJECTED')clearSettlementIntent(address);
-          else writeSettlementIntent({...current.value,stage:'UNKNOWN',hash:null});
+          // A wallet rejection error cannot prove the original transaction did not broadcast.
+           writeSettlementIntent({...current.value,stage:'UNKNOWN',hash:null});
         }
       }
       setErrorMsg((e instanceof Error?e.message:'Approval result unavailable')+
@@ -883,8 +970,29 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
 
   // ── P0-3: pre-sign revalidation + broadcast ───────────────────────────────────
   async function handleSettle() {
+    if(VEYRA_ENV==='mainnet'){
+      if(__VEYRA_RELEASE_ENV__!=='production'){
+        setErrorMsg('Mainnet Settlement signing is disabled in Preview and local builds.');
+        setStep('error');return;
+      }
+      if(!address||!signedForWallet){
+        setErrorMsg('Sign in with the connected Veyra ID before signing Settlement.');
+        setStep('error');return;
+      }
+      try{await withMainnetWalletSigningLock(address,performSettle);}
+      catch(e){setErrorMsg(e instanceof Error?e.message:'Settlement signing unavailable.');setStep('error');}
+      return;
+    }
+    await performSettle();
+  }
+  async function performSettle() {
     if (!deployment || !address || !snapshot || !publicClient) return;
-    try{assertMainnetSigningAllowed();}catch(e){
+    if(isMainnet&&paymentRequest){
+      setErrorMsg('Payment Request signing requires replay-protected Settlement V2. No transfer started.');
+      setStep('error');return;
+    }
+    try{if(isMainnet)assertMainnetContractCanarySigningAllowed(address,snapshot.amountParsed,snapshot.mode);
+      else assertMainnetSigningAllowed();}catch(e){
       setErrorMsg(e instanceof Error?e.message:'New signing disabled.');
       setStep('error');return;
     }
@@ -892,8 +1000,22 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
     if (isMainnet) {try{await validateMainnetDeployment();}catch(e){setErrorMsg(e instanceof Error?e.message:'Mainnet contract validation failed');setStep('error');return;}}
     setStep('revalidating');
     setErrorMsg(null);
+    let identityVerifiedAtSign:VerifiedMainnetRecipient|null=null;
 
     try {
+      // A chosen Veyra ID is independently resolved again before signing
+      // and may never silently point to a different recipient.
+      if(isMainnet&&snapshot.mode==='pay'){
+        if(snapshot.verifiedRecipient&&
+           (!verifiedRecipient||
+            verifiedRecipient.veyraUserId!==snapshot.verifiedRecipient.veyraUserId||
+            verifiedRecipient.walletId!==snapshot.verifiedRecipient.walletId||
+            verifiedRecipient.wallet.toLowerCase()!==snapshot.verifiedRecipient.wallet.toLowerCase()))
+          throw Error('Selected Veyra ID changed after review. Start a new Settlement review.');
+        identityVerifiedAtSign=await reverifySettlementRecipient({original:snapshot.verifiedRecipient,
+          owner:address,recipient:snapshot.recipient,
+          sessionToken:social.session?.token,sessionWalletBound:signedForWallet});
+      }
       // Detect wallet / chain change since snapshot
       if (address.toLowerCase() !== snapshot.walletAddress.toLowerCase()) {
         throw new Error(
@@ -965,6 +1087,28 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
       return;
     }
 
+    if(paymentRequest&&isMainnet){
+      try{
+        if(!signedForWallet||social.session?.profile.veyraUserId!==paymentRequest.payerUserId||
+         !social.session?.token||snapshot.requestId!==paymentRequest.requestId)
+          throw Error('Veyra ID or request changed.');
+        const live=await reviewPeerRequest(social.session.token,paymentRequest.requestId);
+        if(live.status!=='PENDING'||(live.paymentInProgress&&
+          !resumablePaymentAttempt(readSettlementIntent(address),{
+           owner:address,requestId:paymentRequest.requestId,recipient:snapshot.recipient,
+           amount:formatUnits(snapshot.amountParsed,6),ref:snapshot.ref}))||
+         live.payerUserId!==paymentRequest.payerUserId||
+         live.requesterUserId!==paymentRequest.requesterUserId||
+         live.recipientWallet.toLowerCase()!==snapshot.recipient.toLowerCase()||
+         live.amountRaw!==snapshot.amountParsed.toString()||
+         live.paymentRef!==snapshot.ref||Date.parse(live.expiresAt)<=Date.now())
+         throw Error('Payment Request was cancelled, expired or changed. No signature requested.');
+      }catch(e){
+        setErrorMsg((e instanceof Error?e.message:'Payment Request unavailable')+
+         ' Return to Chat and refresh before signing.');
+        setStep('error');return;
+      }
+    }
     // Never blindly re-broadcast an earlier Mainnet Settlement payment.
     // Activity automatically verifies and resolves the original recorded hash.
     if(isMainnet && readLocalOperations(address).some(v=>v.type==='Settlement'&&v.status==='SUBMITTED')){
@@ -979,6 +1123,21 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
       try {
         if(await publicClient.getChainId()!==ARC_MAINNET_CHAIN_ID)
           throw new Error('Wallet network and Arc Mainnet RPC differ.');
+        const [native,tokenBalance,gasPrice,gasUnits]=await Promise.all([
+          publicClient.getBalance({address}),
+          publicClient.readContract({address:snapshot.usdcAddress,
+           abi:erc20Abi,functionName:'balanceOf',args:[address]}),
+          publicClient.getGasPrice(),
+          publicClient.estimateContractGas({
+           account:address,address:snapshot.contractAddress,
+           abi:VEYRA_SETTLEMENT_ABI,functionName:'pay',
+           args:[snapshot.recipient,snapshot.amountParsed,snapshot.ref],
+          }),
+        ]);
+        assertArcLivePayFunds({grossMicro:snapshot.amountParsed,
+         nativeBalanceWei:native,erc20BalanceMicro:tokenBalance,
+         gasEstimateUnits:gasUnits,gasPriceWei:gasPrice,
+         reviewedGasWei:snapshot.gasEstimateNative});
         await publicClient.simulateContract({
           account:address,
           address:snapshot.contractAddress,
@@ -992,23 +1151,91 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
         return;
       }
     }
-    // Save the frozen payment intent BEFORE the wallet request is opened.
+    // The exact, owner-scoped attempt ID must survive reload and lost HTTP
+    // responses. A second attempt or a previous UNKNOWN/PENDING send is NEVER
+    // authorized. Wallet refusal retains the server claim for the same attempt.
+    let claimAttemptId:string|null=null;
     if(isMainnet&&snapshot.mode==='pay'){
-      if(settlementUnresolved(readSettlementIntent(address))){
-        setErrorMsg('An earlier Settlement request is unresolved. Check Activity before signing again.');
+      const prior=readSettlementIntent(address);
+      claimAttemptId=paymentRequest?resumablePaymentAttempt(prior,{
+       owner:address,requestId:paymentRequest.requestId,recipient:snapshot.recipient,
+       amount:formatUnits(snapshot.amountParsed,6),ref:snapshot.ref}):null;
+      if(settlementUnresolved(prior)&&!claimAttemptId){
+        setErrorMsg('Another wallet request is unresolved. Recover its original hash; do not sign a new transaction.');
         setStep('error');return;
       }
-      let fromBlock:string;
-      try{fromBlock=(await publicClient.getBlockNumber()).toString();}
-      catch{
-        setErrorMsg('Cannot save the original payment block. No wallet signature requested.');
+      if(claimAttemptId){
+        if(prior.kind!=='active'||!writeSettlementIntent({...prior.value,stage:'AWAITING_WALLET'})){
+          setErrorMsg('Cannot safely reopen the original checkpoint. No signing requested.');
+          setStep('error');return;
+        }
+      }else{
+        let fromBlock:string;
+        try{fromBlock=(await publicClient.getBlockNumber()).toString();}
+        catch{
+          setErrorMsg('Cannot save original payment block. No wallet signature requested.');
+          setStep('error');return;
+        }
+        claimAttemptId=paymentRequest?crypto.randomUUID():null;
+        const intent:SettlementIntent={owner:address,phase:'PAYMENT',
+         stage:'AWAITING_WALLET',recipient:snapshot.recipient,
+         amount:formatUnits(snapshot.amountParsed,6),ref:snapshot.ref,hash:null,
+         createdAt:Date.now(),fromBlock,
+         ...(paymentRequest&&claimAttemptId?
+          {requestId:paymentRequest.requestId,attemptId:claimAttemptId}:{})};
+        if(!writeSettlementIntent(intent)){
+          setErrorMsg('Recovery storage unavailable. No server claim or wallet signature requested.');
+          setStep('error');return;
+        }
+      }
+    }
+    // The authoritative server either creates this claim once or confirms
+    // ownership of the SAME key after a lost response. Any ambiguity fails
+    // closed and keeps the exact local checkpoint for manual recovery.
+    if(isMainnet&&paymentRequest){
+      try{
+        if(!social.session?.token||!address||!claimAttemptId||
+         snapshot.requestId!==paymentRequest.requestId)
+          throw Error('Payment Request identity changed.');
+        const result=await claimPeerRequest(social.session.token,
+         paymentRequest.requestId,address,claimAttemptId);
+        if(result.request.paymentRef!==snapshot.ref||
+         result.request.amountRaw!==snapshot.amountParsed.toString()||
+         result.request.recipientWallet.toLowerCase()!==snapshot.recipient.toLowerCase())
+          throw Error('Server claim differs from the frozen Settlement review.');
+      }catch(e){
+        // A server 4xx alone does not prove no claim exists. Clear only after
+        // a positive, authenticated lookup confirms NO reservation and PENDING.
+        if(confirmedPaymentRequestRefusal(e)&&social.session?.token&&claimAttemptId){
+          try{
+            const status=await readPeerRequestAttempt(social.session.token,
+             paymentRequest.requestId,address,claimAttemptId);
+            if(!status.matches&&!status.request.paymentInProgress&&status.request.status==='PENDING'){
+              const old=readSettlementIntent(address);
+              if(old.kind==='active'&&old.value.requestId===paymentRequest.requestId&&
+               old.value.attemptId===claimAttemptId&&old.value.hash===null&&
+               old.value.stage==='AWAITING_WALLET')clearSettlementIntent(address);
+            }
+          }catch{/* no verified non-claim: keep the checkpoint */}
+        }
+        setErrorMsg((e instanceof Error?e.message:'Could not verify original server attempt')+
+         ' No wallet signature requested. Recover the exact attempt; never create another while unresolved.');
         setStep('error');return;
       }
-      const intent:SettlementIntent={owner:address,phase:'PAYMENT',
-       stage:'AWAITING_WALLET',recipient:snapshot.recipient,
-       amount:formatUnits(snapshot.amountParsed,6),ref:snapshot.ref,hash:null,createdAt:Date.now(),fromBlock};
-      if(!writeSettlementIntent(intent)){
-        setErrorMsg('Recovery storage unavailable. No wallet signature requested.');
+    }
+    // Crash barrier: immediately BEFORE invoking the wallet, move out of the
+    // resumable pre-sign state. A crash during wallet invocation must NEVER
+    // be mistaken for a safe pre-sign retry after reload.
+    if(isMainnet&&snapshot.mode==='pay'){
+      const existing=readSettlementIntent(address);
+      if(existing.kind!=='active'||existing.value.phase!=='PAYMENT'||
+        existing.value.stage!=='AWAITING_WALLET'||
+        existing.value.ref.toLowerCase()!==snapshot.ref.toLowerCase()||
+        existing.value.recipient.toLowerCase()!==snapshot.recipient.toLowerCase()||
+        existing.value.amount!==formatUnits(snapshot.amountParsed,6)||
+        (paymentRequest&&existing.value.attemptId!==claimAttemptId)||
+        !writeSettlementIntent({...existing.value,stage:'UNKNOWN'})){
+        setErrorMsg('Cannot persist the pre-wallet crash barrier. No signature requested.');
         setStep('error');return;
       }
     }
@@ -1041,6 +1268,11 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
           type:'Settlement',owner:snapshot.walletAddress,hash,
           amount:formatUnits(snapshot.amountParsed,6),asset:'USDC',
           chainId:ARC_MAINNET_CHAIN_ID,status:'SUBMITTED',destination:snapshot.recipient,
+           ...(snapshot.verifiedRecipient?{recipientLabel:'@'+snapshot.verifiedRecipient.veyraHandle+'.veyra'}:{}),
+           ...(identityVerifiedAtSign?{recipientSnapshotId:identityVerifiedAtSign.snapshotId}:{}),
+           ...(signedForWallet&&social.session?.profile.veyraUserId?
+              {senderUserId:social.session.profile.veyraUserId}:{}),
+           ...(sharedDraft?.note?{note:sharedDraft.note.trim().slice(0,120)}:{}),
         });
         if(!stored){
           setErrorMsg('Payment submitted but browser storage is unavailable. Check this transaction in your wallet; do not sign it again.');
@@ -1052,13 +1284,17 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
       if(isMainnet&&snapshot.mode==='pay'){
         const prior=readSettlementIntent(address);
         if(prior.kind==='active'){
-          const code=typeof e==='object'&&e!==null&&'code' in e?e.code:undefined;
-          if(code===4001||code==='ACTION_REJECTED')clearSettlementIntent(address);
-          else writeSettlementIntent({...prior.value,stage:'UNKNOWN',hash:null});
+          // A wallet rejection error cannot prove the original transaction did not broadcast.
+           writeSettlementIntent({...prior.value,
+            stage:paymentRequest&&explicitlyRejectedWallet(e)&&
+              prior.value.requestId===paymentRequest.requestId&&
+              prior.value.attemptId===claimAttemptId?'REJECTED':'UNKNOWN',hash:null});
         }
       }
       setErrorMsg((e instanceof Error?e.message:'Wallet outcome unavailable')+
-       '. A wallet/RPC error does not prove the funds were not submitted. Do not resend.');
+       (paymentRequest&&explicitlyRejectedWallet(e)?
+        '. Wallet explicitly declined. You may re-review the SAME attempt; server reservation remains held.':
+        '. A wallet/RPC error does not prove the funds were not submitted. Do not resend.'));
       setStep('error');
     }
   }
@@ -1270,8 +1506,8 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
             <button
               disabled={!canReview || !!feeBpsError || !!feeRecipientError}
               onClick={handleReview}
-              className="w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/90 transition-colors">
-              Review transaction
+              className={embedded&&isMainnet?"veyra-pay-review w-full rounded-xl py-3.5 text-sm font-bold disabled:cursor-not-allowed":"w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/90 transition-colors"}>
+              Review payment
             </button>
           </>
         )}
@@ -1288,81 +1524,56 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
         {/* ── REVIEW ── */}
         {step === 'review' && snapshot && (
           <div className="space-y-4">
-            <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 px-4 py-2.5 flex items-center gap-2">
-              <CheckCircle className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-              <p className="text-xs text-blue-300">
-                Fee verified from live contract · feeBps = {snapshot.feeBps.toString()} · parameters frozen
-              </p>
+            <div className="rounded-xl border px-4 py-2.5 text-sm font-semibold"
+              style={{background:'var(--accent-muted)',borderColor:'var(--border-strong)',color:'var(--ink)'}}>
+              Review payment
             </div>
-
-            <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] divide-y divide-white/[0.06]">
-              <ReviewRow label="Network" value={snapshot.chainLabel} />
-              <ReviewRow label="Your wallet" value={
-                <span className="font-mono">{snapshot.walletAddress.slice(0, 8)}…{snapshot.walletAddress.slice(-6)}</span>
-              } mono />
-              <ReviewRow label="Type" value={snapshot.mode === 'pay' ? 'Direct payment' : 'Escrow'} />
-              <ReviewRow label="Recipient" value={
-                <span className="font-mono">{snapshot.recipient.slice(0, 10)}…{snapshot.recipient.slice(-6)}</span>
-              } mono />
-              <ReviewRow label="Gross amount" value={`${fmtUsdc(snapshot.amountParsed)} USDC`} />
-              <ReviewRow label="Protocol fee" value={
-                `${fmtUsdc(snapshot.feeAmount)} USDC (${snapshot.feePercent}%)`
-              } />
-              {snapshot.feeRecipient && (
-                <ReviewRow label="Fee recipient" value={
-                  <span className="font-mono text-xs">
-                    {snapshot.feeRecipient.slice(0, 8)}…{snapshot.feeRecipient.slice(-6)}
-                  </span>
-                } mono />
-              )}
-              <ReviewRow label="Net to recipient" value={`${fmtUsdc(snapshot.netAmount)} USDC`} accent />
-              {/* Step-specific gas — shown before each signature step */}
-              {needsApproval && (
-                <GasRow
-                  label="Est. Approve gas"
-                  native={snapshot.approveGasNative}
-                  loading={approveGasLoading}
-                  error={false}
-                />
-              )}
-              <GasRow
-                label="Est. Pay gas"
+            <div className="rounded-2xl border divide-y" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+              <ReviewRow label="To" value={snapshot.verifiedRecipient?.veyraHandle
+                ? '@'+snapshot.verifiedRecipient.veyraHandle+'.veyra'
+                : <span className="font-mono">{snapshot.recipient.slice(0,10)}…{snapshot.recipient.slice(-6)}</span>} />
+              <ReviewRow label="Amount" value={`${fmtUsdc(snapshot.amountParsed)} USDC`} />
+              <ReviewRow label="Fee" value={`${fmtUsdc(snapshot.feeAmount)} USDC (${snapshot.feePercent}%)`} />
+              <ReviewRow label="Recipient receives" value={`${fmtUsdc(snapshot.netAmount)} USDC`} accent />
+              <ReviewRow label="Total sent" value={`${fmtUsdc(snapshot.amountParsed)} USDC`} />
+            </div>
+            <div className="rounded-xl border divide-y" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
+              {needsApproval && <GasRow label="Approve network fee (est.)"
+                native={snapshot.approveGasNative} loading={approveGasLoading} error={false}/>}
+              <GasRow label={snapshot.gasEstimateProvisional?'Payment gas budget (provisional)':'Payment network fee (est.)'}
                 native={snapshot.gasEstimateNative}
-                loading={payGasLoading}
-                error={payGasError}
-              />
-              {snapshot.mode === 'escrow' && (
-                <ReviewRow label="Escrow timeout" value={
-                  <span className="flex items-center gap-1.5 justify-end">
-                    <Clock className="w-3.5 h-3.5 text-white/40" />{snapshot.escrowHours}h
-                  </span>
-                } />
-              )}
-              <ReviewRow label="Contract" value={
-                <a href={deployment?.explorerUrl} target="_blank" rel="noopener noreferrer"
-                  className="text-blue-400 flex items-center gap-1 hover:underline text-xs font-mono">
-                  {snapshot.contractAddress.slice(0, 10)}…{snapshot.contractAddress.slice(-6)}
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              } />
-              <ReviewRow label="USDC contract" value={
-                <span className="font-mono text-xs text-white/60">
-                  {snapshot.usdcAddress.slice(0, 10)}…{snapshot.usdcAddress.slice(-6)}
-                </span>
-              } mono />
-              <ReviewRow label="Payment ref" value={
-                <span className="font-mono text-xs text-white/60">{snapshot.ref.slice(0, 18)}…</span>
-              } mono />
+                loading={!snapshot.gasEstimateProvisional&&payGasLoading}
+                error={!snapshot.gasEstimateProvisional&&payGasError}/>
             </div>
+            {snapshot.gasEstimateProvisional&&<p className="text-xs" style={{color:'var(--muted)'}}>
+              Provisional budget from the current Arc gas price, not a successful payment estimate.
+              After approval, Veyra checks the real gas, balance and payment simulation again before requesting a signature.
+            </p>}
+            <details className="rounded-xl border px-4 py-3 text-xs" style={{borderColor:'var(--border)',color:'var(--muted)'}}>
+              <summary className="cursor-pointer font-semibold">Details</summary>
+              <div className="mt-3 space-y-2">
+                {snapshot.requestId&&<ReviewRow label="Payment request" value={snapshot.requestId.slice(0,18)+"…"}/>}
+                <ReviewRow label="Network" value={snapshot.chainLabel}/>
+                <ReviewRow label="Your wallet" value={<span className="font-mono">{snapshot.walletAddress.slice(0,8)}…{snapshot.walletAddress.slice(-6)}</span>} mono/>
+                <ReviewRow label="Recipient wallet" value={<span className="font-mono">{snapshot.recipient.slice(0,10)}…{snapshot.recipient.slice(-6)}</span>} mono/>
+                <ReviewRow label="Type" value={snapshot.mode==='pay'?'Payment':'Escrow'}/>
+                {snapshot.feeRecipient&&<ReviewRow label="Fee recipient" value={<span className="font-mono">{snapshot.feeRecipient.slice(0,8)}…{snapshot.feeRecipient.slice(-6)}</span>} mono/>}
+                {snapshot.mode==='escrow'&&<ReviewRow label="Escrow timeout" value={snapshot.escrowHours+'h'}/>}
+                <ReviewRow label="Contract" value={<a className="font-mono underline" href={deployment?.explorerUrl} target="_blank" rel="noopener noreferrer">{snapshot.contractAddress.slice(0,10)}…{snapshot.contractAddress.slice(-6)}</a>}/>
+                <ReviewRow label="USDC contract" value={<span className="font-mono">{snapshot.usdcAddress.slice(0,10)}…{snapshot.usdcAddress.slice(-6)}</span>} mono/>
+                <ReviewRow label="Payment ref" value={<span className="font-mono">{snapshot.ref.slice(0,18)}…</span>} mono/>
+              </div>
+            </details>
 
             {needsApproval ? (
               <div className="space-y-3">
                 <p className="text-xs text-white/50 text-center">
-                  Step 1 of 2: Approve settlement contract to spend exactly {fmtUsdc(snapshot.amountParsed)} USDC
+                  Approve lets this payment use {fmtUsdc(snapshot.amountParsed)} USDC.
                 </p>
                 <button disabled={approving} onClick={() => { void handleApprove(); }}
-                  className="w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-colors">
-                  {approving ? 'Waiting for signature…' : `Approve ${fmtUsdc(snapshot.amountParsed)} USDC`}
+                  className={embedded&&isMainnet?"veyra-btn-primary w-full rounded-xl py-3.5 text-sm font-semibold disabled:opacity-50":
+                  "w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-colors"}>
+                  {approving ? 'Waiting for wallet…' : `Approve ${fmtUsdc(snapshot.amountParsed)} USDC`}
                 </button>
               </div>
             ) : (
@@ -1370,16 +1581,16 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
                 {approveTxHash && (
                   <p className="text-xs text-emerald-400 text-center flex items-center justify-center gap-1.5">
                     <CheckCircle className="w-3.5 h-3.5" />
-                    Approval confirmed — fees re-verified before signing
+                    Approved · ready to send
                   </p>
                 )}
                 <p className="text-xs text-white/50 text-center">
-                  {approveTxHash ? 'Step 2 of 2: ' : ''}
-                  Fee configuration and allowance will be re-verified immediately before broadcast.
+                  Review fees and recipient before signing.
                 </p>
                 <button disabled={settling} onClick={() => { void handleSettle(); }}
-                  className="w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-colors">
-                  {settling ? 'Waiting for signature…' : snapshot.mode === 'pay' ? 'Send payment' : 'Create escrow'}
+                  className={embedded&&isMainnet?"veyra-btn-primary w-full rounded-xl py-3.5 text-sm font-semibold disabled:opacity-50":
+                  "w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-colors"}>
+                  {settling ? 'Waiting for wallet…' : snapshot.mode === 'pay' ? 'Send payment' : 'Create escrow'}
                 </button>
               </div>
             )}
@@ -1395,9 +1606,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
           <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] p-6 text-center space-y-3">
             <div className="w-10 h-10 mx-auto rounded-full border-2 border-white/20 border-t-white animate-spin" />
             <p className="text-sm text-white/70">
-              {step === 'approve' ? 'Approving USDC…' :
-               step === 'revalidating' ? 'Re-verifying fee configuration and allowance before signing…' :
-               'Submitting transaction…'}
+              {step === 'approve' ? 'Waiting for wallet…' : step === 'revalidating' ? 'Checking payment…' : 'Waiting for wallet…'}
             </p>
           </div>
         )}
@@ -1406,7 +1615,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
         {step === 'pending' && (
           <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] p-6 text-center space-y-3">
             <Unlock className="w-8 h-8 text-white/30 mx-auto" />
-            <p className="text-sm text-white/70">Waiting for on-chain confirmation…</p>
+            <p className="text-sm text-white/70">Processing…</p>
             {explorerTxUrl && (
               <a href={explorerTxUrl} target="_blank" rel="noopener noreferrer"
                 className="text-xs text-blue-400 hover:underline flex items-center justify-center gap-1">
@@ -1422,10 +1631,10 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
             <div className="text-center space-y-2">
               <CheckCircle className="w-10 h-10 text-emerald-400 mx-auto" />
               <p className="text-base font-semibold text-white">
-                {snapshot.mode === 'pay' ? 'Payment verified' : 'Escrow verified'}
+                {snapshot.mode==='pay' ? `Sent ${fmtUsdc(snapshot.amountParsed)} USDC to ${snapshot.verifiedRecipient?.veyraHandle?'@'+snapshot.verifiedRecipient.veyraHandle+'.veyra':snapshot.recipient.slice(0,8)+'…'}` : 'Escrow verified'}
               </p>
               <p className="text-xs text-emerald-300/70">
-                All verification checks passed: chain, receipt, contract, event, USDC transfers
+                Verified onchain
               </p>
             </div>
             <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] divide-y divide-white/[0.06]">
@@ -1503,6 +1712,13 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange}:{embed
                 <p className="text-xs text-red-400/70 mt-1 break-words">{errorMsg}</p>
               </div>
             </div>
+            {paymentRequest&&address&&resumablePaymentAttempt(intentState,{
+              owner:address,requestId:paymentRequest.requestId,recipient:paymentRequest.recipientWallet,
+              amount:formatUnits(BigInt(paymentRequest.amountRaw),6),ref:paymentRequest.paymentRef})&&
+              <button type="button" className="veyra-btn-secondary w-full rounded-xl p-3 text-sm font-semibold"
+                onClick={()=>{setErrorMsg(null);setSnapshot(null);setStep('form');}}>
+                Review original attempt again (no new claim)
+              </button>}
             <button onClick={reset} disabled={isMainnet&&settlementUnresolved(intentState)}
               className="w-full py-2 text-sm text-white/40 hover:text-white/70 disabled:cursor-not-allowed disabled:opacity-30">
               {isMainnet&&settlementUnresolved(intentState)?'Checking original request':'← Start again'}

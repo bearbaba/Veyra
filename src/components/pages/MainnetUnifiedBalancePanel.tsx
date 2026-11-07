@@ -1,0 +1,414 @@
+/** Mainnet Unified on Home. Provenance: Circle SDK ledger, not ERC20 wallet total.
+ * All onchain writes are gated, explicit and checkpointed before provider calls.
+ */
+import {useEffect,useRef,useState} from 'react';
+import {AppKit} from '@circle-fin/app-kit';
+import {erc20Abi,formatUnits,isAddress,parseUnits,type EIP1193Provider} from 'viem';
+import {useAccount,usePublicClient,useReadContracts,useSwitchChain} from 'wagmi';
+import {ChevronDown,RefreshCw,ArrowDownLeft,SendHorizontal,Clock3,ShieldAlert} from 'lucide-react';
+import {BrandLogo} from '../brand/BrandLogo';
+import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
+import {isMainnetSessionForWallet} from '@/mainnet/signedWalletReceiptScope';
+import {GATEWAY_MAINNET_CHAINS,GATEWAY_MAINNET_WRITE_ENABLED,
+ gatewayMainnetAmount,fetchGatewayMainnetBalances,formatGatewayUsdc,
+ type GatewayMainnetBalance} from '@/mainnet/gatewayMainnetBalances';
+import {readGatewayMainnetOperation,type GatewayMainnetOperation} from '@/mainnet/gatewayMainnetJournal';
+import {planGatewayMultiSource,matchingGatewayAllocation,type GatewayAllocation} from '@/mainnet/gatewayMultiSourceAllocation';
+import {estimateGatewayMainnetSpend,submitGatewayMainnetReview,
+ type GatewayMainnetReview} from '@/mainnet/gatewayMainnetExecution';
+import type {GatewaySdkFee} from '@/core/gateway/gatewaySdkSpend';
+import {assertGatewayFundingNet,gatewayFundingGrossForNet} from '@/mainnet/unifiedSettlementFunding';
+import {ensurePayFundingJourney} from '@/mainnet/payFundingJourney';
+
+const C=GATEWAY_MAINNET_CHAINS;
+/** One-click funding picks an adequate confirmed source automatically;
+ * aggregated balance is NOT proof that a single-source spend is possible. */
+export function chooseGatewaySource(balance:GatewayMainnetBalance,raw:string):number|null{
+ if(!gatewayMainnetAmount(raw))return null;
+ const amount=parseUnits(raw,6);
+ return [...balance.chains].filter(c=>c.available>=amount).sort((a,b)=>{
+  if(a.available!==b.available)return a.available>b.available?-1:1;
+  return a.chainId-b.chainId;
+ })[0]?.chainId??null;
+}
+type Mode='deposit'|'spend';
+export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundingTarget,compact=false}:{
+ fundingToWallet?:string;fundingNeeded?:string;compact?:boolean;
+ fundingTarget?:{payee:string;grossUsdc:string;requestId?:string};
+}={}){
+ const {address,connector}=useAccount();
+ const social=useUnifiedSocial();
+ const signed= social.identityOrigin==='ready'&&
+  isMainnetSessionForWallet(social.session,address,connector?.uid);
+ const {switchChainAsync}=useSwitchChain();
+ const eth=usePublicClient({chainId:1}),base=usePublicClient({chainId:8453}),arc=usePublicClient({chainId:5042});
+ const [snapshot,setSnapshot]=useState<GatewayMainnetBalance|null>(null);
+ const [scope,setScope]=useState('');
+ const [loading,setLoading]=useState(false);
+ const [error,setError]=useState('');
+ const [operation,setOperation]=useState<GatewayMainnetOperation|null|'blocked'>(null);
+ const [mode,setMode]=useState<Mode|null>(null);
+ const [sourceId,setSourceId]=useState<number>(8453);
+ const [destinationId,setDestinationId]=useState<number>(1);
+ const [recipient,setRecipient]=useState('');
+ const [amount,setAmount]=useState('');
+ const [fees,setFees]=useState<GatewaySdkFee[]|null>(null);
+ const [review,setReview]=useState(false);
+ const reviewedPlan=useRef<GatewayMainnetReview|null>(null);
+ const [reviewedView,setReviewedView]=useState<GatewayMainnetReview|null>(null);
+ const [advanced,setAdvanced]=useState(false);
+ const [busy,setBusy]=useState(false);
+ const owner=address?.toLowerCase()??'';
+ const session=social.session?.token??'';
+ const canRead=!!address&&signed;
+ const current=scope===owner+':'+session?snapshot:null;
+ const activeSource=C.find(x=>x.chainId===sourceId)!;
+ const sourceLedger=current?.chains.find(x=>x.chainId===sourceId)?.available??null;
+ const previous=operation!==null;
+ const canPilot=GATEWAY_MAINNET_WRITE_ENABLED;
+ const {data:walletReads}=useReadContracts({
+  contracts:C.map(x=>({address:x.usdc,abi:erc20Abi,functionName:'balanceOf' as const,
+   chainId:x.chainId,args:[address??'0x0000000000000000000000000000000000000000'] as const})),
+  query:{enabled:!!address,staleTime:18000,refetchInterval:30000},
+ });
+ const sourceWalletRaw=walletReads?.[C.findIndex(x=>x.chainId===sourceId)];
+ const sourceWalletBalance=sourceWalletRaw?.status==='success'&&
+  typeof sourceWalletRaw.result==='bigint'?sourceWalletRaw.result:null;
+ const availableForSource=mode==='deposit'?sourceWalletBalance:advanced?sourceLedger:current?.available??null;
+ function readJournal(){
+  setOperation(address?readGatewayMainnetOperation(address):null);
+ }
+ useEffect(()=>{
+  setScope('');setSnapshot(null);setError('');setMode(fundingToWallet?'spend':null);
+   if(fundingToWallet){setDestinationId(5042);setAmount(fundingNeeded??'');setAdvanced(false);}
+  setRecipient(fundingToWallet??address??'');setReview(false);setFees(null);
+  if(!address||!signed){setOperation(null);return;}
+  const ownerAddress=address,activeSession=session;
+  let active=true;
+  const refresh=()=>{
+   if(!active)return;
+   setLoading(true);
+   void fetchGatewayMainnetBalances(ownerAddress).then(value=>{
+    if(active&&social.session?.token===activeSession){
+     setSnapshot(value);setScope(ownerAddress.toLowerCase()+':'+activeSession);setError('');
+    }
+   }).catch(e=>{
+    if(active){setError(e instanceof Error?e.message:'Circle Gateway ledger unavailable.');
+     setSnapshot(null);setScope('');}
+   }).finally(()=>{if(active)setLoading(false);});
+   setOperation(readGatewayMainnetOperation(ownerAddress));
+  };
+  refresh();
+  const interval=window.setInterval(refresh,60000);
+  window.addEventListener('focus',refresh);
+  const changed=()=>refresh();
+  window.addEventListener('veyra:gateway:mainnet',changed);
+  return()=>{active=false;window.clearInterval(interval);
+   window.removeEventListener('focus',refresh);window.removeEventListener('veyra:gateway:mainnet',changed);};
+ },[address,signed,session,fundingToWallet,fundingNeeded]);
+ function selectMode(next:Mode){
+  setMode(next);setAmount('');setFees(null);setReview(false);setError('');setRecipient(address??'');setAdvanced(false);
+ }
+ function selectSource(id:number){
+  if(!C.some(x=>x.chainId===id))return;
+  setSourceId(id);setFees(null);setReview(false);
+ }
+ function selectDestination(id:number){
+  if(!C.some(x=>x.chainId===id))return;
+  setDestinationId(id);setFees(null);setReview(false);
+ }
+ const validAmount=gatewayMainnetAmount(amount);
+ const units=validAmount?parseUnits(amount,6):0n;
+ let allocations:GatewayAllocation[]=[];
+ if(mode==='spend'&&current&&validAmount){
+  try{allocations=planGatewayMultiSource(current,amount,advanced?sourceId:undefined);}
+  catch{/* Confirmed source liquidity insufficient. */}
+ }
+ const enough=mode==='spend'?allocations.length>0:
+  availableForSource!==null&&units>0n&&units<=availableForSource;
+ const validRecipient=!!address&&isAddress(recipient);
+ const good=!!current&&!previous&&validAmount&&enough&&validRecipient&&signed&&!loading;
+ async function connectedProvider(frozenSource?:number):Promise<EIP1193Provider>{
+  if(!address||!connector)throw Error('Connect your wallet first.');
+  await switchChainAsync({chainId:frozenSource??(mode==='spend'?allocations[0]?.chainId??sourceId:sourceId)});
+  const raw:unknown=await connector.getProvider();
+  if(!raw||typeof raw!=='object'||!('request' in raw)||
+   typeof raw.request!=='function')throw Error('Connected wallet provider is unavailable.');
+  return raw as EIP1193Provider;
+ }
+ function checkpoint():GatewayMainnetReview{
+  if(!current||!address||!social.session?.token||!mode)
+   throw Error('Connect and sign into your Veyra ID to review Unified.');
+  if(fundingToWallet&&(mode!=='spend'||destinationId!==5042||
+    recipient.toLowerCase()!==fundingToWallet.toLowerCase()||
+    fundingToWallet.toLowerCase()!==address.toLowerCase()))
+    throw Error('Unified funding must go to your own verified Arc wallet.');
+   return {kind:mode,owner:address,sourceChainId:mode==='spend'?allocations[0]?.chainId??sourceId:sourceId,
+   ...(mode==='spend'?{allocations,manualSourceChainId:advanced?sourceId:undefined}:{}),
+   ...(mode==='spend'?{destinationChainId:destinationId}:{}),
+   recipient,amount,balance:current,sessionToken:social.session.token,fees:fees??[]};
+ }
+ async function preview(){
+  if(!good||busy)return;
+  setBusy(true);setError('');
+  try{
+   let planned=checkpoint();
+   if(mode==='spend'){
+    let provider=await connectedProvider(planned.sourceChainId);
+    let estimated=await estimateGatewayMainnetSpend(planned,provider);
+    // Gateway spend is gross; independently re-quote until the NET can
+    // cover the frozen Settlement shortfall. No signature in this step.
+    if(fundingToWallet&&fundingNeeded){
+     if(!current)throw Error('Fresh Gateway Available is required.');
+     for(let pass=0;pass<3;pass++){
+      try{assertGatewayFundingNet(planned.amount,estimated,fundingNeeded);break;}
+      catch{
+       if(pass===2)throw Error('Gateway fees cannot cover the Arc wallet shortfall. No signature requested.');
+       const raised=gatewayFundingGrossForNet(fundingNeeded,estimated,current.available);
+       if(raised===planned.amount)throw Error('Gateway fees cannot be covered. No signature requested.');
+       const next=planGatewayMultiSource(current,raised,advanced?sourceId:undefined);
+       if(next[0]?.chainId!==planned.sourceChainId)
+        provider=await connectedProvider(next[0].chainId);
+       planned={...planned,amount:raised,allocations:next,
+        sourceChainId:next[0].chainId,fees:[]};
+       estimated=await estimateGatewayMainnetSpend(planned,provider);
+      }
+     }
+     assertGatewayFundingNet(planned.amount,estimated,fundingNeeded);
+     setAmount(planned.amount);
+    }
+    setFees(estimated);
+    reviewedPlan.current={...planned,fees:estimated};
+    setReviewedView(reviewedPlan.current);
+   }else {reviewedPlan.current=planned;setReviewedView(planned);}
+   setReview(true);
+  }catch(e){setError(e instanceof Error?e.message:'Gateway estimate could not be verified.');}
+  finally{setBusy(false);}
+ }
+ async function execute(){
+  if(!review||!good||busy||!canPilot||!reviewedPlan.current)return;
+  setBusy(true);setError('');
+  try{
+   const frozen=reviewedPlan.current;
+   if(fundingToWallet&&fundingNeeded)
+    assertGatewayFundingNet(frozen.amount,frozen.fees,fundingNeeded);
+   const latest=checkpoint();
+   if(latest.owner!==frozen.owner||latest.kind!==frozen.kind||
+    latest.recipient.toLowerCase()!==frozen.recipient.toLowerCase()||
+    latest.amount!==frozen.amount||latest.sourceChainId!==frozen.sourceChainId||
+    latest.destinationChainId!==frozen.destinationChainId||
+    latest.sessionToken!==frozen.sessionToken||
+    latest.balance.readAt!==frozen.balance.readAt||
+    latest.manualSourceChainId!==frozen.manualSourceChainId||
+    !matchingGatewayAllocation(latest.allocations??[],frozen.allocations??[]))
+    throw Error('Balance or route changed after review. Review sources and fees again; no signature requested.');
+   const provider=await connectedProvider(frozen.sourceChainId);
+   const id=frozen.sourceChainId;
+   const client=id===1?eth:id===8453?base:arc;
+   if(!client)throw Error('Source network RPC unavailable.');
+   const payJourneyId=fundingToWallet?ensurePayFundingJourney({
+    owner:frozen.owner,payee:fundingTarget?.payee??'',
+    grossUsdc:fundingTarget?.grossUsdc??'',
+    ...(fundingTarget?.requestId?{requestId:fundingTarget.requestId}:{}),
+   }).id:undefined;
+   const confirmed=await submitGatewayMainnetReview(
+    {...frozen,...(payJourneyId?{payJourneyId}:{})},provider,client);
+   setOperation(confirmed);setReview(false);setFees(null);
+   setError('Original transaction saved in Activity. Wait for independent Gateway confirmation; do not submit again.');
+  }catch(e){
+   setOperation(address?readGatewayMainnetOperation(address):null);
+   setError(e instanceof Error?e.message:'Original transfer outcome is uncertain. Do not sign again.');
+  }finally{setBusy(false);}
+ }
+ const [expanded,setExpanded]=useState(false);
+ const fmt=(x:bigint|null)=>formatGatewayUsdc(x);
+ return <div className="mt-4 border-t pt-4" style={{borderColor:'var(--border)'}} aria-label="Unified Balance">
+  {compact&&<div className="space-y-2" aria-label="Unified Gateway summary">
+   <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="min-w-0">
+     <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>Unified Balance</p>
+     <p className="mt-1 text-2xl font-bold tabular-nums" style={{color:'var(--ink)'}}>
+      {canRead?fmt(current?.available??null):'—'} <span className="text-xs font-medium" style={{color:'var(--muted)'}}>USDC Available</span>
+     </p>
+     {(current?.pending??0n)>0n&&<p className="mt-1 text-xs tabular-nums" style={{color:'var(--warning)'}}>
+      {fmt(current?.pending??null)} USDC Pending · not spendable
+     </p>}
+    </div>
+    <div className="flex flex-wrap items-center gap-2">
+     <button type="button" onClick={()=>{selectMode('deposit');setExpanded(true);}}
+      disabled={Boolean(fundingToWallet)||!canRead||!current||previous}
+      className="veyra-btn-secondary inline-flex min-h-10 items-center gap-1.5 px-3 text-xs font-semibold disabled:opacity-40">
+      <ArrowDownLeft className="size-4"/>Add USDC
+     </button>
+     <button type="button" onClick={()=>{selectMode('spend');setExpanded(true);}}
+      disabled={Boolean(fundingToWallet)||!canRead||!current||previous||current.available<=0n}
+      className="veyra-btn-secondary inline-flex min-h-10 items-center gap-1.5 px-3 text-xs font-semibold disabled:opacity-40">
+      <SendHorizontal className="size-4"/>Send to wallet
+     </button>
+     <button type="button" onClick={()=>setExpanded(x=>!x)} aria-expanded={expanded}
+      aria-label={expanded?'Hide Unified details':'Show Unified details'}
+      className="veyra-calm-unified-toggle inline-flex min-h-10 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold">
+      {expanded?'Less':'Manage'}<ChevronDown className={'size-4 transition-transform '+(expanded?'rotate-180':'')}/>
+     </button>
+    </div>
+   </div>
+   {!canRead&&<p className="text-xs" style={{color:'var(--muted)'}}>
+    Connect and sign in to view your Circle Gateway ledger. Wallet USDC is separate.
+   </p>}
+   {error&&!expanded&&<p role="alert" className="text-xs" style={{color:'var(--warning)'}}>{error}</p>}
+   {previous&&!expanded&&<p role="status" className="text-xs" style={{color:'var(--warning)'}}>
+    Earlier Unified transfer needs review in Activity. Do not submit a second transfer.
+   </p>}
+   {!GATEWAY_MAINNET_WRITE_ENABLED&&<p className="text-[11px]" style={{color:'var(--muted)'}}>
+    Live balance and review only · Gateway signing is not enabled.
+   </p>}
+  </div>}
+  {(!compact||expanded)&&<div className={compact?'mt-3 rounded-xl border p-3 sm:p-4':'contents'} style={compact?{borderColor:'var(--border)'}:undefined}>
+  <div className="flex flex-wrap items-start justify-between gap-3">
+   <div><p className="text-sm font-bold" style={{color:'var(--ink)'}}>Unified Balance</p>
+    <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Circle Gateway · Arc, Ethereum and Base</p></div>
+   <button type="button" aria-label="Refresh Unified Balance" disabled={!canRead||loading}
+    onClick={()=>{if(!address)return;setLoading(true);
+     void fetchGatewayMainnetBalances(address).then(x=>{setSnapshot(x);setScope(owner+':'+session);setError('');})
+      .catch(e=>setError(e instanceof Error?e.message:'Gateway balance unavailable.'))
+      .finally(()=>setLoading(false));readJournal();}}
+    className="veyra-icon-button disabled:opacity-40">
+    <RefreshCw className={'size-4 '+(loading?'animate-spin':'')}/>
+   </button>
+  </div>
+  <div className="mt-3 grid grid-cols-2 gap-3">
+   <div><p className="text-xs" style={{color:'var(--muted)'}}>Available</p>
+    <p className="mt-1 text-2xl font-bold tabular-nums" style={{color:'var(--ink)'}}>{canRead?fmt(current?.available??null):'—'}
+     <span className="ml-1 text-xs font-semibold" style={{color:'var(--muted)'}}>USDC</span></p></div>
+   <div><p className="text-xs" style={{color:'var(--muted)'}}>Pending</p>
+    <p className="mt-1 text-2xl font-bold tabular-nums" style={{color:'var(--ink)'}}>{canRead?fmt(current?.pending??null):'—'}
+     <span className="ml-1 text-xs font-semibold" style={{color:'var(--muted)'}}>USDC</span></p></div>
+  </div>
+  {!canRead?<p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+   Connect a wallet and sign in to Veyra ID to read the owner's Gateway ledger.
+  </p>:error&&<p role="alert" className="mt-2 text-xs" style={{color:'var(--warning)'}}>{error}</p>}
+  <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+   {current?'Available is the current Circle Gateway ledger, not a sum of deposit receipts. Pending is separate and not spendable.':
+    'Gateway values are not confirmed in this session; wallet funds remain separate.'}
+  </p>
+  {current&&<details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+   <summary className="cursor-pointer">Details · source networks</summary>
+   <div className="mt-2 space-y-1">{current.chains.map(c=><div key={c.chainId} className="flex justify-between">
+    <span>{c.chain}</span><span className="tabular-nums">{formatUnits(c.available,6)} USDC</span>
+   </div>)}</div>
+   <p className="mt-2">Confirmed source balances only. Last checked {new Date(current.readAt).toLocaleTimeString()}.</p>
+  </details>}
+  {previous&&<p role="status" className="mt-3 rounded-xl border p-3 text-xs"
+   style={{borderColor:'var(--border)',color:'var(--warning)'}}>
+   <Clock3 className="mr-1 inline size-4"/>
+   {operation==='blocked'?'Previous Unified recovery data is unreadable. Do not submit another transaction.':
+    operation?.kind==='deposit'?'The original Gateway deposit is not finalized onchain. Check Activity; a finalized deposit will release this submission lock.':
+    'Unified transfer outcome is not independently verified. Check Activity before another.'}
+  </p>}
+  {!compact&&<div className="mt-3 flex flex-wrap gap-2">
+   <button type="button" disabled={Boolean(fundingToWallet)||!canRead||!current||previous} onClick={()=>selectMode('deposit')}
+    className="veyra-btn-secondary flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs font-semibold disabled:opacity-40">
+    <ArrowDownLeft className="size-4"/> Add USDC</button>
+   <button type="button" disabled={Boolean(fundingToWallet)||!canRead||!current||previous||current.available<=0n} onClick={()=>selectMode('spend')}
+    className="veyra-btn-secondary flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs font-semibold disabled:opacity-40">
+    <SendHorizontal className="size-4"/> Send to wallet</button>
+  </div>}
+  {!GATEWAY_MAINNET_WRITE_ENABLED&&<p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+   Gateway transactions are not enabled in Veyra yet. You can inspect the live ledger and review supported routes without signing.
+  </p>}
+  {mode&&current&&!previous&&<section className="mt-3 space-y-3 rounded-xl border p-3"
+   style={{background:'var(--surface-raised)',borderColor:'var(--border)'}} aria-label={mode==='deposit'?'Gateway deposit panel':'Unified transfer panel'}>
+   {!GATEWAY_MAINNET_WRITE_ENABLED&&<p role="status" className="text-xs font-semibold"
+    style={{color:'var(--warning)'}}>Quotes and review only · Mainnet transfers paused</p>}
+   <div className="flex items-center justify-between">
+    <p className="text-sm font-bold">{mode==='deposit'?'Add USDC':'Send Unified USDC'}</p>
+    {(review||!fundingToWallet)&&<button type="button" onClick={()=>{if(review){setReview(false);setFees(null);}else{setMode(null);}}} className="veyra-btn-secondary px-2 text-xs">{review?'Edit':'Close'}</button>}
+   </div>
+   {!review&&<>
+   <details className="text-xs" style={{color:'var(--muted)'}}>
+    <summary className="cursor-pointer">How this transfer works</summary>
+    <p className="mt-1">{mode==='deposit'?'Source deposit finality and Circle Gateway Available are separate milestones. Only the provider ledger is spendable.':
+     'The Circle forwarding service pays destination gas from its quoted fee. No automatic trustless withdrawal.'}</p>
+   </details>
+   {mode==='spend'&&<button type="button" className="text-xs underline"
+    onClick={()=>{setAdvanced(value=>!value);setReview(false);setFees(null);}}>
+    {advanced?'Automatic source selection':'Advanced · select one source'}
+   </button>}
+   {(mode==='deposit'||advanced)&&<div><p className="mb-1 text-xs font-semibold">Source network</p>
+    <div className="grid grid-cols-3 gap-1.5">{C.map(c=><button type="button" key={c.chainId}
+     onClick={()=>selectSource(c.chainId)} aria-pressed={sourceId===c.chainId}
+     className="veyra-route-control flex min-w-0 items-center gap-2 rounded-xl border p-2 text-left"
+     style={{background:sourceId===c.chainId?'var(--accent-muted)':'var(--surface)',
+      borderColor:sourceId===c.chainId?'var(--border-strong)':'var(--border)'}}>
+     <BrandLogo logoKey={c.logo} size={26}/><span className="truncate text-xs font-semibold">{c.chain}</span>
+    </button>)}</div></div>}
+   {mode==='spend'&&!fundingToWallet&&<div><p className="mb-1 text-xs font-semibold">Destination network</p>
+    <div className="grid grid-cols-3 gap-1.5">{C.map(c=><button type="button" key={c.chainId}
+     onClick={()=>selectDestination(c.chainId)} aria-pressed={destinationId===c.chainId}
+     className="veyra-route-control flex min-w-0 items-center gap-2 rounded-xl border p-2 text-left"
+     style={{background:destinationId===c.chainId?'var(--accent-muted)':'var(--surface)',
+      borderColor:destinationId===c.chainId?'var(--border-strong)':'var(--border)'}}>
+     <BrandLogo logoKey={c.logo} size={26}/><span className="truncate text-xs font-semibold">{c.chain}</span>
+    </button>)}</div></div>}
+   <label className="block text-xs font-semibold">Amount · USDC
+    <input value={amount} onChange={e=>{const next=e.target.value;setAmount(next);setReview(false);setFees(null);
+     if(mode==='spend'&&!advanced&&current){const preferred=chooseGatewaySource(current,next);
+      if(preferred!==null)setSourceId(preferred);}
+    }}
+     inputMode="decimal" placeholder="0.00" maxLength={24}
+     className="veyra-route-input mt-2 w-full rounded-xl border p-3 text-2xl font-bold tabular-nums"
+     style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}/>
+   </label>
+   <div className="flex items-center justify-between text-xs" style={{color:'var(--muted)'}}>
+    <span>{mode==='deposit'?'Wallet':advanced?'Selected source':'Combined confirmed'} available: {fmt(availableForSource)} USDC</span>
+    <button type="button" disabled={availableForSource===null||availableForSource===0n}
+     onClick={()=>{if(availableForSource===null)return;
+      setAmount(formatUnits(availableForSource,6));
+      setReview(false);setFees(null);}}
+     className="veyra-btn-secondary px-2 disabled:opacity-40">Max</button>
+   </div>
+   {mode==='spend'&&<label className="block text-xs font-semibold">{fundingToWallet?'Funding destination · your Arc wallet':'Recipient wallet'}
+    <input value={recipient} disabled={Boolean(fundingToWallet)} onChange={e=>{setRecipient(e.target.value);setReview(false);setFees(null);}}
+     className="veyra-route-input mt-2 w-full rounded-xl border p-3 text-sm"
+     style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}/>
+   </label>}
+   {fundingToWallet&&<p className="text-xs" style={{color:'var(--muted)'}}>Gateway funds your Arc wallet, not the payee. Confirm destination receipt and wallet balance before signing Settlement separately; fees reduce net funds.</p>}
+    {mode==='spend'&&!advanced&&allocations.length>1&&<p className="text-xs" style={{color:'var(--accent)'}}>
+    One Circle transfer can use {allocations.length} confirmed sources. Review exact source amounts and fees before signing.
+   </p>}
+   {!enough&&validAmount&&<p className="text-xs" style={{color:'var(--warning)'}}>
+    Insufficient confirmed {mode==='spend'?'Gateway Available':'wallet USDC on '+activeSource.chain}.
+   </p>}
+   </>}
+   {review&&<div className="rounded-lg border p-3 text-xs" style={{borderColor:'var(--border)'}}>
+    <p className="font-semibold">Review · {reviewedView?.amount??amount} USDC {mode==='spend'?'· '+(reviewedView?.allocations?.length??allocations.length)+' source(s)':'· '+activeSource.chain}</p>
+    {mode==='spend'&&<details className="mt-2">
+     <summary className="cursor-pointer">Source allocations · {(reviewedView?.allocations??allocations).length}</summary>
+     <div className="mt-2 space-y-1" aria-label="Reviewed source allocations">
+      {(reviewedView?.allocations??allocations).map(a=><p key={a.chainId}>{a.chain} · {a.amount} USDC</p>)}
+     </div>
+    </details>}
+    <p className="mt-1">{mode==='spend'?'To '+recipient+' on '+C.find(c=>c.chainId===destinationId)?.chain:
+     'Deposit to Circle Gateway · same wallet owner'}</p>
+    {fundingToWallet&&reviewedView&&
+     <p className="mt-1">Funding gross: {reviewedView.amount} USDC · Arc shortfall: {fundingNeeded} USDC</p>}
+    <p className="mt-1">Fees: {mode==='spend'?(fees?.map(f=>f.type+': '+f.amount+' '+f.token).join(' · ')||'Unavailable'):
+     'Network gas shown by wallet; not estimated by Veyra'}</p>
+    <details className="mt-1"><summary className="cursor-pointer">Payment safety</summary>
+     <p className="mt-1">A provider result is not a destination receipt. Verify the original operation; never resend an unknown outcome.</p></details>
+   </div>}
+   <button type="button" disabled={!good||busy||review&&!canPilot}
+    onClick={()=>void(review?execute():preview())}
+    className={'flex min-h-12 w-full items-center justify-center gap-2 py-3 disabled:opacity-40 '+(review?'veyra-btn-primary':'veyra-btn-secondary')}>
+    {busy&&<RefreshCw className="size-4 animate-spin" aria-hidden="true"/>}
+    {busy?'Checking live status…':review?'Confirm in wallet':
+      mode==='deposit'?'Review deposit':'Review transfer fees'}
+   </button>
+   <details className="text-[11px]" style={{color:'var(--muted)'}}>
+    <summary className="cursor-pointer">Withdrawal conditions</summary>
+    <p className="mt-1">Circle Gateway standard trustless withdrawal is a separate seven-day process and is not enabled here.</p>
+   </details>
+  </section>}
+  </div>}
+ </div>;
+}

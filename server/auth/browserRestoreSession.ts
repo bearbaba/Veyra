@@ -11,6 +11,7 @@ const TTL_SECONDS=12*60*60;
 const PATH='/api/auth';
 export interface RestoreCookieClaims {
   v:1;sub:string;wallet:string;origin:string;iat:number;exp:number;jti:string;
+  chainId?:number;
 }
 const USER=/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/;
 const BASE=NAME+'=';
@@ -20,14 +21,16 @@ const digest=(body:string,secret:string)=>createHmac('sha256',secret)
 export function clearBrowserRestoreCookie():string{
   return BASE+ATTR+'; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT';
 }
-export function issueBrowserRestoreCookie(userId:string,walletAddress:string,origin:string,secret:string,now=Date.now()):string{
+export function issueBrowserRestoreCookie(userId:string,walletAddress:string,origin:string,secret:string,now=Date.now(),chainId?:number):string{
   if(secret.length<32||!USER.test(userId)||!Number.isFinite(now)||
     !/^https:\/\/[a-z0-9.-]+(?::[0-9]{2,5})?$/i.test(origin)||new URL(origin).origin!==origin)
-    throw Error('Invalid Testnet restore session issuance');
+    throw Error('Invalid browser restore session issuance');
+  if(chainId!==undefined&&chainId!==5042&&chainId!==5042002)throw Error('Invalid wallet binding chain');
   const payload:RestoreCookieClaims={
     v:1,sub:userId,wallet:getAddress(walletAddress).toLowerCase(),origin,
     iat:Math.floor(now/1000),exp:Math.floor(now/1000)+TTL_SECONDS,
     jti:randomBytes(16).toString('hex'),
+    ...(chainId!==undefined?{chainId}:{}),
   };
   const body=Buffer.from(JSON.stringify(payload)).toString('base64url');
   return BASE+body+'.'+digest(body,secret)+ATTR+'; Max-Age='+TTL_SECONDS;
@@ -55,7 +58,8 @@ export function verifyBrowserRestoreCookie(header:string|undefined,secret:string
       typeof c.iat!=='number'||!Number.isInteger(c.iat)||
       typeof c.exp!=='number'||!Number.isInteger(c.exp)||
       typeof c.jti!=='string'||!/^[a-f0-9]{32}$/.test(c.jti)||
-      c.iat>time+60||c.exp<=time||c.exp-c.iat!==TTL_SECONDS)return null;
+      c.iat>time+60||c.exp<=time||c.exp-c.iat!==TTL_SECONDS||
+      (c.chainId!==undefined&&c.chainId!==5042&&c.chainId!==5042002))return null;
     return c as RestoreCookieClaims;
   }catch{return null;}
 }

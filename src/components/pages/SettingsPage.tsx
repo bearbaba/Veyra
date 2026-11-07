@@ -12,7 +12,8 @@ import { ConnectKitButton } from 'connectkit';
 import { Check, ChevronDown, Copy, Link2, Loader2, ShieldCheck, SlidersHorizontal, Wallet, LogOut } from 'lucide-react';
 import { DEFAULT_VEYRA_POLICY } from '@/core/policy/policyEngine';
 import { VEYRA_ENV } from '@/lib/env';
-import { beginXLink, finishXLink, probeXLinkReadiness } from '@/lib/api/identityApi';
+import { MAINNET_CANARY_ONLY,MAINNET_EMERGENCY_READ_ONLY } from '@/mainnet/releaseGates';
+import { beginXLink, finishXLink, probeXLinkReadiness, unlinkXAccount } from '@/lib/api/identityApi';
 import { useVeyraIdentity } from '@/hooks/useVeyraIdentity';
 import { PRODUCT_ASSETS, PRODUCT_NETWORKS } from '@/config/productRegistry';
 import { RuntimeStatusCard } from '../system/RuntimeStatusCard';
@@ -36,10 +37,11 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
   const [disconnecting,setDisconnecting]=useState(false);
   const [logoutWarning,setLogoutWarning]=useState<string|null>(null);
   const [xLoading, setXLoading] = useState(false);
+  const [xUnlinking,setXUnlinking]=useState(false);
   const xFinishAttempted=useRef(false);
   const [xError, setXError] = useState<string | null>(null);
-  // Fail closed until the exact, owner-trusted Testnet BFF reports it has
-  // X OAuth credentials and a pinned callback. No redirect on mere "BFF online".
+  // Fail closed until the trusted backend confirms an OAuth client and exact
+  // registered callback URL. Backend availability is not authorization.
   const [xCapability,setXCapability]=useState<'checking'|'available'|'unavailable'>('unavailable');
   const [xReadinessDetail,setXReadinessDetail]=useState<string | null>(null);
   const profile = identity.profile;
@@ -108,6 +110,14 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
     }
   }
 
+  async function unlinkX(){
+    if(!profile?.x||!signedToken||xUnlinking)return;
+    if(!window.confirm('Disconnect this X account from your Veyra ID? Linked X handles will no longer resolve for Tips.'))return;
+    setXUnlinking(true);setXError(null);
+    try{await unlinkXAccount(signedToken);await social.refresh();}
+    catch(e){setXError(e instanceof Error?e.message:'X unlink unavailable.');}
+    finally{setXUnlinking(false);}
+  }
   async function copyId(){
     const handle=profile?.veyraHandle ?? identity.lastUsedHandle;
     if(!handle)return;
@@ -197,11 +207,16 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
               {xLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
               {profile?.x ? 'X linked' : xCapability==='checking' ? 'Checking X…' : xCapability==='unavailable' ? 'X linking unavailable' : 'Connect X'}
             </button>
+            {profile?.x&&<button type="button" onClick={()=>void unlinkX()} disabled={xUnlinking}
+              className="rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+              style={{borderColor:'var(--border)',color:'var(--ink)'}}>
+              {xUnlinking?'Disconnecting X…':'Unlink X'}
+            </button>}
           </div>
           {logoutWarning&&<p role="alert" className="mt-3 text-xs" style={{color:"var(--warning)"}}>{logoutWarning}</p>}
           {xCapability==='unavailable'&&!profile?.x && <p role="status" className="mt-3 text-xs leading-5" style={{color:'var(--muted)'}}>
               {xReadinessDetail ?? (social.identityOrigin!=='ready'
-                ? VEYRA_ENV==='mainnet'?'Veyra ID/X requires an authorized Mainnet identity origin. No account was changed.':'X linking requires the approved identity backend.'
+                ? 'X linking requires the approved identity backend.'
                 : 'Sign in to your existing Veyra ID with your wallet to check X linking.')}
               {' '}Your Veyra ID and wallet remain unchanged.
             </p>}
@@ -218,7 +233,11 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
             <div>
               <h2 className="text-sm font-bold" style={{color:'var(--ink)'}}>Transaction protection</h2>
               <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
-                {VEYRA_ENV==='mainnet'?'Wallet Pay uses an explicit signature and checks the original USDC receipt. Swap and Bridge quotes are not transaction confirmations.':'Every payment is reviewed before wallet approval. Testnet funds only.'}
+                {VEYRA_ENV==='mainnet'
+                  ?MAINNET_EMERGENCY_READ_ONLY?'Financial signing is paused. You can still review onchain receipts safely.':
+                   MAINNET_CANARY_ONLY?'Mainnet pilot: contract Settlement Pay is limited to the authorized wallet and 0.01 USDC per payment. Swap and Bridge signing are paused; Veyra Gateway Mainnet deposits are not enabled; Arc, Ethereum and Base require independent Veyra execution acceptance.':
+                   'Veyra Settlement Pay requires review, wallet confirmation and an onchain receipt. Quotes are not completed transactions.'
+                  :'Every payment is reviewed before wallet approval. Testnet funds only.'}
               </p>
             </div>
           </div>
@@ -251,7 +270,11 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-bold" style={{color:'var(--ink)'}}>Networks & assets</span>
             <span className="mt-1 block text-xs leading-5" style={{color:'var(--muted)'}}>
-              {VEYRA_ENV==='mainnet'?'Wallet Pay can request signing. Swap needs a live Circle quote; Bridge is quote-only on Production until proof approval. Gateway and Veyra ID Pay require verified backend readiness.':'Arc Testnet USDC is enabled. Other listings are not available for sending yet.'}
+              {VEYRA_ENV==='mainnet'
+               ?MAINNET_EMERGENCY_READ_ONLY?'Mainnet is read-only. Existing transactions and receipts can be checked; sending is disabled.':
+                MAINNET_CANARY_ONLY?'Arc USDC Veyra Settlement is in a 0.01 USDC owner-only pilot. Wallet and Friends share one reviewed contract payment. Swap and Bridge quotes remain available but signing is paused. Veyra Gateway deposits require provider verification and separate activation.':
+                'Veyra Settlement Pay requires a separate wallet confirmation. Swap and Bridge require independently verified routes; Gateway deposits remain unavailable.'
+               :'Arc Testnet USDC is enabled. Other listings are not available for sending yet.'}
             </span>
           </span>
           <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180"
