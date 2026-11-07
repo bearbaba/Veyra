@@ -52,7 +52,7 @@ describe('Unified → Settlement must recover one bound journey',()=>{
   expect(()=>ensurePayFundingJourney({owner,payee,grossUsdc:'0.01'},s)).toThrow();
   expect(dismissPayFundingJourney(owner,pending,empty,[],s)).toBe(false);
   expect(dismissPayFundingJourney(owner,null,{kind:'blocked'},[],s)).toBe(false);
-  expect(dismissPayFundingJourney(owner,null,empty,[],s)).toBe(true);
+  expect(dismissPayFundingJourney(owner,null,empty,[],s)).toBe(false);
  });
  it('writes an immutable attempt link before signing and refuses missing archived proofs',()=>{
   const s=store();
@@ -64,7 +64,7 @@ describe('Unified → Settlement must recover one bound journey',()=>{
   expect(state({j:{...journey,fundingOperationId:opId},wallet:1000000n}))
    .toBe('FUNDING_UNKNOWN');
   expect(dismissPayFundingJourney(owner,null,empty,[],s)).toBe(false);
-  expect(dismissPayFundingJourney(owner,null,empty,[proof],s)).toBe(true);
+  expect(dismissPayFundingJourney(owner,null,empty,[{...proof,payJourneyId:saved.id}],s)).toBe(true);
  });
  it('never treats Gateway UNKNOWN, SDK submission or a wallet balance as funding proof',()=>{
   expect(validPayFundingJourney(journey,owner)).toBe(true);
