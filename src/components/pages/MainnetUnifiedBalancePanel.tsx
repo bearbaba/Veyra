@@ -164,9 +164,9 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded}:{fund
        if(raised===planned.amount)throw Error('Gateway fees cannot be covered. No signature requested.');
        const next=planGatewayMultiSource(current,raised,advanced?sourceId:undefined);
        if(next[0]?.chainId!==planned.sourceChainId)
-        provider=await connectedProvider(next[0]!.chainId);
+        provider=await connectedProvider(next[0].chainId);
        planned={...planned,amount:raised,allocations:next,
-        sourceChainId:next[0]!.chainId,fees:[]};
+        sourceChainId:next[0].chainId,fees:[]};
        estimated=await estimateGatewayMainnetSpend(planned,provider);
       }
      }

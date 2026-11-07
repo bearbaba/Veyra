@@ -98,8 +98,10 @@ export default function App() {
   },[]);
   function setPage(next:VeyraPage){
     const target=VEYRA_ENV==='mainnet'&&next==='pay'?'settlement':next;
-    if(VEYRA_ENV==='mainnet'&&target!=='settlement'&&address)
-      clearRequestNavigation(address);
+    if(VEYRA_ENV==='mainnet'&&target!=='settlement'){
+      if(address)clearRequestNavigation(address);
+      setPaymentRequest(null);setVerifiedRecipient(null);setContactRecipient(null);
+    }
     setPageState(target);
   }
   const [friendPayment, setFriendPayment] = useState<string | null>(null);
