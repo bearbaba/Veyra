@@ -10,21 +10,32 @@ const response:PreparedRecipient={
   avatarUrl:null,reviewToken:'server-only-review',expiresAt:'2099-01-01T00:00:00Z'},
 };
 describe('M0 People and Pay use the same fail-closed recipient resolver',()=>{
- it('distinguishes explicit Veyra ID, bare X handle and raw wallet; refuses ambiguous names',()=>{
+ it('distinguishes Veyra ID, X handle and raw wallet without guessing an account',()=>{
   expect(parseRecipientQuery(' @BOB.Veyra ')).toEqual({kind:'veyra',query:'@bob.veyra'});
   expect(parseRecipientQuery('https://x.com/Bob_123')).toEqual({
-   kind:'x-unavailable',handle:'bob_123',query:'@bob_123'});
-  expect(parseRecipientQuery('@Bob_123')).toMatchObject({kind:'x-unavailable'});
+   kind:'x',handle:'bob_123',query:'x:bob_123'});
+  expect(parseRecipientQuery('@Bob_123')).toMatchObject({kind:'x',handle:'bob_123'});
   expect(parseRecipientQuery(receiver)).toEqual({kind:'wallet',wallet:receiver});
   for(const invalid of ['bob','@bob.eth','0xabc','https://evil.example/bob','https://x.com/bob/status/1'])
    expect(()=>parseRecipientQuery(invalid)).toThrow();
  });
- it('never calls any wallet or backend on X-only lookup; it provides an invitation, not a wallet',async()=>{
-  const prepare=vi.fn(),verify=vi.fn();
-  const found=await lookupMainnetRecipient('@bob',sender,'signed-session',{prepare,verify});
-  expect(found).toMatchObject({kind:'x-unavailable',handle:'bob'});
-  expect(found).not.toHaveProperty('wallet');
-  expect(prepare).not.toHaveBeenCalled();
+ it('linked X requires signed backend resolution and independent wallet verification',async()=>{
+  const prepare=vi.fn(()=>Promise.resolve(response));
+  const verify=vi.fn(()=>Promise.resolve());
+  const result=await lookupMainnetRecipient('@bob',sender,'signed-session',{prepare,verify});
+  expect(result).toMatchObject({kind:'veyra',person:{wallet:receiver,veyraUserId:'usr_ABCDEFGHJKLMNPQ'}});
+  expect(prepare).toHaveBeenCalledWith('x:bob',5042,'signed-session');
+  expect(verify).toHaveBeenCalledWith({snapshotId:'snp_ABCDEFGHJKLMNPQ',
+   expectedWalletId:'wallet_001',expectedWalletAddress:receiver,expectedChainId:5042,
+   reviewToken:'server-only-review'},'signed-session');
+ });
+ it('unlinked X gets an invitation rather than a fabricated recipient wallet',async()=>{
+  const prepare=vi.fn(()=>Promise.reject(new Error('X_NOT_LINKED')));
+  const verify=vi.fn();
+  const result=await lookupMainnetRecipient('@bob',sender,'signed-session',{prepare,verify});
+  expect(result).toMatchObject({kind:'x-unavailable',handle:'bob'});
+  expect(result).not.toHaveProperty('wallet');
+  expect(prepare).toHaveBeenCalledWith('x:bob',5042,'signed-session');
   expect(verify).not.toHaveBeenCalled();
  });
  it('raw wallet syntax is not mislabelled as Veyra identity',async()=>{

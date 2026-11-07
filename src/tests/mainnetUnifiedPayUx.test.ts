@@ -16,7 +16,7 @@ describe('Mainnet single Settlement surface, wallet review and identity safety',
    expect(hub).toContain('payLocked?');
    expect(hub).not.toContain('<MainnetPayPage');
    expect(hub).not.toContain('Change payment method');
-   expect(picker).toContain("useState<'wallet'|'friends'>");
+   expect(picker).toContain("useState<'wallet'|'people'>");
    const circle=source('components/pages/MainnetCirclePage.tsx');
    expect(circle).toContain("!MAINNET_CANARY_ONLY");
    expect(circle).toContain("signingReady?<button");

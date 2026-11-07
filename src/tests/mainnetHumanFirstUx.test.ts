@@ -70,9 +70,9 @@ describe('Mainnet human-first navigation and transparent settlement',()=>{
   const hub=read('components/pages/MainnetPayHub.tsx');
   const picker=read('components/pages/MainnetPayRecipientPicker.tsx');
   expect(hub).toContain('onWalletChange={changeWalletRecipient}');
-  expect(picker).toContain("useState<'wallet'|'friends'>");
+  expect(picker).toContain("useState<'wallet'|'people'>");
   expect(picker).toContain('onClick={()=>changeTab(\'wallet\')}');
-  expect(picker).toContain('onClick={()=>changeTab(\'friends\')}');
+  expect(picker).toContain('onClick={()=>changeTab(\'people\')}');
   expect(picker).toContain('aria-expanded={searchOpen}');
   expect(picker).toContain('connected.map(friend=>');
   expect(picker).toContain('lookupMainnetRecipient(');

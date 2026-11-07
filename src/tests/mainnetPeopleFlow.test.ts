@@ -55,9 +55,9 @@ describe('Server-verifiable Veyra ID send safety',()=>{
   expect(people).toContain('social.loadMoreFriends()');
   expect(people).toContain('disabled={social.loadingMoreFriends}');
   expect(hub).toContain('onWalletChange={changeWalletRecipient}');
-  expect(picker).toContain("useState<'wallet'|'friends'>");
+  expect(picker).toContain("useState<'wallet'|'people'>");
   expect(picker).toContain("onClick={()=>changeTab('wallet')}");
-  expect(picker).toContain("onClick={()=>changeTab('friends')}");
+  expect(picker).toContain("onClick={()=>changeTab('people')}");
   expect(hub).toContain("recipient:'',amount:''");
  });
  it('keeps a note and reviewed label with the original browser receipt after status update',()=>{

@@ -71,7 +71,11 @@ function RestoreSignedPaymentRequest({onRecovered}:{
    if(found.kind!=='veyra'||found.person.veyraUserId!==request.requesterUserId||
     found.person.wallet.toLowerCase()!==request.recipientWallet.toLowerCase())
     throw Error('Payment Request payee changed. Open Chat to review again.');
-   if(live){setNotice(null);onRecovered(found.person,request);}
+   // Navigating away invalidates the bookmark; an older async response
+   // must never force the user back to Pay.
+   if(live&&readRequestNavigation(address)?.requestId===saved.requestId){
+    setNotice(null);onRecovered(found.person,request);
+   }
   })().catch((e:unknown)=>{
    if(live)setNotice(e instanceof Error?e.message:'Saved request could not be restored.');
   });
