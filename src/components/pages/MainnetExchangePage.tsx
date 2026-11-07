@@ -240,12 +240,12 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    <p className="veyra-page-subtitle">{mode==='swap'?'Exchange USDC and EURC on Arc.':'Move native USDC across supported Circle CCTP networks.'}</p>
   </header>
   <section className="veyra-card space-y-3 p-3 sm:p-5" aria-label={mode==='swap'?'Swap form':'Bridge form'}>
-   <div role="status" className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold"
+   {status!=='reviewable'&&<div role="status" className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold"
     style={{color:status==='paused'?'var(--warning)':'var(--muted)',borderColor:'var(--border)',
      background:'var(--surface-raised)'}}>
     {status==='paused'?<Clock3 className="size-4 shrink-0"/>:<ShieldCheck className="size-4 shrink-0"/>}
     <span>{statusLabel}</span>
-   </div>
+   </div>}
    {mode==='swap'?<>
     <div className="flex items-center justify-between">
      <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>NETWORK</p>
