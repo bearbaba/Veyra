@@ -77,6 +77,7 @@ export function MainnetPayHub({
   writePaySource(address,source);setShowUnifiedFunding(source==='unified');
  }
  const [localVerified,setLocalVerified]=useState<VerifiedMainnetRecipient|null>(null);
+ const [settlementInFlow,setSettlementInFlow]=useState(false);
  const draft=draftHolder.owner===owner?draftHolder.value:readPayDraft(owner);
  const requestAmount=paymentRequest?formatUnits(BigInt(paymentRequest.amountRaw),6):'';
  const requestLocked=Boolean(paymentRequest);
@@ -251,14 +252,14 @@ export function MainnetPayHub({
   const next={...draft,recipient:'',amount:''};
   setDraftHolder({owner,value:next});writePayDraft(owner,next);
  }
- return <main className="veyra-page veyra-pay-page mx-auto w-full max-w-[620px] space-y-4 px-4 py-6 md:py-9">
+ return <main className="veyra-page veyra-pay-page mx-auto w-full max-w-[620px] space-y-3 px-4 py-4 md:py-6">
   {address&&signedWallet&&<MainnetPayFundingRecoveryWorker/>}
   <header>
    <h1 className="veyra-page-title">Pay</h1>
    <p className="veyra-page-subtitle">Send USDC to someone you trust.</p>
    {__VEYRA_RELEASE_ENV__==='preview'&&<span className="text-xs" style={{color:'var(--warning)'}}>Preview · read only</span>}
   </header>
-  <div className="veyra-pay-panel space-y-4 rounded-2xl border p-4 sm:p-5">
+  <div className="veyra-pay-panel space-y-3 rounded-2xl border p-3 sm:p-5">
   {MAINNET_EMERGENCY_READ_ONLY?<p role="alert" className="rounded-xl border p-3 text-sm"
     style={{borderColor:'var(--border)',color:'var(--warning)'}}>
      Payments are paused. Your receipts remain in Activity.
@@ -286,7 +287,8 @@ export function MainnetPayHub({
     <p className="mt-1">{requestAmount} USDC to the requester. Amount, recipient and payment reference are locked to the request.</p>
     <p className="mt-1 text-xs">Expires {new Date(paymentRequest.expiresAt).toLocaleString()}. Funding your own wallet does not mark this request Paid.</p>
    </section>}
-  <section aria-label="Payment details" className="space-y-4 rounded-2xl border p-3 sm:p-4"
+  {!settlementInFlow&&<>
+  <section aria-label="Payment details" className="space-y-3 rounded-2xl border p-3 sm:p-4"
     style={{background:'var(--surface)',borderColor:'var(--border)'}}>
    <MainnetPayRecipientPicker owner={owner} sessionToken={signedWallet?social.session?.token:undefined}
     signedWallet={signedWallet} disabled={locked||requestLocked} selectedVerified={selectedVerified}
@@ -315,15 +317,14 @@ export function MainnetPayHub({
      </details>
    </div>
   </section>
-  {draft.amount&&<section aria-label="Pay preview" className="rounded-xl border p-3 space-y-1"
-    style={{borderColor:"var(--border)",color:"var(--muted)"}}>
-    <p className="font-semibold text-sm" style={{color:"var(--ink)"}}>Payment preview</p>
-    <div className="flex justify-between gap-3 text-xs"><span>You pay</span><span>{draft.amount} USDC</span></div>
-    <div className="flex justify-between gap-3 text-xs"><span>Settlement fee</span>
-     <span>{settlementCost?settlementCost.protocolFee+' USDC':'Checking live fee…'}</span></div>
-    <div className="flex justify-between gap-3 text-sm font-semibold" style={{color:"var(--ink)"}}>
-     <span>Recipient receives</span><span>{settlementCost?settlementCost.recipientNet+' USDC':'—'}</span></div>
-    <p className="text-xs">Final Review refreshes gas, fees, allowances and contract simulation.</p>
+  {draft.amount&&<section aria-label="Pay preview" className="rounded-xl border px-3 py-2.5"
+    style={{borderColor:'var(--border)',background:'var(--surface-raised)',color:'var(--muted)'}}>
+    <div className="grid grid-cols-2 gap-3">
+     <div><p className="text-[11px]">You pay</p><p className="text-sm font-bold tabular-nums" style={{color:'var(--ink)'}}>{draft.amount} USDC</p></div>
+     <div><p className="text-[11px]">Recipient receives</p><p className="text-sm font-bold tabular-nums" style={{color:'var(--ink)'}}>
+      {settlementCost?settlementCost.recipientNet+' USDC':'Checking…'}</p></div>
+    </div>
+    <p className="mt-1 text-[11px]">Settlement fee: {settlementCost?settlementCost.protocolFee+' USDC':'Checking…'} · Final review confirms live gas and allowances</p>
    </section>}
   <details className="border-t pt-3 text-xs" style={{borderColor:'var(--border)',color:'var(--muted)'}}>
    <summary className="flex cursor-pointer items-center gap-2 font-semibold" style={{color:'var(--muted)'}}>
@@ -416,6 +417,7 @@ export function MainnetPayHub({
       </>}
     </>}
    </section>}
+   </>}
    {payLocked?<p role="status" className="rounded-xl border p-3 text-sm"
     style={{borderColor:'var(--border)',color:'var(--warning)'}}>
     Previous wallet payment is pending or unknown. Check Activity; do not sign another payment.
@@ -429,7 +431,8 @@ export function MainnetPayHub({
    </p>:<section aria-label="Contract payment">
     <SettlementPage key={owner+":"+(paymentRequest?.requestId??"")} embedded sharedDraft={draft} onDraftChange={changeDraft}
       verifiedRecipient={selectedVerified} paymentRequest={paymentRequest}
-      journeyRef={fundingJourney&&!paymentRequest?genericPayFundingRef(fundingJourney.id):undefined}/>
+      journeyRef={fundingJourney&&!paymentRequest?genericPayFundingRef(fundingJourney.id):undefined}
+      onFlowStepChange={setSettlementInFlow}/>
    </section>}
   </div>
  </main>;
