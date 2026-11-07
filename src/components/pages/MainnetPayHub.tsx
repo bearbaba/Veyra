@@ -5,6 +5,7 @@
 import {useEffect,useState} from 'react';
 import {useAccount,useReadContract} from 'wagmi';
 import {erc20Abi,formatUnits} from 'viem';
+import {settlementFundingShortfall} from '@/mainnet/unifiedSettlementFunding';
 import {ARC_MAINNET_USDC} from '@/mainnet/arcMainnetPay';
 import {ShieldCheck} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
@@ -47,6 +48,9 @@ export function MainnetPayHub({
  const draft=draftHolder.owner===owner?draftHolder.value:readPayDraft(owner);
  const requestAmount=paymentRequest?formatUnits(BigInt(paymentRequest.amountRaw),6):'';
  const requestLocked=Boolean(paymentRequest);
+ const shortfall=settlementFundingShortfall(draft.amount,
+  walletBalance===undefined?null:walletBalance);
+ const needsFunding=shortfall!==null&&shortfall!=='0';
  const selectedVerified=signedWallet&&verifiedRecipient&&verifiedRecipient.owner.toLowerCase()===owner&&
   verifiedRecipient.wallet.toLowerCase()===draft.recipient.toLowerCase()?verifiedRecipient:
   signedWallet&&localVerified&&localVerified.owner.toLowerCase()===owner&&
@@ -187,12 +191,36 @@ export function MainnetPayHub({
      USDC approval may be required. No escrow or automatic refund.
     </p></div>
   </div>
-  {address&&signedWallet&&draft.amount&&<section aria-label="Unified funding for Settlement" className="rounded-xl border p-3" style={{borderColor:"var(--border)"}}>
-    <button type="button" onClick={()=>setShowUnifiedFunding(x=>!x)} className="veyra-btn-secondary w-full rounded-lg p-3 text-sm font-semibold">{showUnifiedFunding?"Hide Unified":"Fund my Arc wallet from Unified"}</button>
-    <p className="mt-2 text-xs" style={{color:"var(--muted)"}}>Step 1: transfer confirmed Gateway funds to your own Arc wallet and independently verify arrival. Step 2: sign Settlement to the recipient. Funding is not Pay or Tip.</p>
-    {showUnifiedFunding&&<MainnetUnifiedBalancePanel fundingToWallet={address} fundingNeeded={draft.amount}/>}
+  {address&&signedWallet&&draft.amount&&<section aria-label="Choose payment source" className="rounded-xl border p-3 space-y-3" style={{borderColor:"var(--border)"}}>
+    <p className="text-sm font-semibold" style={{color:"var(--ink)"}}>Pay with</p>
+    <div className="grid grid-cols-2 gap-2" role="group" aria-label="USDC source">
+     <button type="button" aria-pressed={!showUnifiedFunding} disabled={locked&&!resumable}
+      className="veyra-btn-secondary min-h-11 rounded-lg p-2 text-sm disabled:opacity-50"
+      onClick={()=>setShowUnifiedFunding(false)}>Arc wallet</button>
+     <button type="button" aria-pressed={showUnifiedFunding} disabled={locked&&!resumable}
+      className="veyra-btn-secondary min-h-11 rounded-lg p-2 text-sm disabled:opacity-50"
+      onClick={()=>setShowUnifiedFunding(true)}>Unified</button>
+    </div>
+    {showUnifiedFunding&&<>
+     <p className="text-xs" style={{color:"var(--muted)"}}>
+      Step 1: fund your Arc wallet from Gateway. Step 2: sign Settlement to the person.
+      Funding alone never pays the recipient.
+     </p>
+     {shortfall===null?<p role="status" className="text-xs" style={{color:"var(--warning)"}}>
+       Check your wallet USDC before funding. No amount is guessed.
+      </p>:!needsFunding?<p role="status" className="text-xs" style={{color:"var(--success)"}}>
+       Arc wallet covers the USDC payment amount. Keep sufficient native gas for Settlement.
+      </p>:<>
+       <p className="text-sm font-semibold">Wallet shortfall: {shortfall} USDC</p>
+       <p className="text-xs" style={{color:"var(--muted)"}}>
+        Gateway fees are additional. The quoted net amount must cover this shortfall before any funding signature.
+        After a verified Gateway receipt, wallet balance and Settlement fees are checked again.
+       </p>
+       <MainnetUnifiedBalancePanel fundingToWallet={address} fundingNeeded={shortfall}/>
+      </>}
+    </>}
    </section>}
-  {payLocked?<p role="status" className="rounded-xl border p-3 text-sm"
+   {payLocked?<p role="status" className="rounded-xl border p-3 text-sm"
     style={{borderColor:'var(--border)',color:'var(--warning)'}}>
     Previous wallet payment is pending or unknown. Check Activity; do not sign another payment.
    </p>:<section aria-label="Contract payment">

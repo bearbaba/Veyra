@@ -17,6 +17,7 @@ import {planGatewayMultiSource,matchingGatewayAllocation,type GatewayAllocation}
 import {estimateGatewayMainnetSpend,submitGatewayMainnetReview,
  type GatewayMainnetReview} from '@/mainnet/gatewayMainnetExecution';
 import type {GatewaySdkFee} from '@/core/gateway/gatewaySdkSpend';
+import {assertGatewayFundingNet,gatewayFundingGrossForNet} from '@/mainnet/unifiedSettlementFunding';
 import {MAINNET_CANARY_OWNER} from '@/mainnet/releaseGates';
 const C=GATEWAY_MAINNET_CHAINS;
 /** One-click funding picks an adequate confirmed source automatically;
@@ -147,10 +148,31 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded}:{fund
   if(!good||busy)return;
   setBusy(true);setError('');
   try{
-   const planned=checkpoint();
+   let planned=checkpoint();
    if(mode==='spend'){
-    const provider=await connectedProvider(planned.sourceChainId);
-    const estimated=await estimateGatewayMainnetSpend(planned,provider);
+    let provider=await connectedProvider(planned.sourceChainId);
+    let estimated=await estimateGatewayMainnetSpend(planned,provider);
+    // Gateway spend is gross; independently re-quote until the NET can
+    // cover the frozen Settlement shortfall. No signature in this step.
+    if(fundingToWallet&&fundingNeeded){
+     if(!current)throw Error('Fresh Gateway Available is required.');
+     for(let pass=0;pass<3;pass++){
+      try{assertGatewayFundingNet(planned.amount,estimated,fundingNeeded);break;}
+      catch{
+       if(pass===2)throw Error('Gateway fees cannot cover the Arc wallet shortfall. No signature requested.');
+       const raised=gatewayFundingGrossForNet(fundingNeeded,estimated,current.available);
+       if(raised===planned.amount)throw Error('Gateway fees cannot be covered. No signature requested.');
+       const next=planGatewayMultiSource(current,raised,advanced?sourceId:undefined);
+       if(next[0]?.chainId!==planned.sourceChainId)
+        provider=await connectedProvider(next[0]!.chainId);
+       planned={...planned,amount:raised,allocations:next,
+        sourceChainId:next[0]!.chainId,fees:[]};
+       estimated=await estimateGatewayMainnetSpend(planned,provider);
+      }
+     }
+     assertGatewayFundingNet(planned.amount,estimated,fundingNeeded);
+     setAmount(planned.amount);
+    }
     setFees(estimated);
     reviewedPlan.current={...planned,fees:estimated};
     setReviewedView(reviewedPlan.current);
@@ -164,6 +186,8 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded}:{fund
   setBusy(true);setError('');
   try{
    const frozen=reviewedPlan.current;
+   if(fundingToWallet&&fundingNeeded)
+    assertGatewayFundingNet(frozen.amount,frozen.fees,fundingNeeded);
    const latest=checkpoint();
    if(latest.owner!==frozen.owner||latest.kind!==frozen.kind||
     latest.recipient.toLowerCase()!==frozen.recipient.toLowerCase()||
@@ -308,6 +332,8 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded}:{fund
     </div>}
     <p className="mt-1">{mode==='spend'?'To '+recipient+' on '+C.find(c=>c.chainId===destinationId)?.chain:
      'Deposit to Circle Gateway · same wallet owner'}</p>
+    {fundingToWallet&&reviewedView&&
+     <p className="mt-1">Funding gross: {reviewedView.amount} USDC · Arc shortfall: {fundingNeeded} USDC</p>}
     <p className="mt-1">Fees: {mode==='spend'?(fees?.map(f=>f.type+': '+f.amount+' '+f.token).join(' · ')||'Unavailable'):
      'Network gas shown by wallet; not estimated by Veyra'}</p>
     <p className="mt-1">A provider result is not final settlement. Each source and destination must be independently verified; no automatic resend.</p>

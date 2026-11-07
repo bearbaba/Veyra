@@ -5,7 +5,7 @@ import {useEffect,useRef,useState,type FormEvent} from 'react';
 import {isAddress} from 'viem';
 import {Wallet,Users,Search,UserRound,CheckCircle2} from 'lucide-react';
 import {useUnifiedSocial,friendLabel,type SocialFriend} from '@/features/social/UnifiedSocial';
-import {lookupMainnetRecipient,createRecipientSearchGuard,type RecipientSearchResult} from '@/mainnet/recipientLookup';
+import {lookupMainnetRecipient,parseRecipientQuery,createRecipientSearchGuard,type RecipientSearchResult} from '@/mainnet/recipientLookup';
 import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 
 export function MainnetPayRecipientPicker({owner,sessionToken,signedWallet,disabled,recipient,selectedVerified,onWalletChange,onSelected,onClear}:{
@@ -14,29 +14,33 @@ export function MainnetPayRecipientPicker({owner,sessionToken,signedWallet,disab
  onSelected:(result:RecipientSearchResult)=>void;onClear:()=>void;
 }){
  const social=useUnifiedSocial();
- const [tab,setTab]=useState<'wallet'|'friends'>(selectedVerified?'friends':'wallet');
+ const [tab,setTab]=useState<'wallet'|'people'>(selectedVerified?'people':'wallet');
  const [searchOpen,setSearchOpen]=useState(false);
  const [query,setQuery]=useState('');
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState<string|null>(null);
  const guard=useRef(createRecipientSearchGuard());
  useEffect(()=>{guard.current.invalid();setTab('wallet');setSearchOpen(false);setBusy(false);setError(null);},[owner,sessionToken]);
- useEffect(()=>{if(selectedVerified){guard.current.invalid();setTab('friends');setSearchOpen(false);setBusy(false);setError(null);}},[selectedVerified?.snapshotId]);
- function changeTab(next:'wallet'|'friends'){
+ useEffect(()=>{if(selectedVerified){guard.current.invalid();setTab('people');setSearchOpen(false);setBusy(false);setError(null);}},[selectedVerified?.snapshotId]);
+ function changeTab(next:'wallet'|'people'){
   if(disabled||tab===next)return;
   guard.current.invalid();setTab(next);setSearchOpen(false);setQuery('');setBusy(false);setError(null);onClear();
  }
  async function verifyHandle(input:string,expectedId?:string){
   if(disabled||busy||!owner||!signedWallet||!sessionToken)return;
-  const match=/^@?([a-z0-9_-]{2,32})\.veyra$/i.exec(input.trim());
-  if(!match){setError('Use @name.veyra to find someone.');return;}
+  let lookup:string;
+  try{
+   const parsed=parseRecipientQuery(input);
+   lookup=parsed.kind==='wallet'?parsed.wallet:parsed.query;
+  }catch(e){setError(e instanceof Error?e.message:'Enter a Veyra ID, X handle or wallet.');return;}
   const ticket=guard.current.start();
   setBusy(true);setError(null);
   try{
-   const found=await lookupMainnetRecipient('@'+match[1]+'.veyra',owner,sessionToken);
+   const found=await lookupMainnetRecipient(lookup,owner,sessionToken);
    if(!guard.current.isCurrent(ticket))return;
-   if(found.kind!=='veyra'||expectedId&&found.person.veyraUserId!==expectedId)
-    throw Error('Recipient could not be verified. Search for their Veyra ID again.');
+   if(found.kind==='x-unavailable')throw Error(found.inviteText);
+   if(expectedId&&(found.kind!=='veyra'||found.person.veyraUserId!==expectedId))
+    throw Error('The verified recipient differs from the selected person. Search again.');
    onSelected(found);setSearchOpen(false);setQuery('');
   }catch(e){
    if(guard.current.isCurrent(ticket))setError(e instanceof Error?e.message:'Cannot verify this Veyra ID.');
@@ -56,10 +60,10 @@ export function MainnetPayRecipientPicker({owner,sessionToken,signedWallet,disab
     data-active={tab==='wallet'} onClick={()=>changeTab('wallet')}
     className="veyra-pay-tab flex min-h-11 items-center justify-center gap-2 rounded-lg text-sm font-semibold disabled:opacity-50">
     <Wallet className="size-4"/> Wallet</button>
-   <button type="button" role="tab" aria-selected={tab==='friends'} disabled={disabled}
-    data-active={tab==='friends'} onClick={()=>changeTab('friends')}
+   <button type="button" role="tab" aria-selected={tab==='people'} disabled={disabled}
+    data-active={tab==='people'} onClick={()=>changeTab('people')}
     className="veyra-pay-tab flex min-h-11 items-center justify-center gap-2 rounded-lg text-sm font-semibold disabled:opacity-50">
-    <Users className="size-4"/> Friends</button>
+    <Users className="size-4"/> People · ID / X</button>
   </div>
   {tab==='wallet'?<div role="tabpanel" aria-label="Wallet address">
    <input aria-label="Wallet address" spellCheck={false} autoComplete="off" maxLength={42}
@@ -94,7 +98,7 @@ export function MainnetPayRecipientPicker({owner,sessionToken,signedWallet,disab
        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{friendLabel(friend)}</span>
        <span className="text-xs" style={{color:'var(--accent)'}}>{busy?'Checking…':'Select'}</span>
       </button>)}
-     </div>:<p className="rounded-xl border p-3 text-sm" style={{color:'var(--muted)',borderColor:'var(--border)'}}>No friends yet.</p>}
+     </div>:<p className="rounded-xl border p-3 text-sm" style={{color:'var(--muted)',borderColor:'var(--border)'}}>No friends yet. You can still pay any verified Veyra ID or linked X account.</p>}
     {signedWallet&&social.friendsHasMore&&<button type="button" disabled={disabled||social.loadingMoreFriends}
       onClick={()=>void social.loadMoreFriends()} className="w-full rounded-lg border py-2 text-xs disabled:opacity-50"
       style={{color:'var(--accent)',borderColor:'var(--border)'}}>{social.loadingMoreFriends?'Loading…':'Load more friends'}</button>}
@@ -102,10 +106,10 @@ export function MainnetPayRecipientPicker({owner,sessionToken,signedWallet,disab
       onClick={()=>{setSearchOpen(v=>!v);setError(null);}} disabled={!signedWallet||disabled}
       className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border text-sm font-semibold disabled:opacity-50"
       style={{color:'var(--accent)',borderColor:'var(--border-strong)',background:'rgba(30,55,110,.31)'}}>
-      <Search className="size-4"/>{searchOpen?'Hide search':'Find friends'}</button>
+      <Search className="size-4"/>{searchOpen?'Hide search':'Find by ID / X / wallet'}</button>
     {searchOpen&&<form id="veyra-friend-search" onSubmit={submit} className="flex gap-2">
-      <input aria-label="Find by Veyra ID" value={query} onChange={e=>setQuery(e.target.value)}
-       autoComplete="off" spellCheck={false} maxLength={40} placeholder="@name.veyra"
+      <input aria-label="Find by Veyra ID, X handle or wallet" value={query} onChange={e=>setQuery(e.target.value)}
+       autoComplete="off" spellCheck={false} maxLength={40} placeholder="@name.veyra · @Xhandle · 0x…"
        className="veyra-pay-input min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm" style={{color:'var(--ink)'}}/>
       <button type="submit" disabled={disabled||busy||!query.trim()} className="rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-50"
        style={{color:'var(--accent)',borderColor:'var(--border-strong)'}}>{busy?'Finding…':'Find'}</button>
