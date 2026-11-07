@@ -7,7 +7,7 @@ describe('Mainnet Unified is a real Circle ledger, not a wallet-balance decorati
   const panel=src('components/pages/MainnetUnifiedBalancePanel.tsx');
   expect(home).toContain('Your money,');
   expect(home).toContain('more capable.');
-  expect(home).toContain('<MainnetUnifiedBalancePanel compact/>');
+  expect(home).toContain('<MainnetUnifiedBalancePanel compact standalone/>');
   expect(panel).toContain('fetchGatewayMainnetBalances');
   expect(panel).toContain('current?.pending');
   expect(panel).toContain('current?.available');

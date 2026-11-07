@@ -3,9 +3,10 @@ import {useEffect,useState} from 'react';
 import {useAccount,useReadContract} from 'wagmi';
 import {ConnectKitButton} from 'connectkit';
 import {erc20Abi,formatUnits} from 'viem';
-import {ArrowDownLeft,ArrowLeftRight,Copy,RefreshCw,Users,Clock3,LayoutList,SendHorizontal,Route,ArrowRight,UserRound,ShieldCheck,Wallet,Check,ChevronRight} from 'lucide-react';
+import {ArrowDownLeft,ArrowLeftRight,Copy,RefreshCw,Users,LayoutList,SendHorizontal,Route,ArrowRight,UserRound,ShieldCheck,Wallet,Check,ChevronRight} from 'lucide-react';
 import {getUsdc} from '@/onchain-facts';
 import {BrandLogo} from '../brand/BrandLogo';
+import {Card,CardHeader,Notice} from '../ui/primitives';
 import {MainnetUnifiedBalancePanel} from './MainnetUnifiedBalancePanel';
 import {readLocalOperations,type LocalOperation} from '@/mainnet/localOperations';
 import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
@@ -140,12 +141,6 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
        className="veyra-btn-primary inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-sm font-bold">
        <SendHorizontal className="size-4"/> Send USDC <ArrowRight className="size-4"/>
       </button>:<div className="self-start"><ConnectKitButton/></div>}
-     <button type="button" onClick={()=>onNavigate('social')}
-      className="veyra-btn-secondary inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-sm font-semibold"
-      >
-      <Users className="size-4"/>
-      Friends
-     </button>
     </div>
    </div>
    <div className="veyra-profile-card relative flex min-h-[257px] min-w-0 flex-col justify-between overflow-hidden rounded-2xl border p-5 max-[359px]:min-h-[273px] sm:p-6 lg:min-h-[265px]" aria-label="Your Veyra identity">
@@ -179,6 +174,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
      style={{color:'var(--accent)'}}>{signedWallet&&social.identityOrigin==='ready'?'Manage identity':'Set up Veyra ID'} <ChevronRight className="size-4"/></button>
    </div>
   </section>
+ <div className="grid items-start gap-4 lg:grid-cols-2">
  <section className="veyra-card veyra-brand-balance p-5 sm:p-6" aria-label="Wallet balance">
    <div className="flex items-center justify-between gap-3">
     <span className="inline-flex items-center gap-2 text-sm font-semibold" style={{color:'var(--muted)'}}>
@@ -200,10 +196,14 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
     <button type="button" onClick={()=>setReceive(v=>!v)} disabled={!address} aria-expanded={receive}
      className="veyra-btn-secondary inline-flex items-center gap-2 disabled:opacity-50"><ArrowDownLeft className="size-4"/>Receive</button>
    </div>
-   <MainnetUnifiedBalancePanel compact/>
   </section>
+  <Card label="Gateway balance">
+   <CardHeader title="Gateway balance" caption="Circle Gateway · held separately from your wallet USDC"/>
+   <div className="mt-3"><MainnetUnifiedBalancePanel compact standalone/></div>
+  </Card>
+  </div>
   <section aria-label="Quick actions">
-   <h2 className="veyra-section-title mb-3">Quick actions</h2>
+   <h2 className="sr-only">Quick actions</h2>
    <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
     {actions.map(item=><button key={item.id} type="button"
      onClick={()=>selectAction(item.id)} className="veyra-action-card group flex min-h-[94px] flex-col items-start justify-center gap-2 rounded-2xl border p-4 text-left">
@@ -227,16 +227,13 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
     </div>
   </section>}
 
-  {wrong&&<p role="status" className="rounded-xl px-4 py-3 text-sm" style={{background:'var(--surface)',color:'var(--warning)'}}>
-   Balance shown is on Arc Mainnet. Switch your wallet to Arc Mainnet before signing; no Testnet fallback is permitted.
-  </p>}
-  {pending.length>0&&<section role="status" className="veyra-panel flex items-center justify-between gap-3 rounded-xl border p-4">
-   <div className="flex items-center gap-2"><Clock3 className="size-4 shrink-0" style={{color:'var(--warning)'}}/>
-    <span className="text-sm" style={{color:'var(--ink)'}}>Payment processing · check Activity before sending again</span>
-   </div>
-   <button type="button" onClick={()=>onNavigate('activity')} className="shrink-0 text-xs font-semibold"
-    style={{color:'var(--accent)'}}>View</button>
-  </section>}
+  {wrong&&<Notice tone="warning">
+   Your wallet is on another network. Balances here are on Arc Mainnet; switch to Arc Mainnet before you pay.
+  </Notice>}
+  {pending.length>0&&<Notice tone="warning" action={<button type="button" onClick={()=>onNavigate('activity')}
+   className="shrink-0 text-xs font-semibold" style={{color:'var(--accent)'}}>View</button>}>
+   Payment processing. Check Activity before sending again.
+  </Notice>}
   <section className={card} style={cardStyle} aria-label="Recent activity">
    <div className="flex items-center justify-between gap-3">
     <h2 className="text-base font-bold" style={{color:'var(--ink)'}}>Recent activity</h2>
