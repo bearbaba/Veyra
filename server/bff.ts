@@ -55,7 +55,7 @@ import { freezeSnapshot, resolveRecipient, verifySnapshot, IdentityResolutionErr
 import { getAuthenticatedVeyraUserId, issueSessionToken } from './auth/session.js';
 import {clearBrowserRestoreCookie,issueBrowserRestoreCookie,verifyBrowserRestoreCookie} from './auth/browserRestoreSession.js';
 import {resolveTrustedLoginOrigin,resolveTrustedLoginOriginForEnv} from './services/walletLoginService.js';
-import {evaluateMainnetIdentityAuthority} from './services/mainnetIdentityCapability.js';
+import {evaluateMainnetIdentityAuthority,evaluateMainnetIdentityAuthenticatedReadAuthority} from './services/mainnetIdentityCapability.js';
 import {indexVerifiedDirectPay,listVerifiedDirectPays,parseDirectPayReceiptRequest,PayReceiptApiError,
  mainnetActiveBinding} from './services/mainnetPayReceiptService.js';
 import {indexVerifiedSettlement,listVerifiedSettlements,parseSettlementReceiptRequest}
@@ -2475,7 +2475,7 @@ app.get('/api/mainnet/pay/receipts', IDENTITY_RATE, async(req:Request,res:Respon
 // journey. A browser never supplies paid/completed status, an accepted hash,
 // recipient USDC proof or an override to erase a competing operation.
 app.get('/api/mainnet/pay/journeys',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
- if(!evaluateMainnetIdentityAuthority(runtimeConfig,req.header('origin'))){
+ if(!evaluateMainnetIdentityAuthenticatedReadAuthority(runtimeConfig,req.header('origin'))){
   res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;
  }
  const userId=getAuthenticatedVeyraUserId(req);
