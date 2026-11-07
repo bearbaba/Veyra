@@ -85,8 +85,8 @@ async function runDesktop(browser){
     assert(await unified.getByText('USDC Available').isVisible(),'Unified Available hidden');
     assert(await unified.getByRole('button',{name:'Add USDC'}).isVisible());
     assert(await unified.getByRole('button',{name:'Send to wallet'}).isVisible());
-    assert(await unified.getByRole('button',{name:'Manage'}).isVisible());
-    await unified.getByRole('button',{name:'Manage'}).click();
+    assert(await unified.getByRole('button',{name:'Show Unified details'}).isVisible());
+    await unified.getByRole('button',{name:'Show Unified details'}).click();
     assert.equal(await unified.getByRole('button',{name:'Hide Unified details'}).getAttribute('aria-expanded'),'true');
     await unified.getByRole('button',{name:'Hide Unified details'}).click();
     await noOverflow(page,'desktop Home');
