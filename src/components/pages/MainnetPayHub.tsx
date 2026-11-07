@@ -112,7 +112,7 @@ export function MainnetPayHub({
  const recoveringSettlement=fundingState==='SETTLEMENT_PENDING'&&sameFundingTarget;
  const showSettlement=(recoveringSettlement||!fundingBlocked)&&
   (recoveringSettlement||!showUnifiedFunding||
-   fundingJourney?settlementFromUnifiedReady:!unifiedNeedsFunding)&&
+   (fundingJourney?settlementFromUnifiedReady:!unifiedNeedsFunding))&&
   fundingState!=='SETTLEMENT_ONCHAIN_VERIFIED';
  const pay=address?readMainnetJournal(address,storageForMainnet()):{kind:'empty' as const};
  const settlement=address?readSettlementIntent(address):{kind:'empty' as const};
