@@ -21,7 +21,11 @@ describe('Mainnet single Settlement surface, wallet review and identity safety',
    expect(circle).toContain('MAINNET_PUBLIC_BETA');
    expect(circle).toContain('assertMainnetConsumerSigningAllowed');
    expect(circle).toContain('readBridgeQuoteAmounts');
-   expect(circle).toContain("signingReady?<button");
+   expect(circle).toContain('aria-label="Transaction action"');
+   expect(circle).toContain('!!quote&&!quoteExpired&&!signingReady');
+   expect(circle).toContain('onClick={()=>void(quote&&!quoteExpired?signNow():quoteNow())}');
+   expect(circle).toContain('Transaction details');
+   expect(circle).toContain('assertBridgeQuoteWithinReviewedCap');
   });
   it('only exposes one top-level Mainnet Send entry, with People nearby',()=>{
   const home=source('components/pages/MainnetHomePage.tsx');
