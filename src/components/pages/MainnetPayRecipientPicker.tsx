@@ -63,7 +63,7 @@ export function MainnetPayRecipientPicker({owner,sessionToken,signedWallet,disab
    <button type="button" role="tab" aria-selected={tab==='people'} disabled={disabled}
     data-active={tab==='people'} onClick={()=>changeTab('people')}
     className="veyra-pay-tab flex min-h-11 items-center justify-center gap-2 rounded-lg text-sm font-semibold disabled:opacity-50">
-    <Users className="size-4"/> People · ID / X</button>
+    <Users className="size-4"/> Friends</button>
   </div>
   {tab==='wallet'?<div role="tabpanel" aria-label="Wallet address">
    <input aria-label="Wallet address" spellCheck={false} autoComplete="off" maxLength={42}

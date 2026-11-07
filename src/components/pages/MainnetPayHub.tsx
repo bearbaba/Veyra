@@ -251,12 +251,11 @@ export function MainnetPayHub({
   const next={...draft,recipient:'',amount:''};
   setDraftHolder({owner,value:next});writePayDraft(owner,next);
  }
- return <main className="veyra-page veyra-pay-page mx-auto w-full max-w-2xl space-y-4 px-4 py-5 md:py-7">
+ return <main className="veyra-page veyra-pay-page mx-auto w-full max-w-[620px] space-y-4 px-4 py-6 md:py-9">
   {address&&signedWallet&&<MainnetPayFundingRecoveryWorker/>}
   <header>
-   <p className="veyra-eyebrow">VEYRA · ARC MAINNET</p>
    <h1 className="veyra-page-title">Pay</h1>
-   <p className="veyra-page-subtitle">Send USDC to a wallet or friend.</p>
+   <p className="veyra-page-subtitle">Send USDC to someone you trust.</p>
    {__VEYRA_RELEASE_ENV__==='preview'&&<span className="text-xs" style={{color:'var(--warning)'}}>Preview · read only</span>}
   </header>
   <div className="veyra-pay-panel space-y-4 rounded-2xl border p-4 sm:p-5">
@@ -326,14 +325,14 @@ export function MainnetPayHub({
      <span>Recipient receives</span><span>{settlementCost?settlementCost.recipientNet+' USDC':'—'}</span></div>
     <p className="text-xs">Final Review refreshes gas, fees, allowances and contract simulation.</p>
    </section>}
-  <div className="flex items-start gap-2 border-t pt-4 text-sm" style={{borderColor:'var(--border)'}}>
-   <ShieldCheck className="mt-0.5 size-4 shrink-0" style={{color:'var(--accent)'}}/>
-   <div><p className="font-semibold" style={{color:'var(--ink)'}}>Veyra Settlement</p>
-    <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
-     Wallet and Friends share one contract payment. Review recipient, platform and network fees before signing.
-     USDC approval may be required. No escrow or automatic refund.
-    </p></div>
-  </div>
+  <details className="border-t pt-3 text-xs" style={{borderColor:'var(--border)',color:'var(--muted)'}}>
+   <summary className="flex cursor-pointer items-center gap-2 font-semibold" style={{color:'var(--muted)'}}>
+    <ShieldCheck className="size-4"/>Fees & payment safety
+   </summary>
+   <p className="mt-2 leading-5">
+    Wallet and Friends use the same Veyra Settlement contract. Review recipient, platform fee, network gas and token approval in the final wallet review. No escrow or automatic refund.
+   </p>
+  </details>
   {address&&signedWallet&&draft.amount&&<section aria-label="Choose payment source" className="rounded-xl border p-3 space-y-3" style={{borderColor:"var(--border)"}}>
     <p className="text-sm font-semibold" style={{color:"var(--ink)"}}>Fund this payment</p>
     <div className="grid grid-cols-2 gap-2" role="group" aria-label="USDC source">
