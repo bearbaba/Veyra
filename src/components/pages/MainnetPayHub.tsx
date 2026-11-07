@@ -22,6 +22,7 @@ import {MAINNET_EMERGENCY_READ_ONLY,MAINNET_SETTLEMENT_CANARY_ONLY,MAINNET_CANAR
 import type {VerifiedMainnetRecipient} from '@/mainnet/verifiedRecipient';
 import type {VeyraPaymentRequest} from '@/lib/api/paymentRequests';
 import {MainnetUnifiedBalancePanel} from './MainnetUnifiedBalancePanel';
+import {MainnetPayFundingRecoveryWorker} from '@/mainnet/MainnetPayFundingRecoveryWorker';
 import {readGatewayMainnetOperation,readGatewayMainnetHistory} from '@/mainnet/gatewayMainnetJournal';
 import {readPayFundingJourney,samePayFundingTarget,derivePayFundingJourneyState,
  dismissPayFundingJourney,type FundingJourneyState} from '@/mainnet/payFundingJourney';
@@ -174,6 +175,7 @@ export function MainnetPayHub({
   setDraftHolder({owner,value:next});writePayDraft(owner,next);
  }
  return <main className="veyra-page veyra-pay-page mx-auto w-full max-w-2xl space-y-4 px-4 py-5 md:py-7">
+  {address&&signedWallet&&<MainnetPayFundingRecoveryWorker/>}
   <header>
    <p className="veyra-eyebrow">VEYRA · ARC MAINNET</p>
    <h1 className="veyra-page-title">Pay</h1>
