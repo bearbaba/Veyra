@@ -155,7 +155,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
         address?'Create your ID to pay by name':'Connect a wallet to get started'}
       </p>
      </div>
-     <span className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+     <span className="hidden shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold sm:inline-flex"
       style={{color:signedWallet&&social.identityOrigin==='ready'?'var(--success)':'var(--muted)',
        background:'rgba(3,18,45,.65)',borderColor:'var(--border)'}}>
       {signedWallet&&social.identityOrigin==='ready'?'Active':'Not set up'}
