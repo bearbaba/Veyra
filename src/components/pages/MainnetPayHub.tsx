@@ -11,6 +11,7 @@ import {ShieldCheck} from 'lucide-react';
 import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal';
 import {readSettlementIntent,settlementUnresolved,resumablePaymentAttempt} from '@/mainnet/settlementJournal';
 import {readPayDraft,writePayDraft,type MainnetPayDraft} from '@/mainnet/payDraft';
+import {readPaySource,writePaySource,type PaySource} from '@/mainnet/paySourcePreference';
 import {MainnetPayRecipientPicker} from './MainnetPayRecipientPicker';
 import {VeyraIdentityAccess} from '../identity/VeyraIdentityAccess';
 import type {RecipientSearchResult} from '@/mainnet/recipientLookup';
@@ -25,11 +26,12 @@ import {MainnetUnifiedBalancePanel} from './MainnetUnifiedBalancePanel';
 declare const __VEYRA_RELEASE_SHA__:string;
 declare const __VEYRA_RELEASE_ENV__:string;
 export function MainnetPayHub({
- recipientWallet,verifiedRecipient,paymentRequest,onClearVerified,onRecipientUsed,
+ recipientWallet,verifiedRecipient,paymentRequest,onClearVerified,onRecipientUsed,onVerifiedSelected,
 }:{
  recipientWallet?:string|null;
  verifiedRecipient?:VerifiedMainnetRecipient|null;paymentRequest?:VeyraPaymentRequest|null;
  onClearVerified?:()=>void;onRecipientUsed?:()=>void;
+ onVerifiedSelected?:(recipient:VerifiedMainnetRecipient)=>void;
 }){
  const {address,connector}=useAccount();
  const social=useUnifiedSocial();
@@ -43,7 +45,12 @@ export function MainnetPayHub({
  });
  const [draftHolder,setDraftHolder]=useState<{owner:string;value:MainnetPayDraft}>(()=>({owner,value:readPayDraft(owner)}));
  const [revision,setRevision]=useState(0);
- const [showUnifiedFunding,setShowUnifiedFunding]=useState(false);
+ const [showUnifiedFunding,setShowUnifiedFunding]=useState(()=>readPaySource(owner)==='unified');
+ useEffect(()=>{setShowUnifiedFunding(readPaySource(owner)==='unified');},[owner]);
+ function selectPaymentSource(source:PaySource){
+  if(!address)return;
+  writePaySource(address,source);setShowUnifiedFunding(source==='unified');
+ }
  const [localVerified,setLocalVerified]=useState<VerifiedMainnetRecipient|null>(null);
  const draft=draftHolder.owner===owner?draftHolder.value:readPayDraft(owner);
  const requestAmount=paymentRequest?formatUnits(BigInt(paymentRequest.amountRaw),6):'';
@@ -92,7 +99,12 @@ export function MainnetPayHub({
  useEffect(()=>{
   if(!verifiedRecipient||!address||verifiedRecipient.owner.toLowerCase()!==address.toLowerCase()||
     (locked&&!resumable))return;
-  const next={...readPayDraft(owner),recipient:verifiedRecipient.wallet,amount:paymentRequest?requestAmount:''};
+  const stored=readPayDraft(owner);
+  // Restored human labels require fresh server proof, but a matching wallet
+  // may keep the user's earlier amount for an independent new Review.
+  const sameWallet=stored.recipient.toLowerCase()===verifiedRecipient.wallet.toLowerCase();
+  const next={...stored,recipient:verifiedRecipient.wallet,
+   amount:paymentRequest?requestAmount:sameWallet?stored.amount:''};
   setDraftHolder({owner,value:next});writePayDraft(owner,next);
  // One new verified recipient selection, never an old draft, changes the target.
  // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -111,6 +123,7 @@ export function MainnetPayHub({
   const next={...readPayDraft(owner),recipient:wallet,amount:''};
   setDraftHolder({owner,value:next});writePayDraft(owner,next);
   setLocalVerified(result.kind==='veyra'?result.person:null);
+  if(result.kind==='veyra')onVerifiedSelected?.(result.person);
  }
  function changeWalletRecipient(value:string){
   if(!address||locked||requestLocked)return;
@@ -196,10 +209,10 @@ export function MainnetPayHub({
     <div className="grid grid-cols-2 gap-2" role="group" aria-label="USDC source">
      <button type="button" aria-pressed={!showUnifiedFunding} disabled={locked&&!resumable}
       className="veyra-btn-secondary min-h-11 rounded-lg p-2 text-sm disabled:opacity-50"
-      onClick={()=>setShowUnifiedFunding(false)}>Arc wallet</button>
+      onClick={()=>selectPaymentSource('wallet')}>Arc wallet</button>
      <button type="button" aria-pressed={showUnifiedFunding} disabled={locked&&!resumable}
       className="veyra-btn-secondary min-h-11 rounded-lg p-2 text-sm disabled:opacity-50"
-      onClick={()=>setShowUnifiedFunding(true)}>Unified</button>
+      onClick={()=>selectPaymentSource('unified')}>Unified</button>
     </div>
     {showUnifiedFunding&&<>
      <p className="text-xs" style={{color:"var(--muted)"}}>

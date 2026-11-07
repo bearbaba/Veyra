@@ -55,6 +55,7 @@ jobs:
           src/tests/mainnetRequestResumeBehavior.test.ts
           src/tests/mainnetUnifiedFundingBounds.test.ts
           src/tests/mainnetReleaseCapabilities.test.ts
+          src/tests/mainnetPayResumeIdentity.test.ts
           src/tests/mainnetRecipientLookupBehavior.test.ts
           src/tests/mainnetWalletSigningLock.test.ts
           src/tests/mainnetPersistentReceipt.test.ts

@@ -21,6 +21,7 @@ import { UiOnlyPreviewPage } from './components/pages/UiOnlyPreviewPage';
 import { IS_UI_ONLY_PREVIEW } from './lib/env';
 import { SettingsPage } from './components/pages/SettingsPage';
 import {readPayDraft,writePayDraft} from '@/mainnet/payDraft';
+import {readPayRecipient,savePayRecipient,clearPayRecipient,matchesSavedPayRecipient} from '@/mainnet/payRecipientNavigation';
 import {reviewPeerRequest,confirmedPaymentRequestRefusal,type VeyraPaymentRequest} from '@/lib/api/paymentRequests';
 import {readRequestNavigation,saveRequestNavigation,clearRequestNavigation} from '@/mainnet/paymentRequestNavigation';
 import {lookupMainnetRecipient} from '@/mainnet/recipientLookup';
@@ -91,6 +92,43 @@ function RestoreSignedPaymentRequest({onRecovered}:{
   {' '}Open Chat to review again. No payment was sent.</p>:null;
 }
 
+/** Restore human labels only through a fresh, signed backend identity check.
+ * Session bookmarks never authorize sending, identity or receipt attribution.
+ */
+function RestoreSignedPayRecipient({onRecovered}:{
+ onRecovered:(recipient:VerifiedMainnetRecipient)=>void;
+}){
+ const {address,connector}=useAccount();
+ const social=useUnifiedSocial();
+ const token=social.session?.token;
+ const trusted=!!address&&social.identityOrigin==='ready'&&
+  isMainnetSessionForWallet(social.session,address,connector?.uid);
+ useEffect(()=>{
+  if(VEYRA_ENV!=='mainnet'||!address||!token||!trusted||
+   readRequestNavigation(address))return;
+  const saved=readPayRecipient(address);
+  if(!saved)return;
+  if(readPayDraft(address).recipient.toLowerCase()!==saved.wallet.toLowerCase()){
+   clearPayRecipient(address);return;
+  }
+  let active=true;
+  void (async()=>{
+   const found=await lookupMainnetRecipient('@'+saved.handle+'.veyra',address,token);
+   if(found.kind!=='veyra'||!matchesSavedPayRecipient(saved,found.person,
+    readPayDraft(address).recipient))
+    throw Error('Saved payee no longer matches signed identity.');
+   const current=readPayRecipient(address);
+   if(active&&!readRequestNavigation(address)&&current?.userId===saved.userId&&
+    current.wallet===saved.wallet&&current.handle===saved.handle)
+    onRecovered(found.person);
+  })().catch(()=>{
+   // Unknown lookup outcomes cannot upgrade old wallet text to a verified ID.
+  });
+  return()=>{active=false;};
+ },[address,connector?.uid,token,trusted,onRecovered]);
+ return null;
+}
+
 export default function App() {
   const {address}=useAccount();
   const [profileSearch]=useState(sharedVeyraProfile);
@@ -108,7 +146,7 @@ export default function App() {
   function setPage(next:VeyraPage){
     const target=VEYRA_ENV==='mainnet'&&next==='pay'?'settlement':next;
     if(VEYRA_ENV==='mainnet'&&target!=='settlement'){
-      if(address)clearRequestNavigation(address);
+      if(address){clearRequestNavigation(address);clearPayRecipient(address);}
       setPaymentRequest(null);setVerifiedRecipient(null);setContactRecipient(null);
     }
     setPageState(target);
@@ -117,10 +155,22 @@ export default function App() {
   const [contactRecipient, setContactRecipient] = useState<string | null>(null);
   const [verifiedRecipient,setVerifiedRecipient] = useState<VerifiedMainnetRecipient|null>(null);
  const [paymentRequest,setPaymentRequest]=useState<VeyraPaymentRequest|null>(null);
+ const onRecoveredPerson=useCallback((recipient:VerifiedMainnetRecipient)=>{
+  setPaymentRequest(null);setContactRecipient(null);setVerifiedRecipient(recipient);
+  setFriendPayment(null);setPageState('settlement');
+ },[]);
  const onRecoveredRequest=useCallback((recipient:VerifiedMainnetRecipient,request:VeyraPaymentRequest)=>{
   setPaymentRequest(request);setContactRecipient(null);setVerifiedRecipient(recipient);
   setFriendPayment(null);setPageState('settlement');
  },[]);
+
+  function onVerifiedSelected(recipient:VerifiedMainnetRecipient){
+    if(!address||!savePayRecipient({
+      version:1,owner:address.toLowerCase(),userId:recipient.veyraUserId,
+      handle:recipient.veyraHandle,wallet:recipient.wallet,savedAt:Date.now(),
+    }))return;
+    setPaymentRequest(null);setContactRecipient(null);setVerifiedRecipient(recipient);
+  }
 
   function startFriendPayment(handle: string) {
     // A friendly label is only a suggestion. Pay resolves a fresh 30-second
@@ -142,7 +192,8 @@ export default function App() {
       case 'pay':
         return VEYRA_ENV === 'mainnet' ? <MainnetPayHub recipientWallet={contactRecipient}
           verifiedRecipient={verifiedRecipient} paymentRequest={paymentRequest} onClearVerified={()=>{setVerifiedRecipient(null);setPaymentRequest(null);
-           if(address)clearRequestNavigation(address);}}
+           if(address){clearRequestNavigation(address);clearPayRecipient(address);}}}
+          onVerifiedSelected={onVerifiedSelected}
           onRecipientUsed={() => setContactRecipient(null)} /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="pay" /> : <PayPage friendRecipient={friendPayment} onFriendRecipientUsed={() => setFriendPayment(null)} />;
       case 'convert':
         return VEYRA_ENV === 'mainnet' ? <MainnetExchangePage /> : IS_UI_ONLY_PREVIEW ? <UiOnlyPreviewPage surface="convert" /> : <ConvertPage />;
@@ -154,9 +205,13 @@ export default function App() {
         return <SettingsPage onOpenSocial={() => setPage('social')} />;
       case 'social':
         return (VEYRA_ENV === 'mainnet' ? <MainnetPeoplePage initialQuery={profileSearch} onPayVerified={(recipient,intent)=>{
-            if(intent==='tip')writePayDraft(recipient.owner,{...readPayDraft(recipient.owner),
-             recipient:recipient.wallet,amount:'',note:'Tip'});
-            if(address)clearRequestNavigation(address);
+            if(!address||!savePayRecipient({
+              version:1,owner:address.toLowerCase(),userId:recipient.veyraUserId,
+              handle:recipient.veyraHandle,wallet:recipient.wallet,savedAt:Date.now(),
+            }))throw Error('Cannot save verified payee on this device. Reopen the person before paying.');
+            writePayDraft(recipient.owner,{...readPayDraft(recipient.owner),
+             recipient:recipient.wallet,amount:'',note:intent==='tip'?'Tip':''});
+            clearRequestNavigation(address);
             setPaymentRequest(null);setContactRecipient(null);setVerifiedRecipient(recipient);setFriendPayment(null);setPage('settlement');
           }} onPayRequest={(recipient,request)=>{
             if(!address||!saveRequestNavigation({
@@ -164,16 +219,18 @@ export default function App() {
               requesterHandle:recipient.veyraHandle,requesterUserId:request.requesterUserId,
               payerUserId:request.payerUserId,savedAt:Date.now(),
             }))throw Error('Browser storage is unavailable. Payment Request was not opened; no transaction was sent.');
+            if(address)clearPayRecipient(address);
             setPaymentRequest(request);setContactRecipient(null);
             setVerifiedRecipient(recipient);setFriendPayment(null);setPage('settlement');
           }} onPayWallet={recipient=>{
-            if(address)clearRequestNavigation(address);
+            if(address){clearRequestNavigation(address);clearPayRecipient(address);}
             setPaymentRequest(null);setVerifiedRecipient(null);setContactRecipient(recipient);setFriendPayment(null);setPage('settlement');
           }}/> : <SocialPage onPayFriend={startFriendPayment} />);
       case 'settlement':
         return VEYRA_ENV === 'mainnet' ? <MainnetPayHub recipientWallet={contactRecipient}
           verifiedRecipient={verifiedRecipient} paymentRequest={paymentRequest} onClearVerified={()=>{setVerifiedRecipient(null);setPaymentRequest(null);
-           if(address)clearRequestNavigation(address);}}
+           if(address){clearRequestNavigation(address);clearPayRecipient(address);}}}
+          onVerifiedSelected={onVerifiedSelected}
           onRecipientUsed={() => setContactRecipient(null)} /> : <SettlementPage />;
       default:
         return <HomePage onNavigate={setPage} />;
@@ -184,7 +241,8 @@ export default function App() {
     <UnifiedSocialProvider>
       {VEYRA_ENV==='mainnet'&&<><MainnetReceiptSyncWorker/><MainnetSettlementReceiptSyncWorker/></>}
       <AppShell page={page} onNavigate={setPage}>
-        {VEYRA_ENV==='mainnet'&&<RestoreSignedPaymentRequest onRecovered={onRecoveredRequest}/>}
+        {VEYRA_ENV==='mainnet'&&<><RestoreSignedPaymentRequest onRecovered={onRecoveredRequest}/>
+          <RestoreSignedPayRecipient onRecovered={onRecoveredPerson}/></>}
         {renderPage()}
       </AppShell>
     </UnifiedSocialProvider>
