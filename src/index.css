@@ -325,101 +325,49 @@ body {
  .arc-studio-attribution { display:none!important; }
 }
 
-
-/* Veyra v1 calm consumer UI: scoped to the Mainnet shell; no transaction behavior changes. */
-.veyra-calm {
-  --bg:#0b1220;
-  --bg-gradient:linear-gradient(180deg,#0b1220,#0e1725);
-  --surface:#121e2e;
-  --surface-strong:#182639;
-  --surface-muted:#0e1928;
-  --surface-raised:#18273b;
-  --ink:#f4f7fc;
-  --muted:#aab9cc;
-  --subtle:#8f9eb4;
-  --border:rgba(167,187,217,.13);
-  --border-strong:rgba(167,187,217,.27);
-  --accent:#9fc8fc;
-  --accent-muted:rgba(112,168,237,.13);
-  --veyra-brand-card:#121e2e;
-  --veyra-brand-stroke:rgba(167,187,217,.13);
-  --veyra-secondary:rgba(151,174,205,.08);
-  --veyra-secondary-hover:rgba(151,174,205,.16);
-  --veyra-control:#172538;
-  --veyra-cta:linear-gradient(110deg,#417ec8,#5f81d7);
-  --veyra-focus-ring:rgba(159,200,252,.6);
-  background:var(--bg-gradient);
-  color:var(--ink);
-}
+/* Compact Mainnet layout only. Preserve original Veyra blue/violet tokens,
+   hero, profile card, wallet gradient, and financial signing presentation. */
+.veyra-calm {background:var(--bg-gradient);color:var(--ink);}
 .veyra-calm-header {
   border-color:var(--border);
-  background:rgba(12,20,33,.97);
+  background:rgba(5,17,40,.96);
+  backdrop-filter:blur(16px);
+}
+.veyra-calm-nav-item {color:var(--muted);transition:background-color .15s ease,color .15s ease;}
+.veyra-calm-nav-item:hover {color:var(--ink);background:rgba(109,152,228,.11);}
+.veyra-calm-nav-item[data-active="true"] {
+  color:var(--ink);background:var(--surface-strong);border:1px solid var(--border-strong);
+}
+.veyra-calm-nav-item:not([data-active="true"]) {border:1px solid transparent;}
+.veyra-calm-nav-item svg {width:17px;height:17px;}
+.veyra-calm-dropdown,.veyra-calm-mobile-more {
+  border-color:var(--border-strong);
+  background:#0e2347;color:var(--ink);
+}
+.veyra-calm-dropdown-item {color:var(--muted);}
+.veyra-calm-dropdown-item:hover:not(:disabled) {color:var(--ink);background:var(--surface-strong);}
+.veyra-calm-mobile-nav {
+  border-color:var(--border);
+  background:rgba(5,17,40,.98);
   backdrop-filter:blur(14px);
 }
-.veyra-calm-nav-item {color:var(--muted);transition:background-color .15s,color .15s}
-.veyra-calm-nav-item:hover {color:var(--ink);background:rgba(167,187,217,.08)}
-.veyra-calm-nav-item[data-active="true"] {background:var(--surface-strong);color:var(--ink)}
-.veyra-calm-nav-item svg {width:17px;height:17px}
-.veyra-calm-dropdown,.veyra-calm-mobile-more {
-  border-color:var(--border);background:#152235;color:var(--ink)
-}
-.veyra-calm-dropdown-item {color:var(--muted)}
-.veyra-calm-dropdown-item:hover:not(:disabled) {color:var(--ink);background:rgba(167,187,217,.09)}
-.veyra-calm-mobile-nav {
-  border-color:var(--border);background:rgba(14,23,37,.97);
-  backdrop-filter:blur(12px)
-}
-.veyra-calm-mobile-item {color:var(--subtle)}
-.veyra-calm-mobile-item[data-active="true"] {color:var(--accent)}
-.veyra-calm .veyra-page .veyra-card,
-.veyra-calm .veyra-home .veyra-panel,
-.veyra-calm .veyra-home .veyra-action-card,
+.veyra-calm-mobile-item {color:var(--subtle);}
+.veyra-calm-mobile-item[data-active="true"] {color:var(--accent);}
 .veyra-calm .veyra-pay-page .veyra-pay-panel {
-  background:var(--surface)!important;
-  border-color:var(--border)!important;
-  box-shadow:none!important;
-  border-radius:16px
+  padding:clamp(1rem,3vw,1.25rem);
 }
-.veyra-calm .veyra-home .veyra-brand-balance,
-.veyra-calm .veyra-home .veyra-balance-card {
-  background:#142236!important;
-  box-shadow:none!important
-}
-.veyra-calm .veyra-home .veyra-action-card:hover {
-  background:var(--surface-strong)!important;
-  border-color:var(--border-strong)!important;
-  filter:none
-}
-.veyra-calm .veyra-home .veyra-action-card:focus-visible,
-.veyra-calm .veyra-calm-id-chip:focus-visible {
-  outline:2px solid var(--accent);
-  outline-offset:2px
-}
-.veyra-calm-id-chip {
-  color:var(--ink);border-color:var(--border);background:var(--surface)
-}
-.veyra-calm-id-chip:hover {background:var(--surface-strong)}
-.veyra-calm-unified-toggle {color:var(--ink)}
-.veyra-calm-unified-toggle:hover {background:rgba(167,187,217,.06)}
-.veyra-calm .veyra-page-title {font-size:clamp(1.55rem,3vw,1.85rem)}
-.veyra-calm .veyra-eyebrow {letter-spacing:.08em}
-.veyra-calm .veyra-pay-page .veyra-pay-panel {padding:20px}
 .veyra-calm .veyra-pay-page .veyra-pay-panel > section[aria-label="Payment details"] {
-  padding:0!important;border:0!important;background:transparent!important
+  padding:0!important;border:0!important;background:transparent!important;
 }
-.veyra-calm .veyra-btn-primary,
-.veyra-calm .veyra-pay-page .veyra-pay-review:enabled {
-  background:#477fc7!important;
-  border-color:#6b9dd8!important;
-  box-shadow:none!important
-}
-.veyra-calm .veyra-btn-primary:not(:disabled):hover {background:#578fd6!important;filter:none}
+.veyra-calm .veyra-page-title {font-size:clamp(1.6rem,3vw,1.95rem);}
+.veyra-calm-unified-toggle {color:var(--ink);}
+.veyra-calm-unified-toggle:hover {background:rgba(109,152,228,.075);}
+.veyra-calm .veyra-calm-person:hover {border-color:var(--border-strong)!important;}
 @media (max-width:767px) {
-  .veyra-calm .veyra-page {padding-top:20px;padding-bottom:24px}
-  .veyra-calm .veyra-home .veyra-brand-balance {padding:18px}
-  .veyra-calm .veyra-pay-page .veyra-pay-panel {padding:16px}
-  .veyra-calm .veyra-page-title {font-size:1.6rem}
+  .veyra-calm .veyra-page {padding-top:1.2rem;padding-bottom:1.5rem;}
+  .veyra-calm .veyra-pay-page .veyra-pay-panel {padding:1rem;}
+  .veyra-calm .veyra-home .veyra-brand-balance {padding:1rem;}
 }
 @media (prefers-reduced-motion:reduce) {
-  .veyra-calm-nav-item {transition:none}
+  .veyra-calm-nav-item {transition:none;}
 }
