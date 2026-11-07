@@ -17,6 +17,13 @@ describe('Shared transaction lifecycle', () => {
     expect(html).toContain('Do not submit again');
     expect(renderToStaticMarkup(createElement(TxStepper, { stage: 'Review' }))).not.toContain('Do not submit again');
   });
+  it('uses statically discoverable Tailwind classes for the small-screen stage labels', () => {
+    const html = renderToStaticMarkup(createElement(TxStepper, { stage: 'Review' }));
+    expect(html).toContain('max-[389px]:block');
+    expect(html).toContain('max-[389px]:hidden');
+    const source = read('src/components/ui/primitives.tsx');
+    expect(source).not.toContain("max-[389px]:\u0024{");
+  });
   it('never marks a step current once the transaction is Verified', () => {
     expect(renderToStaticMarkup(createElement(TxStepper, { stage: 'Verified' }))).not.toContain('aria-current');
   });
