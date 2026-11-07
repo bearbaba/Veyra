@@ -94,7 +94,7 @@ export function AppShell({ page, onNavigate, children }: AppShellProps) {
 
   // The Mainnet consumer surface is intentionally a calm four-destination app.
   // Advanced financial flows stay reachable from More; no financial gate changes.
-  if (VEYRA_ENV === 'mainnet') {
+  if (String(VEYRA_ENV) === 'mainnet') {
     return (
       <div className="veyra-calm flex min-h-dvh w-full flex-col">
         <header className="veyra-calm-header relative z-30 border-b">
