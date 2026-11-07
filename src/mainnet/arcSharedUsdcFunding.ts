@@ -10,6 +10,21 @@ import {formatUnits,parseUnits} from 'viem';
 import {gatewayMainnetAmount} from './gatewayMainnetBalances';
 const OFFSET=1_000_000_000_000n;
 export const ARC_PRE_FUND_GAS_LIMIT=300_000n;
+/** A pay() estimate before ERC-20 approval can revert and return no gas units.
+ * The review must still have a real RPC gas price, with an explicit
+ * conservative 300k-unit budget. This is a provisional fee cap for review,
+ * NOT a fake successful contract simulation. The actual pay() estimate and
+ * simulation must still succeed after approval, immediately before signing.
+ */
+export function arcReviewedPayGasBudget(input:{
+ estimatedGasNative:bigint;gasPriceWei:bigint|null;
+}):{wei:bigint;provisional:boolean}|null{
+ const {estimatedGasNative,gasPriceWei}=input;
+ if(gasPriceWei===null||gasPriceWei<=0n)return null;
+ if(estimatedGasNative>0n)return {wei:estimatedGasNative,provisional:false};
+ return {wei:ARC_PRE_FUND_GAS_LIMIT*gasPriceWei,provisional:true};
+}
+
 const BUFFER_NUM=130n,BUFFER_DEN=100n;
 const ceil=(a:bigint,b:bigint)=>(a+b-1n)/b;
 export type ArcSharedUsdcFunding={
