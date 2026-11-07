@@ -24,12 +24,12 @@ describe('Exchange selects assets first; routes are proof-gated',()=>{
   expect(resolveExchangeRoute(selected(5042,'USDC'),selected(5042,'USDC')).kind).toBe('unavailable');
   expect(resolveExchangeRoute(selected(8453,'USDC'),selected(8453,'USDC')).kind).toBe('unavailable');
  });
- it('chooses officially supported Ethereum/Base CCTP V2 but NOT Arc Mainnet',()=>{
+ it('chooses only Circle-listed USDC CCTP V2 routes, including Arc, behind live quote and proof',()=>{
   expect(resolveExchangeRoute(selected(1,'USDC'),selected(8453,'USDC')))
    .toMatchObject({kind:'bridge',provider:'Circle CCTP'});
   expect(resolveExchangeRoute(selected(8453,'USDC'),selected(1,'USDC')).kind).toBe('bridge');
-  expect(resolveExchangeRoute(selected(5042,'USDC'),selected(8453,'USDC')).kind).toBe('unavailable');
-  expect(resolveExchangeRoute(selected(8453,'USDC'),selected(5042,'USDC')).kind).toBe('unavailable');
+  expect(resolveExchangeRoute(selected(5042,'USDC'),selected(8453,'USDC')).kind).toBe('bridge');
+  expect(resolveExchangeRoute(selected(8453,'USDC'),selected(5042,'USDC')).kind).toBe('bridge');
   const combined=resolveExchangeRoute(selected(5042,'EURC'),selected(8453,'USDC'));
   expect(combined).toMatchObject({kind:'unavailable'});
   if(combined.kind==='unavailable')expect(combined.reason).toContain('Bridge + Swap');
@@ -41,8 +41,11 @@ describe('Exchange selects assets first; routes are proof-gated',()=>{
   expect(baseWeth.decimals).toBe(18);
   expect(searchExchangeAssets('WETH',8453)).toHaveLength(1);
   const route=resolveExchangeRoute(baseWeth,selected(5042,'USDC'));
-  expect(route.kind).toBe('unavailable');
-  if(route.kind==='unavailable')expect(route.reason).toContain('Bridge + Swap');
+  expect(route.kind).toBe('quote-only');
+  if(route.kind==='quote-only') {
+   expect(route.provider).toBe('Across');
+   expect(route.reason).toContain('Signing requires independently accepted');
+  }
  });
  it('rejects substituted contracts claiming the same symbol and network',()=>{
   const fake:ExchangeAsset={...selected(5042,'USDC'),

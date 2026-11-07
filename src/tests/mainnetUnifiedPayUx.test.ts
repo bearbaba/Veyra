@@ -18,7 +18,9 @@ describe('Mainnet single Settlement surface, wallet review and identity safety',
    expect(hub).not.toContain('Change payment method');
    expect(picker).toContain("useState<'wallet'|'people'>");
    const circle=source('components/pages/MainnetCirclePage.tsx');
-   expect(circle).toContain("!MAINNET_CANARY_ONLY");
+   expect(circle).toContain('MAINNET_PUBLIC_BETA');
+   expect(circle).toContain('assertMainnetConsumerSigningAllowed');
+   expect(circle).toContain('readBridgeQuoteAmounts');
    expect(circle).toContain("signingReady?<button");
   });
   it('only exposes one top-level Mainnet Send entry, with People nearby',()=>{

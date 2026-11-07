@@ -19,7 +19,7 @@ import {estimateGatewayMainnetSpend,submitGatewayMainnetReview,
 import type {GatewaySdkFee} from '@/core/gateway/gatewaySdkSpend';
 import {assertGatewayFundingNet,gatewayFundingGrossForNet} from '@/mainnet/unifiedSettlementFunding';
 import {ensurePayFundingJourney} from '@/mainnet/payFundingJourney';
-import {MAINNET_CANARY_OWNER} from '@/mainnet/releaseGates';
+
 const C=GATEWAY_MAINNET_CHAINS;
 /** One-click funding picks an adequate confirmed source automatically;
  * aggregated balance is NOT proof that a single-source spend is possible. */
@@ -65,7 +65,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
  const activeSource=C.find(x=>x.chainId===sourceId)!;
  const sourceLedger=current?.chains.find(x=>x.chainId===sourceId)?.available??null;
  const previous=operation!==null;
- const canPilot=GATEWAY_MAINNET_WRITE_ENABLED&&owner===MAINNET_CANARY_OWNER.toLowerCase();
+ const canPilot=GATEWAY_MAINNET_WRITE_ENABLED;
  const {data:walletReads}=useReadContracts({
   contracts:C.map(x=>({address:x.usdc,abi:erc20Abi,functionName:'balanceOf' as const,
    chainId:x.chainId,args:[address??'0x0000000000000000000000000000000000000000'] as const})),
@@ -361,9 +361,9 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
     <span>{mode==='deposit'?'Wallet':advanced?'Selected source':'Combined confirmed'} available: {fmt(availableForSource)} USDC</span>
     <button type="button" disabled={availableForSource===null||availableForSource===0n}
      onClick={()=>{if(availableForSource===null)return;
-      setAmount(formatUnits(availableForSource>10000n?10000n:availableForSource,6));
+      setAmount(formatUnits(availableForSource,6));
       setReview(false);setFees(null);}}
-     className="veyra-btn-secondary px-2 disabled:opacity-40">Max pilot</button>
+     className="veyra-btn-secondary px-2 disabled:opacity-40">Max</button>
    </div>
    {mode==='spend'&&<label className="block text-xs font-semibold">{fundingToWallet?'Funding destination · your Arc wallet':'Recipient wallet'}
     <input value={recipient} disabled={Boolean(fundingToWallet)} onChange={e=>{setRecipient(e.target.value);setReview(false);setFees(null);}}

@@ -11,7 +11,29 @@ export const MAINNET_CANARY_MAX_UNITS = 10_000n;
  * reference-uniqueness release. Never advertise public signing from a
  * generic env flag while the contract-only guard is still a hard canary.
  */
-export const MAINNET_SETTLEMENT_CANARY_ONLY = true;
+/** Explicit owner's public-beta authorization. This does not certify a completed funded E2E. */
+export const MAINNET_PUBLIC_BETA = import.meta.env.VITE_VEYRA_PUBLIC_BETA === '1';
+export const MAINNET_SETTLEMENT_CANARY_ONLY = !MAINNET_PUBLIC_BETA;
+/** Consumer routes are independent of legacy direct-USDC canary.
+ * They must re-check provider quote, account, chain, recipient and recovery locks.
+ */
+export function assertMainnetConsumerSigningAllowed(
+ emergency=MAINNET_EMERGENCY_READ_ONLY,
+ beta=MAINNET_PUBLIC_BETA,
+):void{
+ if(emergency)throw new Error('Mainnet emergency read-only recovery is active; no new signing.');
+ if(!beta)throw new Error('Mainnet consumer execution is not enabled on this release.');
+}
+export function assertMainnetPublicSettlementSigningAllowed(
+ address:string,units:bigint,mode:'pay'|'escrow',
+ emergency=MAINNET_EMERGENCY_READ_ONLY,beta=MAINNET_PUBLIC_BETA,
+):void{
+ if(mode!=='pay')throw new Error('Mainnet escrow signing is not available in public beta.');
+ assertMainnetConsumerSigningAllowed(emergency,beta);
+ if(!/^0x[0-9a-fA-F]{40}$/.test(address)||units<=0n)
+  throw new Error('Valid payer and positive USDC amount required before signing.');
+}
+
 export function assertMainnetSigningAllowed(
  readOnly = MAINNET_EMERGENCY_READ_ONLY||MAINNET_CANARY_ONLY,
 ):void{
@@ -40,6 +62,10 @@ export function assertMainnetContractCanarySigningAllowed(
  address:string,units:bigint,mode:'pay'|'escrow',
  emergency=MAINNET_EMERGENCY_READ_ONLY,
 ):void{
+ if(MAINNET_PUBLIC_BETA){
+  assertMainnetPublicSettlementSigningAllowed(address,units,mode,emergency,true);
+  return;
+ }
  if(mode!=='pay')throw new Error('Mainnet escrow signing is not enabled in M0.');
  assertMainnetCanarySigningAllowed(address,units,emergency,true);
 }

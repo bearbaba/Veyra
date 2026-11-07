@@ -815,6 +815,12 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
       setErrorMsg('Selected Veyra ID is not the receiving wallet in this Settlement review.');
       setStep('error');return;
     }
+    // Legacy V1 pay() has no on-chain reference replay protection.
+    // Ordinary Pay/Tip remains available; signed Payment Requests require V2.
+    if(isMainnet&&paymentRequest){
+      setErrorMsg('Payment Request signing requires the replay-protected Settlement V2. Ordinary Pay and Tip remain available.');
+      setStep('error');return;
+    }
     if(paymentRequest){
       if(paymentRequest.status!=='PENDING'||Date.parse(paymentRequest.expiresAt)<=Date.now()||
         !signedForWallet||social.session?.profile.veyraUserId!==paymentRequest.payerUserId||
@@ -885,6 +891,10 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
   }
   async function performApprove() {
     if (!deployment || !address || !snapshot) return;
+    if(isMainnet&&paymentRequest){
+      setErrorMsg('Payment Request signing requires replay-protected Settlement V2. No approval or transfer started.');
+      setStep('error');return;
+    }
     try{if(isMainnet)assertMainnetContractCanarySigningAllowed(address,snapshot.amountParsed,snapshot.mode);
       else assertMainnetSigningAllowed();}catch(e){
       setErrorMsg(e instanceof Error?e.message:'New signing disabled.');
@@ -961,6 +971,10 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
   }
   async function performSettle() {
     if (!deployment || !address || !snapshot || !publicClient) return;
+    if(isMainnet&&paymentRequest){
+      setErrorMsg('Payment Request signing requires replay-protected Settlement V2. No transfer started.');
+      setStep('error');return;
+    }
     try{if(isMainnet)assertMainnetContractCanarySigningAllowed(address,snapshot.amountParsed,snapshot.mode);
       else assertMainnetSigningAllowed();}catch(e){
       setErrorMsg(e instanceof Error?e.message:'New signing disabled.');

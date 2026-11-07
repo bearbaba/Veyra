@@ -11,7 +11,7 @@ import {hasUnresolvedGatewayMainnetOperation,writeGatewayMainnetOperation,
  archiveGatewayMainnetReceipt,
  type GatewayMainnetOperation} from './gatewayMainnetJournal';
 import {activeSignedIdentityToken} from '@/lib/api/liveIdentitySession';
-import {MAINNET_CANARY_OWNER,MAINNET_CANARY_MAX_UNITS} from './releaseGates';
+import {MAINNET_CANARY_OWNER,MAINNET_CANARY_MAX_UNITS,MAINNET_PUBLIC_BETA,MAINNET_EMERGENCY_READ_ONLY} from './releaseGates';
 import {parseGatewaySdkFees,assertGatewaySdkFeesUnchanged,type GatewaySdkFee} from '@/core/gateway/gatewaySdkSpend';
 import {planGatewayMultiSource,matchingGatewayAllocation,type GatewayAllocation} from './gatewayMultiSourceAllocation';
 import {readPayFundingJourney,markPayFundingAttempt} from './payFundingJourney';
@@ -86,8 +86,12 @@ async function adapterFor(input:{provider:EIP1193Provider;owner:string;chainId:n
  * hard-coded owner and micro-canary. Changing quote access NEVER opens spend.
  */
 export function assertGatewayMainnetCanaryExecution(owner:string,amount:bigint):void{
- if(owner.toLowerCase()!==MAINNET_CANARY_OWNER.toLowerCase()||
-  amount<=0n||amount>MAINNET_CANARY_MAX_UNITS)
+ if(MAINNET_EMERGENCY_READ_ONLY)
+  throw Error('Emergency read-only recovery mode: no Gateway signing.');
+ if(!isAddress(owner)||amount<=0n)
+  throw Error('Gateway requires a valid connected sender and positive USDC amount.');
+ if(!MAINNET_PUBLIC_BETA &&
+  (owner.toLowerCase()!==MAINNET_CANARY_OWNER.toLowerCase()||amount>MAINNET_CANARY_MAX_UNITS))
   throw Error('Unified Mainnet canary requires the authorized owner and up to 0.01 USDC.');
 }
 function validate(review:GatewayMainnetReview,execution=true){

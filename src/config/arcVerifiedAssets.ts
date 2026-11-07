@@ -23,7 +23,8 @@ export type ArcCatalogSymbol=keyof typeof ARC_VERIFIED_ASSETS;
 export const ARC_VERIFIED_ASSET_LIST:readonly ArcVerifiedAsset[]=Object.values(ARC_VERIFIED_ASSETS);
 /** Fails closed on unreviewed contracts, wrong chains and symbol look-alikes. */
 export function getVerifiedArcAsset(chainId:number,address:string):ArcVerifiedAsset|null{
- if(chainId!==5042||!isAddress(address))return null;
+ // Address casing is presentation only. Compare bytes after validating the 20-byte hex shape.
+ if(chainId!==5042||!isAddress(address,{strict:false}))return null;
  return ARC_VERIFIED_ASSET_LIST.find(x=>x.contractAddress.toLowerCase()===address.toLowerCase())??null;
 }
 export function assertArcSwapCandidate(chainId:number,address:string):ArcVerifiedAsset{
