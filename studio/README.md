@@ -50,6 +50,11 @@ the snapshot.
   X, LLM, relay or signer keys and no Render/Vercel tokens are passed. It refuses to start
   when a `.env*` file would be auto-loaded, and never touches the `veyra` database.
 - Mainnet identity therefore cannot be exercised against any non-production backend.
+  `studio/e2e/identity-session.mjs` instead drives the real frontend in a browser that
+  presents the official origin while serving files from the local Preview. The backend is a
+  fake inside the test (it verifies EIP-712 signatures and wallet-bound sessions), the
+  wallet is a freshly generated throwaway key that refuses every transaction method, every
+  non-local request is aborted, and WebSockets are blocked.
 
 ## Resource limits (3.9 GB sandbox)
 
@@ -66,6 +71,7 @@ A full production build does not fit next to the Preview; Vercel builds Producti
 bash Veyra-github/studio/browser/setup.sh              # once per sandbox, no root needed
 bash Veyra-github/studio/browser/run-render-check.sh   # every page at 1280, 390 and 320 px
 bun   Veyra-github/studio/browser/module-crawl.ts      # every module reachable from main.tsx
+node  Veyra-github/studio/e2e/identity-session.mjs     # wallet + Veyra ID session scenarios (54 checks)
 ```
 
 `setup.sh` downloads Chromium, unpacks its Debian libraries and a fallback font under
