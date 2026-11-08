@@ -14,7 +14,7 @@ silently serve the snapshot instead of this repository.
 
 ```bash
 # inside the Studio workspace root
-git clone https://github.com/bearbaba/Veyra.git Veyra-github
+git clone --branch feature/mainnet-identity-authority https://github.com/bearbaba/Veyra.git Veyra-github
 bash Veyra-github/studio/bootstrap.sh --install
 ```
 
