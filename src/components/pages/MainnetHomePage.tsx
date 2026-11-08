@@ -6,7 +6,7 @@ import {erc20Abi,formatUnits} from 'viem';
 import {ArrowDownLeft,ArrowLeftRight,Copy,RefreshCw,Users,LayoutList,SendHorizontal,Route,ArrowRight,UserRound,ShieldCheck,Wallet,Check,ChevronRight} from 'lucide-react';
 import {getUsdc} from '@/onchain-facts';
 import {BrandLogo} from '../brand/BrandLogo';
-import {Card,CardHeader,Notice} from '../ui/primitives';
+import {Card,Notice} from '../ui/primitives';
 import {MainnetUnifiedBalancePanel} from './MainnetUnifiedBalancePanel';
 import {readLocalOperations,type LocalOperation} from '@/mainnet/localOperations';
 import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
@@ -130,7 +130,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  }
  return <div className="veyra-page veyra-home mx-auto w-full max-w-7xl space-y-5 px-4 py-5 md:px-7 md:py-8">
   <section className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]" aria-label="Veyra overview">
-   <div className="flex min-h-[250px] flex-col justify-center py-3 lg:pr-5">
+   <div className="flex flex-col justify-center py-3 sm:min-h-[250px] lg:pr-5">
     <p className="text-[11px] font-bold uppercase tracking-[0.25em]" style={{color:'var(--accent)'}}>WELCOME TO VEYRA</p>
     <h1 className="display mt-3 text-4xl font-bold leading-[1.08] tracking-tight sm:text-5xl xl:text-[3.45rem]" style={{color:'var(--ink)'}}>
      Your money,<span className="block veyra-headline-accent">more capable.</span>
@@ -143,7 +143,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
       </button>:<div className="self-start"><ConnectKitButton/></div>}
     </div>
    </div>
-   <div className="veyra-profile-card relative flex min-h-[257px] min-w-0 flex-col justify-between overflow-hidden rounded-2xl border p-5 max-[359px]:min-h-[273px] sm:p-6 lg:min-h-[265px]" aria-label="Your Veyra identity">
+   <div className="veyra-profile-card relative flex min-w-0 flex-col justify-between gap-4 overflow-hidden rounded-2xl border p-5 sm:min-h-[257px] sm:p-6 lg:min-h-[265px]" aria-label="Your Veyra identity">
     <div aria-hidden="true" className="veyra-profile-glow"/>
     <div className="relative z-10 flex items-start gap-3">
      <div className="flex size-14 shrink-0 items-center justify-center rounded-full border sm:size-16"
@@ -198,17 +198,17 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
    </div>
   </section>
   <Card label="Gateway balance">
-   <CardHeader title="Gateway balance" caption="Circle Gateway · held separately from your wallet USDC"/>
-   <div className="mt-3"><MainnetUnifiedBalancePanel compact standalone/></div>
+   <p className="text-xs" style={{color:'var(--muted)'}}>Circle Gateway · held separately from your wallet USDC</p>
+   <div className="mt-2"><MainnetUnifiedBalancePanel compact standalone/></div>
   </Card>
   </div>
   <section aria-label="Quick actions">
    <h2 className="sr-only">Quick actions</h2>
-   <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+   <div className="grid grid-cols-5 gap-2 sm:gap-3">
     {actions.map(item=><button key={item.id} type="button"
-     onClick={()=>selectAction(item.id)} className="veyra-action-card group flex min-h-[94px] flex-col items-start justify-center gap-2 rounded-2xl border p-4 text-left">
+     onClick={()=>selectAction(item.id)} className="veyra-action-card group flex min-h-[72px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border px-1 py-2 text-center sm:min-h-[94px] sm:items-start sm:gap-2 sm:p-4 sm:text-left">
      <span style={{color:'var(--accent)'}}>{item.icon}</span>
-     <span className="text-sm font-semibold" style={{color:'var(--ink)'}}>{item.label}</span>
+     <span className="max-w-full truncate text-[10px] font-semibold min-[360px]:text-[11px] sm:text-sm" style={{color:'var(--ink)'}}>{item.label}</span>
     </button>)}
    </div>
   </section>
