@@ -25,7 +25,7 @@ PORT_BFF="${PORT:-3001}"
 
 fail() { echo "[studio-backend] $*" >&2; exit 1; }
 
-for f in "$REPO"/.env "$REPO"/.env.local "$REPO"/.env.development "$REPO"/.env.production; do
+for f in "$REPO"/.env "$REPO"/.env.local "$REPO"/.env.development "$REPO"/.env.development.local "$REPO"/.env.production "$REPO"/.env.production.local "$REPO"/.env.test "$REPO"/.env.test.local; do
   [ -e "$f" ] && fail "$f exists and Bun would auto-load it into the backend. Remove it; the Studio backend must not inherit configuration."
 done
 command -v docker >/dev/null || fail "docker is required for the local Postgres container."
