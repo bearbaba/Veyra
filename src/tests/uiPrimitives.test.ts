@@ -47,6 +47,14 @@ describe('Mainnet Home keeps wallet and Gateway funds separate', () => {
     expect(gateway).toBeGreaterThan(walletEnd);
     expect(home).toContain('held separately from your wallet USDC');
   });
+  it('keeps the phone layout compact: one Quick actions row and no unconditional tall cards', () => {
+    expect(home).toContain('grid grid-cols-5 gap-2 sm:gap-3');
+    expect(home).not.toMatch(/grid-cols-2 gap-3 sm:grid-cols-5/);
+    // Minimum heights apply from the sm breakpoint up only; phones size to their content.
+    expect(home).not.toMatch(/className="[^"]*(?<![:\w-])min-h-\[(?:250|257|273|265|94)px\]/);
+    // Every class is a static string so Tailwind can generate it.
+    expect(home).not.toMatch(/className=\{[^}]*\$\{[^}]*(?:min-h|grid-cols|text-\[)/);
+  });
   it('shows no duplicate hero action and no developer jargon', () => {
     const hero = home.slice(home.indexOf('aria-label="Veyra overview"'), home.indexOf('aria-label="Your Veyra identity"'));
     expect(hero).not.toContain('Friends');
