@@ -72,6 +72,7 @@ bash Veyra-github/studio/browser/setup.sh              # once per sandbox, no ro
 bash Veyra-github/studio/browser/run-render-check.sh   # every page at 1280, 390 and 320 px
 bun   Veyra-github/studio/browser/module-crawl.ts      # every module reachable from main.tsx
 node  Veyra-github/studio/e2e/identity-session.mjs     # wallet + Veyra ID session scenarios (54 checks)
+node  Veyra-github/studio/e2e/layout-connected.mjs     # signed-in Home/Swap/Bridge at 1280, 390, 320 px
 ```
 
 `setup.sh` downloads Chromium, unpacks its Debian libraries and a fallback font under
