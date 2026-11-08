@@ -12,6 +12,7 @@ import {readLocalOperations,type LocalOperation} from '@/mainnet/localOperations
 import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {isMainnetSessionForWallet,scopedMainnetReceipts} from '@/mainnet/signedWalletReceiptScope';
+import {identityCardView} from '@/mainnet/identityCardState';
 import {listVerifiedMainnetPayReceipts,type MainnetPayServerReceipt} from '@/lib/api/mainnetPayReceipts';
 import {listVerifiedMainnetSettlementReceipts,type MainnetSettlementServerReceipt} from '@/lib/api/mainnetSettlementReceipts';
 import type {VeyraPage} from '../layout/AppShell';
@@ -22,6 +23,8 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  const {address,isConnected,chainId,connector}=useAccount();
  const social=useUnifiedSocial();
  const signedWallet=isMainnetSessionForWallet(social.session,address,connector?.uid);
+ const idCard=identityCardView({connected:Boolean(address),signedIn:Boolean(signedWallet),
+  origin:social.identityOrigin,restoring:social.restoring});
  const [accountReceipts,setAccountReceipts]=useState<MainnetPayServerReceipt[]>([]);
  const [settlementReceipts,setSettlementReceipts]=useState<MainnetSettlementServerReceipt[]>([]);
  const [settlementScope,setSettlementScope]=useState('');
@@ -155,15 +158,12 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
        {signedWallet&&social.identityOrigin==='ready'&&social.session?.profile.veyraHandle
         ? '@'+social.session.profile.veyraHandle+'.veyra':'Your Veyra ID'}
       </p>
-      <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
-       {signedWallet&&social.identityOrigin==='ready'?'Ready to pay and receive':
-        address?'Create your ID to pay by name':'Connect a wallet to get started'}
-      </p>
+      <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>{idCard.detail}</p>
      </div>
      <span className="hidden shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold sm:inline-flex"
-      style={{color:signedWallet&&social.identityOrigin==='ready'?'var(--success)':'var(--muted)',
+      style={{color:idCard.tone==='success'?'var(--success)':idCard.tone==='warning'?'var(--warning)':'var(--muted)',
        background:'rgba(3,18,45,.65)',borderColor:'var(--border)'}}>
-      {signedWallet&&social.identityOrigin==='ready'?'Active':'Not set up'}
+      {idCard.badge}
      </span>
     </div>
     <p className="relative z-10 mt-3 truncate text-xs" style={{color:'var(--muted)'}}>
@@ -171,7 +171,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
     </p>
     {copyError&&<p role="alert" className="relative z-10 mt-2 text-xs" style={{color:'var(--warning)'}}>Copy unavailable. Use your wallet.</p>}
     <button type="button" onClick={()=>onNavigate('social')} className="relative z-10 mt-3 inline-flex items-center gap-1 text-xs font-semibold"
-     style={{color:'var(--accent)'}}>{signedWallet&&social.identityOrigin==='ready'?'Manage identity':'Set up Veyra ID'} <ChevronRight className="size-4"/></button>
+     style={{color:'var(--accent)'}}>{idCard.cta} <ChevronRight className="size-4"/></button>
    </div>
   </section>
  <div className="grid items-start gap-4 lg:grid-cols-2">
