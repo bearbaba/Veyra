@@ -44,6 +44,11 @@ fi
 export GOMEMLIMIT="${GOMEMLIMIT:-700MiB}"
 export GOGC="${GOGC:-50}"
 
+# Studio Preview must never inherit hosted-production metadata from its parent
+# shell: the runtime must remain a development preview even if launched from a
+# shell used for production diagnostics.
+unset VERCEL_ENV VERCEL_GIT_COMMIT_SHA
+
 branch="$(git -C "$REPO" branch --show-current 2>/dev/null || echo '?')"
 commit="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '?')"
 echo "[studio] Serving $REPO @ $branch ($commit) as VITE_VEYRA_ENV=$VITE_VEYRA_ENV; esbuild heap capped at $GOMEMLIMIT"
