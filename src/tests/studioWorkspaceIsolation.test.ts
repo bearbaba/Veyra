@@ -82,6 +82,7 @@ describe('Studio launchers keep development isolated from Production', () => {
 
   it('Preview launcher: one capped Vite process on the repo Mainnet profile', () => {
     expect(dev).toContain('GOMEMLIMIT');
+    expect(dev).toContain('unset VERCEL_ENV VERCEL_GIT_COMMIT_SHA');
     expect(dev).toContain('--strictPort');
     expect(dev).toContain('exec bun run --cwd "$REPO" dev');
     expect(dev).toContain('scripts/build-mainnet-pilot.ts');
@@ -94,6 +95,8 @@ describe('Studio launchers keep development isolated from Production', () => {
     expect(backend).toContain('@127.0.0.1:5432/${DB_NAME}');
     expect(backend).toContain('DB_NAME="veyra_studio_dev"');
     expect(backend).toMatch(/\.env\.production/);
+    expect(backend).toContain('"$REPO"/.env.development.local');
+    expect(backend).toContain('"$REPO"/.env.production.local');
     expect(backend).not.toMatch(/VEYRA_ENV=(mainnet|testnet)/);
     expect(backend).not.toMatch(/VEYRA_HOSTED_BACKEND|VEYRA_MAINNET_IDENTITY_ONLY/);
     expect(backend).not.toMatch(/CIRCLE_API|CIRCLE_ENTITY|X_CLIENT|RELAY_PRIVATE|ANTHROPIC|OPENAI|SIGNER|RPC_PROXY|onrender\.com|vercel\.app/);
