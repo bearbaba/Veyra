@@ -99,6 +99,14 @@ export function createFakeBackend({ registered }) {
         return json(route, 200, { ok: true, profile: users.get(wallet) });
       }
 
+      // Cross-device Pay journal. No journey yet is `journey: null`; the client then allows
+      // signing. Requires a valid session like the real route (401 otherwise).
+      case 'GET /api/mainnet/pay/journeys': {
+        const token = (request.headers().authorization ?? '').replace(/^Bearer\s+/i, '');
+        if (!tokens.get(token)) return json(route, 401, { ok: false, error: 'AUTH_REQUIRED' });
+        return json(route, 200, { ok: true, journey: null });
+      }
+
       case 'POST /api/auth/session/logout':
         cookieWallet = null;
         return json(route, 200, { ok: true });

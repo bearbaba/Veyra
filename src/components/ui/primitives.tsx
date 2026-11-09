@@ -73,22 +73,30 @@ export function txStageIndex(stage: TxStage): number {
 export function TxStepper({ stage, stalled = false }: { stage: TxStage; stalled?: boolean }) {
   const current = txStageIndex(stage);
   return (
-    <ol aria-label="Transaction progress" className="flex items-center gap-1.5">
-      {TX_STAGES.map((name, index) => {
-        const done = index < current || (index === current && stage === 'Verified');
-        const active = index === current && !done;
-        return (
-          <li key={name} className="flex min-w-0 flex-1 flex-col gap-1.5" aria-current={active ? 'step' : undefined}>
-            <span className="h-1 rounded-full" aria-hidden="true"
-              style={{ background: done || active ? (stalled && active ? 'var(--warning)' : 'var(--accent)') : 'var(--border)' }} />
-            <span className={`truncate text-[11px] ${active ? 'font-semibold max-[389px]:block' : 'max-[389px]:hidden'}`}
-              style={{ color: active ? 'var(--ink)' : 'var(--muted)' }}>
-              {name}
-            </span>
-          </li>
-        );
-      })}
-      {stalled && <li className="sr-only">Outcome not yet confirmed. Do not submit again.</li>}
-    </ol>
+    <div>
+      <ol aria-label="Transaction progress" className="flex items-center gap-1.5">
+        {TX_STAGES.map((name, index) => {
+          const done = index < current || (index === current && stage === 'Verified');
+          const active = index === current && !done;
+          return (
+            <li key={name} className="flex min-w-0 flex-1 flex-col gap-1.5" aria-current={active ? 'step' : undefined}>
+              <span className="h-1 rounded-full" aria-hidden="true"
+                style={{ background: done || active ? (stalled && active ? 'var(--warning)' : 'var(--accent)') : 'var(--border)' }} />
+              {/* Each segment is ~58 px wide on a phone, too narrow for its label: phones get one
+                  readable line below instead (screen readers still get every label). */}
+              <span className={`sr-only sm:not-sr-only sm:truncate sm:text-[11px] ${active ? 'sm:font-semibold' : ''}`}
+                style={{ color: active ? 'var(--ink)' : 'var(--muted)' }}>
+                {name}
+              </span>
+            </li>
+          );
+        })}
+        {stalled && <li className="sr-only">Outcome not yet confirmed. Do not submit again.</li>}
+      </ol>
+      <p aria-hidden="true" className="mt-1.5 text-[11px] font-semibold sm:hidden"
+        style={{ color: stalled ? 'var(--warning)' : 'var(--ink)' }}>
+        Step {current + 1} of {TX_STAGES.length} · {stage}
+      </p>
+    </div>
   );
 }
