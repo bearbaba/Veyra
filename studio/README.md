@@ -56,6 +56,11 @@ the snapshot.
   wallet is a freshly generated throwaway key that refuses every transaction method, every
   non-local request is aborted, and WebSockets are blocked.
 
+  Chain reads may reach the real Arc Mainnet node, because Pay's contract gate must see the
+  real deployed code. Only a fixed list of read-only JSON-RPC methods is forwarded; every send
+  or signing method is refused locally. The throwaway wallet's USDC balance is the one value
+  replaced (25 USDC), by patching the multicall result the app batches its reads into.
+
 ## Resource limits (3.9 GB sandbox)
 
 esbuild is a Go program; uncapped, its heap grows to about 2 GB and the kernel kills it.
@@ -73,6 +78,7 @@ bash Veyra-github/studio/browser/run-render-check.sh   # every page at 1280, 390
 bun   Veyra-github/studio/browser/module-crawl.ts      # every module reachable from main.tsx
 node  Veyra-github/studio/e2e/identity-session.mjs     # wallet + Veyra ID session scenarios (54 checks)
 node  Veyra-github/studio/e2e/layout-connected.mjs     # signed-in Home/Swap/Bridge at 1280, 390, 320 px
+node  Veyra-github/studio/e2e/settlement-gate.mjs      # Pay's contract gate vs a misbehaving node (14 checks)
 ```
 
 `setup.sh` downloads Chromium, unpacks its Debian libraries and a fallback font under
