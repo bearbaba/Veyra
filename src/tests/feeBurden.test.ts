@@ -23,7 +23,12 @@ describe('Transfer fee burden', () => {
   });
   it('is display-only and shown in the Bridge review without altering signing', () => {
     const page = readFileSync(new URL('../components/pages/MainnetCirclePage.tsx', import.meta.url), 'utf8');
-    expect(page).toContain('assessFeeBurden(quote.amount,quote.bridgeMaxFee)');
+    // The warning is computed by the shared quote summary, on the CCTP fee cap for a Bridge.
+    expect(page).toContain('summarizeQuote(');
+    expect(page).toContain('feeBurdenMessage(summary.burden,summary.burdenSubject)');
+    const summary = readFileSync(new URL('../mainnet/quoteSummary.ts', import.meta.url), 'utf8');
+    expect(summary).toContain('assessFeeBurden(input.amount, input.bridgeMaxFee)');
+    expect(summary).not.toMatch(/throw|signNow|writeContract/);
     expect(page).toContain("quote&&!quoteExpired?signNow()");
     const guard = readFileSync(new URL('../mainnet/feeBurden.ts', import.meta.url), 'utf8');
     expect(guard).not.toMatch(/throw|signNow|writeContract/);

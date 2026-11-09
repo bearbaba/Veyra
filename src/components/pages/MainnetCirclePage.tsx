@@ -4,7 +4,7 @@
  * The SDK may submit multiple transactions; local recovery locks prevent blind repeats.
  * VERIFIED requires independently checked destination USDC or swap output logs.
  */
-import {useEffect,useRef,useState,type ReactNode} from 'react';
+import {Fragment,useEffect,useRef,useState,type ReactNode} from 'react';
 import {AppKit} from '@circle-fin/app-kit';
 import {createViemAdapterFromProvider} from '@circle-fin/adapter-viem-v2';
 import {useAccount,usePublicClient,useReadContract,useSwitchChain} from 'wagmi';
@@ -24,7 +24,9 @@ import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked,findCctpDestinationMintHash} from '@/mainnet/verifyCctpBridgeLink';
 import {assertMainnetConsumerSigningAllowed,MAINNET_PUBLIC_BETA,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
 import {readBridgeQuoteAmounts,assertBridgeQuoteWithinReviewedCap} from '@/mainnet/bridgeQuoteGuard';
-import {assessFeeBurden,feeBurdenMessage} from '@/mainnet/feeBurden';
+import {feeBurdenMessage} from '@/mainnet/feeBurden';
+import {exchangeSigningBlock,signingNotice,type SigningBlock} from '@/mainnet/exchangeSigningGate';
+import {summarizeQuote} from '@/mainnet/quoteSummary';
 import {Notice} from '@/components/ui/primitives';
 
 const kit=new AppKit();
@@ -40,9 +42,12 @@ const BRIDGE_WRITE_ENABLED=__VEYRA_RELEASE_ENV__==='production' &&
  import.meta.env.VITE_VEYRA_MAINNET_BRIDGE_E2E_ACCEPTED==='1'));
 type Mode='swap'|'bridge';
 /** Keep display readiness and the signing decision on the same release gates. */
+export function circleSigningBlock(mode:Mode):SigningBlock|null{
+ return exchangeSigningBlock({releaseEnv:__VEYRA_RELEASE_ENV__,emergencyReadOnly:MAINNET_EMERGENCY_READ_ONLY,
+  publicBeta:MAINNET_PUBLIC_BETA,bridgeWriteEnabled:BRIDGE_WRITE_ENABLED,mode});
+}
 export function isCircleSigningReady(mode:Mode):boolean{
- return __VEYRA_RELEASE_ENV__==='production'&&!MAINNET_EMERGENCY_READ_ONLY&&
-  MAINNET_PUBLIC_BETA&&(mode==='swap'||BRIDGE_WRITE_ENABLED);
+ return circleSigningBlock(mode)===null;
 }
 type Token='USDC'|'EURC';
 export type ExchangeExecutionSelection={fromChainId:number;toChainId:number;fromToken:Token;toToken:Token};
@@ -129,7 +134,9 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
  });
  const title=mode==='swap'?'Swap':'Bridge';
  // A quote is informational. Mainnet pilot forbids signatures for Swap/Bridge.
- const signingReady=isCircleSigningReady(mode);
+ const signingBlock=circleSigningBlock(mode);
+ const signingReady=signingBlock===null;
+ const notice=signingBlock?signingNotice(signingBlock):null;
  useEffect(()=>{
   setQuote(null);setProof('');setError('');setManualMint('');setManualSource('');
   if(!address){setRecovery(null);setUnknownStorage(false);return;}
@@ -480,7 +487,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     </div>
     {mode==='swap'&&receiveSelector}
     <div className="space-y-2 rounded-xl border p-3" style={{background:'var(--surface-raised)',borderColor:'var(--border)'}}>
-     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>{mode==='bridge'?'MINIMUM RECEIVE':'YOU RECEIVE'} · {mode==='swap'?toToken:'USDC'}{mode==='bridge'?' · '+label(selectedDest):''}</p>
+     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU RECEIVE · {mode==='swap'?toToken:'USDC'}{mode==='bridge'?' · '+label(selectedDest):''}</p>
      <p className="display text-2xl font-bold tabular-nums" style={{color:'var(--ink)'}}>
       {quote&&!quoteExpired?quote.expected:'—'}
       <span className="ml-2 text-sm" style={{color:'var(--muted)'}}>{mode==='swap'?toToken:'USDC'}</span>
@@ -490,25 +497,38 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     {!recovery&&!unknownStorage&&<div className="space-y-2" aria-label="Transaction action">
      <button type="button" aria-live="polite"
       disabled={busy||!validAmount(amount)||!!quote&&!quoteExpired&&!signingReady}
-      className="veyra-btn-primary flex min-h-12 w-full items-center justify-center gap-2 disabled:opacity-40"
+      className={'veyra-btn-primary flex min-h-12 w-full items-center justify-center gap-2 '+
+       (quote&&!quoteExpired&&!signingReady?'disabled:opacity-80':'disabled:opacity-40')}
       onClick={()=>void(quote&&!quoteExpired?signNow():quoteNow())}>
       {busy&&<RefreshCw className="size-4 animate-spin" aria-hidden="true"/>}
       {busy?(quote&&!quoteExpired?'Checking live quote…':'Getting live quote…'):
-       quote&&!quoteExpired?'Confirm in wallet':quoteExpired?'Refresh quote':
+       quote&&!quoteExpired?(signingReady?'Confirm in wallet':(notice?.buttonLabel??'Signing unavailable')):quoteExpired?'Refresh quote':
        mode==='swap'?'Review swap':'Review bridge'}
      </button>
      {quote&&!quoteExpired&&<div role="status" aria-label="Live provider quote"
        className="rounded-xl border px-3 py-2.5 text-xs"
        style={{borderColor:'var(--border)',background:'var(--surface-raised)',color:'var(--muted)'}}>
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-       <span className="font-semibold" style={{color:'var(--ink)'}}>Minimum {quote.minimum} {mode==='swap'?quote.toToken:'USDC'}</span>
-       <span>{Math.max(0,30-Math.floor((quoteClock-quote.at)/1000))}s · Live quote</span>
-      </div>
-      <p className="mt-1">Fee: {quote.fees.length?quote.fees.join(' · '):'Unavailable'}</p>
       {(()=>{
-       const burden=quote.mode==='bridge'&&quote.bridgeMaxFee!==undefined?assessFeeBurden(quote.amount,quote.bridgeMaxFee):null;
-       const message=burden?feeBurdenMessage(burden):null;
-       return message?<div className="mt-2"><Notice tone="warning">{message}</Notice></div>:null;
+       const summary=summarizeQuote({mode:quote.mode,amount:quote.amount,fromToken:quote.fromToken,
+        toToken:quote.mode==='swap'?quote.toToken:'USDC',expected:quote.expected,minimum:quote.minimum,
+        fees:quote.fees,...(quote.bridgeMaxFee!==undefined?{bridgeMaxFee:quote.bridgeMaxFee}:{})});
+       const message=summary.burden?feeBurdenMessage(summary.burden,summary.burdenSubject):null;
+       return <>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+         <span className="font-semibold" style={{color:'var(--ink)'}}>Live quote</span>
+         <span>{Math.max(0,30-Math.floor((quoteClock-quote.at)/1000))}s left</span>
+        </div>
+        <dl className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5" aria-label="Quote breakdown">
+         {summary.rows.map((r,i)=><Fragment key={i}>
+          <dt style={{color:r.strong?'var(--ink)':undefined}} className={r.strong?'font-semibold':undefined}>
+           {r.label}{r.note&&<span className="block text-[11px] font-normal opacity-80">{r.note}</span>}
+          </dt>
+          <dd className={'text-right tabular-nums whitespace-nowrap'+(r.strong?' font-semibold':'')}
+           style={{color:r.muted?'var(--muted)':'var(--ink)'}}>{r.value}</dd>
+         </Fragment>)}
+        </dl>
+        {message&&<div className="mt-2"><Notice tone="warning">{message}</Notice></div>}
+       </>;
       })()}
       <details className="mt-1"><summary className="cursor-pointer font-semibold">Fee & route details</summary>
        <div className="mt-2 space-y-1 break-all">
@@ -520,8 +540,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
         <p>Network gas and wallet approvals are reviewed before signing.</p>
        </div>
       </details>
-      {!signingReady&&<p role="status" className="mt-1" style={{color:'var(--warning)'}}>
-       Quotes only. Signing is paused.</p>}
+      {!signingReady&&notice&&<p role="status" className="mt-2" style={{color:'var(--warning)'}}>{notice.compact}</p>}
      </div>}
      {quoteExpired&&<p role="status" className="text-xs" style={{color:'var(--warning)'}}>
       Quote expired. Refresh before signing. No transaction was submitted.

@@ -61,6 +61,10 @@ the snapshot.
   or signing method is refused locally. The throwaway wallet's USDC balance is the one value
   replaced (25 USDC), by patching the multicall result the app batches its reads into.
 
+  Suites that ask for `circleQuotes` also let Circle's quote hosts (`api.circle.com`,
+  `gateway-api.circle.com`, `iris-api.circle.com`) through. Those are read-only estimates for the
+  throwaway address; no funds exist, and the wallet still refuses every send and signature.
+
 ## Resource limits (3.9 GB sandbox)
 
 esbuild is a Go program; uncapped, its heap grows to about 2 GB and the kernel kills it.
@@ -79,6 +83,7 @@ bun   Veyra-github/studio/browser/module-crawl.ts      # every module reachable 
 node  Veyra-github/studio/e2e/identity-session.mjs     # wallet + Veyra ID session scenarios (54 checks)
 node  Veyra-github/studio/e2e/layout-connected.mjs     # signed-in Home/Swap/Bridge at 1280, 390, 320 px
 node  Veyra-github/studio/e2e/settlement-gate.mjs      # Pay's contract gate vs a misbehaving node (14 checks)
+node  Veyra-github/studio/e2e/exchange-preview.mjs     # Swap/Bridge quotes, fee breakdown and Preview notice (live quotes; SKIPPED if Circle is down)
 ```
 
 `setup.sh` downloads Chromium, unpacks its Debian libraries and a fallback font under

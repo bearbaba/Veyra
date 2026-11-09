@@ -61,13 +61,24 @@ async function patchedMulticall(call, walletAddress) {
   const data = String(call.params[0].data);
   const { args } = viem.decodeFunctionData({ abi: viem.multicall3Abi, data });
   const subcalls = args[0];
-  const targets = subcalls.map((c, i) => ({ i, hit: c.target.toLowerCase() === ARC_USDC && c.callData.toLowerCase().startsWith(BALANCE_OF) && c.callData.toLowerCase().endsWith(me.slice(2)) }));
-  if (!targets.some((t) => t.hit)) return undefined;
+  // Which sub-reads belong to the throwaway wallet: its USDC balanceOf, and its native balance
+  // (multicall3 getEthBalance, which viem uses for getBalance when it batches).
+  const MULTICALL3 = '0xca11bde05977b3631167028862be2a173976ca11';
+  const GET_ETH_BALANCE = '0x4d2301cc';
+  const answerFor = (c) => {
+    const target = c.target.toLowerCase();
+    const data = c.callData.toLowerCase();
+    if (target === ARC_USDC && data.startsWith(BALANCE_OF) && data.endsWith(me.slice(2))) return word(25_000_000);
+    if (target === MULTICALL3 && data.startsWith(GET_ETH_BALANCE) && data.endsWith(me.slice(2))) return word(25n * 10n ** 18n);
+    return null;
+  };
+  const patches = subcalls.map(answerFor);
+  if (!patches.some((x) => x !== null)) return undefined;
   const r = await fetch(ARC_MAINNET_RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: call.params }) });
   const body = await r.json();
   if (!body.result) return undefined;
   const results = viem.decodeFunctionResult({ abi: viem.multicall3Abi, functionName: 'aggregate3', data: body.result });
-  const patched = results.map((x, i) => (targets[i].hit ? { success: true, returnData: word(25_000_000) } : x));
+  const patched = results.map((x, i) => (patches[i] ? { success: true, returnData: patches[i] } : x));
   return viem.encodeFunctionResult({ abi: viem.multicall3Abi, functionName: 'aggregate3', result: patched });
 }
 
@@ -77,6 +88,7 @@ async function answerRpc(calls, funded, walletAddress, faults, stats) {
   for (const c of calls) {
     if (!READ_ONLY.has(c.method)) { results.set(c.id, { error: { code: -32601, message: `refused by test harness: ${c.method}` } }); continue; }
     stats.calls[c.method] = (stats.calls[c.method] ?? 0) + 1;
+    if (process.env.STUDIO_RPC_TRACE) console.log('  rpc', c.method, JSON.stringify(c.params ?? []).slice(0, 150));
     let o = overrideFor(c, funded, walletAddress, faults, stats);
     if (o === undefined && funded && c.method === 'eth_call' && String(c.params?.[0]?.data ?? '').toLowerCase().startsWith(MULTICALL_SELECTOR)) {
       try { o = await patchedMulticall(c, walletAddress); } catch { o = undefined; }
@@ -95,8 +107,25 @@ async function answerRpc(calls, funded, walletAddress, faults, stats) {
   return calls.map((c) => ({ jsonrpc: '2.0', id: c.id, ...(results.get(c.id) ?? { error: { code: -32000, message: 'no answer' } }) }));
 }
 
-export async function openApp({ backend, wallet, viewport = { width: 1280, height: 900 }, funded = false, faults = null }) {
+async function forwardCircle(route, log) {
+  const request = route.request();
+  const url = new URL(request.url());
+  const headers = { ...request.headers() };
+  delete headers.host; delete headers['content-length']; delete headers.origin; delete headers.referer;
+  try {
+    const response = await fetch(request.url(), { method: request.method(), headers, body: request.postData() ?? undefined, signal: AbortSignal.timeout(20000) });
+    const body = Buffer.from(await response.arrayBuffer());
+    log.push({ method: request.method(), path: url.pathname, status: response.status, requestBody: request.postData()?.slice(0, 600) ?? null, responseBody: body.toString('utf8').slice(0, 2500) });
+    return route.fulfill({ status: response.status, headers: { 'content-type': response.headers.get('content-type') ?? 'application/json', 'access-control-allow-origin': '*' }, body });
+  } catch (error) {
+    log.push({ method: request.method(), path: url.pathname, status: 'failed', error: String(error).slice(0, 120) });
+    return route.abort();
+  }
+}
+
+export async function openApp({ backend, wallet, viewport = { width: 1280, height: 900 }, funded = false, faults = null, circleQuotes = false }) {
   const rpcStats = { calls: {}, nullsServed: 0 };
+  const circleCalls = [];
   const browser = await chromium.launch({
     env: { ...process.env, LD_LIBRARY_PATH: '/tmp/chromelibs/usr/lib/x86_64-linux-gnu', FONTCONFIG_FILE: '/tmp/fonts.conf' },
   });
@@ -108,9 +137,13 @@ export async function openApp({ backend, wallet, viewport = { width: 1280, heigh
   page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${String(e.message).slice(0, 200)}`));
 
   // Nothing may leave the sandbox except the mocked RPC: abort everything else, record it.
+  // Optional, narrow exception: Circle's quote service (an estimate for the throwaway address; no
+  // funds, and the wallet still refuses every send). Only these hosts are forwarded, and only when asked.
+  const CIRCLE_HOSTS = new Set(['api.circle.com', 'gateway-api.circle.com', 'iris-api.circle.com']);
   await context.route('**/*', (route) => {
     const url = new URL(route.request().url());
     if (url.hostname === 'localhost') return route.continue();
+    if (circleQuotes && CIRCLE_HOSTS.has(url.hostname)) return forwardCircle(route, circleCalls);
     external.push(url.hostname);
     return route.abort();
   });
@@ -130,7 +163,7 @@ export async function openApp({ backend, wallet, viewport = { width: 1280, heigh
   });
   await page.routeWebSocket(/.*/, (ws) => ws.close());      // Vite HMR must not reach the real site
   await wallet.install(context, page);
-  return { browser, context, page, consoleErrors, external, rpcStats };
+  return { browser, context, page, consoleErrors, external, rpcStats, circleCalls };
 }
 
 export const goto = async (page, path = '/') => {
