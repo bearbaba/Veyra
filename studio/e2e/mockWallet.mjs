@@ -18,6 +18,8 @@ export function createWalletKit(count = 2) {
   const prompts = [];       // identity signatures the wallet was asked for
   const forbidden = [];     // transaction-type requests (must stay empty)
   const log = [];
+  const methods = [];       // every method the app called on the wallet, in order
+  const switches = [];      // chain ids the app asked the wallet to switch to
 
   const address = () => accounts[state.active].address;
 
@@ -40,12 +42,20 @@ export function createWalletKit(count = 2) {
     await context.exposeFunction('__mockDisconnect', () => { state.connected = false; log.push('disconnect'); });
     await context.exposeFunction('__mockSign', (addr, json) => sign(addr, json));
     await context.exposeFunction('__mockForbidden', (method) => { forbidden.push(method); });
+    await context.exposeFunction('__mockRecord', (method) => { methods.push(method); });
+    await context.exposeFunction('__mockSwitch', (hexChain) => {
+      const id = Number.parseInt(String(hexChain), 16);
+      switches.push(id);
+      state.chainId = id;
+      return `0x${id.toString(16)}`;
+    });
     await context.addInitScript(() => {
       const listeners = new Map();
       const hex = (n) => `0x${Number(n).toString(16)}`;
       const provider = {
         isMetaMask: false,
         async request({ method, params }) {
+          window.__mockRecord(method);
           const s = await window.__mockState();
           switch (method) {
             case 'eth_chainId': return hex(s.chainId);
@@ -54,7 +64,11 @@ export function createWalletKit(count = 2) {
             case 'eth_requestAccounts': await window.__mockConnect(); return [s.address];
             case 'wallet_requestPermissions': await window.__mockConnect(); return [{ parentCapability: 'eth_accounts' }];
             case 'wallet_getPermissions': return s.connected ? [{ parentCapability: 'eth_accounts' }] : [];
-            case 'wallet_switchEthereumChain': return null;
+            case 'wallet_switchEthereumChain': {
+              const id = await window.__mockSwitch(params?.[0]?.chainId);
+              window.__mockEmit('chainChanged', id);
+              return null;
+            }
             case 'eth_signTypedData_v4': return window.__mockSign(params[0], params[1]);
             default:
               if (['eth_sendTransaction', 'eth_sendRawTransaction', 'eth_signTransaction', 'personal_sign',
@@ -76,12 +90,17 @@ export function createWalletKit(count = 2) {
   }
 
   return {
-    accounts, prompts, forbidden, log, state, install,
+    accounts, prompts, forbidden, log, methods, switches, state, install,
     get address() { return address(); },
     addressOf: (i) => accounts[i].address,
     async switchAccount(page, index) {
       state.active = index;
       await page.evaluate((a) => window.__mockEmit('accountsChanged', [a]), address());
+    },
+    /** The USER changes network inside their wallet (not a request from the app, so it is not logged in `switches`). */
+    async userSwitchesChain(page, id) {
+      state.chainId = id;
+      await page.evaluate((h) => window.__mockEmit('chainChanged', h), `0x${id.toString(16)}`);
     },
     async disconnectFromWallet(page) {
       state.connected = false;

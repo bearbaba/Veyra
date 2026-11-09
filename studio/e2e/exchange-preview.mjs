@@ -68,6 +68,7 @@ async function run({ mode, amount, vp, tag, expectWarning }) {
     await page.screenshot({ path: `/tmp/shots/exchange-${mode}-${tag}.png`, fullPage: true });
   } finally {
     check('wallet was never asked to sign or send anything', wallet.forbidden.length === 0 && wallet.prompts.length === 0, JSON.stringify({ forbidden: wallet.forbidden, prompts: wallet.prompts.length }));
+    check('the app never asked the wallet to change network in Preview', wallet.switches.length === 0, JSON.stringify(wallet.switches));
     await app.browser.close();
   }
 }
