@@ -19,10 +19,12 @@ describe('Shared transaction lifecycle', () => {
   });
   it('uses statically discoverable Tailwind classes for the small-screen stage labels', () => {
     const html = renderToStaticMarkup(createElement(TxStepper, { stage: 'Review' }));
-    expect(html).toContain('max-[389px]:block');
-    expect(html).toContain('max-[389px]:hidden');
-    const source = read('src/components/ui/primitives.tsx');
-    expect(source).not.toContain("max-[389px]:\u0024{");
+    // Phones get one readable line; every label stays available to screen readers and from sm up.
+    expect(html).toContain('Step 2 of 5 · Review');
+    expect(html).toContain('sr-only sm:not-sr-only');
+    // Tailwind only generates classes it can see as complete strings: never build them dynamically.
+    const source = readFileSync(new URL('../components/ui/primitives.tsx', import.meta.url), 'utf8');
+    expect(source).not.toMatch(/(?:sm|max-\[\d+px\]):\u0024\{/);
   });
   it('never marks a step current once the transaction is Verified', () => {
     expect(renderToStaticMarkup(createElement(TxStepper, { stage: 'Verified' }))).not.toContain('aria-current');

@@ -92,6 +92,7 @@ import { gasNativeToUsdcMicro, fmtGasUsdc } from '@/lib/settlementGas';
 import { settlementStageView, type SettlementStep } from '@/lib/settlementStage';
 import { TxStepper } from '@/components/ui/primitives';
 import {arcReviewedPayGasBudget,assertArcLivePayFunds} from '@/mainnet/arcSharedUsdcFunding';
+import { DeploymentVerificationError, describeDeploymentCheckFailure, runDeploymentCheckWithRetry } from '@/lib/deploymentCheckRetry';
 import {
   verifyPaymentReceipt,
   type VerifySnapshot,
@@ -129,18 +130,22 @@ function fmtUsdc(raw: bigint): string {
   return formatUnits(raw, USDC_DECIMALS).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 }
 
-function ReviewRow({ label, value, mono = false, accent = false, warn = false }: {
+function ReviewRow({ label, value, mono = false, accent = false, warn = false, money = false }: {
   label: string;
   value: React.ReactNode;
   mono?: boolean;
   accent?: boolean;
   warn?: boolean;
+  /** An amount: never split across lines (the label wraps instead). */
+  money?: boolean;
 }) {
+  // Only addresses and hashes may break inside the string. Amounts stay whole; other text breaks at spaces.
+  const valueWrap = money ? 'whitespace-nowrap shrink-0' : mono ? 'break-all' : 'break-words';
   return (
     <div className="px-4 py-3 flex justify-between items-center gap-3">
-      <span className="text-xs text-white/50 shrink-0">{label}</span>
+      <span className={`text-xs text-white/50 ${money ? 'min-w-0' : 'shrink-0'}`}>{label}</span>
       <span className={
-        `text-sm text-right break-all ` +
+        `text-sm text-right ${valueWrap} ` +
         `${mono ? 'font-mono' : 'font-medium'} ` +
         `${accent ? 'text-emerald-300' : warn ? 'text-amber-300' : 'text-white'}`
       }>
@@ -281,17 +286,18 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
   // of the exact user-authorized deployment. A registry address alone is never proof.
   const [mainnetDeploymentStatus, setMainnetDeploymentStatus] = useState<'checking'|'verified'|'failed'>('checking');
   const [mainnetDeploymentMessage, setMainnetDeploymentMessage] = useState<string>('');
+  const [mainnetDeploymentDetail, setMainnetDeploymentDetail] = useState<string | null>(null);
   const [deploymentCheckGeneration, setDeploymentCheckGeneration] = useState(0);
 
   async function validateMainnetDeployment() {
     if (!deployment || !publicClient || chainId !== ARC_MAINNET_CHAIN_ID) {
-      throw new Error('Arc Mainnet provider or deployed address is unavailable.');
+      throw new DeploymentVerificationError('Arc Mainnet provider or deployed address is unavailable.');
     }
     if (await publicClient.getChainId() !== ARC_MAINNET_CHAIN_ID) {
-      throw new Error('RPC network is not Arc Mainnet (5042).');
+      throw new DeploymentVerificationError('RPC network is not Arc Mainnet (5042).');
     }
     if (keccak256(VEYRA_SETTLEMENT_CREATION_BYTECODE) !== VEYRA_SETTLEMENT_CREATION_KECCAK) {
-      throw new Error('Creation bytecode does not match reproducible build.');
+      throw new DeploymentVerificationError('Creation bytecode does not match reproducible build.');
     }
     const expectedInput = encodeDeployData({
       abi: parseAbi(['constructor(address usdc_,address initialOwner,address feeRecipient_,uint16 feeBps_)']),
@@ -315,7 +321,7 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
         String(chainOwner).toLowerCase() !== VEYRA_SETTLEMENT_MAINNET_OWNER.toLowerCase() ||
         String(token).toLowerCase() !== ARC_MAINNET_USDC.toLowerCase() ||
         BigInt(fee as bigint) !== 0n || paused !== false) {
-      throw new Error('Deployment transaction, runtime, owner, USDC, fee, or pause state failed verification.');
+      throw new DeploymentVerificationError('Deployment transaction, runtime, owner, USDC, fee, or pause state failed verification.');
     }
   }
 
@@ -328,12 +334,25 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
     let cancelled = false;
     setMainnetDeploymentStatus('checking');
     setMainnetDeploymentMessage('');
-    validateMainnetDeployment().then(() => {
-      if (!cancelled) setMainnetDeploymentStatus('verified');
+    setMainnetDeploymentDetail(null);
+    // Transient RPC misses are retried with the complete, identical verification; a genuine
+    // mismatch fails at once. Signing stays disabled until every check has passed.
+    runDeploymentCheckWithRetry(validateMainnetDeployment, {
+      isCancelled: () => cancelled,
+      onRetry: (retry, total) => {
+        if (!cancelled) setMainnetDeploymentMessage(`Rechecking the contract on Arc Mainnet (${retry}/${total})…`);
+      },
+    }).then(() => {
+      if (!cancelled) {
+        setMainnetDeploymentMessage('');
+        setMainnetDeploymentStatus('verified');
+      }
     }).catch(e => {
       if (!cancelled) {
+        const view = describeDeploymentCheckFailure(e);
         setMainnetDeploymentStatus('failed');
-        setMainnetDeploymentMessage(e instanceof Error ? e.message : 'Mainnet verification failed.');
+        setMainnetDeploymentMessage(view.summary);
+        setMainnetDeploymentDetail(view.detail);
       }
     });
     return () => {cancelled = true;};
@@ -1309,12 +1328,13 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
       <ReviewRow
         label={label}
         warn
+        money
         value={
           loading
             ? <span className="text-white/40 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />estimating…</span>
             : error || native === 0n
               ? <span className="text-amber-300/60">estimation unavailable</span>
-              : fmtGasUsdc(native) + ' (gas)'
+              : fmtGasUsdc(native)
         }
       />
     );
@@ -1399,6 +1419,12 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
                 : 'Mainnet contract verification failed — all signing disabled'}
             </p>
             {mainnetDeploymentMessage && <p className="text-xs text-amber-200">{mainnetDeploymentMessage}</p>}
+            {mainnetDeploymentDetail && (
+              <details className="text-xs text-amber-200/80">
+                <summary className="cursor-pointer">Technical detail</summary>
+                <p className="mt-1 break-words">{mainnetDeploymentDetail}</p>
+              </details>
+            )}
             <button type="button" className="text-xs underline text-amber-300"
               onClick={() => setDeploymentCheckGeneration(g => g+1)}>Retry Mainnet verification</button>
           </div>
@@ -1529,15 +1555,15 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
               <ReviewRow label="To" value={snapshot.verifiedRecipient?.veyraHandle
                 ? '@'+snapshot.verifiedRecipient.veyraHandle+'.veyra'
                 : <span className="font-mono">{snapshot.recipient.slice(0,10)}…{snapshot.recipient.slice(-6)}</span>} />
-              <ReviewRow label="Amount" value={`${fmtUsdc(snapshot.amountParsed)} USDC`} />
-              <ReviewRow label="Fee" value={`${fmtUsdc(snapshot.feeAmount)} USDC (${snapshot.feePercent}%)`} />
-              <ReviewRow label="Recipient receives" value={`${fmtUsdc(snapshot.netAmount)} USDC`} accent />
-              <ReviewRow label="Total sent" value={`${fmtUsdc(snapshot.amountParsed)} USDC`} />
+              <ReviewRow label="Amount" value={`${fmtUsdc(snapshot.amountParsed)} USDC`} money />
+              <ReviewRow label="Fee" value={`${fmtUsdc(snapshot.feeAmount)} USDC (${snapshot.feePercent}%)`} money />
+              <ReviewRow label="Recipient receives" value={`${fmtUsdc(snapshot.netAmount)} USDC`} money accent />
+              <ReviewRow label="Total sent" value={`${fmtUsdc(snapshot.amountParsed)} USDC`} money />
             </div>
             <div className="rounded-xl border divide-y" style={{background:'var(--surface)',borderColor:'var(--border)'}}>
-              {needsApproval && <GasRow label="Approve network fee (est.)"
+              {needsApproval && <GasRow label="Approval network fee"
                 native={snapshot.approveGasNative} loading={approveGasLoading} error={false}/>}
-              <GasRow label={snapshot.gasEstimateProvisional?'Payment gas budget (provisional)':'Payment network fee (est.)'}
+              <GasRow label={snapshot.gasEstimateProvisional?'Payment gas budget (provisional)':'Payment network fee'}
                 native={snapshot.gasEstimateNative}
                 loading={!snapshot.gasEstimateProvisional&&payGasLoading}
                 error={!snapshot.gasEstimateProvisional&&payGasError}/>
@@ -1635,9 +1661,9 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
               </p>
             </div>
             <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] divide-y divide-white/[0.06]">
-              <ReviewRow label="Gross" value={`${fmtUsdc(snapshot.amountParsed)} USDC`} />
-              <ReviewRow label="Protocol fee" value={`${fmtUsdc(verResult.feeOnChain)} USDC`} />
-              <ReviewRow label="Net received" value={`${fmtUsdc(verResult.netOnChain)} USDC`} accent />
+              <ReviewRow label="Gross" value={`${fmtUsdc(snapshot.amountParsed)} USDC`} money />
+              <ReviewRow label="Protocol fee" value={`${fmtUsdc(verResult.feeOnChain)} USDC`} money />
+              <ReviewRow label="Net received" value={`${fmtUsdc(verResult.netOnChain)} USDC`} money accent />
               <ReviewRow label="Gas used" value={`${verResult.gasUsed.toString()} gas units`} />
               <ReviewRow label="Payment ref" value={
                 <span className="font-mono text-xs text-white/60">{verResult.refOnChain.slice(0, 18)}…</span>
