@@ -7,7 +7,8 @@ import {useAccount,useReadContracts} from 'wagmi';
 import {erc20Abi,formatUnits} from 'viem';
 import {ArrowDownUp,ArrowRightLeft,ChevronDown,Search,X,ShieldCheck,Clock3,Info} from 'lucide-react';
 import {BrandLogo} from '../brand/BrandLogo';
-import {MainnetCirclePage,isCircleSigningReady,type ExchangeExecutionSelection} from './MainnetCirclePage';
+import {MainnetCirclePage,circleSigningBlock,isCircleSigningReady,type ExchangeExecutionSelection} from './MainnetCirclePage';
+import {signingNotice} from '@/mainnet/exchangeSigningGate';
 import {EXCHANGE_ASSETS,exchangeAssetId,resolveExchangeRoute,type ExchangeAsset} from '@/mainnet/exchangeCatalog';
 import {reviewedExchangeAssets,reviewedExchangeNetworks,reviewedRouteStatus,
  type ReviewedExchangeMode,type ReviewedSide} from '@/mainnet/reviewedExchangeRoutes';
@@ -197,7 +198,9 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
  const route=resolveExchangeRoute(from,to);
  const canQuote=route.kind===mode;
  const status=reviewedRouteStatus(mode,from,to,isCircleSigningReady(mode));
- const statusLabel=status==='paused'?'Quotes only · Transfers temporarily paused':
+ const signingBlock=circleSigningBlock(mode);
+ const notice=signingBlock?signingNotice(signingBlock):null;
+ const statusLabel=status==='paused'?(notice?.headline??'Quotes only'):
   status==='reviewable'?'Live quote required before signing':'Route not supported';
  const selection:ExchangeExecutionSelection={fromChainId:from.chainId,toChainId:to.chainId,
   fromToken:from.symbol as 'USDC'|'EURC',toToken:to.symbol as 'USDC'|'EURC'};
@@ -240,11 +243,14 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    <p className="veyra-page-subtitle">{mode==='swap'?'Exchange USDC and EURC on Arc.':'Move native USDC across supported Circle CCTP networks.'}</p>
   </header>
   <section className="veyra-card space-y-3 p-3 sm:p-5" aria-label={mode==='swap'?'Swap form':'Bridge form'}>
-   {status!=='reviewable'&&<div role="status" className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold"
+   {status!=='reviewable'&&<div role="status" className="flex items-start gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold"
     style={{color:status==='paused'?'var(--warning)':'var(--muted)',borderColor:'var(--border)',
      background:'var(--surface-raised)'}}>
     {status==='paused'?<Clock3 className="size-4 shrink-0"/>:<ShieldCheck className="size-4 shrink-0"/>}
-    <span>{statusLabel}</span>
+    <span>
+     <span className="block">{statusLabel}</span>
+     {status==='paused'&&notice&&<span className="mt-1 block font-normal leading-relaxed" style={{color:'var(--muted)'}}>{notice.body}</span>}
+    </span>
    </div>}
    {mode==='swap'?<>
     <div className="flex items-center justify-between">

@@ -37,13 +37,19 @@ describe('Veyra reviewed routes are the ONLY source for selectors and pause stat
   expect(page).toContain('Reverse swap pair');
   expect(page).toContain('receiveSelector=');
   expect(circle).toContain("{mode==='swap'&&receiveSelector}");
-  expect(page).toContain('Quotes only · Transfers temporarily paused');
+  // The paused wording now comes from the shared gate, which also says why (Preview vs a real pause).
+  expect(page).toContain('signingNotice(');
+  expect(readFileSync(new URL('../mainnet/exchangeSigningGate.ts', import.meta.url), 'utf8'))
+    .toContain('Quotes only · Transfers temporarily paused');
   expect(page).not.toContain('Show unsupported');
   expect(page).not.toContain('Owned first');
   expect(page).not.toContain('No reviewed token matched');
   expect(circle).toContain("mode==='swap'?'Review swap':'Review bridge'");
   expect(circle).toContain('aria-label="Transaction action"');
-  expect(circle).toContain('Minimum {quote.minimum}');
+  // The minimum received is always rendered in the quote card, from the shared summary rows.
+  expect(circle).toContain('summary.rows.map(');
+  expect(source('mainnet/quoteSummary.ts')).toContain("label: 'Minimum received'");
+  expect(source('mainnet/quoteSummary.ts')).toContain('value: `${input.minimum} ${destination}`');
   expect(circle).toContain('Refresh quote');
   expect(circle).toContain('Max</button>');
   expect(circle).toContain('recovery||unknownStorage');
