@@ -30,13 +30,16 @@ export function assessFeeBurden(amount: string, fee: string): FeeBurden | null {
   return { bps, level, percent: (bps / 100).toFixed(1) + '%' };
 }
 
-export type FeeBurdenSubject = 'transfer' | 'swap';
+/** 'swap-usdc-fees': a swap where only the USDC-denominated fees could be measured. */
+export type FeeBurdenSubject = 'transfer' | 'swap' | 'swap-usdc-fees';
 
 /** `subject` only changes the wording; the default output is unchanged. */
 export function feeBurdenMessage(burden: FeeBurden, subject: FeeBurdenSubject = 'transfer'): string | null {
   if (burden.level === 'normal') return null;
-  const cost = subject === 'swap' ? 'Network gas and provider fees are' : 'Fees are';
+  const cost = subject === 'swap' ? 'Network gas and provider fees are'
+    : subject === 'swap-usdc-fees' ? 'Fees paid in USDC are' : 'Fees are';
+  const noun = subject === 'transfer' ? 'transfer' : 'swap';
   return burden.level === 'severe'
-    ? `${cost} about ${burden.percent} of this ${subject}. ${subject === 'swap' ? 'Swapping' : 'Sending'} a larger amount is usually much cheaper.`
-    : `${cost} about ${burden.percent} of this ${subject}. Check the minimum you will receive before you confirm.`;
+    ? `${cost} about ${burden.percent} of this ${noun}. ${noun === 'swap' ? 'Swapping' : 'Sending'} a larger amount is usually much cheaper.`
+    : `${cost} about ${burden.percent} of this ${noun}. Check the minimum you will receive before you confirm.`;
 }

@@ -15,7 +15,7 @@
  *  - The proportional-fee warning compares like with like only: USDC fees against
  *    a USDC input. It never converts between assets and never guesses a price.
  */
-import { assessFeeBurden, type FeeBurden } from './feeBurden';
+import { assessFeeBurden, type FeeBurden, type FeeBurdenSubject } from './feeBurden';
 
 export type QuoteMode = 'swap' | 'bridge';
 
@@ -45,7 +45,7 @@ export interface QuoteSummary {
   rows: QuoteSummaryRow[];
   burden: FeeBurden | null;
   /** Word used in the warning ("this swap" / "this transfer"). */
-  burdenSubject: 'swap' | 'transfer';
+  burdenSubject: FeeBurdenSubject;
 }
 
 export interface ParsedFeeLine {
@@ -106,11 +106,11 @@ function titleCase(value: string): string {
 export function summarizeQuote(input: QuoteSummaryInput): QuoteSummary {
   const destination = input.toToken;
   const rows: QuoteSummaryRow[] = [
-    { label: 'Expected received', value: `${input.expected} ${destination}` },
+    { label: 'Expected received', value: `${input.expected} ${destination}`, note: 'Estimate' },
     {
       label: 'Minimum received',
       value: `${input.minimum} ${destination}`,
-      note: input.mode === 'swap' ? '1% slippage limit' : 'Fee capped',
+      note: input.mode === 'swap' ? 'Your reviewed limit · 1% slippage' : 'Your reviewed limit · fee capped',
       strong: true,
     },
   ];
@@ -158,9 +158,19 @@ export function summarizeQuote(input: QuoteSummaryInput): QuoteSummary {
   let burden: FeeBurden | null = null;
   if (input.mode === 'bridge') {
     burden = input.bridgeMaxFee !== undefined ? assessFeeBurden(input.amount, input.bridgeMaxFee) : null;
-  } else if (allParsed && usdcLines > 0 && otherTokenLines === 0 && input.fromToken.toUpperCase() === 'USDC') {
-    burden = assessFeeBurden(input.amount, totalText);
+  } else if (allParsed && usdcLines > 0) {
+    if (input.fromToken.toUpperCase() === 'USDC' && otherTokenLines === 0) {
+      burden = assessFeeBurden(input.amount, totalText);
+    } else if (input.fromToken.toUpperCase() !== 'USDC' && input.toToken.toUpperCase() === 'USDC') {
+      // The input is not USDC but the output is, so the quote itself prices the swap in USDC with no
+      // outside price: its value is about the USDC output plus the USDC fees. A fee paid in another
+      // asset cannot be converted here; the message then says only USDC fees were measured.
+      const output = /^[0-9]+(?:\.[0-9]+)?$/.test(input.expected) ? ceilDecimal(input.expected).units : 0n;
+      if (output > 0n) burden = assessFeeBurden(formatScaled(output + usdcUnits, 6), totalText);
+    }
   }
 
-  return { rows, burden, burdenSubject: input.mode === 'swap' ? 'swap' : 'transfer' };
+  const burdenSubject: FeeBurdenSubject =
+    input.mode === 'bridge' ? 'transfer' : otherTokenLines > 0 ? 'swap-usdc-fees' : 'swap';
+  return { rows, burden, burdenSubject };
 }

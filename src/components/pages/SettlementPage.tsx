@@ -93,6 +93,8 @@ import { settlementStageView, type SettlementStep } from '@/lib/settlementStage'
 import { TxStepper } from '@/components/ui/primitives';
 import {arcReviewedPayGasBudget,assertArcLivePayFunds} from '@/mainnet/arcSharedUsdcFunding';
 import { DeploymentVerificationError, describeDeploymentCheckFailure, runDeploymentCheckWithRetry } from '@/lib/deploymentCheckRetry';
+import { paySigningBlock, payPreviewNotice } from '@/mainnet/paySigningGate';
+import { SigningNoticeBanner } from '@/components/ui/SigningNoticeBanner';
 import {
   verifyPaymentReceipt,
   type VerifySnapshot,
@@ -279,6 +281,9 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
   const onArc = VEYRA_ENV === 'mainnet' ? chainId === ARC_MAINNET_CHAIN_ID : chainId === ARC_TESTNET_CHAIN_ID;
   const deployment = onArc && chainId ? getVeyraSettlementDeployment(chainId) : null;
   const isMainnet = chainId === ARC_MAINNET_CHAIN_ID;
+  // Mirrors the guards at the top of handleApprove/handleSettle (which stay): on Mainnet only the
+  // authorized Production release signs. Shown BEFORE the click so a Preview never offers a live action.
+  const previewBlocked = paySigningBlock({ mainnet: VEYRA_ENV === 'mainnet', releaseEnv: __VEYRA_RELEASE_ENV__ }) === 'preview';
   const activeUsdcAddress = chainId ? arcUsdcForChain(chainId) : ARC_TESTNET_USDC;
   const chainLabel = chainId ? arcChainLabel(chainId) : 'Arc';
 
@@ -1357,6 +1362,10 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
           <TxStepper stage={stageView.stage} stalled={stageView.stalled} />
         )}
 
+        {isConnected && onArc && !!deployment && previewBlocked && (
+          <SigningNoticeBanner headline={payPreviewNotice.headline} body={payPreviewNotice.body} />
+        )}
+
         {isMainnet&&settlementUnresolved(intentState)&&<div role="alert"
           className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
           <p className="font-semibold">Original wallet request needs checking</p>
@@ -1593,10 +1602,10 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
                 <p className="text-xs text-white/50 text-center">
                   Approve lets this payment use {fmtUsdc(snapshot.amountParsed)} USDC.
                 </p>
-                <button disabled={approving} onClick={() => { void handleApprove(); }}
+                <button disabled={approving || previewBlocked} onClick={() => { void handleApprove(); }}
                   className={embedded&&isMainnet?"veyra-btn-primary w-full rounded-xl py-3.5 text-sm font-semibold disabled:opacity-50":
                   "w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-colors"}>
-                  {approving ? 'Waiting for wallet…' : `Approve ${fmtUsdc(snapshot.amountParsed)} USDC`}
+                  {approving ? 'Waiting for wallet…' : previewBlocked ? payPreviewNotice.buttonLabel : `Approve ${fmtUsdc(snapshot.amountParsed)} USDC`}
                 </button>
               </div>
             ) : (
@@ -1610,10 +1619,10 @@ export function SettlementPage({embedded=false,sharedDraft,onDraftChange,verifie
                 <p className="text-xs text-white/50 text-center">
                   Review fees and recipient before signing.
                 </p>
-                <button disabled={settling} onClick={() => { void handleSettle(); }}
+                <button disabled={settling || previewBlocked} onClick={() => { void handleSettle(); }}
                   className={embedded&&isMainnet?"veyra-btn-primary w-full rounded-xl py-3.5 text-sm font-semibold disabled:opacity-50":
                   "w-full py-3.5 rounded-2xl bg-white text-black text-sm font-semibold disabled:opacity-50 hover:bg-white/90 transition-colors"}>
-                  {settling ? 'Waiting for wallet…' : snapshot.mode === 'pay' ? 'Send payment' : 'Create escrow'}
+                  {settling ? 'Waiting for wallet…' : previewBlocked ? payPreviewNotice.buttonLabel : snapshot.mode === 'pay' ? 'Send payment' : 'Create escrow'}
                 </button>
               </div>
             )}

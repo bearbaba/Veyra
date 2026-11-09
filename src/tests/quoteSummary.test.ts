@@ -90,6 +90,44 @@ describe('Bridge quote summary (real 5 USDC Arc -> Base quote)', () => {
   });
 });
 
+describe('Swap quote summary (real EURC -> USDC quote, the reverse direction)', () => {
+  // 1 EURC in; Circle returned 1.119377 USDC expected, 1.108183 minimum, a 0.0002 EURC provider fee
+  // and about 0.0182 USDC of gas.
+  const REVERSE = {
+    mode: 'swap' as const, amount: '1', fromToken: 'EURC', toToken: 'USDC',
+    expected: '1.119377', minimum: '1.108183',
+    fees: ['provider: 0.0002 EURC', 'gas: 0.018195888888888888 USDC'],
+  };
+
+  it('keeps every fee in its own asset and never mixes EURC and USDC into one total', () => {
+    const summary = summarizeQuote(REVERSE);
+    expect(row(summary.rows, 'Provider fee')?.value).toBe('0.0002 EURC');
+    expect(row(summary.rows, 'Network gas')?.value).toBe('≈ 0.018196 USDC');
+    expect(row(summary.rows, 'Total fees')).toBeUndefined();
+    expect(row(summary.rows, 'Expected received')?.value).toBe('1.119377 USDC');
+    expect(row(summary.rows, 'Minimum received')?.value).toBe('1.108183 USDC');
+  });
+
+  it('prices the warning from the quote itself and says only USDC fees were measured', () => {
+    const { burden, burdenSubject } = summarizeQuote(REVERSE);
+    // 0.018196 / (1.119377 + 0.018196) = 1.6%
+    expect(burden?.level).toBe('high');
+    expect(burden?.percent).toBe('1.6%');
+    expect(burdenSubject).toBe('swap-usdc-fees');
+    expect(feeBurdenMessage(burden!, burdenSubject)).toBe(
+      'Fees paid in USDC are about 1.6% of this swap. Check the minimum you will receive before you confirm.');
+  });
+
+  it('a larger reverse swap clears the warning with the same fees', () => {
+    expect(summarizeQuote({ ...REVERSE, amount: '50', expected: '55.96885' }).burden?.level).toBe('normal');
+  });
+
+  it('an unusable expected amount yields no warning rather than a guess', () => {
+    expect(summarizeQuote({ ...REVERSE, expected: '0' }).burden).toBeNull();
+    expect(summarizeQuote({ ...REVERSE, expected: 'abc' }).burden).toBeNull();
+  });
+});
+
 describe('never invents or hides', () => {
   it('shows every provider line, including ones it cannot parse', () => {
     const summary = summarizeQuote({ ...SWAP, fees: ['provider: 0.0002 USDC', 'Fee details unavailable'] });
@@ -104,8 +142,8 @@ describe('never invents or hides', () => {
     expect(summary.rows.some((r) => r.label === 'Total fees')).toBe(false);
   });
 
-  it('does not compare USDC fees against a non-USDC input', () => {
-    expect(summarizeQuote({ ...SWAP, fromToken: 'EURC', toToken: 'USDC' }).burden).toBeNull();
+  it('with no USDC leg on either side there is no price to compare against, so no warning', () => {
+    expect(summarizeQuote({ ...SWAP, fromToken: 'EURC', toToken: 'EURC' }).burden).toBeNull();
   });
 
   it('an itemized gas line replaces the "shown in your wallet" placeholder', () => {

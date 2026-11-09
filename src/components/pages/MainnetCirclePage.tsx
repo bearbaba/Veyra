@@ -27,7 +27,10 @@ import {readBridgeQuoteAmounts,assertBridgeQuoteWithinReviewedCap} from '@/mainn
 import {feeBurdenMessage} from '@/mainnet/feeBurden';
 import {exchangeSigningBlock,signingNotice,type SigningBlock} from '@/mainnet/exchangeSigningGate';
 import {summarizeQuote} from '@/mainnet/quoteSummary';
-import {Notice} from '@/components/ui/primitives';
+import {Notice,TxStepper} from '@/components/ui/primitives';
+import {exchangeStageView} from '@/mainnet/exchangeStage';
+import {withTrustedStatus} from '@/mainnet/recoveryTrust';
+import {networkRequirement} from '@/mainnet/walletNetworkRequirement';
 
 const kit=new AppKit();
 const ARC=5042,BASE=8453;
@@ -52,7 +55,7 @@ export function isCircleSigningReady(mode:Mode):boolean{
 type Token='USDC'|'EURC';
 export type ExchangeExecutionSelection={fromChainId:number;toChainId:number;fromToken:Token;toToken:Token};
 type Quote={owner:string;at:number;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;expected:string;fees:string[];bridgeMaxFee?:string};
-type Recovery={owner:string;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;status:'UNKNOWN'|'PENDING'|'VERIFIED'|'REVERTED';hash?:string;burnHash?:string;mintHash?:string;intentId?:string};
+type Recovery={owner:string;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;status:'UNKNOWN'|'PENDING'|'VERIFIED'|'REVERTED';hash?:string;burnHash?:string;mintHash?:string;intentId?:string;downgradedFrom?:'VERIFIED'};
 const key=(mode:Mode,owner:string)=>'veyra:mainnet:circle:v1:'+mode+':'+owner.toLowerCase();
 const label=(id:number)=>id===ARC?'Arc Mainnet':id===1?'Ethereum Mainnet':'Base Mainnet';
 const sdkChain=(id:number)=>id===1?'Ethereum' as const:id===BASE?'Base' as const:'Arc' as const;
@@ -86,13 +89,14 @@ function parseSaved(raw:string|null,owner:string,mode:Mode):Recovery|null {
  if(p.owner!==owner.toLowerCase()||p.mode!==mode||!['UNKNOWN','PENDING','VERIFIED','REVERTED'].includes(p.status)||
  (p.hash!==undefined&&!HASH.test(p.hash))||(p.burnHash!==undefined&&!HASH.test(p.burnHash))||
  (p.mintHash!==undefined&&!HASH.test(p.mintHash)))throw Error('Invalid prior operation');
- return p;
+ // A stored VERIFIED needs its proof hashes; otherwise it stays locked as unresolved (never upgraded).
+ return withTrustedStatus(p);
 }
 export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusyChange,receiveSelector}:{
  mode:Mode;selection?:ExchangeExecutionSelection;embedded?:boolean;
  onFinancialBusyChange?:(blocked:boolean)=>void;receiveSelector?:ReactNode;
 }){
- const {address,connector}=useAccount();
+ const {address,connector,chainId:walletChainId}=useAccount();
  const {switchChainAsync}=useSwitchChain();
  const arc=usePublicClient({chainId:ARC});
  const base=usePublicClient({chainId:BASE});
@@ -140,10 +144,20 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
  useEffect(()=>{
   setQuote(null);setProof('');setError('');setManualMint('');setManualSource('');
   if(!address){setRecovery(null);setUnknownStorage(false);return;}
-  try{setRecovery(parseSaved(localStorage.getItem(key(mode,address)),address,mode));setUnknownStorage(false);}
-  catch{setRecovery(null);setUnknownStorage(true);}
+  try{
+   const raw=localStorage.getItem(key(mode,address));
+   const saved=parseSaved(raw,address,mode);
+   if(saved&&raw&&(JSON.parse(raw) as Recovery).status!==saved.status)
+    localStorage.setItem(key(mode,address),JSON.stringify(saved));
+   setRecovery(saved);setUnknownStorage(false);
+  }catch{setRecovery(null);setUnknownStorage(true);}
  },[address,mode]);
  useEffect(()=>{setQuote(null);},[source,destination,fromToken,toToken,amount]);
+ // The network-requirement message stops being true the moment the wallet is on the right network
+ // (or the route changes). Clear only that message, never any other error.
+ useEffect(()=>{
+  if(networkRequirement(walletChainId,selectedSource)===null)setError(prev=>prev.startsWith('Your wallet is on ')?'':prev);
+ },[walletChainId,selectedSource]);
  useEffect(()=>{
   if(!quote)return;
   const tick=window.setInterval(()=>setQuoteClock(Date.now()),1000);
@@ -151,21 +165,28 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
  },[quote]);
  const quoteExpired=!!quote&&quoteClock-quote.at>=30000;
  const client=(id:number)=>id===ARC?arc:id===BASE?base:id===1?ethereum:undefined;
- async function wallet(id:number):Promise<EIP1193Provider>{
+ async function wallet(id:number,allowSwitch=true):Promise<EIP1193Provider>{
   if(!address||!connector)throw Error('Connect your wallet first.');
-  await switchChainAsync({chainId:id});
+  if(allowSwitch)await switchChainAsync({chainId:id});
   const raw:unknown=await connector.getProvider();
   if(!raw||typeof raw!=='object'||!('request' in raw)||typeof raw.request!=='function')
    throw Error('Browser wallet provider unavailable.');
   const p=raw as EIP1193Provider;
   const [accounts,chain]=await Promise.all([p.request({method:'eth_accounts'}),p.request({method:'eth_chainId'})]);
+  if(!allowSwitch){
+   // Signing is unavailable here, so no wallet prompt is opened for a quote that cannot proceed.
+   // Say which network is needed; the address/network re-check below still runs.
+   const current=typeof chain==='string'?Number.parseInt(chain,16):undefined;
+   const requirement=networkRequirement(Number.isSafeInteger(current)?current:undefined,id);
+   if(requirement)throw Error(requirement);
+  }
   if(!Array.isArray(accounts)||typeof accounts[0]!=='string'||accounts[0].toLowerCase()!==address.toLowerCase()||
    typeof chain!=='string'||Number.parseInt(chain,16)!==id)
    throw Error('Wallet address or network changed. Review again.');
   return p;
  }
  const params=async(bridgeMaxFee?:string)=>{
-  const p=await wallet(selectedSource);
+  const p=await wallet(selectedSource,signingReady);
   const adapter=await createViemAdapterFromProvider({provider:p});
   if(mode==='swap'){
    return {adapter,params:{from:{adapter,chain:'Arc' as const},tokenIn:fromToken,tokenOut:toToken,
@@ -445,6 +466,11 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     <p className="text-xs" style={{color:'var(--muted)'}}>Connect your wallet to check the balance and request a live quote. No signing is enabled in this pilot.</p>
     <ConnectKitButton/>
    </div>:<>
+    {(()=>{
+     const stageView=exchangeStageView({hasLiveQuote:!!quote&&!quoteExpired,busy,
+      recoveryStatus:recovery?.status??null,unknownStorage});
+     return stageView?<TxStepper stage={stageView.stage} stalled={stageView.stalled}/>:null;
+    })()}
     {!recovery&&!unknownStorage&&<>
     {!embedded&&(mode==='bridge'?<div className="grid gap-3 sm:grid-cols-2">
      <label className="text-sm" style={{color:'var(--muted)'}}>From
@@ -495,6 +521,8 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
      {!quote||quoteExpired?<p className="text-xs" style={{color:'var(--muted)'}}>Estimated amount will appear after a live provider quote.</p>:null}
     </div>
     {!recovery&&!unknownStorage&&<div className="space-y-2" aria-label="Transaction action">
+     {!signingReady&&networkRequirement(walletChainId,selectedSource)&&<p role="status" className="text-xs" style={{color:'var(--muted)'}}>
+      {networkRequirement(walletChainId,selectedSource)}</p>}
      <button type="button" aria-live="polite"
       disabled={busy||!validAmount(amount)||!!quote&&!quoteExpired&&!signingReady}
       className={'veyra-btn-primary flex min-h-12 w-full items-center justify-center gap-2 '+
@@ -562,6 +590,10 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        recovery?.status==='REVERTED'?'Review the original transaction before starting a new request.':
        'Previous outcome is pending or uncertain. Veyra will not submit a duplicate transaction. Status rechecks never request a signature.'}
      </p>
+     {recovery?.downgradedFrom==='VERIFIED'&&recovery.status!=='VERIFIED'&&<p role="status" className="text-xs" style={{color:'var(--warning)'}}>
+      This transfer was saved as verified, but its proof is not stored on this device, so Veyra treats it as unresolved.
+      It is not marked failed and nothing was resent. Use Verify destination onchain to check it again.
+     </p>}
      {(recovery?.hash||recovery?.burnHash||recovery?.mintHash)&&<details className="text-xs">
       <summary className="cursor-pointer" style={{color:'var(--muted)'}}>Transaction details</summary>
       <div className="mt-2 space-y-1 break-all">
