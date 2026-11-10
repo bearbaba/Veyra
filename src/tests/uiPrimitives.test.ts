@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Notice, StatusPill, TxStepper, TX_STAGES, txStageIndex } from '../components/ui/primitives';
+import { Notice, StatusPill, TxStepper, TX_STAGES, TX_DISPLAY_STEPS, txStageIndex, txDisplayStep } from '../components/ui/primitives';
 
 const read = (p: string) => readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
 
@@ -19,12 +19,19 @@ describe('Shared transaction lifecycle', () => {
   });
   it('uses statically discoverable Tailwind classes for the small-screen stage labels', () => {
     const html = renderToStaticMarkup(createElement(TxStepper, { stage: 'Review' }));
-    // Phones get one readable line; every label stays available to screen readers and from sm up.
-    expect(html).toContain('Step 2 of 5 · Review');
-    expect(html).toContain('sr-only sm:not-sr-only');
+    // All sizes use three readable steps, with no hiding of the current status.
+    expect(html).toContain('Step 1 of 3 · Review');
+    expect(html.match(/<li\b/g)).toHaveLength(3);
+    expect([...TX_DISPLAY_STEPS]).toEqual(['Review', 'Confirm', 'Track']);
     // Tailwind only generates classes it can see as complete strings: never build them dynamically.
     const source = readFileSync(new URL('../components/ui/primitives.tsx', import.meta.url), 'utf8');
     expect(source).not.toMatch(/(?:sm|max-\[\d+px\]):\u0024\{/);
+  });
+  it('keeps five internal security stages but maps to three visual phases', () => {
+    expect(TX_STAGES.map(txDisplayStep)).toEqual(['Review', 'Review', 'Confirm', 'Track', 'Track']);
+    const pending = renderToStaticMarkup(createElement(TxStepper, { stage: 'Processing', stalled: true }));
+    expect(pending).toContain('Step 3 of 3 · Track');
+    expect(pending).toContain('Outcome unresolved');
   });
   it('never marks a step current once the transaction is Verified', () => {
     expect(renderToStaticMarkup(createElement(TxStepper, { stage: 'Verified' }))).not.toContain('aria-current');
