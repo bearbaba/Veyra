@@ -29,7 +29,7 @@ async function scenario(title, { seed, label, raw = null }, run) {
 const locked = async (page, app, newAttemptButton) => {
   const t = await bodyText(page);
   check('says the outcome is unresolved and never to submit again', /Do not submit again/.test(t) && /will not submit a duplicate transaction/.test(t));
-  check('stage indicator is on Processing', (await currentStage(page)) === 'Processing', await currentStage(page));
+  check('unresolved outcome stays on Track', (await currentStage(page)) === 'Track', await currentStage(page));
   check('no way to start a new attempt', (await page.getByRole('button', { name: newAttemptButton }).count()) === 0
     && (await page.getByRole('button', { name: 'Refresh quote' }).count()) === 0
     && (await page.getByRole('button', { name: 'Confirm in wallet' }).count()) === 0);
@@ -61,11 +61,13 @@ await scenario('Bridge, stored VERIFIED with only a burn hash is not trusted eit
   check('stored as PENDING', (await stored())?.status === 'PENDING');
 });
 
-await scenario('Bridge, VERIFIED with both proof hashes shows verified', { label: 'Bridge', seed: { ...BASE_ARC, status: 'VERIFIED', burnHash: H('ab'), mintHash: H('cd') } }, async ({ page }) => {
-  const t = await bodyText(page);
-  check('shows "Destination verified"', /Destination verified/.test(t));
-  check('stage indicator shows Verified (Step 5 of 5)', /Step 5 of 5 · Verified/.test(t), t.slice(0, 160));
-  check('offers to start a new review', (await page.getByRole('button', { name: 'Start new review' }).count()) === 1);
+await scenario('Bridge, VERIFIED with both proof hashes needs FRESH chain proof', { label: 'Bridge', seed: { ...BASE_ARC, status: 'VERIFIED', burnHash: H('ab'), mintHash: H('cd') } }, async ({ app, page, stored }) => {
+  await locked(page, app, /review bridge/i);
+  const saved = await stored();
+  check('a cached hash pair does not make the bridge Verified', saved?.status === 'PENDING' &&
+    saved?.downgradedFrom === 'VERIFIED' && saved?.burnHash === H('ab') && saved?.mintHash === H('cd'),
+    JSON.stringify(saved));
+  check('no Start new review before independent chain proof', (await page.getByRole('button', { name: 'Start new review' }).count()) === 0);
 });
 
 await scenario('Swap EURC -> USDC, PENDING with a transaction hash', { label: 'Swap', seed: { ...EURC_USDC, status: 'PENDING', hash: H('ef') } }, async ({ app, page }) => {
@@ -87,7 +89,7 @@ await scenario('Bridge, unreadable stored record locks instead of opening a seco
   const t = await bodyText(page);
   check('no way to start a new attempt', (await page.getByRole('button', { name: /review bridge/i }).count()) === 0);
   check('shows the unresolved lock and says why', /Tracking Mainnet Bridge/.test(t) && /Saved exchange state could not be verified\. No new transaction is permitted\./.test(t), t.slice(0, 200));
-  check('stage indicator is on Processing', (await currentStage(page)) === 'Processing');
+  check('unresolved outcome stays on Track', (await currentStage(page)) === 'Track');
 });
 
 // ---- The correction must be safe across reloads and wallet changes -------------------------------
@@ -108,7 +110,7 @@ console.log('\n  Downgraded record: survives a reload, keeps its evidence, and d
     check('it is NOT recorded as failed or reverted', stored?.status !== 'REVERTED');
     let t = await bodyText(page);
     check('the user is told it was saved as verified but is unresolved, not failed, and nothing was resent',
-      /saved as verified, but its proof is not stored on this device/.test(t) && /not marked failed and nothing was resent/.test(t));
+      /previous saved outcome \(VERIFIED\)/.test(t) && /not marked failed and nothing was resent/.test(t));
     const snapshot = JSON.stringify(stored);
 
     await page.reload();
@@ -124,7 +126,7 @@ console.log('\n  Downgraded record: survives a reload, keeps its evidence, and d
     await page.waitForTimeout(2500);
     t = await bodyText(page);
     check('a different wallet is not locked by the first wallet\'s record', /Review bridge/.test(t) && !/Do not submit again/.test(t));
-    check('and starts at Enter details', (await currentStage(page)) === 'Enter details');
+    check('and starts at Review', (await currentStage(page)) === 'Review');
     check('the second wallet has no record created or inherited', (await readStored(page, 'bridge', addr1)) === null);
     check('the first wallet\'s record was not modified by the switch', JSON.stringify(await readStored(page, 'bridge', app.addr)) === snapshot);
 
@@ -136,7 +138,7 @@ console.log('\n  Downgraded record: survives a reload, keeps its evidence, and d
   } finally { await app.browser.close(); }
 }
 
-console.log('\n  A genuinely verified record stays verified and is never rewritten');
+console.log('\n  A cached VERIFIED with both hashes requires fresh onchain proof even across reloads');
 {
   const record = { ...BASE_ARC, status: 'VERIFIED', burnHash: H('ab'), mintHash: H('cd') };
   const app = await newSession({ width: 390, height: 844, wallets: 2, seed: record });
@@ -144,17 +146,20 @@ console.log('\n  A genuinely verified record stays verified and is never rewritt
   try {
     await navTo(page, 'Bridge');
     await page.waitForTimeout(2000);
-    const original = await readStored(page, 'bridge', app.addr);
-    check('shows Destination verified', /Destination verified/.test(await bodyText(page)));
-    check('the stored record is unchanged (no downgrade marker, same status, same hashes)',
-      original?.status === 'VERIFIED' && original?.downgradedFrom === undefined && original?.burnHash === H('ab') && original?.mintHash === H('cd'), JSON.stringify(original));
+    const first = await readStored(page, 'bridge', app.addr);
+    check('previous VERIFIED is unresolved but its original evidence survives',
+      first?.status==='PENDING'&&first?.downgradedFrom==='VERIFIED'&&
+      first?.burnHash===H('ab')&&first?.mintHash===H('cd'), JSON.stringify(first));
+    check('does not falsely present a verified destination', !/Destination verified/.test(await bodyText(page)));
+    const snapshot=JSON.stringify(first);
     await page.reload(); await ensureConnected(page); await navTo(page, 'Bridge'); await page.waitForTimeout(2000);
-    check('still verified after a reload', /Destination verified/.test(await bodyText(page)));
-    check('still byte-identical after a reload', JSON.stringify(await readStored(page, 'bridge', app.addr)) === JSON.stringify(original));
+    check('a reload cannot promote local hashes to completion', !/Destination verified/.test(await bodyText(page)));
+    check('original hashes survive reload without drift', JSON.stringify(await readStored(page, 'bridge', app.addr))===snapshot);
     await wallet.switchAccount(page, 1); await page.waitForTimeout(2500);
-    check('another wallet does not inherit the verified state', !/Destination verified/.test(await bodyText(page)) && /Review bridge/.test(await bodyText(page)));
+    check('second wallet cannot inherit another wallet\'s stale result',
+      !/Destination verified/.test(await bodyText(page))&&/Review bridge/.test(await bodyText(page)));
     await wallet.switchAccount(page, 0); await page.waitForTimeout(2500);
-    check('and the first wallet still shows its verified record', /Destination verified/.test(await bodyText(page)));
+    check('first wallet remains locked awaiting independent proof', /Do not submit again/.test(await bodyText(page)));
   } finally { await app.browser.close(); }
 }
 
