@@ -9,10 +9,25 @@ const { chromium } = req('playwright');
 const PREVIEW = process.env.STUDIO_PREVIEW_URL ?? 'http://localhost:5173';
 
 const word = (n) => `0x${BigInt(n).toString(16).padStart(64, '0')}`;
-const ARC_MAINNET_RPC = 'https://rpc.mainnet.arc.io';
-const ARC_USDC = '0x3600000000000000000000000000000000000000';
-// Read-only JSON-RPC may reach the real Arc Mainnet node (it cannot move funds): the app's
-// contract-identity checks need the real deployed code. Every other method is refused locally.
+
+// Chains the app reads. `tokens` are the throwaway wallet's balances when `funded` (raw units).
+// Native views: Arc gas is USDC with 18 decimals; Base gas is ETH.
+const CHAINS = {
+  arc: {
+    id: 5042, rpc: 'https://rpc.mainnet.arc.io', host: /rpc\.mainnet\.arc\.io/, native: 25n * 10n ** 18n,
+    tokens: {
+      '0x3600000000000000000000000000000000000000': 25_000_000n,   // USDC
+      '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1': 25_000_000n,   // EURC
+    },
+  },
+  base: {
+    id: 8453, rpc: 'https://mainnet.base.org', host: /mainnet\.base\.org/, native: 10n ** 18n,
+    tokens: { '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': 25_000_000n },   // USDC
+  },
+};
+
+// Read-only JSON-RPC may reach the real nodes (they cannot move funds): the app's contract-identity
+// checks need the real deployed code. Every other method is refused locally.
 const READ_ONLY = new Set([
   'eth_chainId', 'net_version', 'eth_blockNumber', 'eth_getBalance', 'eth_call', 'eth_getCode',
   'eth_getBlockByNumber', 'eth_gasPrice', 'eth_maxPriorityFeePerGas', 'eth_feeHistory',
@@ -21,11 +36,12 @@ const READ_ONLY = new Set([
 ]);
 
 /**
- * Answers a JSON-RPC call for the throwaway wallet. With `funded` it holds 25 USDC (ERC-20 view,
- * 6 decimals; native view, 18 decimals) and no allowance. Returns undefined to mean "ask the node".
+ * Answers a JSON-RPC call for the throwaway wallet, or returns undefined to mean "ask the node".
+ * With `funded` it holds the balances in CHAINS and no allowance.
  */
-function overrideFor(call, funded, walletAddress, faults, stats) {
-  const me = walletAddress?.toLowerCase();
+function overrideFor(call, ctx) {
+  const { chain, funded, faults, stats } = ctx;
+  const me = ctx.walletAddress?.toLowerCase();
   const p = call.params?.[0] ?? {};
   const from = String(p.from ?? '').toLowerCase();
   // Deliberate node misbehaviour for the Settlement gate tests.
@@ -36,13 +52,12 @@ function overrideFor(call, funded, walletAddress, faults, stats) {
   // A genuine mismatch: the node reports no runtime code at the deployed address.
   if (call.method === 'eth_getCode' && faults?.emptyCode) return '0x';
   if (call.method === 'eth_getBalance' && funded && String(call.params?.[0]).toLowerCase() === me) {
-    return `0x${(25n * 10n ** 18n).toString(16)}`;
+    return `0x${chain.native.toString(16)}`;
   }
   if (call.method === 'eth_call') {
     const data = String(p.data ?? p.input ?? '').toLowerCase();
-    if (funded && String(p.to).toLowerCase() === ARC_USDC && data.startsWith('0x70a08231') && data.endsWith(me?.slice(2) ?? '#')) {
-      return word(25_000_000);
-    }
+    const units = chain.tokens[String(p.to).toLowerCase()];
+    if (funded && units !== undefined && data.startsWith('0x70a08231') && data.endsWith(me?.slice(2) ?? '#')) return word(units);
     if (from === me) return '0x';                       // simulation of the wallet's own call: succeeds, no state
   }
   if (call.method === 'eth_estimateGas' && from === me) return '0x1d4c0';
@@ -50,31 +65,29 @@ function overrideFor(call, funded, walletAddress, faults, stats) {
 }
 
 const MULTICALL_SELECTOR = '0x82ad56cb';   // multicall3 aggregate3: how the app batches every read
+const MULTICALL3 = '0xca11bde05977b3631167028862be2a173976ca11';
 const BALANCE_OF = '0x70a08231';
+const GET_ETH_BALANCE = '0x4d2301cc';
 
 /**
  * The app batches reads through multicall3, so a balance cannot be overridden by looking at the
- * outer call. Ask the real node, then replace only the throwaway wallet's USDC balanceOf result.
+ * outer call. Ask the real node, then replace only the throwaway wallet's token and native balances.
  */
-async function patchedMulticall(call, walletAddress) {
-  const me = walletAddress.toLowerCase();
-  const data = String(call.params[0].data);
-  const { args } = viem.decodeFunctionData({ abi: viem.multicall3Abi, data });
-  const subcalls = args[0];
-  // Which sub-reads belong to the throwaway wallet: its USDC balanceOf, and its native balance
-  // (multicall3 getEthBalance, which viem uses for getBalance when it batches).
-  const MULTICALL3 = '0xca11bde05977b3631167028862be2a173976ca11';
-  const GET_ETH_BALANCE = '0x4d2301cc';
+async function patchedMulticall(call, ctx) {
+  const { chain } = ctx;
+  const me = ctx.walletAddress.toLowerCase();
+  const { args } = viem.decodeFunctionData({ abi: viem.multicall3Abi, data: String(call.params[0].data) });
   const answerFor = (c) => {
     const target = c.target.toLowerCase();
     const data = c.callData.toLowerCase();
-    if (target === ARC_USDC && data.startsWith(BALANCE_OF) && data.endsWith(me.slice(2))) return word(25_000_000);
-    if (target === MULTICALL3 && data.startsWith(GET_ETH_BALANCE) && data.endsWith(me.slice(2))) return word(25n * 10n ** 18n);
+    const units = chain.tokens[target];
+    if (units !== undefined && data.startsWith(BALANCE_OF) && data.endsWith(me.slice(2))) return word(units);
+    if (target === MULTICALL3 && data.startsWith(GET_ETH_BALANCE) && data.endsWith(me.slice(2))) return word(chain.native);
     return null;
   };
-  const patches = subcalls.map(answerFor);
+  const patches = args[0].map(answerFor);
   if (!patches.some((x) => x !== null)) return undefined;
-  const r = await fetch(ARC_MAINNET_RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: call.params }) });
+  const r = await fetch(chain.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: call.params }) });
   const body = await r.json();
   if (!body.result) return undefined;
   const results = viem.decodeFunctionResult({ abi: viem.multicall3Abi, functionName: 'aggregate3', data: body.result });
@@ -82,22 +95,22 @@ async function patchedMulticall(call, walletAddress) {
   return viem.encodeFunctionResult({ abi: viem.multicall3Abi, functionName: 'aggregate3', result: patched });
 }
 
-async function answerRpc(calls, funded, walletAddress, faults, stats) {
+async function answerRpc(calls, ctx) {
   const results = new Map();
   const forward = [];
   for (const c of calls) {
     if (!READ_ONLY.has(c.method)) { results.set(c.id, { error: { code: -32601, message: `refused by test harness: ${c.method}` } }); continue; }
-    stats.calls[c.method] = (stats.calls[c.method] ?? 0) + 1;
-    if (process.env.STUDIO_RPC_TRACE) console.log('  rpc', c.method, JSON.stringify(c.params ?? []).slice(0, 150));
-    let o = overrideFor(c, funded, walletAddress, faults, stats);
-    if (o === undefined && funded && c.method === 'eth_call' && String(c.params?.[0]?.data ?? '').toLowerCase().startsWith(MULTICALL_SELECTOR)) {
-      try { o = await patchedMulticall(c, walletAddress); } catch { o = undefined; }
+    ctx.stats.calls[c.method] = (ctx.stats.calls[c.method] ?? 0) + 1;
+    if (process.env.STUDIO_RPC_TRACE) console.log('  rpc', ctx.chain.id, c.method, JSON.stringify(c.params ?? []).slice(0, 150));
+    let o = overrideFor(c, ctx);
+    if (o === undefined && ctx.funded && c.method === 'eth_call' && String(c.params?.[0]?.data ?? '').toLowerCase().startsWith(MULTICALL_SELECTOR)) {
+      try { o = await patchedMulticall(c, ctx); } catch { o = undefined; }
     }
     if (o !== undefined) results.set(c.id, { result: o }); else forward.push(c);
   }
   if (forward.length) {
     try {
-      const r = await fetch(ARC_MAINNET_RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(forward) });
+      const r = await fetch(ctx.chain.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(forward) });
       const body = await r.json();
       for (const item of Array.isArray(body) ? body : [body]) results.set(item.id, item.error ? { error: item.error } : { result: item.result });
     } catch {
@@ -115,7 +128,7 @@ async function forwardCircle(route, log) {
   try {
     const response = await fetch(request.url(), { method: request.method(), headers, body: request.postData() ?? undefined, signal: AbortSignal.timeout(20000) });
     const body = Buffer.from(await response.arrayBuffer());
-    log.push({ method: request.method(), path: url.pathname, status: response.status, requestBody: request.postData()?.slice(0, 600) ?? null, responseBody: body.toString('utf8').slice(0, 2500) });
+    log.push({ method: request.method(), path: url.pathname, status: response.status, requestBody: request.postData()?.slice(0, 600) ?? null, responseBody: body.toString('utf8').slice(0, 9000) });
     return route.fulfill({ status: response.status, headers: { 'content-type': response.headers.get('content-type') ?? 'application/json', 'access-control-allow-origin': '*' }, body });
   } catch (error) {
     log.push({ method: request.method(), path: url.pathname, status: 'failed', error: String(error).slice(0, 120) });
@@ -147,12 +160,14 @@ export async function openApp({ backend, wallet, viewport = { width: 1280, heigh
     external.push(url.hostname);
     return route.abort();
   });
-  await context.route(/rpc\.mainnet\.arc\.io/, async (route) => {
-    const body = route.request().postDataJSON();
-    const calls = Array.isArray(body) ? body : [body];
-    const answers = await answerRpc(calls, funded, wallet.addressOf?.(0), faults, rpcStats);
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(Array.isArray(body) ? answers : answers[0]) });
-  });
+  for (const chain of Object.values(CHAINS)) {
+    await context.route(chain.host, async (route) => {
+      const body = route.request().postDataJSON();
+      const calls = Array.isArray(body) ? body : [body];
+      const answers = await answerRpc(calls, { chain, funded, walletAddress: wallet.addressOf?.(0), faults, stats: rpcStats });
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(Array.isArray(body) ? answers : answers[0]) });
+    });
+  }
   // The official origin is presented by the browser, but every byte comes from the local Vite or the fake.
   await context.route(`${OFFICIAL_ORIGIN}/**`, async (route) => {
     const url = new URL(route.request().url());

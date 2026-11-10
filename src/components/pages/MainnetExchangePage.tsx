@@ -5,10 +5,11 @@
 import {useEffect,useMemo,useState} from 'react';
 import {useAccount,useReadContracts} from 'wagmi';
 import {erc20Abi,formatUnits} from 'viem';
-import {ArrowDownUp,ArrowRightLeft,ChevronDown,Search,X,ShieldCheck,Clock3,Info} from 'lucide-react';
+import {ArrowDownUp,ArrowRightLeft,ChevronDown,Search,X,ShieldCheck,Info} from 'lucide-react';
 import {BrandLogo} from '../brand/BrandLogo';
 import {MainnetCirclePage,circleSigningBlock,isCircleSigningReady,type ExchangeExecutionSelection} from './MainnetCirclePage';
 import {signingNotice} from '@/mainnet/exchangeSigningGate';
+import {SigningNoticeBanner} from '@/components/ui/SigningNoticeBanner';
 import {EXCHANGE_ASSETS,exchangeAssetId,resolveExchangeRoute,type ExchangeAsset} from '@/mainnet/exchangeCatalog';
 import {reviewedExchangeAssets,reviewedExchangeNetworks,reviewedRouteStatus,
  type ReviewedExchangeMode,type ReviewedSide} from '@/mainnet/reviewedExchangeRoutes';
@@ -243,14 +244,11 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    <p className="veyra-page-subtitle">{mode==='swap'?'Exchange USDC and EURC on Arc.':'Move native USDC across supported Circle CCTP networks.'}</p>
   </header>
   <section className="veyra-card space-y-3 p-3 sm:p-5" aria-label={mode==='swap'?'Swap form':'Bridge form'}>
-   {status!=='reviewable'&&<div role="status" className="flex items-start gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold"
-    style={{color:status==='paused'?'var(--warning)':'var(--muted)',borderColor:'var(--border)',
-     background:'var(--surface-raised)'}}>
-    {status==='paused'?<Clock3 className="size-4 shrink-0"/>:<ShieldCheck className="size-4 shrink-0"/>}
-    <span>
-     <span className="block">{statusLabel}</span>
-     {status==='paused'&&notice&&<span className="mt-1 block font-normal leading-relaxed" style={{color:'var(--muted)'}}>{notice.body}</span>}
-    </span>
+   {status==='paused'&&notice?<SigningNoticeBanner headline={notice.headline} body={notice.body}/>:
+    status!=='reviewable'&&<div role="status" className="flex items-start gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold"
+    style={{color:'var(--muted)',borderColor:'var(--border)',background:'var(--surface-raised)'}}>
+    <ShieldCheck className="size-4 shrink-0"/>
+    <span className="block">{statusLabel}</span>
    </div>}
    {mode==='swap'?<>
     <div className="flex items-center justify-between">

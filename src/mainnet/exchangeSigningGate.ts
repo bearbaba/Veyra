@@ -45,15 +45,17 @@ export interface SigningNotice {
 }
 
 export const PREVIEW_HEADLINE = 'Preview mode — quotes available, wallet signing disabled.';
+export const PREVIEW_BODY = 'Real financial transactions are available only through the authorized Production release, subject to all existing safety checks.';
+export const PREVIEW_BUTTON = 'Signing disabled in Preview';
 
 export function signingNotice(block: SigningBlock): SigningNotice {
   switch (block) {
     case 'preview':
       return {
         headline: PREVIEW_HEADLINE,
-        body: 'Real financial transactions are available only through the authorized Production release, subject to all existing safety checks.',
+        body: PREVIEW_BODY,
         compact: 'Preview mode: this quote cannot be signed here.',
-        buttonLabel: 'Signing disabled in Preview',
+        buttonLabel: PREVIEW_BUTTON,
       };
     case 'emergency':
       return {

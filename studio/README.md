@@ -84,7 +84,18 @@ node  Veyra-github/studio/e2e/identity-session.mjs     # wallet + Veyra ID sessi
 node  Veyra-github/studio/e2e/layout-connected.mjs     # signed-in Home/Swap/Bridge at 1280, 390, 320 px
 node  Veyra-github/studio/e2e/settlement-gate.mjs      # Pay's contract gate vs a misbehaving node (14 checks)
 node  Veyra-github/studio/e2e/exchange-preview.mjs     # Swap/Bridge quotes, fee breakdown and Preview notice (live quotes; SKIPPED if Circle is down)
+node  Veyra-github/studio/e2e/pay-preview.mjs          # Pay Review in Preview: notice first, no live Approve/Send, no wallet signing
+node  Veyra-github/studio/e2e/exchange-reverse.mjs     # EURC -> USDC and Base -> Arc against live quotes: expiry, re-quote, fee cap, network requirement
+node  Veyra-github/studio/e2e/exchange-recovery.mjs    # pending/unknown/unproven-verified records stay locked; survive reload and wallet change
 ```
 
 `setup.sh` downloads Chromium, unpacks its Debian libraries and a fallback font under
 `/tmp` (lost on a sandbox reset; re-run it). Screenshots go to `/tmp/shots`.
+
+### Network requirement in Preview
+
+When signing is unavailable (Preview, pause), requesting a quote does **not** ask the wallet to switch
+networks. If the wallet is on a different network than the quote's source, the screen names the network
+the wallet needs and the quote waits for the user to switch it. When signing is available (Production),
+the original behaviour is unchanged. `exchange-reverse.mjs` asserts both the hint and that no
+`wallet_switchEthereumChain` request is made.
