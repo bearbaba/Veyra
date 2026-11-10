@@ -341,7 +341,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
        task.stage==='SOURCE_UNKNOWN'?'Wallet outcome uncertain · never resubmit the source transaction automatically':
        task.stage==='REFUND_PENDING'?'Refund processing · verify where funds return':
        task.stage==='REFUNDED'?'Refund recorded · inspect original proof':
-       task.stage==='SOURCE_REVERTED'?'Original source transaction reverted onchain · no Exchange output was sent. Open Exchange to review a new request.':
+       task.stage==='SOURCE_REVERTED'?'Source revert recorded on this device · reopen Exchange to recheck onchain before another transaction.':
        'Exchange task is being tracked · do not create a duplicate request.'}
      </p>
      {task.holdingToken&&<p className="mt-1 text-xs" style={{color:'var(--warning)'}}>
@@ -377,7 +377,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
         {x.source===8453?'Base':'Arc'} → {x.destination===8453?'Base':'Arc'} · {x.mode==='swap'?'Swap':'Bridge'}
        </p>
        <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>
-        {x.status==='DESTINATION_VERIFIED'?'Destination verified by Exchange · browser-local receipt reference':
+        {x.status==='DESTINATION_VERIFIED'?'Previous verification recorded on this device · reopen Exchange to recheck onchain':
          'Original operation submitted · follow its outcome in Exchange. Do not resubmit.'}
        </p>
        <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
