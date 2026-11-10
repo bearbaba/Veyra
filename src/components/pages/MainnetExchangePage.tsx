@@ -223,8 +223,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   if(reversed.kind!==mode)return;
   setFrom(to);setTo(from);
  }
- const formatBalance=(a:ExchangeAsset)=>balances[exchangeAssetId(a)]===undefined?'Balance unavailable':
-  formatUnits(balances[exchangeAssetId(a)],a.decimals)+' '+a.symbol;
+ 
  const networkButton=(a:ExchangeAsset,side:ReviewedSide,active:boolean)=>(
   <button type="button" key={exchangeAssetId(a)}
    disabled={locked} onClick={()=>setPicking(side)}
@@ -252,25 +251,39 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    </div>}
    {mode==='swap'?<>
     <div className="flex items-center justify-between">
-     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>NETWORK</p>
-     <span className="inline-flex items-center gap-2 text-sm font-semibold">
-      <BrandLogo logoKey="arc" size={22}/> Arc Mainnet
+     <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>SWAP ROUTE</p>
+     <span className="inline-flex items-center gap-2 text-xs font-semibold" style={{color:'var(--muted)'}}>
+      <BrandLogo logoKey="arc" size={20}/> Arc Mainnet
      </span>
     </div>
-    <div className="space-y-2">
-     <div className="flex items-center justify-between gap-3">
-      <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU PAY · TOKEN</p>
-      <button type="button" disabled={locked} onClick={reverse} className="veyra-btn-secondary gap-2 text-xs"
-       aria-label="Reverse swap pair"><ArrowRightLeft className="size-4"/> Reverse</button>
+    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2"
+     aria-label="Swap token route">
+     <div className="min-w-0 space-y-1.5">
+      <p className="text-[11px] font-semibold" style={{color:'var(--muted)'}}>FROM</p>
+      <button type="button" disabled={locked} onClick={()=>setPicking('from')}
+       aria-label="Choose token to pay"
+       className="veyra-route-control flex min-h-16 w-full min-w-0 items-center gap-1.5 p-2 text-left disabled:opacity-50 sm:gap-2 sm:p-3">
+       <BrandLogo logoKey={from.logo} size={30}/>
+       <span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{from.symbol}</span>
+        <span className="block truncate text-[10px]" style={{color:'var(--muted)'}}>{from.name}</span></span>
+       <ChevronDown className="size-3.5 shrink-0"/>
+      </button>
      </div>
-     <button type="button" disabled={locked} onClick={()=>setPicking('from')}
-      className="veyra-route-control flex w-full items-center gap-3 p-3 text-left disabled:opacity-50">
-      <BrandLogo logoKey={from.logo} size={38}/>
-      <span className="min-w-0 flex-1"><span className="block font-bold">{from.symbol}</span>
-       <span className="block text-xs" style={{color:'var(--muted)'}}>{from.name}</span></span>
-      <span className="text-xs" style={{color:'var(--muted)'}}>{formatBalance(from)}</span>
-      <ChevronDown className="size-4 shrink-0"/>
+     <button type="button" disabled={locked} onClick={reverse} aria-label="Reverse swap pair"
+      className="veyra-btn-secondary mb-3 flex size-9 shrink-0 items-center justify-center rounded-full p-0 disabled:opacity-50">
+      <ArrowRightLeft className="size-4"/>
      </button>
+     <div className="min-w-0 space-y-1.5">
+      <p className="text-[11px] font-semibold" style={{color:'var(--muted)'}}>TO</p>
+      <button type="button" disabled={locked} onClick={()=>setPicking('to')}
+       aria-label="Choose token to receive"
+       className="veyra-route-control flex min-h-16 w-full min-w-0 items-center gap-1.5 p-2 text-left disabled:opacity-50 sm:gap-2 sm:p-3">
+       <BrandLogo logoKey={to.logo} size={30}/>
+       <span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{to.symbol}</span>
+        <span className="block truncate text-[10px]" style={{color:'var(--muted)'}}>{to.name}</span></span>
+       <ChevronDown className="size-3.5 shrink-0"/>
+      </button>
+     </div>
     </div>
    </>:<>
     <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2"
@@ -290,16 +303,7 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    </>}
    {canQuote?<MainnetCirclePage key={mode+':'+exchangeAssetId(from)+':'+exchangeAssetId(to)}
     embedded mode={mode} selection={selection} onFinancialBusyChange={setEngineBusy}
-    receiveSelector={mode==='swap'?<div className="space-y-2 border-t pt-4" style={{borderColor:'var(--border)'}}>
-    <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU RECEIVE · TOKEN</p>
-    <button type="button" disabled={locked} onClick={()=>setPicking('to')}
-     className="veyra-route-control flex w-full items-center gap-3 p-3 text-left disabled:opacity-50">
-     <BrandLogo logoKey={to.logo} size={38}/>
-     <span className="min-w-0 flex-1"><span className="block font-bold">{to.symbol}</span>
-      <span className="block text-xs" style={{color:'var(--muted)'}}>{to.name}</span></span>
-     <ChevronDown className="size-4 shrink-0"/>
-    </button>
-   </div>:undefined}/>:
+    />:
     <p role="status" className="rounded-xl border p-3 text-sm" style={{color:'var(--warning)',borderColor:'var(--border)'}}>
      This pair has no reviewed {mode} quote route. No transaction can start.
     </p>}
