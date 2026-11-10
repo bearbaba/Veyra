@@ -65,11 +65,6 @@ export function txStageIndex(stage: TxStage): number {
   return TX_STAGES.indexOf(stage);
 }
 
-/**
- * Progress indicator for a transaction panel. `stalled` marks an operation whose
- * outcome is not yet known: it stays on the current step and is announced, so an
- * unresolved transaction is never shown as finished.
- */
 /** Only presentation is condensed. Financial operations keep all five internal states. */
 export const TX_DISPLAY_STEPS = ['Review', 'Confirm', 'Track'] as const;
 export type TxDisplayStep = typeof TX_DISPLAY_STEPS[number];
@@ -81,40 +76,56 @@ export function txDisplayStep(stage: TxStage): TxDisplayStep {
 }
 
 /**
- * Compact three-step financial UX. UNKNOWN/PENDING never appear complete:
- * Processing stays on Track with an unresolved notice, and only the existing
- * verified state marks the final segment complete.
+ * Deliberately small navigation-style progress indicator. A phase is not
+ * evidence of financial completion. The Track pill stays current during
+ * UNKNOWN/PENDING and only an actual VERIFIED recovery state completes it.
+ * Explanations and actionable recovery live in the transaction status card,
+ * not in a second long warning below the progress indicator.
  */
 export function TxStepper({ stage, stalled = false }: { stage: TxStage; stalled?: boolean }) {
   const display = txDisplayStep(stage);
   const current = TX_DISPLAY_STEPS.indexOf(display);
   const complete = stage === 'Verified';
-  const detail = complete ? 'Verified' :
-    stalled ? 'Outcome unresolved · Do not submit again' :
-    stage === 'Processing' ? 'Processing · Awaiting verification' :
-    stage === 'Confirm in wallet' ? 'Confirm in your wallet' :
-    stage === 'Review' ? 'Check amount, recipient and fees' : 'Enter details';
+  const screenReaderDetail = complete ? 'Transaction verified onchain' :
+    stalled ? 'Outcome unresolved. Do not submit again.' :
+    stage === 'Processing' ? 'Processing. Awaiting onchain verification.' :
+    stage === 'Confirm in wallet' ? 'Confirm in your wallet.' :
+    'Review amount, recipient and fees.';
 
   return (
-    <div aria-label="Transaction progress">
-      <ol className="grid grid-cols-3 gap-2">
+    <div aria-label="Transaction progress" className="flex flex-col items-start gap-1.5 py-0.5">
+      <ol className="inline-flex max-w-full items-center gap-1 rounded-xl border p-1 sm:gap-1.5"
+        style={{ background: 'rgba(5,19,44,.42)', borderColor: 'var(--border)' }}>
         {TX_DISPLAY_STEPS.map((name, index) => {
           const done = index < current || (index === current && complete);
           const active = index === current && !complete;
+          const emphasize = active || done;
+          const warning = stalled && active;
           return (
-            <li key={name} aria-current={active ? 'step' : undefined} className="min-w-0 space-y-1.5">
-              <span className="block h-1 rounded-full" aria-hidden="true"
-                style={{ background: done || active ? (stalled && active ? 'var(--warning)' : 'var(--accent)') : 'var(--border)' }} />
-              <span className={`block text-[11px] sm:text-xs ${active ? 'font-semibold' : 'font-medium'}`}
-                style={{ color: active || done ? 'var(--ink)' : 'var(--muted)' }}>{name}</span>
+            <li key={name} aria-current={active ? 'step' : undefined}
+              className="flex min-w-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 sm:gap-2 sm:px-3"
+              style={{
+                background: warning ? 'rgba(231,167,52,.09)' :
+                  active ? 'var(--accent-muted)' : done ? 'rgba(66,131,223,.065)' : 'transparent',
+                borderColor: warning ? 'rgba(231,167,52,.28)' :
+                  active ? 'var(--border-strong)' : 'transparent',
+                color: warning ? 'var(--warning)' : emphasize ? 'var(--ink)' : 'var(--muted)',
+              }}>
+              <span aria-hidden="true"
+                className="flex size-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums"
+                style={{
+                  background: warning ? 'rgba(231,167,52,.16)' : done ? 'var(--accent-muted)' :
+                    active ? 'rgba(80,161,255,.2)' : 'var(--surface-raised)',
+                  color: warning ? 'var(--warning)' : emphasize ? 'var(--accent)' : 'var(--muted)',
+                }}>{done ? '✓' : index + 1}</span>
+              <span className={`text-[11px] leading-4 sm:text-xs ${emphasize ? 'font-semibold' : 'font-medium'}`}>
+                {name}
+              </span>
             </li>
           );
         })}
       </ol>
-      <p className="mt-1 text-[11px]" role="status"
-        style={{ color: stalled ? 'var(--warning)' : 'var(--muted)' }}>
-        Step {current + 1} of 3 · {display}{' · '}{detail}
-      </p>
+      <span role="status" className="sr-only">{screenReaderDetail}</span>
     </div>
   );
 }
