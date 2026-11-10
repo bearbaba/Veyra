@@ -121,6 +121,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
  const owner=address?.toLowerCase()??'';
  // New wallet/route renders immediately invalidate any in-flight read-only check.
  verificationScopeRef.current=mode+':'+owner;
+ useEffect(()=>()=>{verificationScopeRef.current='unmounted';},[]);
  useEffect(()=>{
   onFinancialBusyChange?.(busy||!!recovery);
   return()=>onFinancialBusyChange?.(false);
