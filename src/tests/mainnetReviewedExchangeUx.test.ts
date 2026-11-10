@@ -35,8 +35,12 @@ describe('Veyra reviewed routes are the ONLY source for selectors and pause stat
   expect(page).toContain('reviewedExchangeAssets');
   expect(page).toContain("side==='to'?other:undefined");
   expect(page).toContain('Reverse swap pair');
-  expect(page).toContain('receiveSelector=');
-  expect(circle).toContain("{mode==='swap'&&receiveSelector}");
+  // Swap and Bridge use the same horizontal From / To design; the receiver is not duplicated below.
+  expect(page).toContain('aria-label="Swap token route"');
+  expect(page).toContain('aria-label="Choose token to pay"');
+  expect(page).toContain('aria-label="Choose token to receive"');
+  expect(page).toContain('aria-label="Bridge route"');
+  expect(page).not.toContain('receiveSelector=');
   // The paused wording now comes from the shared gate, which also says why (Preview vs a real pause).
   expect(page).toContain('signingNotice(');
   expect(readFileSync(new URL('../mainnet/exchangeSigningGate.ts', import.meta.url), 'utf8'))
