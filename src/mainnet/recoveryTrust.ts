@@ -76,7 +76,7 @@ export function validStoredExchangeRecovery(record:unknown,owner:string,mode:'sw
     units(r.amount)===null||units(r.minimum)===null||
     !Number.isSafeInteger(r.source)||!Number.isSafeInteger(r.destination)||
     (r.intentId!==undefined&&(typeof r.intentId!=='string'||!/^[0-9a-f-]{36}$/i.test(r.intentId)))||
-    (r.downgradedFrom!==undefined&&!['VERIFIED','REVERTED'].includes(String(r.downgradedFrom)))||
+    (r.downgradedFrom!==undefined&&r.downgradedFrom!=='VERIFIED'&&r.downgradedFrom!=='REVERTED')||
     [r.hash,r.burnHash,r.mintHash].some(value=>value!==undefined&&
       (typeof value!=='string'||!txHash.test(value))))
     return false;
