@@ -1,6 +1,6 @@
 import {readFileSync} from 'node:fs';
 import {describe,expect,it} from 'vitest';
-import {validStoredExchangeRecovery,withFreshVerification} from '../mainnet/recoveryTrust';
+import {validStoredExchangeRecovery,withFreshVerification,type StoredExchangeRecord} from '../mainnet/recoveryTrust';
 
 const OWNER='0x1111111111111111111111111111111111111111';
 const OTHER='0x2222222222222222222222222222222222222';
@@ -13,7 +13,7 @@ const bridge={owner:OWNER,mode:'bridge' as const,status:'VERIFIED' as const,sour
 describe('untrusted saved Exchange outcomes are always re-verified',()=>{
  it('downgrades even fully populated historical VERIFIED Swap/Bridge before rendering',()=>{
   for(const record of [swap,bridge]){
-   const downgraded=withFreshVerification(record);
+   const downgraded:StoredExchangeRecord=withFreshVerification(record);
    expect(downgraded.status).toBe('PENDING');
    expect(downgraded.downgradedFrom).toBe('VERIFIED');
    expect(downgraded).toMatchObject({...record,status:'PENDING'});
