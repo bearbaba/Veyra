@@ -263,10 +263,10 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
       <button type="button" disabled={locked} onClick={()=>setPicking('from')}
        aria-label="Choose token to pay"
        className="veyra-route-control flex min-h-16 w-full min-w-0 items-center gap-1.5 p-2 text-left disabled:opacity-50 sm:gap-2 sm:p-3">
-       <BrandLogo logoKey={from.logo} size={30}/>
-       <span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{from.symbol}</span>
-        <span className="block truncate text-[10px]" style={{color:'var(--muted)'}}>{from.name}</span></span>
-       <ChevronDown className="size-3.5 shrink-0"/>
+       <BrandLogo logoKey={from.logo} size={26}/>
+       <span className="min-w-0 flex-1"><span className="block whitespace-nowrap text-xs font-bold min-[380px]:text-sm">{from.symbol}</span>
+        <span className="hidden truncate text-[10px] min-[380px]:block" style={{color:'var(--muted)'}}>{from.name}</span></span>
+       <ChevronDown className="hidden size-3.5 shrink-0 min-[380px]:block"/>
       </button>
      </div>
      <button type="button" disabled={locked} onClick={reverse} aria-label="Reverse swap pair"
@@ -278,10 +278,10 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
       <button type="button" disabled={locked} onClick={()=>setPicking('to')}
        aria-label="Choose token to receive"
        className="veyra-route-control flex min-h-16 w-full min-w-0 items-center gap-1.5 p-2 text-left disabled:opacity-50 sm:gap-2 sm:p-3">
-       <BrandLogo logoKey={to.logo} size={30}/>
-       <span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{to.symbol}</span>
-        <span className="block truncate text-[10px]" style={{color:'var(--muted)'}}>{to.name}</span></span>
-       <ChevronDown className="size-3.5 shrink-0"/>
+       <BrandLogo logoKey={to.logo} size={26}/>
+       <span className="min-w-0 flex-1"><span className="block whitespace-nowrap text-xs font-bold min-[380px]:text-sm">{to.symbol}</span>
+        <span className="hidden truncate text-[10px] min-[380px]:block" style={{color:'var(--muted)'}}>{to.name}</span></span>
+       <ChevronDown className="hidden size-3.5 shrink-0 min-[380px]:block"/>
       </button>
      </div>
     </div>
