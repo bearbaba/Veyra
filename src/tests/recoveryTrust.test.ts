@@ -73,7 +73,7 @@ describe('the Exchange component applies it when it loads a stored record', () =
   });
   it('the unresolved panel explains a downgraded record without calling it failed', () => {
     expect(circle).toContain("recovery?.downgradedFrom&&recovery.status==='PENDING'");
-    expect(circle).toContain('It is not marked failed and nothing was resent.');
+    expect(circle).toContain('No funds were resent.');
   });
   it('the downgrade is written back so every other reader of the record sees it', () => {
     expect(circle).toMatch(/localStorage\.setItem\(key\(mode,address\),JSON\.stringify\(saved\)\)/);

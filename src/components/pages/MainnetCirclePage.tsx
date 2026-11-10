@@ -10,7 +10,7 @@ import {createViemAdapterFromProvider} from '@circle-fin/adapter-viem-v2';
 import {useAccount,usePublicClient,useReadContract,useSwitchChain} from 'wagmi';
 import {ConnectKitButton} from 'connectkit';
 import {decodeEventLog,erc20Abi,formatUnits,getAddress,isAddress,parseAbi,parseUnits,type EIP1193Provider,type Hash} from 'viem';
-import {ArrowLeftRight,Route,ShieldCheck,AlertTriangle,ExternalLink,RefreshCw} from 'lucide-react';
+import {ArrowLeftRight,Route,ShieldCheck,AlertTriangle,ExternalLink,RefreshCw,LockKeyhole,History} from 'lucide-react';
 import {getMainnetChain,CCTP_V2_MAINNET} from '@/config/mainnetCatalog';
 import {circleCctpBridgePair} from '@/mainnet/circleBridgePolicy';
 import {ARC_VERIFIED_ASSETS,assertArcSwapCandidate} from '@/config/arcVerifiedAssets';
@@ -27,7 +27,7 @@ import {readBridgeQuoteAmounts,assertBridgeQuoteWithinReviewedCap} from '@/mainn
 import {feeBurdenMessage} from '@/mainnet/feeBurden';
 import {exchangeSigningBlock,signingNotice,type SigningBlock} from '@/mainnet/exchangeSigningGate';
 import {summarizeQuote} from '@/mainnet/quoteSummary';
-import {Notice,TxStepper} from '@/components/ui/primitives';
+import {Notice,StatusPill,TxStepper} from '@/components/ui/primitives';
 import {exchangeStageView} from '@/mainnet/exchangeStage';
 import {validStoredExchangeRecovery,withFreshVerification} from '@/mainnet/recoveryTrust';
 import {networkRequirement} from '@/mainnet/walletNetworkRequirement';
@@ -88,9 +88,10 @@ function parseSaved(raw:string|null,owner:string,mode:Mode):Recovery|null {
  // Local cached outcomes and hash strings are not independent blockchain proof.
  return withFreshVerification(v as Recovery);
 }
-export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusyChange,receiveSelector}:{
+export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusyChange,receiveSelector,onOpenActivity}:{
  mode:Mode;selection?:ExchangeExecutionSelection;embedded?:boolean;
  onFinancialBusyChange?:(blocked:boolean)=>void;receiveSelector?:ReactNode;
+ onOpenActivity?:()=>void;
 }){
  const {address,connector,chainId:walletChainId}=useAccount();
  const {switchChainAsync}=useSwitchChain();
@@ -609,55 +610,94 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
      </p>}
     </div>}
     </>}
-    {(recovery||unknownStorage)&&<div role="status" className="space-y-2 rounded-xl border p-3 text-sm"
-     style={{borderColor:'var(--border)',color:'var(--ink)'}}>
-     <p className="flex items-center gap-2 font-bold">
-      {busy&&<RefreshCw className="size-4 animate-spin" aria-label="Checking original transaction"/>}
-      {recovery?.status==='VERIFIED'?<ShieldCheck className="size-5" style={{color:'var(--success)'}}/>:
-       <RefreshCw className="size-4" style={{color:'var(--muted)'}}/>}
-      {recovery?.status==='VERIFIED'?'Destination verified':
-       recovery?.status==='REVERTED'?'Transaction reverted':
-       'Tracking Mainnet '+title}
+    {(recovery||unknownStorage)&&<section role="status" aria-label="Exchange tracking status"
+     className="space-y-3 overflow-hidden rounded-2xl border p-3.5 shadow-sm sm:p-4"
+     style={{
+      borderColor:recovery?.status==='VERIFIED'?'rgba(70,186,153,.3)':'var(--border-strong)',
+      background:recovery?.status==='VERIFIED'
+       ?'linear-gradient(125deg,rgba(24,88,83,.2),rgba(11,31,59,.68) 78%)'
+       :'linear-gradient(125deg,rgba(38,85,167,.19),rgba(12,29,60,.75) 70%,rgba(84,53,143,.14))',
+      color:'var(--ink)',
+     }}>
+     <div className="flex flex-wrap items-center justify-between gap-2.5">
+      <div className="flex min-w-0 items-center gap-2.5">
+       <span className="flex size-9 shrink-0 items-center justify-center rounded-xl"
+        style={{background:recovery?.status==='VERIFIED'?'rgba(51,174,146,.14)':'var(--accent-muted)',
+         color:recovery?.status==='VERIFIED'?'var(--success)':'var(--accent)'}}>
+        {recovery?.status==='VERIFIED'?<ShieldCheck className="size-4"/>:
+         recovery?.status==='REVERTED'?<AlertTriangle className="size-4"/>:
+         busy?<RefreshCw className="size-4 animate-spin" aria-label="Checking original transaction"/>:
+         <LockKeyhole className="size-4" aria-hidden="true"/>}
+       </span>
+       <div className="min-w-0">
+        <h2 className="text-sm font-bold leading-5">
+         {recovery?.status==='VERIFIED'?title+' verified':
+          recovery?.status==='REVERTED'?'Original transaction reverted':
+          unknownStorage?'Recovery needs attention':'Tracking '+title}
+        </h2>
+        <p className="mt-0.5 text-[11px]" style={{color:'var(--muted)'}}>
+         {recovery?.status==='VERIFIED'?'Verified destination receipt':
+          recovery?.status==='REVERTED'?'Original onchain result':
+          busy?'Checking onchain evidence':'Original operation · read-only tracking'}
+        </p>
+       </div>
+      </div>
+      <StatusPill tone={recovery?.status==='VERIFIED'?'success':
+       recovery?.status==='REVERTED'||unknownStorage?'danger':'warning'}>
+       {recovery?.status==='VERIFIED'?'Verified':recovery?.status==='REVERTED'?'Reverted':
+        busy?'Checking':'Locked'}
+      </StatusPill>
+     </div>
+     <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
+      {recovery?.status==='VERIFIED'?'Destination receipt verified onchain. Open the receipt for details.':
+       recovery?.status==='REVERTED'?'The source transaction reverted onchain. Review its receipt before starting again.':
+       unknownStorage?'Saved operation cannot be read. Signing remains locked; check Activity and wallet history.':
+       'A previous '+title.toLowerCase()+' attempt is unresolved. Do not submit again until verified.'}
      </p>
-     <p className="text-xs" style={{color:recovery?.status==='VERIFIED'?'var(--success)':'var(--muted)'}}>
-      {recovery?.status==='VERIFIED'?'Destination asset receipt passed Veyra verification. Open the original transaction for details.':
-       recovery?.status==='REVERTED'?'Review the original transaction before starting a new request.':
-       'Previous outcome is pending or uncertain. Veyra will not submit a duplicate transaction. Status rechecks never request a signature.'}
-     </p>
-     {recovery?.downgradedFrom&&recovery.status==='PENDING'&&<p role="status" className="text-xs" style={{color:'var(--warning)'}}>
-      This transaction's previous saved outcome ({recovery.downgradedFrom}) is being checked again against Mainnet.
-      Its original evidence is preserved and the operation remains locked. It is not marked failed and nothing was resent.
-      Use Verify destination onchain for another read-only check if the network is unavailable.
-     </p>}
-     {(recovery?.hash||recovery?.burnHash||recovery?.mintHash)&&<details className="text-xs">
-      <summary className="cursor-pointer" style={{color:'var(--muted)'}}>Transaction details</summary>
-      <div className="mt-2 space-y-1 break-all">
+     {recovery?.downgradedFrom&&recovery.status==='PENDING'&&
+      <p className="text-[11px] leading-4" style={{color:'var(--muted)'}}>
+       Previously saved as {recovery.downgradedFrom.toLowerCase()}; fresh onchain verification required.
+       No funds were resent.
+      </p>}
+     {recovery&&recovery.status!=='VERIFIED'&&recovery.status!=='REVERTED'&&
+      (mode==='bridge'?!recovery.burnHash:!recovery.hash)&&
+      <p className="flex items-start gap-1.5 text-[11px] leading-4" style={{color:'var(--warning)'}}>
+       <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden="true"/>
+       Source hash unavailable on this device. Check your wallet or Activity.
+      </p>}
+     {(recovery?.hash||recovery?.burnHash||recovery?.mintHash)&&<details className="rounded-lg text-xs"
+      style={{color:'var(--muted)'}}>
+      <summary className="w-fit cursor-pointer font-medium underline-offset-4 hover:underline">Transaction details</summary>
+      <div className="mt-2 space-y-1.5 break-all rounded-lg border p-2.5"
+       style={{borderColor:'var(--border)',background:'rgba(5,19,44,.25)'}}>
        {recovery?.hash&&<p>Swap: {recovery.hash}</p>}
        {recovery?.burnHash&&<p>Burn: {recovery.burnHash}</p>}
        {recovery?.mintHash&&<p>Destination: {recovery.mintHash}</p>}
        {(recovery?.mintHash||recovery?.hash)&&<a target="_blank" rel="noreferrer"
-        className="block underline" style={{color:'var(--accent)'}}
+        className="block font-semibold underline" style={{color:'var(--accent)'}}
         href={(recovery.destination===BASE?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+(recovery.mintHash||recovery.hash)}>
-        View transaction on explorer</a>}
+        View on explorer</a>}
       </div>
      </details>}
-     {recovery&&recovery.status!=='VERIFIED'&&recovery.status!=='REVERTED'&&<>
-      {mode==='bridge'&&!recovery.burnHash&&<p className="text-xs" style={{color:'var(--warning)'}}>
-       Source transaction hash was not returned. Inspect your wallet/Activity; original attempt remains locked.
-      </p>}
-      {!recovery.hash&&mode==='swap'&&<p className="text-xs" style={{color:'var(--warning)'}}>
-       Swap transaction hash was not returned. Inspect wallet Activity; original attempt remains locked.
-      </p>}
-      <button type="button" disabled={busy} onClick={()=>void verify()}
-       className="w-full rounded-xl border px-4 py-3 font-semibold disabled:opacity-40"
-       style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>
-       <RefreshCw className="mr-2 inline size-4"/>Verify destination onchain
-      </button>
-     </>}
-     {recovery&&['VERIFIED','REVERTED'].includes(recovery.status)&&
-      <button type="button" onClick={reset} className="rounded-xl border px-4 py-2"
-       style={{borderColor:'var(--border)',color:'var(--ink)'}}>Start new review</button>}
-    </div>}
+     <div className="flex flex-wrap items-center gap-2 pt-0.5" aria-label="Recovery actions">
+      {recovery&&recovery.status!=='VERIFIED'&&recovery.status!=='REVERTED'&&
+       (mode==='swap'?!!recovery.hash:!!recovery.burnHash)&&
+       <button type="button" disabled={busy} onClick={()=>void verify()}
+        aria-label="Verify destination onchain"
+        className="veyra-btn-primary inline-flex min-h-10 min-w-0 flex-1 items-center justify-center gap-2 px-3 text-xs font-semibold disabled:opacity-50 sm:flex-none">
+        <RefreshCw className={'size-3.5 shrink-0'+(busy?' animate-spin':'')}/>Verify onchain
+       </button>}
+      {onOpenActivity&&<button type="button" onClick={onOpenActivity}
+       className="veyra-btn-secondary inline-flex min-h-10 min-w-0 flex-1 items-center justify-center gap-2 px-3 text-xs font-semibold sm:flex-none">
+       <History className="size-3.5 shrink-0"/>Open Activity
+      </button>}
+      {recovery&&['VERIFIED','REVERTED'].includes(recovery.status)&&
+       <button type="button" onClick={reset}
+        className="veyra-btn-secondary inline-flex min-h-10 items-center px-3 text-xs font-semibold">
+        Start new review
+       </button>}
+     </div>
+    </section>}
     {proof&&<p role="status" className="flex items-center gap-2 text-sm"
       style={{color:'var(--success)'}}><ShieldCheck className="size-4"/>{proof}</p>}
     {error&&<p role="alert" className="flex items-start gap-2 text-sm" style={{color:'var(--warning)'}}>
