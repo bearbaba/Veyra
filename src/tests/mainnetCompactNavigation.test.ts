@@ -28,7 +28,7 @@ describe('Mainnet navigation keeps financial actions up front', () => {
   });
 
   it('Home quick actions put Pay, Swap, Bridge before Friends and Activity', () => {
-    const shortcutSource = home.slice(home.indexOf("{id:'send',label:'Pay'"), home.indexOf("{id:'activity',label:'Activity'")+20);
+    const shortcutSource = home.slice(home.indexOf("{id:'send',label:'Pay'"), home.indexOf("{id:'activity',label:'Activity'")+45);
     const labels = [...shortcutSource.matchAll(/label:'(Pay|Swap|Bridge|Friends|Activity)'/g)].map(m=>m[1]);
     expect(labels).toEqual(['Pay', 'Swap', 'Bridge', 'Friends', 'Activity']);
   });
