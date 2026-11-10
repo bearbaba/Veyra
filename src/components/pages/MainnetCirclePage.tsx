@@ -29,7 +29,7 @@ import {exchangeSigningBlock,signingNotice,type SigningBlock} from '@/mainnet/ex
 import {summarizeQuote} from '@/mainnet/quoteSummary';
 import {Notice,TxStepper} from '@/components/ui/primitives';
 import {exchangeStageView} from '@/mainnet/exchangeStage';
-import {withTrustedStatus} from '@/mainnet/recoveryTrust';
+import {validStoredExchangeRecovery,withFreshVerification} from '@/mainnet/recoveryTrust';
 import {networkRequirement} from '@/mainnet/walletNetworkRequirement';
 
 const kit=new AppKit();
@@ -55,7 +55,7 @@ export function isCircleSigningReady(mode:Mode):boolean{
 type Token='USDC'|'EURC';
 export type ExchangeExecutionSelection={fromChainId:number;toChainId:number;fromToken:Token;toToken:Token};
 type Quote={owner:string;at:number;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;expected:string;fees:string[];bridgeMaxFee?:string};
-type Recovery={owner:string;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;status:'UNKNOWN'|'PENDING'|'VERIFIED'|'REVERTED';hash?:string;burnHash?:string;mintHash?:string;intentId?:string;downgradedFrom?:'VERIFIED'};
+type Recovery={owner:string;mode:Mode;amount:string;source:number;destination:number;fromToken:Token;toToken:Token;minimum:string;status:'UNKNOWN'|'PENDING'|'VERIFIED'|'REVERTED';hash?:string;burnHash?:string;mintHash?:string;intentId?:string;downgradedFrom?:'VERIFIED'|'REVERTED'};
 const key=(mode:Mode,owner:string)=>'veyra:mainnet:circle:v1:'+mode+':'+owner.toLowerCase();
 const label=(id:number)=>id===ARC?'Arc Mainnet':id===1?'Ethereum Mainnet':'Base Mainnet';
 const sdkChain=(id:number)=>id===1?'Ethereum' as const:id===BASE?'Base' as const:'Arc' as const;
@@ -84,13 +84,9 @@ function feeLines(result:unknown):string[]{
 function parseSaved(raw:string|null,owner:string,mode:Mode):Recovery|null {
  if(!raw)return null;
  const v:unknown=JSON.parse(raw);
- if(!v||typeof v!=='object'||Array.isArray(v))throw Error('Unreadable prior operation');
- const p=v as Recovery;
- if(p.owner!==owner.toLowerCase()||p.mode!==mode||!['UNKNOWN','PENDING','VERIFIED','REVERTED'].includes(p.status)||
- (p.hash!==undefined&&!HASH.test(p.hash))||(p.burnHash!==undefined&&!HASH.test(p.burnHash))||
- (p.mintHash!==undefined&&!HASH.test(p.mintHash)))throw Error('Invalid prior operation');
- // A stored VERIFIED needs its proof hashes; otherwise it stays locked as unresolved (never upgraded).
- return withTrustedStatus(p);
+ if(!validStoredExchangeRecovery(v,owner,mode))throw Error('Invalid prior operation');
+ // Local cached outcomes and hash strings are not independent blockchain proof.
+ return withFreshVerification(v as Recovery);
 }
 export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusyChange,receiveSelector}:{
  mode:Mode;selection?:ExchangeExecutionSelection;embedded?:boolean;
@@ -120,11 +116,16 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
  const [manualMint,setManualMint]=useState('');
  const [manualSource,setManualSource]=useState('');
  const lock=useRef(false);
+ const verificationScopeRef=useRef('');
+ const autoCheckBudget=useRef({id:'',attempts:0});
+ const owner=address?.toLowerCase()??'';
+ // New wallet/route renders immediately invalidate any in-flight read-only check.
+ verificationScopeRef.current=mode+':'+owner;
+ useEffect(()=>()=>{verificationScopeRef.current='unmounted';},[]);
  useEffect(()=>{
   onFinancialBusyChange?.(busy||!!recovery);
   return()=>onFinancialBusyChange?.(false);
  },[busy,recovery,onFinancialBusyChange]);
- const owner=address?.toLowerCase()??'';
  const card=embedded?'rounded-2xl border p-4 sm:p-5':'rounded-2xl border p-5 sm:p-6';
  const input='mt-2 w-full rounded-xl border p-3 text-sm';
  const selectedSource=mode==='swap'?ARC:source;
@@ -253,6 +254,12 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     mode==='bridge'&&quote.minimum!==minimum||Date.now()-quote.at>30000)
     throw Error('Payment route changed or quote expired. Review again.');
    if(localStorage.getItem(key(mode,address)))throw Error('Previous operation must be resolved first.');
+   // Both Swap and Bridge use the same wallet. Another saved Circle outcome,
+   // even one previously marked VERIFIED, must be reopened and independently
+   // checked before authorizing a second money movement in either mode.
+   const otherMode:Mode=mode==='swap'?'bridge':'swap';
+   if(localStorage.getItem(key(otherMode,address)))
+    throw Error('Another Exchange operation requires review. Open its original Swap or Bridge tracking before signing.');
    const existingIntents=readExchangeIntents(owner);
    if(existingIntents.kind!=='ready'||existingIntents.items.some(task=>
     !['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(task.stage)))
@@ -337,11 +344,18 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
  async function verify(){
   if(!recovery||!address||lock.current)return;
   lock.current=true;setBusy(true);setError('');
+  const requestScope=verificationScopeRef.current;
+  const assertSameScope=()=>{
+   if(verificationScopeRef.current!==requestScope)
+    throw Error('Connected wallet or route changed during verification. Previous check ignored.');
+  };
   try{
+   assertSameScope();
    if(recovery.owner!==owner)throw Error('Owner changed.');
    let hash=mode==='swap'?recovery.hash:recovery.mintHash;
    if(mode==='bridge'&&!hash&&recovery.burnHash){
     const found=await findCctpDestinationMintHash(recovery.source,recovery.destination,recovery.burnHash);
+    assertSameScope();
     if(!found)throw Error('Waiting for Circle destination mint or attestation. Original source remains locked; never resend.');
     hash=found;
     const next:Recovery={...recovery,mintHash:found};
@@ -353,6 +367,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    const receivedToken=mode==='swap'?TOKENS[recovery.toToken]:getMainnetChain(recovery.destination)?.usdc;
    if(!destinationClient||!receivedToken||await destinationClient.getChainId()!==recovery.destination)
     throw Error('Destination RPC or token unavailable.');
+   assertSameScope();
    let burnEvidence:{sourceHash:string;receipt:Awaited<ReturnType<NonNullable<typeof arc>['getTransactionReceipt']>>}|null=null;
    if(mode==='bridge'){
     const sourceHash=recovery.burnHash||manualSource;
@@ -360,8 +375,10 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     const sourceClient=client(recovery.source);
     if(!sourceClient)throw Error('Source chain RPC unavailable.');
     const burn=await sourceClient.getTransactionReceipt({hash:sourceHash as Hash});
+    assertSameScope();
     if(burn.status!=='success')throw Error('Source burn is not confirmed.');
     const sourceTx=await sourceClient.getTransaction({hash:sourceHash as Hash});
+    assertSameScope();
     if(sourceTx.from.toLowerCase()!==owner)throw Error('Source burn sender differs from the reviewed wallet.');
     if(!burn.logs.some(log=>log.address.toLowerCase()===CCTP_V2_MAINNET.tokenMessengerV2.toLowerCase()))
      throw Error('Canonical CCTP source burn event missing.');
@@ -375,8 +392,10 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     }
    }
    const receipt=await destinationClient.getTransactionReceipt({hash:hash as Hash});
+   assertSameScope();
    if(mode==='swap'){
     const submitted=await destinationClient.getTransaction({hash:hash as Hash});
+    assertSameScope();
     if(submitted.from.toLowerCase()!==owner)throw Error('Swap transaction sender differs from the connected wallet.');
    }
    if(receipt.status==='reverted'){
@@ -405,6 +424,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     if(!burnEvidence)throw Error('Original CCTP burn missing.');
     await assertCctpBridgeLinked(recovery.source,recovery.destination,
      burnEvidence.sourceHash,hash,burnEvidence.receipt,receipt,address,parseUnits(recovery.amount,6));
+    assertSameScope();
    }
    const amountOut=transferSum(receipt,receivedToken,address);
    if(amountOut<parseUnits(recovery.minimum,6))throw Error('Destination Transfer amount below reviewed minimum or mint not found.');
@@ -427,8 +447,16 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     tokenIn:recovery.fromToken,tokenOut:recovery.toToken,amountIn:recovery.amount,
     minOut:recovery.minimum,originalHash:original,destinationHash:hash,
     status:'DESTINATION_VERIFIED',createdAt:Date.now(),verifiedAt:Date.now()});
-  }catch(e){setError(e instanceof Error?e.message:'Destination receipt unverified.');}
-  finally{lock.current=false;setBusy(false);}
+  }catch(e){
+   if(verificationScopeRef.current===requestScope)
+    setError(e instanceof Error?e.message:'Destination receipt unverified.');
+  }finally{
+   // The shared lock blocks another action while this read is in flight.
+   // Always release its spinner, including after a wallet switch; only
+   // financial *results* are scoped and must be discarded when stale.
+   lock.current=false;
+   setBusy(false);
+  }
  }
  // Read-only automatic reconciliation; no second swap, approval or burn can be submitted.
  useEffect(()=>{
@@ -436,7 +464,13 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
   const hasEvidence=mode==='swap'?!!recovery.hash:!!recovery.burnHash;
   if(!hasEvidence)return;
   let active=true;
-  const tick=()=>{if(active&&!lock.current)void verify();};
+  const checkId=key(mode,address)+':'+(recovery.hash??recovery.burnHash??'unknown');
+  if(autoCheckBudget.current.id!==checkId)autoCheckBudget.current={id:checkId,attempts:0};
+  const tick=()=>{
+   if(!active||lock.current||autoCheckBudget.current.attempts>=4)return;
+   autoCheckBudget.current.attempts++;
+   void verify();
+  };
   tick();
   const timer=window.setInterval(tick,12000);
   return ()=>{active=false;window.clearInterval(timer);};
@@ -590,9 +624,10 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        recovery?.status==='REVERTED'?'Review the original transaction before starting a new request.':
        'Previous outcome is pending or uncertain. Veyra will not submit a duplicate transaction. Status rechecks never request a signature.'}
      </p>
-     {recovery?.downgradedFrom==='VERIFIED'&&recovery.status!=='VERIFIED'&&<p role="status" className="text-xs" style={{color:'var(--warning)'}}>
-      This transfer was saved as verified, but its proof is not stored on this device, so Veyra treats it as unresolved.
-      It is not marked failed and nothing was resent. Use Verify destination onchain to check it again.
+     {recovery?.downgradedFrom&&recovery.status==='PENDING'&&<p role="status" className="text-xs" style={{color:'var(--warning)'}}>
+      This transaction's previous saved outcome ({recovery.downgradedFrom}) is being checked again against Mainnet.
+      Its original evidence is preserved and the operation remains locked. It is not marked failed and nothing was resent.
+      Use Verify destination onchain for another read-only check if the network is unavailable.
      </p>}
      {(recovery?.hash||recovery?.burnHash||recovery?.mintHash)&&<details className="text-xs">
       <summary className="cursor-pointer" style={{color:'var(--muted)'}}>Transaction details</summary>

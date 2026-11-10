@@ -262,8 +262,8 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
          {task.mode==='swap'?'Swap':'Bridge'} · {task.amountIn} {task.tokenIn} → {task.tokenOut}
         </p>
         <p className="mt-1 text-xs" style={{color:task.stage==='PARTIAL'?'var(--warning)':'var(--muted)'}}>
-         {task.stage==='DESTINATION_VERIFIED'?'Destination verified · proof in Activity':
-          task.stage==='SOURCE_REVERTED'?'Source transaction reverted onchain':
+         {task.stage==='DESTINATION_VERIFIED'?'Verification recorded · reopen Exchange to recheck onchain':
+          task.stage==='SOURCE_REVERTED'?'Source revert recorded · recheck onchain':
           task.stage==='PARTIAL'?'Partially completed · recovery required':
           task.stage==='REFUNDED'?'Refund recorded · inspect proof':
           'Tracking original Exchange · no duplicate transfer'}
