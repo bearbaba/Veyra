@@ -70,32 +70,50 @@ export function txStageIndex(stage: TxStage): number {
  * outcome is not yet known: it stays on the current step and is announced, so an
  * unresolved transaction is never shown as finished.
  */
+/** Only presentation is condensed. Financial operations keep all five internal states. */
+export const TX_DISPLAY_STEPS = ['Review', 'Confirm', 'Track'] as const;
+export type TxDisplayStep = typeof TX_DISPLAY_STEPS[number];
+
+export function txDisplayStep(stage: TxStage): TxDisplayStep {
+  if (stage === 'Enter details' || stage === 'Review') return 'Review';
+  if (stage === 'Confirm in wallet') return 'Confirm';
+  return 'Track';
+}
+
+/**
+ * Compact three-step financial UX. UNKNOWN/PENDING never appear complete:
+ * Processing stays on Track with an unresolved notice, and only the existing
+ * verified state marks the final segment complete.
+ */
 export function TxStepper({ stage, stalled = false }: { stage: TxStage; stalled?: boolean }) {
-  const current = txStageIndex(stage);
+  const display = txDisplayStep(stage);
+  const current = TX_DISPLAY_STEPS.indexOf(display);
+  const complete = stage === 'Verified';
+  const detail = complete ? 'Verified' :
+    stalled ? 'Outcome unresolved · Do not submit again' :
+    stage === 'Processing' ? 'Processing · Awaiting verification' :
+    stage === 'Confirm in wallet' ? 'Confirm in your wallet' :
+    stage === 'Review' ? 'Check amount, recipient and fees' : 'Enter details';
+
   return (
-    <div>
-      <ol aria-label="Transaction progress" className="flex items-center gap-1.5">
-        {TX_STAGES.map((name, index) => {
-          const done = index < current || (index === current && stage === 'Verified');
-          const active = index === current && !done;
+    <div aria-label="Transaction progress">
+      <ol className="grid grid-cols-3 gap-2">
+        {TX_DISPLAY_STEPS.map((name, index) => {
+          const done = index < current || (index === current && complete);
+          const active = index === current && !complete;
           return (
-            <li key={name} className="flex min-w-0 flex-1 flex-col gap-1.5" aria-current={active ? 'step' : undefined}>
-              <span className="h-1 rounded-full" aria-hidden="true"
+            <li key={name} aria-current={active ? 'step' : undefined} className="min-w-0 space-y-1.5">
+              <span className="block h-1 rounded-full" aria-hidden="true"
                 style={{ background: done || active ? (stalled && active ? 'var(--warning)' : 'var(--accent)') : 'var(--border)' }} />
-              {/* Each segment is ~58 px wide on a phone, too narrow for its label: phones get one
-                  readable line below instead (screen readers still get every label). */}
-              <span className={`sr-only sm:not-sr-only sm:truncate sm:text-[11px] ${active ? 'sm:font-semibold' : ''}`}
-                style={{ color: active ? 'var(--ink)' : 'var(--muted)' }}>
-                {name}
-              </span>
+              <span className={`block text-[11px] sm:text-xs ${active ? 'font-semibold' : 'font-medium'}`}
+                style={{ color: active || done ? 'var(--ink)' : 'var(--muted)' }}>{name}</span>
             </li>
           );
         })}
-        {stalled && <li className="sr-only">Outcome not yet confirmed. Do not submit again.</li>}
       </ol>
-      <p aria-hidden="true" className="mt-1.5 text-[11px] font-semibold sm:hidden"
-        style={{ color: stalled ? 'var(--warning)' : 'var(--ink)' }}>
-        Step {current + 1} of {TX_STAGES.length} · {stage}
+      <p className="mt-1 text-[11px]" role="status"
+        style={{ color: stalled ? 'var(--warning)' : 'var(--muted)' }}>
+        Step {current + 1} of 3 · {display}{' · '}{detail}
       </p>
     </div>
   );

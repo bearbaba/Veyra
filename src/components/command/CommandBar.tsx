@@ -17,14 +17,23 @@ interface CommandBarProps {
   onNavigate: (page: VeyraPage) => void;
 }
 
-const PRIMARY_ACTIONS = [
-  ...(VEYRA_ENV==='mainnet'?[{label:'Friends',page:'social' as VeyraPage,icon:<Search className="size-4"/>,hint:'Your friends'}]:[{label:'Ask Veyra',page:'agent' as VeyraPage,icon:<Bot className="size-4"/>,hint:'Chat or plan in any language'}]),
-  { label: VEYRA_ENV==='mainnet'?'Settlement':'Pay someone', page: (VEYRA_ENV==='mainnet'?'settlement':'pay') as VeyraPage, icon: <SendHorizontal className="size-4" />, hint: 'Send USDC to a verified Veyra ID or wallet' },
+const PRIMARY_ACTIONS = VEYRA_ENV === 'mainnet' ? [
+  { label: 'Home', page: 'home' as VeyraPage, icon: <Home className="size-4" />, hint: 'Wallet and balances' },
+  { label: 'Friends', page: 'social' as VeyraPage, icon: <Search className="size-4" />, hint: 'Your friends' },
+  { label: 'Pay', page: 'settlement' as VeyraPage, icon: <SendHorizontal className="size-4" />, hint: 'Send USDC' },
+  { label: 'Swap', page: 'convert' as VeyraPage, icon: <ArrowLeftRight className="size-4" />, hint: 'Exchange USDC and EURC' },
+  { label: 'Bridge', page: 'bridge' as VeyraPage, icon: <Route className="size-4" />, hint: 'Move USDC between networks' },
+] : [
+  { label: 'Ask Veyra', page: 'agent' as VeyraPage, icon: <Bot className="size-4" />, hint: 'Chat or plan in any language' },
+  { label: 'Pay someone', page: 'pay' as VeyraPage, icon: <SendHorizontal className="size-4" />, hint: 'Send USDC to a verified Veyra ID or wallet' },
   { label: 'Activity', page: 'activity' as VeyraPage, icon: <LayoutList className="size-4" />, hint: 'Receipts and history' },
   { label: 'Home', page: 'home' as VeyraPage, icon: <Home className="size-4" />, hint: 'Identity and balances' },
 ];
 
-const SECONDARY_ACTIONS = [
+const SECONDARY_ACTIONS = VEYRA_ENV === 'mainnet' ? [
+  { label: 'Activity', page: 'activity' as VeyraPage, icon: <LayoutList className="size-4" />, hint: 'Receipts and history' },
+  { label: 'Settings', page: 'settings' as VeyraPage, icon: <Settings className="size-4" />, hint: 'Identity and preferences' },
+] : [
   { label: 'Settings', page: 'settings' as VeyraPage, icon: <Settings className="size-4" />, hint: 'Identity, runtime, and policy' },
   { label: 'Swap', page: 'convert' as VeyraPage, icon: <ArrowLeftRight className="size-4" />, hint: 'Direct conversion flow' },
   { label: 'Bridge', page: 'bridge' as VeyraPage, icon: <Route className="size-4" />, hint: 'Direct CCTP test flow' },

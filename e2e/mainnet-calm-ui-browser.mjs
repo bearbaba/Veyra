@@ -37,34 +37,30 @@ async function noOverflow(page,label) {
 async function snapshot(page,filename) {
   await page.screenshot({path:'e2e-results/'+filename,fullPage:true,animations:'disabled'});
 }
+async function assertSideBySide(page,selector,label) {
+  const buttons=page.locator(selector).getByRole('button');
+  assert.equal(await buttons.count(),3,label+' needs From, Reverse, To');
+  const from=await buttons.first().boundingBox();
+  const to=await buttons.last().boundingBox();
+  assert(from&&to,label+' pickers missing');
+  assert(Math.abs(from.y-to.y)<=4,label+' source and destination must share a row');
+  assert(to.x>=from.x+from.width,label+' To must appear right of From');
+  assert(from.width>=75&&to.width>=75,label+' picker too narrow: '+JSON.stringify({from,to}));
+}
 async function assertMenu(page,isMobile) {
-  if(isMobile){
-    const nav=page.getByRole('navigation',{name:'Primary navigation'});
-    await nav.getByRole('button',{name:'More Veyra features'}).click();
-    const sub=page.getByRole('region',{name:'More Veyra features'});
-    assert(await sub.getByRole('button',{name:'Swap'}).isVisible());
-    assert(await sub.getByRole('button',{name:'Bridge'}).isVisible());
-    await sub.getByRole('button',{name:'Swap'}).click();
-    assert.equal(await sub.count(),0,'Mobile More did not close after navigation');
-  }else{
-    const sidebar=page.locator('aside');
-    assert(await sidebar.getByRole('button',{name:'Swap',exact:true}).isVisible());
-    assert(await sidebar.getByRole('button',{name:'Bridge',exact:true}).isVisible());
-    await sidebar.getByRole('button',{name:'Swap',exact:true}).click();
-  }
+  const nav=isMobile?page.getByRole('navigation',{name:'Primary navigation'}):page.locator('aside');
+  await nav.getByRole('button',{name:'Swap',exact:true}).click();
   await page.getByRole('heading',{name:'Swap',exact:true}).waitFor();
+  const swapRoute=page.locator('[aria-label="Swap token route"]');
+  assert(await swapRoute.getByRole('button',{name:'Choose token to pay'}).isVisible());
+  assert(await swapRoute.getByRole('button',{name:'Choose token to receive'}).isVisible());
+  await assertSideBySide(page,'[aria-label="Swap token route"]',(isMobile?'mobile':'desktop')+' Swap');
   await noOverflow(page,isMobile?'mobile Swap':'desktop Swap');
   await snapshot(page,isMobile?'mobile-swap.png':'desktop-swap.png');
-  if(isMobile){
-    await page.getByRole('navigation',{name:'Primary navigation'})
-      .getByRole('button',{name:'More Veyra features'}).click();
-    await page.getByRole('region',{name:'More Veyra features'})
-      .getByRole('button',{name:'Bridge'}).click();
-  }else{
-    const sidebar=page.locator('aside');
-    await sidebar.getByRole('button',{name:'Bridge',exact:true}).click();
-  }
+
+  await nav.getByRole('button',{name:'Bridge',exact:true}).click();
   await page.getByRole('heading',{name:'Bridge',exact:true}).waitFor();
+  await assertSideBySide(page,'[aria-label="Bridge route"]',(isMobile?'mobile':'desktop')+' Bridge');
   await noOverflow(page,isMobile?'mobile Bridge':'desktop Bridge');
   await snapshot(page,isMobile?'mobile-bridge.png':'desktop-bridge.png');
 }
@@ -76,10 +72,15 @@ async function runDesktop(browser){
     const sidebarRect=await nav.boundingBox();
     assert(sidebarRect&&Math.abs(sidebarRect.width-208)<2,
       'Pre-92 desktop sidebar width 208px not restored: '+JSON.stringify(sidebarRect));
-    for(const name of ['Home','Pay','Friends','Activity','Swap','Bridge']){
+    for(const name of ['Home','Friends','Pay','Swap','Bridge','Activity']){
       assert.equal(await nav.getByRole('button',{name,exact:true}).count(),1,
-        'Desktop primary menu missing '+name);
+        'Desktop menu missing '+name);
     }
+    const primaryLabels=(await nav.locator(':scope > button').allTextContents()).map(x=>x.trim());
+    assert.deepEqual(primaryLabels.slice(0,5),['Home','Friends','Pay','Swap','Bridge'],
+      'Desktop actions must follow the reviewed financial priority');
+    assert(await nav.getByRole('button',{name:'Activity',exact:true}).isEnabled(),
+      'Activity is a real History page, never Soon');
     assert(await page.locator('.veyra-headline-accent').isVisible(),'Original gradient hero missing');
     const unified=page.locator('[aria-label="Unified Balance"]');
     assert(await unified.isVisible(),'Unified balance hidden');
@@ -118,10 +119,13 @@ async function runMobile(browser,width,height){
   const {page,errors}=await makePage(browser,width,height,true);
   try{
     const nav=page.getByRole('navigation',{name:'Primary navigation'});
-    for(const name of ['Home','Pay','Friends','Activity']){
+    for(const name of ['Home','Pay','Swap','Bridge']){
       assert.equal(await nav.getByRole('button',{name,exact:true}).count(),1,
         'Mobile primary nav missing '+name);
     }
+    assert.equal(await nav.getByRole('button',{name:'Friends',exact:true}).count(),0);
+    assert.equal(await nav.getByRole('button',{name:'Activity',exact:true}).count(),0);
+    assert.equal(await nav.getByRole('button',{name:'More Veyra features'}).count(),1);
     const unified=page.locator('[aria-label="Unified Balance"]');
     assert(await unified.getByText('USDC Available').isVisible());
     assert(await unified.getByRole('button',{name:'Send to wallet'}).isVisible());
@@ -133,7 +137,13 @@ async function runMobile(browser,width,height){
     await page.getByRole('heading',{name:'Pay',exact:true}).waitFor();
     await noOverflow(page,'mobile '+width+' Pay');
     await snapshot(page,'mobile-'+width+'-pay.png');
-    await nav.getByRole('button',{name:'Friends',exact:true}).click();
+    await nav.getByRole('button',{name:'More Veyra features'}).click();
+    const more=page.getByRole('region',{name:'More Veyra features'});
+    assert.equal(await more.locator('button').first().getAttribute('aria-label'),'Activity',
+      'Activity must be first in mobile More');
+    assert(await more.getByRole('button',{name:'Activity',exact:true}).isEnabled());
+    await more.getByRole('button',{name:'Friends',exact:true}).click();
+    assert.equal(await more.count(),0,'Mobile More must close after navigation');
     await page.getByRole('heading',{name:'Friends',exact:true}).waitFor();
     await noOverflow(page,'mobile '+width+' Friends');
     await snapshot(page,'mobile-'+width+'-friends.png');

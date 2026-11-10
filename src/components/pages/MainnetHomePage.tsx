@@ -116,9 +116,9 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  const pending=scopedLocal.filter(x=>x.status==='SUBMITTED');
  const actions:{id:'send'|'people'|'swap'|'bridge'|'activity';label:string;hint:string;tint:string;icon:React.ReactNode}[]=[
   {id:'send',label:'Pay',hint:'To · Amount · Note',tint:'#35bbff',icon:<SendHorizontal className="size-5"/>},
-  {id:'people',label:'Friends',hint:'Find a Veyra ID',tint:'#ae86ff',icon:<Users className="size-5"/>},
   {id:'swap',label:'Swap',hint:'You pay · You receive',tint:'#44d9e8',icon:<ArrowLeftRight className="size-5"/>},
   {id:'bridge',label:'Bridge',hint:'From · To · Amount',tint:'#ffce6a',icon:<Route className="size-5"/>},
+  {id:'people',label:'Friends',hint:'Find a Veyra ID',tint:'#ae86ff',icon:<Users className="size-5"/>},
   {id:'activity',label:'Activity',hint:'Your transactions',tint:'#bb87ff',icon:<LayoutList className="size-5"/>},
  ];
  function selectAction(id:(typeof actions)[number]['id']){

@@ -61,8 +61,12 @@ describe('Settlement replaces the Mainnet Pay surface without losing identity pr
   const hub=read('components/pages/MainnetPayHub.tsx');
   const settlement=read('components/pages/SettlementPage.tsx');
   const activity=read('components/pages/MainnetActivityPage.tsx');
-  expect(shell).toContain("{ id: 'settlement', label: 'Settlement'");
-  expect(shell).toContain("['home', 'settlement', 'social', 'activity']");
+  // Mainnet Pay still routes to the original Settlement contract surface.
+  // The revised mobile menu promotes Swap/Bridge, while Activity remains in History/More.
+  expect(shell).toContain("{ id: 'settlement', label: 'Pay'");
+  expect(shell).toContain("['home', 'settlement', 'convert', 'bridge'].includes(item.id)");
+  expect(shell).toContain("id: 'activity', label: 'Activity'");
+  expect(shell).toContain('const HISTORY_NAV');
   expect(app).toContain("next==='pay'?'settlement':next");
   expect(app).toContain('<MainnetPayHub recipientWallet=');
   expect(hub).toContain('Veyra Settlement');
