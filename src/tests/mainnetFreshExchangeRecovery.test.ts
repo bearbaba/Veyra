@@ -47,10 +47,12 @@ describe('local metadata is not authorization to read arbitrary chains or trust 
  it('blocks wrong owner, wallet, chain, mode or token without losing the stored record',()=>{
   for(const broken of [
    {...swap,owner:OTHER},{...swap,source:8453},{...swap,destination:8453},
-   {...swap,toToken:'USDC'},{...swap,fromToken:'BAD'},
+   {...swap,toToken:'USDC'},{...swap,fromToken:'BAD'},{...swap,mode:'bridge'},
+  ])expect(validStoredExchangeRecovery(broken,OWNER,'swap')).toBe(false);
+  for(const broken of [
    {...bridge,source:5042,destination:5042},{...bridge,toToken:'EURC'},
-   {...bridge,source:137},{...swap,mode:'bridge'},
-  ])expect(validStoredExchangeRecovery(broken,OWNER,'swap')&&validStoredExchangeRecovery(broken,OWNER,'bridge')).toBe(false);
+   {...bridge,source:137},{...bridge,owner:OTHER},
+  ])expect(validStoredExchangeRecovery(broken,OWNER,'bridge')).toBe(false);
   expect(validStoredExchangeRecovery(swap,OTHER,'swap')).toBe(false);
  });
  it('rejects corrupt, too-small, non-finite, over-precision, zero and unbounded amounts',()=>{
