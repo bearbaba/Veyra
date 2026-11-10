@@ -94,6 +94,8 @@ describe('onchain recovery path does not authorize another financial request',()
   expect(circle).toContain('autoCheckBudget.current.attempts++');
   expect(circle).toContain('Verify destination onchain');
   expect(circle).toContain("if(localStorage.getItem(key(mode,address)))throw Error('Previous operation must be resolved first.')");
+  expect(circle).toContain("const otherMode:Mode=mode==='swap'?'bridge':'swap'");
+  expect(circle).toContain('localStorage.getItem(key(otherMode,address))');
  });
  it('never displays cached terminal outcomes as proof on Activity or Home',()=>{
   const activity=readFileSync(new URL('../components/pages/MainnetActivityPage.tsx',import.meta.url),'utf8');
