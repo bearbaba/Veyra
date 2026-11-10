@@ -20,7 +20,9 @@ describe('Shared transaction lifecycle', () => {
   it('uses statically discoverable Tailwind classes for the small-screen stage labels', () => {
     const html = renderToStaticMarkup(createElement(TxStepper, { stage: 'Review' }));
     // All sizes use three readable steps, with no hiding of the current status.
-    expect(html).toContain('Step 1 of 3 · Review');
+    expect(html).toContain('aria-label="Transaction progress"');
+    expect(html).toContain('Review');
+    expect(html).not.toContain('Step 1 of 3');
     expect(html.match(/<li\b/g)).toHaveLength(3);
     expect([...TX_DISPLAY_STEPS]).toEqual(['Review', 'Confirm', 'Track']);
     // Tailwind only generates classes it can see as complete strings: never build them dynamically.
@@ -30,7 +32,8 @@ describe('Shared transaction lifecycle', () => {
   it('keeps five internal security stages but maps to three visual phases', () => {
     expect(TX_STAGES.map(txDisplayStep)).toEqual(['Review', 'Review', 'Confirm', 'Track', 'Track']);
     const pending = renderToStaticMarkup(createElement(TxStepper, { stage: 'Processing', stalled: true }));
-    expect(pending).toContain('Step 3 of 3 · Track');
+    expect(pending).toContain('Track');
+    expect(pending).not.toContain('Step 3 of 3');
     expect(pending).toContain('Outcome unresolved');
   });
   it('never marks a step current once the transaction is Verified', () => {
