@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - chatgpt/compact-ux-3stage-swap-horizontal
+      - chatgpt/mainnet-fresh-receipt-recovery
   pull_request:
     branches:
       - feature/mainnet-identity-authority
@@ -11,10 +12,14 @@ on:
       - src/components/layout/AppShell.tsx
       - src/components/command/CommandBar.tsx
       - src/components/pages/MainnetHomePage.tsx
+      - src/components/pages/MainnetActivityPage.tsx
+      - src/components/pages/MainnetCirclePage.tsx
+      - src/mainnet/recoveryTrust.ts
       - src/components/pages/MainnetExchangePage.tsx
       - src/components/ui/primitives.tsx
       - src/tests/**
       - e2e/mainnet-calm-ui-browser.mjs
+      - studio/e2e/exchange-recovery.mjs
       - .github/workflows/compact-mainnet-ux-quality.yml
 
 permissions:
@@ -81,6 +86,19 @@ jobs:
           VEYRA_PLAYWRIGHT_MODULE: file:///tmp/veyra-browser/node_modules/playwright/index.mjs
           VEYRA_BROWSER_URL: http://127.0.0.1:4173/
         run: node e2e/mainnet-calm-ui-browser.mjs
+      - name: Start read-only Studio Preview for mock-wallet recovery
+        run: |
+          bash studio/dev.sh --host 127.0.0.1 --port 5173 --strictPort > /tmp/veyra-mock-recovery.log 2>&1 &
+          ready=0
+          for i in $(seq 1 50); do
+            if curl --fail --silent http://127.0.0.1:5173/ > /dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" != "1" ]; then cat /tmp/veyra-mock-recovery.log; exit 1; fi
+      - name: Read-only mock-wallet Exchange recovery regression
+        env:
+          STUDIO_PREVIEW_URL: http://127.0.0.1:5173
+        run: node studio/e2e/exchange-recovery.mjs
       - name: Save browser screenshots for QA
         if: always()
         uses: actions/upload-artifact@v4
