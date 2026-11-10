@@ -254,6 +254,12 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     mode==='bridge'&&quote.minimum!==minimum||Date.now()-quote.at>30000)
     throw Error('Payment route changed or quote expired. Review again.');
    if(localStorage.getItem(key(mode,address)))throw Error('Previous operation must be resolved first.');
+   // Both Swap and Bridge use the same wallet. Another saved Circle outcome,
+   // even one previously marked VERIFIED, must be reopened and independently
+   // checked before authorizing a second money movement in either mode.
+   const otherMode:Mode=mode==='swap'?'bridge':'swap';
+   if(localStorage.getItem(key(otherMode,address)))
+    throw Error('Another Exchange operation requires review. Open its original Swap or Bridge tracking before signing.');
    const existingIntents=readExchangeIntents(owner);
    if(existingIntents.kind!=='ready'||existingIntents.items.some(task=>
     !['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(task.stage)))
