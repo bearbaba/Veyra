@@ -445,8 +445,11 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    if(verificationScopeRef.current===requestScope)
     setError(e instanceof Error?e.message:'Destination receipt unverified.');
   }finally{
+   // The shared lock blocks another action while this read is in flight.
+   // Always release its spinner, including after a wallet switch; only
+   // financial *results* are scoped and must be discarded when stale.
    lock.current=false;
-   if(verificationScopeRef.current===requestScope)setBusy(false);
+   setBusy(false);
   }
  }
  // Read-only automatic reconciliation; no second swap, approval or burn can be submitted.
