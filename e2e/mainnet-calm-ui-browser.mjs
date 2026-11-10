@@ -100,13 +100,7 @@ async function runDesktop(browser){
     await noOverflow(page,'desktop Pay');
     await snapshot(page,'desktop-pay.png');
 
-    await nav.getByRole('button',{name:'More Veyra features'}).click();
-    const more=page.getByRole('region',{name:'More Veyra features'});
-    assert.equal(await more.locator('button').first().getAttribute('aria-label'),'Activity',
-      'Activity must be first in mobile More');
-    assert(await more.getByRole('button',{name:'Activity',exact:true}).isEnabled());
-    await more.getByRole('button',{name:'Friends',exact:true}).click();
-    assert.equal(await more.count(),0,'Mobile More must close after navigation');
+    await nav.getByRole('button',{name:'Friends',exact:true}).click();
     await page.getByRole('heading',{name:'Friends',exact:true}).waitFor();
     await noOverflow(page,'desktop Friends');
     await snapshot(page,'desktop-friends.png');
@@ -143,7 +137,13 @@ async function runMobile(browser,width,height){
     await page.getByRole('heading',{name:'Pay',exact:true}).waitFor();
     await noOverflow(page,'mobile '+width+' Pay');
     await snapshot(page,'mobile-'+width+'-pay.png');
-    await nav.getByRole('button',{name:'Friends',exact:true}).click();
+    await nav.getByRole('button',{name:'More Veyra features'}).click();
+    const more=page.getByRole('region',{name:'More Veyra features'});
+    assert.equal(await more.locator('button').first().getAttribute('aria-label'),'Activity',
+      'Activity must be first in mobile More');
+    assert(await more.getByRole('button',{name:'Activity',exact:true}).isEnabled());
+    await more.getByRole('button',{name:'Friends',exact:true}).click();
+    assert.equal(await more.count(),0,'Mobile More must close after navigation');
     await page.getByRole('heading',{name:'Friends',exact:true}).waitFor();
     await noOverflow(page,'mobile '+width+' Friends');
     await snapshot(page,'mobile-'+width+'-friends.png');
