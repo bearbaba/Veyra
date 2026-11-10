@@ -14,6 +14,7 @@ import {EXCHANGE_ASSETS,exchangeAssetId,resolveExchangeRoute,type ExchangeAsset}
 import {reviewedExchangeAssets,reviewedExchangeNetworks,reviewedRouteStatus,
  type ReviewedExchangeMode,type ReviewedSide} from '@/mainnet/reviewedExchangeRoutes';
 import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
+import type {VeyraPage} from '../layout/AppShell';
 
 const ARC=5042,BASE=8453;
 const asset=(chain:number,symbol:string)=>EXCHANGE_ASSETS.find(a=>a.chainId===chain&&a.symbol===symbol)!;
@@ -142,7 +143,7 @@ function BridgeNetworkPicker({side,from,balances,onChoose,onClose}:{
   </section>
  </div>;
 }
-export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolean}){
+export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBridge?:boolean;onNavigate?:(page:VeyraPage)=>void}){
  const {address}=useAccount();
  const mode:ReviewedExchangeMode=initialBridge?'bridge':'swap';
  const [from,setFrom]=useState<ExchangeAsset>(()=>asset(initialBridge?ARC:ARC,'USDC'));
@@ -196,6 +197,10 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
   return()=>{window.clearInterval(timer);window.removeEventListener('storage',refresh);window.removeEventListener('focus',refresh);};
  },[address,owner,mode]);
  const locked=!!prior||unknownPrior||engineBusy||!!intentPrior||intentBlocked;
+ // The tracking panel already explains a same-route unresolved transaction.
+ // Keep an extra footer only for a distinct, invalid or partially settled operation.
+ const separateLock=unknownPrior||intentBlocked||intentPrior?.stage==='PARTIAL'||
+  (!!prior&&prior.mode!==mode)||(!prior&&!!intentPrior);
  const route=resolveExchangeRoute(from,to);
  const canQuote=route.kind===mode;
  const status=reviewedRouteStatus(mode,from,to,isCircleSigningReady(mode));
@@ -303,17 +308,21 @@ export function MainnetExchangePage({initialBridge=false}:{initialBridge?:boolea
    </>}
    {canQuote?<MainnetCirclePage key={mode+':'+exchangeAssetId(from)+':'+exchangeAssetId(to)}
     embedded mode={mode} selection={selection} onFinancialBusyChange={setEngineBusy}
-    />:
+    onOpenActivity={onNavigate?()=>onNavigate('activity'):undefined}/>:
     <p role="status" className="rounded-xl border p-3 text-sm" style={{color:'var(--warning)',borderColor:'var(--border)'}}>
      This pair has no reviewed {mode} quote route. No transaction can start.
     </p>}
-   {(locked||intentPrior)&&<p role="status" className="flex items-start gap-2 text-xs leading-5"
-     style={{color:'var(--warning)'}}>
-     <Info className="mt-0.5 size-4 shrink-0"/>
-     {intentBlocked||unknownPrior?'Saved exchange state could not be verified. No new transaction is permitted.':
-      intentPrior?.stage==='PARTIAL'?'An earlier transfer reached its source but the destination has not been verified. Review Activity; do not resend.':
-      'An earlier operation is still recorded. Review the original transaction before creating a new one.'}
-    </p>}
+   {separateLock&&<div role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t pt-2 text-[11px]"
+    style={{color:'var(--muted)',borderColor:'var(--border)'}}>
+    <Info className="size-3.5 shrink-0" style={{color:'var(--warning)'}} aria-hidden="true"/>
+    <span className="min-w-0 flex-1">
+     {intentBlocked||unknownPrior?'Unclear saved Exchange state. New signing stays locked.':
+      intentPrior?.stage==='PARTIAL'?'Previous transfer partially settled. Review its original evidence.':
+      'A different Exchange operation needs review before signing.'}
+    </span>
+    {onNavigate&&<button type="button" onClick={()=>onNavigate('activity')}
+     className="font-semibold underline underline-offset-4" style={{color:'var(--accent)'}}>Activity</button>}
+   </div>}
   </section>
   {picking&&mode==='swap'&&<AssetPicker key={picking} side={picking} mode={mode} value={picking==='from'?from:to}
    other={picking==='from'?to:from} balances={balances}
