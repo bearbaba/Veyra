@@ -65,14 +65,14 @@ describe('stored VERIFIED records need their proof', () => {
 describe('the Exchange component applies it when it loads a stored record', () => {
   const circle = readFileSync(new URL('../components/pages/MainnetCirclePage.tsx', import.meta.url), 'utf8');
   it('parseSaved returns the trusted status', () => {
-    expect(circle).toContain('return withTrustedStatus(p);');
+    expect(circle).toContain('return withFreshVerification(v as Recovery);');
   });
   it('the write-back touches only the connected wallet\'s own key, so other wallets are unaffected', () => {
     expect(circle).toMatch(/const raw=localStorage\.getItem\(key\(mode,address\)\);/);
     expect(circle).not.toMatch(/localStorage\.setItem\(key\(mode,(?!address)/);
   });
   it('the unresolved panel explains a downgraded record without calling it failed', () => {
-    expect(circle).toContain("recovery?.downgradedFrom==='VERIFIED'&&recovery.status!=='VERIFIED'");
+    expect(circle).toContain("recovery?.downgradedFrom&&recovery.status==='PENDING'");
     expect(circle).toContain('It is not marked failed and nothing was resent.');
   });
   it('the downgrade is written back so every other reader of the record sees it', () => {
