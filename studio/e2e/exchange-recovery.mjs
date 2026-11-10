@@ -28,12 +28,16 @@ async function scenario(title, { seed, label, raw = null }, run) {
 
 const locked = async (page, app, newAttemptButton) => {
   const t = await bodyText(page);
-  check('says the outcome is unresolved and never to submit again', /Do not submit again/.test(t) && /will not submit a duplicate transaction/.test(t));
+  check('states the original outcome is locked without repeating warnings', /Do not submit again/.test(t) && /Locked/.test(t));
   check('unresolved outcome stays on Track', (await currentStage(page)) === 'Track', await currentStage(page));
   check('no way to start a new attempt', (await page.getByRole('button', { name: newAttemptButton }).count()) === 0
     && (await page.getByRole('button', { name: 'Refresh quote' }).count()) === 0
     && (await page.getByRole('button', { name: 'Confirm in wallet' }).count()) === 0);
-  check('the only action is a recheck that never signs', (await page.getByRole('button', { name: 'Verify destination onchain' }).count()) === 1);
+  const missingHash=/Source hash unavailable on this device/.test(t);
+  check('recheck only appears with the original source hash',
+    (await page.getByRole('button', { name: 'Verify destination onchain' }).count()) === (missingHash?0:1));
+  check('a real Activity navigation action is available',
+    (await page.getByRole('button', { name: 'Open Activity' }).count()) === 1);
   check('the direction control is locked', await page.getByRole('button', { name: /Reverse (bridge direction|swap pair)/ }).first().isDisabled());
   check('no provider quote was requested', feeGets(app, 6, 26).length + feeGets(app, 26, 6).length + swapPosts(app).length === 0);
   check('not shown as verified', !/Destination verified/.test(t));
@@ -52,7 +56,7 @@ await scenario('Bridge Base -> Arc, PENDING with a burn hash', { label: 'Bridge'
 
 await scenario('Bridge, stored VERIFIED with NO proof hashes is not trusted', { label: 'Bridge', seed: { ...BASE_ARC, status: 'VERIFIED' } }, async ({ app, page, stored }) => {
   await locked(page, app, /review bridge/i);
-  check('explains the source hash is missing and the attempt stays locked', /original attempt remains locked/.test(await bodyText(page)));
+  check('explains why missing source evidence prevents a recheck', /Source hash unavailable on this device/.test(await bodyText(page)));
   check('the downgrade is written back, so every reader sees it', (await stored())?.status === 'PENDING');
 });
 
@@ -77,7 +81,7 @@ await scenario('Swap EURC -> USDC, PENDING with a transaction hash', { label: 'S
 
 await scenario('Swap, UNKNOWN with no transaction hash', { label: 'Swap', seed: { ...EURC_USDC, status: 'UNKNOWN' } }, async ({ app, page }) => {
   await locked(page, app, /review swap/i);
-  check('tells the user to inspect the wallet and keeps the attempt locked', /Swap transaction hash was not returned\. Inspect wallet Activity; original attempt remains locked\./.test(await bodyText(page)));
+  check('keeps the missing Swap hash locked without offering an unusable recheck', /Source hash unavailable on this device/.test(await bodyText(page)));
 });
 
 await scenario('Swap, stored VERIFIED with no hash is not trusted', { label: 'Swap', seed: { ...EURC_USDC, status: 'VERIFIED' } }, async ({ app, page, stored }) => {
@@ -88,7 +92,7 @@ await scenario('Swap, stored VERIFIED with no hash is not trusted', { label: 'Sw
 await scenario('Bridge, unreadable stored record locks instead of opening a second attempt', { label: 'Bridge', raw: { mode: 'bridge', value: '{not json' } }, async ({ page }) => {
   const t = await bodyText(page);
   check('no way to start a new attempt', (await page.getByRole('button', { name: /review bridge/i }).count()) === 0);
-  check('shows the unresolved lock and says why', /Tracking Mainnet Bridge/.test(t) && /Saved exchange state could not be verified\. No new transaction is permitted\./.test(t), t.slice(0, 200));
+  check('shows a concise locked recovery card', /Recovery needs attention/.test(t) && /Saved operation cannot be read/.test(t), t.slice(0, 200));
   check('unresolved outcome stays on Track', (await currentStage(page)) === 'Track');
 });
 
@@ -110,7 +114,7 @@ console.log('\n  Downgraded record: survives a reload, keeps its evidence, and d
     check('it is NOT recorded as failed or reverted', stored?.status !== 'REVERTED');
     let t = await bodyText(page);
     check('the user is told it was saved as verified but is unresolved, not failed, and nothing was resent',
-      /previous saved outcome \(VERIFIED\)/.test(t) && /not marked failed and nothing was resent/.test(t));
+      /Previously saved as verified/.test(t) && /No funds were resent/.test(t));
     const snapshot = JSON.stringify(stored);
 
     await page.reload();
