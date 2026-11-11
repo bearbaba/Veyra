@@ -51,6 +51,37 @@ async function run(name,viewport,mobile){
   }
   await check(step.toLowerCase());
  }
+ // Users must be able to choose any Circle-listed network even without
+ // a wallet. Unsupported routes never mount the executable Circle quote.
+ const routePicker=page.locator('[aria-label="Bridge route"]');
+ await routePicker.locator('button').nth(1).click();
+ let dialog=page.getByRole('dialog',{name:'Select to network'});
+ await dialog.getByRole('option',{name:/Arbitrum One/}).click();
+ if(!await routePicker.getByText('Arbitrum One').isVisible())
+  throw Error(name+': Arbitrum selection was not retained');
+ let status=await page.locator('[aria-label="Bridge form"] [role="status"]').allTextContents();
+ if(!status.some(x=>x.includes('live Veyra quote is not yet available')))
+  throw Error(name+': unreviewed Arbitrum route must not show a signing quote');
+ await check('bridge-arbitrum-selected');
+ await routePicker.locator('button').first().click();
+ dialog=page.getByRole('dialog',{name:'Select from network'});
+ await dialog.getByRole('option',{name:/Solana/}).click();
+ if(!await routePicker.getByText('Solana').isVisible())
+  throw Error(name+': Solana network selection was blocked');
+ status=await page.locator('[aria-label="Bridge form"] [role="status"]').allTextContents();
+ if(!status.some(x=>x.includes('live Veyra quote is not yet available')))
+  throw Error(name+': unsupported Solana route must not be quoted');
+ await check('bridge-solana-selected');
+ await routePicker.locator('button').first().click();
+ dialog=page.getByRole('dialog',{name:'Select from network'});
+ await dialog.getByRole('option',{name:/Arc/}).click();
+ await routePicker.locator('button').nth(1).click();
+ dialog=page.getByRole('dialog',{name:'Select to network'});
+ await dialog.getByRole('option',{name:/Base/}).click();
+ status=await page.locator('[aria-label="Bridge form"] [role="status"]').allTextContents();
+ if(status.some(x=>x.includes('live Veyra quote is not yet available')))
+  throw Error(name+': integrated Arc/Base route did not recover after browsing');
+ await check('bridge-base-restored');
  if(!mobile){
   await page.keyboard.press('Control+k');
   await page.waitForTimeout(250);
