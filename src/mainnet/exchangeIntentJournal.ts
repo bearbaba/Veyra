@@ -92,14 +92,22 @@ export function readExchangeIntents(owner:string,s?:Store):ExchangeIntentRead{
   return {kind:'ready',items:items.sort((a,b)=>b.createdAt-a.createdAt)};
  }catch{return {kind:'blocked',items:[]};}
 }
+/** A previous source outcome remains unknown, but this user explicitly
+ * authorized a new, independent intent after the old no-hash checkpoint was archived.
+ * This is NOT a settlement verdict; any discovered prior source proof restores
+ * the ordinary single-inflight signing gate.
+ */
+export function mayStartSeparateExchangeIntent(intent:ExchangeIntent):boolean{
+ return ['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(intent.stage)||
+  !!intent.newTransferAuthorizedAt&&['SOURCE_UNKNOWN','AWAITING_WALLET'].includes(intent.stage)&&
+   !intent.sourceHash&&!intent.destinationHash&&!intent.steps.some(step=>!!step.hash);
+}
 export function createExchangeIntent(intent:ExchangeIntent,s?:Store):boolean{
  if(!valid(intent,intent.owner,intent.id)||intent.stage!=='REVIEWED'||intent.steps.length!==0)return false;
  try{
   const store=s??window.localStorage,all=readExchangeIntents(intent.owner,store);
   if(all.kind!=='ready'||all.items.length>=60||
-    all.items.some(v=>!['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(v.stage)&&
-      !(v.newTransferAuthorizedAt&&['SOURCE_UNKNOWN','AWAITING_WALLET'].includes(v.stage)&&
-        !v.sourceHash&&!v.destinationHash&&!v.steps.some(step=>!!step.hash))))return false;
+    all.items.some(v=>!mayStartSeparateExchangeIntent(v)))return false;
   const k=key(intent.owner,intent.id);
   if(store.getItem(k)!==null)return false;
   const raw=JSON.stringify({...intent,owner:intent.owner.toLowerCase(),id:intent.id.toLowerCase()});
