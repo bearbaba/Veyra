@@ -89,38 +89,25 @@ describe('onchain recovery path does not authorize another financial request',()
   expect(circle.split('assertSameScope();').length-1).toBeGreaterThanOrEqual(7);
   expect(circle).toContain("verificationScopeRef.current='unmounted'");
  });
- it('bounds background checks and preserves manual read-only recheck',()=>{
-  expect(circle).toContain('autoCheckBudget.current.attempts>=4');
-  expect(circle).toContain('autoCheckBudget.current.attempts++');
-  expect(circle).toContain('Verify destination onchain');
-  expect(circle).toContain("if(localStorage.getItem(key(mode,address)))throw Error('Previous operation must be resolved first.')");
-  expect(circle).toContain("const otherMode:Mode=mode==='swap'?'bridge':'swap'");
-  expect(circle).toContain('localStorage.getItem(key(otherMode,address))');
- });
- it('offers read-only original source recovery without weakening the duplicate lock',()=>{
-  expect(circle).toContain('Recover original source transaction');
+ it('runs automatic recovery without manual transaction verification widgets',()=>{
   expect(circle).toContain('async function recoverSourceHash()');
+  expect(circle).toContain('readExchangeIntents(owner)');
+  expect(circle).toContain('readExchangeActivities(owner)');
+  expect(circle).toContain('candidates.length!==1');
   expect(circle).toContain('sourceClient.getTransactionReceipt({hash:candidate as Hash})');
   expect(circle).toContain('tx.from.toLowerCase()!==owner');
   expect(circle).toContain('CCTP_V2_MAINNET.tokenMessengerV2.toLowerCase()');
   expect(circle).toContain("const next:Recovery={...current,status:'PENDING',burnHash:candidate}");
   expect(circle).toContain("if(!current||current.intentId!==recovery.intentId||current.burnHash)");
+  expect(circle).toContain('void recoverSourceHash()');
+  expect(circle).toContain('void verify()');
+  expect(circle).toContain('nextAttempt=Date.now()');
+  expect(circle).not.toContain('manualSource');
+  expect(circle).not.toContain('Verify source</button>');
+  expect(circle).not.toContain('Verify onchain</button>');
   expect(circle).toContain("if(localStorage.getItem(key(mode,address)))throw Error('Previous operation must be resolved first.')");
- });
- it('rejects wrong-network source hashes without treating Gateway deposits as Bridge burns',()=>{
-  expect(circle).toContain("await otherClient.getTransactionReceipt({hash:candidate as Hash})");
-  expect(circle).toContain("'This transaction is on '+label(recovery.source===BASE?ARC:BASE)");
-  expect(circle).toContain("Use its original source burn hash, not a Gateway deposit.");
-  expect(circle).toContain("if(verificationScopeRef.current!==scope)throw Error('Wallet changed during recovery.')");
-  expect(circle).toContain("setManualSource(e.target.value.trim());setError('')");
- });
- it('does not present a missing Bridge hash as evidence of a transaction or a failed transfer',()=>{
-  expect(circle).toContain('Bridge request saved · no source proof');
-  expect(circle).toContain('Unverified request');
-  expect(circle).toContain('No Bridge source transaction has been verified.');
-  expect(circle).toContain('Check an existing Bridge source transaction');
-  expect(circle).toContain('Do not use your Arc Gateway deposit hash.');
-  expect(circle).toContain("if(localStorage.getItem(key(mode,address)))throw Error('Previous operation must be resolved first.')");
+  expect(circle).toContain("const otherMode:Mode=mode==='swap'?'bridge':'swap'");
+  expect(circle).toContain('localStorage.getItem(key(otherMode,address))');
  });
  it('never displays cached terminal outcomes as proof on Activity or Home',()=>{
   const activity=readFileSync(new URL('../components/pages/MainnetActivityPage.tsx',import.meta.url),'utf8');
