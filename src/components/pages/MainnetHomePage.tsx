@@ -10,6 +10,7 @@ import {Card,Notice} from '../ui/primitives';
 import {MainnetUnifiedBalancePanel} from './MainnetUnifiedBalancePanel';
 import {readLocalOperations,type LocalOperation} from '@/mainnet/localOperations';
 import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
+import {unresolvedHomeOperations} from '@/mainnet/homePendingStatus';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {isMainnetSessionForWallet,scopedMainnetReceipts} from '@/mainnet/signedWalletReceiptScope';
 import {identityCardView} from '@/mainnet/identityCardState';
@@ -113,7 +114,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
  const recentExchange=scopedExchange.slice(0,3);
  const wrong=isConnected&&chainId!==ARC;
  const available=!address?'—':isError?'Unavailable':data!==undefined?formatUnits(data,6):'Reading…';
- const pending=scopedLocal.filter(x=>x.status==='SUBMITTED');
+ const pending=unresolvedHomeOperations(scopedLocal,knownHashes,scopedExchange);
  const actions:{id:'send'|'people'|'swap'|'bridge'|'activity';label:string;hint:string;tint:string;icon:React.ReactNode}[]=[
   {id:'send',label:'Pay',hint:'To · Amount · Note',tint:'#35bbff',icon:<SendHorizontal className="size-5"/>},
   {id:'swap',label:'Swap',hint:'You pay · You receive',tint:'#44d9e8',icon:<ArrowLeftRight className="size-5"/>},
@@ -232,7 +233,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
   </Notice>}
   {pending.length>0&&<Notice tone="warning" action={<button type="button" onClick={()=>onNavigate('activity')}
    className="shrink-0 text-xs font-semibold" style={{color:'var(--accent)'}}>View</button>}>
-   An earlier payment is still pending. Check Activity before another send.
+   An earlier transaction needs reconciliation. View its original status in Activity.
   </Notice>}
   <section className={card} style={cardStyle} aria-label="Recent activity">
    <div className="flex items-center justify-between gap-3">
