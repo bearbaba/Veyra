@@ -292,15 +292,30 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
    Connect a wallet and sign in to Veyra ID to read the owner's Gateway ledger.
   </p>:error&&<p role="alert" className="mt-2 text-xs" style={{color:'var(--warning)'}}>{error}</p>}
   <p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
-   {current?'Available is the current Circle Gateway ledger, not a sum of deposit receipts. Pending is separate and not spendable.':
-    'Gateway values are not confirmed in this session; wallet funds remain separate.'}
+   {current?'Gateway Available is confirmed USDC across 12 EVM networks, not wallet USDC. Pending deposits are not spendable.':
+    'Circle Gateway balances are not confirmed for this wallet session.'}
   </p>
+  {current&&<div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-2 text-xs"
+   style={{borderColor:'var(--border)'}}>
+   <span>Veyra send-ready · Arc / Base / Ethereum</span>
+   <strong className="tabular-nums" style={{color:'var(--ink)'}}>{fmt(signingAvailable)} USDC</strong>
+  </div>}
+  {current&&signingAvailable!==null&&signingAvailable<current.available&&
+   <p className="mt-1 text-[11px]" style={{color:'var(--muted)'}}>
+    Additional confirmed Gateway USDC exists on other networks. It appears in your total,
+    but Veyra does not sign from those chains until their wallet adapters are accepted.
+   </p>}
   {current&&<details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
-   <summary className="cursor-pointer">Details · source networks</summary>
-   <div className="mt-2 space-y-1">{current.chains.map(c=><div key={c.chainId} className="flex justify-between">
-    <span>{c.chain}</span><span className="tabular-nums">{formatUnits(c.available,6)} USDC</span>
+   <summary className="cursor-pointer">Source breakdown · {GATEWAY_MAINNET_LEDGER_CHAINS.length} EVM networks</summary>
+   <div className="mt-2 space-y-2">{current.chains.map(c=><div key={c.chainId} className="flex items-center justify-between gap-2">
+    <span className="flex min-w-0 items-center gap-2">
+     <BrandLogo logoKey={GATEWAY_MAINNET_LEDGER_CHAINS.find(x=>x.chainId===c.chainId)?.logo??'usdc'} size={22}/>
+     <span className="truncate">{GATEWAY_MAINNET_LEDGER_CHAINS.find(x=>x.chainId===c.chainId)?.chain.replaceAll('_',' ')??c.chain}</span>
+     {C.some(ready=>ready.chainId===c.chainId)&&<span className="text-[10px]" style={{color:'var(--success)'}}>Send ready</span>}
+    </span><span className="shrink-0 tabular-nums">{formatUnits(c.available,6)} USDC</span>
    </div>)}</div>
-   <p className="mt-2">Confirmed source balances only. Last checked {new Date(current.readAt).toLocaleTimeString()}.</p>
+   <p className="mt-2">Circle confirmed balances · checked {new Date(current.readAt).toLocaleTimeString()}.</p>
+   <p className="mt-1">Solana requires a separate SVM wallet and is not combined with this EVM depositor.</p>
   </details>}
   {previous&&<p role="status" className="mt-3 rounded-xl border p-3 text-xs"
    style={{borderColor:'var(--border)',color:'var(--warning)'}}>
