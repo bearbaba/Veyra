@@ -114,6 +114,14 @@ describe('onchain recovery path does not authorize another financial request',()
   expect(circle).toContain("if(verificationScopeRef.current!==scope)throw Error('Wallet changed during recovery.')");
   expect(circle).toContain("setManualSource(e.target.value.trim());setError('')");
  });
+ it('does not present a missing Bridge hash as evidence of a transaction or a failed transfer',()=>{
+  expect(circle).toContain('Bridge request saved · no source proof');
+  expect(circle).toContain('Unverified request');
+  expect(circle).toContain('No Bridge source transaction has been verified.');
+  expect(circle).toContain('Check an existing Bridge source transaction');
+  expect(circle).toContain('Do not use your Arc Gateway deposit hash.');
+  expect(circle).toContain("if(localStorage.getItem(key(mode,address)))throw Error('Previous operation must be resolved first.')");
+ });
  it('never displays cached terminal outcomes as proof on Activity or Home',()=>{
   const activity=readFileSync(new URL('../components/pages/MainnetActivityPage.tsx',import.meta.url),'utf8');
   const home=readFileSync(new URL('../components/pages/MainnetHomePage.tsx',import.meta.url),'utf8');
