@@ -101,6 +101,10 @@ jobs:
           src/tests/phase6ArcMainnetPay.test.ts
           src/tests/settlementGasAndVerification.test.ts
           src/tests/phase3MainnetCatalog.test.ts
+          src/tests/mainnetCircle19NetworkDirectory.test.ts
+          src/tests/mainnetCircleBridgeBatchVerification.test.ts
+          src/tests/mainnetCircleMainnetCctpPolicy.test.ts
+          src/tests/mainnetCctpSourceDiscovery.test.ts
           src/tests/arcAppKitBridge.test.ts
           src/tests/arcAppKitSwap.test.ts
       - name: Validate additive Settlement migration on disposable PostgreSQL 16
