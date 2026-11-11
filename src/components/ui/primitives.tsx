@@ -76,11 +76,9 @@ export function txDisplayStep(stage: TxStage): TxDisplayStep {
 }
 
 /**
- * Deliberately small navigation-style progress indicator. A phase is not
- * evidence of financial completion. The Track pill stays current during
- * UNKNOWN/PENDING and only an actual VERIFIED recovery state completes it.
- * Explanations and actionable recovery live in the transaction status card,
- * not in a second long warning below the progress indicator.
+ * Quiet progress line: three familiar words, no nested box or step numbers.
+ * This is presentation only. UNKNOWN/PENDING remain unverified and locked.
+ * An accessible status announcement retains the complete safety explanation.
  */
 export function TxStepper({ stage, stalled = false }: { stage: TxStage; stalled?: boolean }) {
   const display = txDisplayStep(stage);
@@ -93,34 +91,24 @@ export function TxStepper({ stage, stalled = false }: { stage: TxStage; stalled?
     'Review amount, recipient and fees.';
 
   return (
-    <div aria-label="Transaction progress" className="flex flex-col items-start gap-1.5 py-0.5">
-      <ol className="inline-flex max-w-full items-center gap-1 rounded-xl border p-1 sm:gap-1.5"
-        style={{ background: 'rgba(5,19,44,.42)', borderColor: 'var(--border)' }}>
+    <div aria-label="Transaction progress" className="py-0.5">
+      <ol className="flex flex-wrap items-center gap-y-2 text-[11px] sm:text-xs" role="list">
         {TX_DISPLAY_STEPS.map((name, index) => {
           const done = index < current || (index === current && complete);
           const active = index === current && !complete;
-          const emphasize = active || done;
-          const warning = stalled && active;
+          const tone = stalled && active ? 'var(--warning)' :
+            complete ? 'var(--success)' : active ? 'var(--accent)' :
+            done ? 'var(--muted)' : 'var(--subtle)';
           return (
             <li key={name} aria-current={active ? 'step' : undefined}
-              className="flex min-w-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 sm:gap-2 sm:px-3"
-              style={{
-                background: warning ? 'rgba(231,167,52,.09)' :
-                  active ? 'var(--accent-muted)' : done ? 'rgba(66,131,223,.065)' : 'transparent',
-                borderColor: warning ? 'rgba(231,167,52,.28)' :
-                  active ? 'var(--border-strong)' : 'transparent',
-                color: warning ? 'var(--warning)' : emphasize ? 'var(--ink)' : 'var(--muted)',
-              }}>
-              <span aria-hidden="true"
-                className="flex size-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums"
-                style={{
-                  background: warning ? 'rgba(231,167,52,.16)' : done ? 'var(--accent-muted)' :
-                    active ? 'rgba(80,161,255,.2)' : 'var(--surface-raised)',
-                  color: warning ? 'var(--warning)' : emphasize ? 'var(--accent)' : 'var(--muted)',
-                }}>{done ? '✓' : index + 1}</span>
-              <span className={`text-[11px] leading-4 sm:text-xs ${emphasize ? 'font-semibold' : 'font-medium'}`}>
-                {name}
-              </span>
+              className="inline-flex min-w-0 items-center gap-2">
+              <span className="size-1.5 shrink-0 rounded-full" aria-hidden="true"
+                style={{ background: tone }} />
+              <span className={active ? 'font-semibold' : 'font-medium'}
+                style={{ color: tone }}>{name}</span>
+              {index < TX_DISPLAY_STEPS.length - 1 &&
+                <span className="mx-3 h-px w-4 sm:mx-4 sm:w-5" aria-hidden="true"
+                  style={{ background: 'var(--border-strong)' }} />}
             </li>
           );
         })}
