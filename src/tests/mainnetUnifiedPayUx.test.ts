@@ -24,7 +24,7 @@ describe('Mainnet single Settlement surface, wallet review and identity safety',
    expect(circle).toContain('aria-label="Transaction action"');
    expect(circle).toContain('!!quote&&!quoteExpired&&!signingReady');
    expect(circle).toContain('onClick={()=>void(quote&&!quoteExpired?signNow():quoteNow())}');
-   expect(circle).toContain('Transaction details');
+   expect(circle).toContain('Evidence &amp; history');
    expect(circle).toContain('assertBridgeQuoteWithinReviewedCap');
   });
   it('only exposes one top-level Mainnet Send entry, with People nearby',()=>{
