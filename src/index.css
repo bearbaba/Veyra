@@ -346,3 +346,51 @@ body {
 @media (max-width: 767px) {
   .veyra-mainnet-classic .veyra-pay-page .veyra-pay-panel { padding: 1rem; }
 }
+
+/* Single-surface financial route design: no second card inside the Bridge/Swap card.
+ * Restrained accent, lighter controls and readable locked states. Financial
+ * disabled attributes and signing guards remain untouched.
+ */
+.veyra-route-page .veyra-card {
+  position:relative;
+  overflow:hidden;
+  background:linear-gradient(155deg,#102447 0%,#0c1e3b 72%,#101d39 100%)!important;
+  border:1px solid rgba(125,163,227,.25)!important;
+  border-radius:1.15rem!important;
+  box-shadow:0 18px 44px rgba(0,7,23,.18),inset 0 1px 0 rgba(222,236,255,.045)!important;
+}
+.veyra-route-page .veyra-card::before {
+  content:'';
+  position:absolute;
+  top:0;
+  left:8%;
+  right:8%;
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(108,180,250,.65),rgba(147,124,246,.45),transparent);
+  pointer-events:none;
+}
+.veyra-route-page :is([aria-label="Bridge route"],[aria-label="Swap token route"]) button:disabled {
+  opacity:.84!important;
+  cursor:not-allowed;
+}
+.veyra-route-page [aria-label="Bridge route"] > div > div > button {
+  background:rgba(16,38,77,.60)!important;
+  border-color:rgba(122,164,230,.22)!important;
+}
+.veyra-route-page [aria-label="Swap token route"] .veyra-route-control {
+  background:rgba(16,38,77,.60)!important;
+  border-color:rgba(122,164,230,.22)!important;
+}
+.veyra-route-page [aria-label="Bridge route"] > button,
+.veyra-route-page [aria-label="Swap token route"] > button {
+  border-radius:50%!important;
+  background:rgba(31,63,112,.48)!important;
+  border-color:rgba(122,164,230,.24)!important;
+}
+.veyra-route-page [aria-label="Transaction progress"] {
+  min-height:25px;
+}
+@media (max-width:380px) {
+  .veyra-route-page .veyra-card {border-radius:1rem!important;}
+  .veyra-route-page [aria-label="Transaction progress"] li {gap:.35rem;}
+}

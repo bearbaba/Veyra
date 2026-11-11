@@ -27,7 +27,7 @@ import {readBridgeQuoteAmounts,assertBridgeQuoteWithinReviewedCap} from '@/mainn
 import {feeBurdenMessage} from '@/mainnet/feeBurden';
 import {exchangeSigningBlock,signingNotice,type SigningBlock} from '@/mainnet/exchangeSigningGate';
 import {summarizeQuote} from '@/mainnet/quoteSummary';
-import {Notice,StatusPill,TxStepper} from '@/components/ui/primitives';
+import {Notice,TxStepper} from '@/components/ui/primitives';
 import {exchangeStageView} from '@/mainnet/exchangeStage';
 import {validStoredExchangeRecovery,withFreshVerification} from '@/mainnet/recoveryTrust';
 import {networkRequirement} from '@/mainnet/walletNetworkRequirement';
@@ -491,7 +491,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
      'Bridge USDC between Arc and Base Mainnet via CCTP. Destination verification is required.'}
    </p>
   </div>}
-  <div className={embedded?'space-y-4 border-t pt-4':card+' space-y-4'} style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+  <div className={embedded?'space-y-3 border-t pt-3':card+' space-y-4'} style={{borderColor:'var(--border)',background:embedded?'transparent':'var(--surface)'}}>
    {!address?<div className="space-y-3">
     <label className="block text-xs font-semibold" style={{color:'var(--muted)'}}>AMOUNT
      <input disabled placeholder="0.00" aria-label="Amount · connect wallet first"
@@ -611,89 +611,71 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     </div>}
     </>}
     {(recovery||unknownStorage)&&<section role="status" aria-label="Exchange tracking status"
-     className="space-y-3 overflow-hidden rounded-2xl border p-3.5 shadow-sm sm:p-4"
-     style={{
-      borderColor:recovery?.status==='VERIFIED'?'rgba(70,186,153,.3)':'var(--border-strong)',
-      background:recovery?.status==='VERIFIED'
-       ?'linear-gradient(125deg,rgba(24,88,83,.2),rgba(11,31,59,.68) 78%)'
-       :'linear-gradient(125deg,rgba(38,85,167,.19),rgba(12,29,60,.75) 70%,rgba(84,53,143,.14))',
-      color:'var(--ink)',
-     }}>
-     <div className="flex flex-wrap items-center justify-between gap-2.5">
+     className="space-y-2.5 pt-1" style={{color:'var(--ink)'}}>
+     <div className="flex flex-wrap items-center justify-between gap-2">
       <div className="flex min-w-0 items-center gap-2.5">
-       <span className="flex size-9 shrink-0 items-center justify-center rounded-xl"
-        style={{background:recovery?.status==='VERIFIED'?'rgba(51,174,146,.14)':'var(--accent-muted)',
-         color:recovery?.status==='VERIFIED'?'var(--success)':'var(--accent)'}}>
-        {recovery?.status==='VERIFIED'?<ShieldCheck className="size-4"/>:
-         recovery?.status==='REVERTED'?<AlertTriangle className="size-4"/>:
-         busy?<RefreshCw className="size-4 animate-spin" aria-label="Checking original transaction"/>:
-         <LockKeyhole className="size-4" aria-hidden="true"/>}
-       </span>
-       <div className="min-w-0">
-        <h2 className="text-sm font-bold leading-5">
-         {recovery?.status==='VERIFIED'?title+' verified':
-          recovery?.status==='REVERTED'?'Original transaction reverted':
-          unknownStorage?'Recovery needs attention':'Tracking '+title}
-        </h2>
-        <p className="mt-0.5 text-[11px]" style={{color:'var(--muted)'}}>
-         {recovery?.status==='VERIFIED'?'Verified destination receipt':
-          recovery?.status==='REVERTED'?'Original onchain result':
-          busy?'Checking onchain evidence':'Original operation · read-only tracking'}
-        </p>
-       </div>
+       {busy?<RefreshCw className="size-4 shrink-0 animate-spin" aria-label="Checking original transaction"
+        style={{color:'var(--accent)'}}/>:
+        recovery?.status==='VERIFIED'?<ShieldCheck className="size-4 shrink-0" style={{color:'var(--success)'}}/>:
+        recovery?.status==='REVERTED'?<AlertTriangle className="size-4 shrink-0" style={{color:'var(--warning)'}}/>:
+        <LockKeyhole className="size-4 shrink-0" style={{color:'var(--warning)'}} aria-hidden="true"/>}
+       <h2 className="text-sm font-semibold tracking-tight">
+        {recovery?.status==='VERIFIED'?title+' verified':
+         recovery?.status==='REVERTED'?'Transaction reverted':
+         unknownStorage?'Recovery needs attention':title+' needs review'}
+       </h2>
       </div>
-      <StatusPill tone={recovery?.status==='VERIFIED'?'success':
-       recovery?.status==='REVERTED'||unknownStorage?'danger':'warning'}>
+      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold"
+       style={{color:recovery?.status==='VERIFIED'?'var(--success)':'var(--warning)'}}>
+       <span className="size-1.5 rounded-full" style={{background:'currentColor'}} aria-hidden="true"/>
        {recovery?.status==='VERIFIED'?'Verified':recovery?.status==='REVERTED'?'Reverted':
         busy?'Checking':'Locked'}
-      </StatusPill>
+      </span>
      </div>
-     <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
-      {recovery?.status==='VERIFIED'?'Destination receipt verified onchain. Open the receipt for details.':
-       recovery?.status==='REVERTED'?'The source transaction reverted onchain. Review its receipt before starting again.':
-       unknownStorage?'Saved operation cannot be read. Signing remains locked; check Activity and wallet history.':
-       'A previous '+title.toLowerCase()+' attempt is unresolved. Do not submit again until verified.'}
+     <p className="max-w-[55ch] text-xs leading-5" style={{color:'var(--muted)'}}>
+      {recovery?.status==='VERIFIED'?'Destination receipt confirmed onchain.':
+       recovery?.status==='REVERTED'?'The original source transaction reverted onchain. Check its receipt.':
+       unknownStorage?'Saved operation cannot be read. Signing stays locked. Check Activity.':
+       (mode==='bridge'?!recovery?.burnHash:!recovery?.hash)
+        ?'Transaction ID unavailable. Check Activity or your wallet. Do not submit again.'
+        :'Previous transfer is unconfirmed. Verify onchain. Do not submit again.'}
      </p>
-     {recovery?.downgradedFrom&&recovery.status==='PENDING'&&
-      <p className="text-[11px] leading-4" style={{color:'var(--muted)'}}>
-       Previously saved as {recovery.downgradedFrom.toLowerCase()}; fresh onchain verification required.
-       No funds were resent.
-      </p>}
-     {recovery&&recovery.status!=='VERIFIED'&&recovery.status!=='REVERTED'&&
-      (mode==='bridge'?!recovery.burnHash:!recovery.hash)&&
-      <p className="flex items-start gap-1.5 text-[11px] leading-4" style={{color:'var(--warning)'}}>
-       <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden="true"/>
-       Source hash unavailable on this device. Check your wallet or Activity.
-      </p>}
-     {(recovery?.hash||recovery?.burnHash||recovery?.mintHash)&&<details className="rounded-lg text-xs"
-      style={{color:'var(--muted)'}}>
-      <summary className="w-fit cursor-pointer font-medium underline-offset-4 hover:underline">Transaction details</summary>
-      <div className="mt-2 space-y-1.5 break-all rounded-lg border p-2.5"
-       style={{borderColor:'var(--border)',background:'rgba(5,19,44,.25)'}}>
-       {recovery?.hash&&<p>Swap: {recovery.hash}</p>}
-       {recovery?.burnHash&&<p>Burn: {recovery.burnHash}</p>}
-       {recovery?.mintHash&&<p>Destination: {recovery.mintHash}</p>}
-       {(recovery?.mintHash||recovery?.hash)&&<a target="_blank" rel="noreferrer"
-        className="block font-semibold underline" style={{color:'var(--accent)'}}
-        href={(recovery.destination===BASE?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+(recovery.mintHash||recovery.hash)}>
-        View on explorer</a>}
-      </div>
-     </details>}
-     <div className="flex flex-wrap items-center gap-2 pt-0.5" aria-label="Recovery actions">
+     {(recovery?.hash||recovery?.burnHash||recovery?.mintHash||recovery?.downgradedFrom)&&
+      <details className="text-[11px]" style={{color:'var(--muted)'}}>
+       <summary className="w-fit cursor-pointer hover:underline">Evidence &amp; history</summary>
+       <div className="mt-2 space-y-1.5 break-all border-l-2 pl-3 text-[11px]"
+        style={{borderColor:'var(--border-strong)'}}>
+        {recovery?.downgradedFrom&&recovery.status==='PENDING'&&<p>
+         Previously saved as {recovery.downgradedFrom.toLowerCase()}; fresh onchain verification required.
+         No funds were resent.
+        </p>}
+        {recovery?.hash&&<p>Swap: {recovery.hash}</p>}
+        {recovery?.burnHash&&<p>Burn: {recovery.burnHash}</p>}
+        {recovery?.mintHash&&<p>Destination: {recovery.mintHash}</p>}
+        {(recovery?.mintHash||recovery?.hash)&&<a target="_blank" rel="noreferrer"
+         className="block font-semibold underline underline-offset-2" style={{color:'var(--accent)'}}
+         href={(recovery.destination===BASE?'https://basescan.org/tx/':'https://explorer.arc.io/tx/')+(recovery.mintHash||recovery.hash)}>
+         View on explorer</a>}
+       </div>
+      </details>}
+     <div className="flex flex-wrap items-center gap-4 pt-1" aria-label="Recovery actions">
       {recovery&&recovery.status!=='VERIFIED'&&recovery.status!=='REVERTED'&&
        (mode==='swap'?!!recovery.hash:!!recovery.burnHash)&&
        <button type="button" disabled={busy} onClick={()=>void verify()}
         aria-label="Verify destination onchain"
-        className="veyra-btn-primary inline-flex min-h-10 min-w-0 flex-1 items-center justify-center gap-2 px-3 text-xs font-semibold disabled:opacity-50 sm:flex-none">
+        className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold disabled:opacity-50"
+        style={{background:'var(--accent-muted)',color:'var(--accent)'}}>
         <RefreshCw className={'size-3.5 shrink-0'+(busy?' animate-spin':'')}/>Verify onchain
        </button>}
       {onOpenActivity&&<button type="button" onClick={onOpenActivity}
-       className="veyra-btn-secondary inline-flex min-h-10 min-w-0 flex-1 items-center justify-center gap-2 px-3 text-xs font-semibold sm:flex-none">
+       className="inline-flex min-h-9 items-center gap-1.5 rounded-md text-xs font-semibold underline-offset-4 hover:underline"
+       style={{color:'var(--accent)'}}>
        <History className="size-3.5 shrink-0"/>Open Activity
       </button>}
       {recovery&&['VERIFIED','REVERTED'].includes(recovery.status)&&
        <button type="button" onClick={reset}
-        className="veyra-btn-secondary inline-flex min-h-10 items-center px-3 text-xs font-semibold">
+        className="inline-flex min-h-9 items-center rounded-lg px-3 text-xs font-semibold"
+        style={{color:'var(--accent)',background:'var(--accent-muted)'}}>
         Start new review
        </button>}
      </div>

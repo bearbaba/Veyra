@@ -98,7 +98,7 @@ export const quoteRows = (page) => page.evaluate(() =>
     return { label, note, value: dd?.textContent?.trim() ?? '' };
   }));
 
-export const currentStage = (page) => page.locator('[aria-current="step"]').first().locator('span').last().textContent().then((t) => t?.trim() ?? null).catch(() => null);
+export const currentStage = (page) => page.locator('[aria-current="step"] .veyra-step-label').first().textContent().then((t) => t?.trim() ?? null).catch(() => null);
 
 export const overflow = (page) => page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
 

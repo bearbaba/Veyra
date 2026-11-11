@@ -245,7 +245,7 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
   <header>
    <p className="veyra-eyebrow">VEYRA · MAINNET</p>
    <h1 className="veyra-page-title">{mode==='swap'?'Swap':'Bridge'}</h1>
-   <p className="veyra-page-subtitle">{mode==='swap'?'Exchange USDC and EURC on Arc.':'Move native USDC across supported Circle CCTP networks.'}</p>
+   <p className="veyra-page-subtitle">{mode==='swap'?'Exchange USDC and EURC on Arc.':'Move USDC between Arc and Base.'}</p>
   </header>
   <section className="veyra-card space-y-3 p-3 sm:p-5" aria-label={mode==='swap'?'Swap form':'Bridge form'}>
    {status==='paused'&&notice?<SigningNoticeBanner headline={notice.headline} body={notice.body}/>:
