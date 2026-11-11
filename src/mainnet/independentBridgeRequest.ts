@@ -69,8 +69,15 @@ export function authorizeIndependentBridge(args:{
   const archive:BridgeArchive={record,archivedAt:now,status:'SOURCE_OUTCOME_UNKNOWN'};
   const encoded=JSON.stringify(archive);
   const oldArchive=storage.getItem(archiveKey);
-  if(oldArchive!==null&&oldArchive!==encoded)
-   return blocked('An earlier Bridge archive exists. Do not replace financial records.');
+  if(oldArchive!==null){
+   // A previous attempt may have archived the record but failed to clear the
+   // UI lock. Reuse exactly the same original instead of overwriting evidence.
+   const earlier:unknown=JSON.parse(oldArchive);
+   if(!earlier||typeof earlier!=='object'||Array.isArray(earlier)||
+      !('status' in earlier)||earlier.status!=='SOURCE_OUTCOME_UNKNOWN'||
+      !('record' in earlier)||JSON.stringify(earlier.record)!==JSON.stringify(record))
+    return blocked('An earlier Bridge archive exists. Do not replace financial records.');
+  }
   if(oldArchive===null){
    storage.setItem(archiveKey,encoded);
    if(storage.getItem(archiveKey)!==encoded)
