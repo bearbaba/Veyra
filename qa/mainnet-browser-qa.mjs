@@ -54,7 +54,7 @@ async function run(name,viewport,mobile){
  // Users must be able to choose any Circle-listed network even without
  // a wallet. Unsupported routes never mount the executable Circle quote.
  const routePicker=page.locator('[aria-label="Bridge route"]');
- await routePicker.locator('button').nth(1).click();
+ await routePicker.locator('button').last().click();
  let dialog=page.getByRole('dialog',{name:'Select to network'});
  await dialog.getByRole('option',{name:/Arbitrum One/}).click();
  if(!await routePicker.getByText('Arbitrum One').isVisible())
@@ -75,7 +75,7 @@ async function run(name,viewport,mobile){
  await routePicker.locator('button').first().click();
  dialog=page.getByRole('dialog',{name:'Select from network'});
  await dialog.getByRole('option',{name:/Arc/}).click();
- await routePicker.locator('button').nth(1).click();
+ await routePicker.locator('button').last().click();
  dialog=page.getByRole('dialog',{name:'Select to network'});
  await dialog.getByRole('option',{name:/Base/}).click();
  status=await page.locator('[aria-label="Bridge form"] [role="status"]').allTextContents();
