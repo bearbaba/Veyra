@@ -112,8 +112,9 @@ console.log('\n  Downgraded record: survives a reload, keeps its evidence, and d
     check('first load: stored as PENDING and marked as downgraded from VERIFIED', stored?.status === 'PENDING' && stored?.downgradedFrom === 'VERIFIED', JSON.stringify(stored));
     check('the original burn hash and every other field are preserved', stored?.burnHash === H('ab') && stored?.amount === '5' && stored?.minimum === '4.98' && stored?.source === 8453 && stored?.destination === 5042, JSON.stringify(stored));
     check('it is NOT recorded as failed or reverted', stored?.status !== 'REVERTED');
+    await page.getByText('Evidence & history', { exact: true }).click();
     let t = await bodyText(page);
-    check('the user is told it was saved as verified but is unresolved, not failed, and nothing was resent',
+    check('past verification stays accessible in expanded evidence, with no re-send',
       /Previously saved as verified/.test(t) && /No funds were resent/.test(t));
     const snapshot = JSON.stringify(stored);
 
