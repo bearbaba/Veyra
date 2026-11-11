@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {createExchangeIntent,advanceExchangeIntent,readExchangeIntents,type ExchangeIntent}
  from '../mainnet/exchangeIntentJournal';
-import {authorizeIndependentBridge,readUnverifiedBridgeArchives}
+import {authorizeIndependentBridge,readUnverifiedBridgeArchives,type UnverifiedBridgeRequest}
  from '../mainnet/independentBridgeRequest';
 
 const owner='0x1111111111111111111111111111111111111111';
@@ -34,7 +34,7 @@ function prepare(s:Memory,rec=record,created=1_000_000){
  expect(advanceExchangeIntent(owner,intentId,'SOURCE_UNKNOWN',{},s,created+2)).toBe(true);
  s.setItem(key,JSON.stringify(rec));
 }
-const ask=(s:Memory,rec=record,now=2_000_000)=>
+const ask=(s:Memory,rec:UnverifiedBridgeRequest=record,now=2_000_000)=>
  authorizeIndependentBridge({owner,legacyKey:key,record:rec,archiveId,storage:s,now});
 
 describe('Bridge separate transfer without losing the original unknown source',()=>{
