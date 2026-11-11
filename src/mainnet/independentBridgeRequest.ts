@@ -11,9 +11,9 @@ import {readExchangeIntents,authorizeSeparateExchangeIntent} from './exchangeInt
 import {circleCctpBridgePair} from './circleBridgePolicy';
 
 export type UnverifiedBridgeRequest={
- owner:string;mode:'bridge';amount:string;minimum:string;
- source:number;destination:number;fromToken:'USDC';toToken:'USDC';
- status:'UNKNOWN'|'PENDING';intentId?:string;
+ owner:string;mode:'swap'|'bridge';amount:string;minimum:string;
+ source:number;destination:number;fromToken:'USDC'|'EURC';toToken:'USDC'|'EURC';
+ status:'UNKNOWN'|'PENDING'|'VERIFIED'|'REVERTED';intentId?:string;
  hash?:string;burnHash?:string;mintHash?:string;
 };
 export type BridgeArchive={
