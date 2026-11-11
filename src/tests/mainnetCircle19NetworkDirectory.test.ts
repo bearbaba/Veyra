@@ -33,12 +33,22 @@ describe('Circle Bridge 19-network directory without falsely enabling Mainnet si
   expect(reviewedExchangeRoutes('bridge').every(route=>
    readyIds.has(route.source.chainId))).toBe(true);
  });
- it('shows entire directory but disables unintegrated routes in the picker',()=>{
+ it('lets users explore all 19 networks while restricting financial execution to reviewed routes',()=>{
   expect(exchangeUI).toContain('CIRCLE_USDC_BRIDGE_NETWORKS.filter(network=>');
-  expect(exchangeUI).toContain('disabled={!ready}');
-  expect(exchangeUI).toContain("if(ready)onChoose(ready.asset)");
-  expect(exchangeUI).toContain('Circle supported · Veyra integration pending');
-  expect(exchangeUI).toContain('Circle network support is not a Veyra execution guarantee.');
+  expect(exchangeUI).not.toContain('disabled={!ready}');
+  expect(exchangeUI).toContain('onClick={()=>onChoose(network)}');
+  expect(exchangeUI).toContain('setFromNetworkId(network.id)');
+  expect(exchangeUI).toContain('setToNetworkId(network.id)');
+  expect(exchangeUI).toContain('chosenFrom.chainId===from.chainId');
+  expect(exchangeUI).toContain('chosenTo.chainId===to.chainId');
+  expect(exchangeUI).toContain('const canQuote=displayMatchesExecution&&route.kind===mode');
+  expect(exchangeUI).toContain('Only independently accepted routes can quote or sign');
+  expect(exchangeUI).toContain('Selected route is not live yet');
+  expect(exchangeUI).not.toContain('Circle supported · Veyra integration pending');
+ });
+ it('does not reset network selection repeatedly while tracking an earlier transaction',()=>{
+  expect(exchangeUI).toContain("restoredRouteOwner.current!==owner+':'+mode");
+  expect(exchangeUI).toContain('disabled={engineBusy}');
  });
  it('has no new signing or USDC contract addresses derived from the directory',()=>{
   const directory=readFileSync(new URL('../mainnet/circleBridgeNetworkDirectory.ts',import.meta.url),'utf8');
