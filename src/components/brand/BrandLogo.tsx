@@ -31,7 +31,7 @@ const NETWORK_MARKS = {
  */
 export const VIRTUAL_NETWORK_ICON_IDS:Readonly<Record<string,string>>={
  unichain:'unichain',linea:'linea',sonic:'sonic',monad:'monad',
- sei:'sei-network',ink:'ink',world:'world-chain',hyperevm:'hyper-evm',
+ sei:'sei-network',ink:'ink',world:'world',hyperevm:'hyper-evm',
  plume:'plume',codex:'codex',xdc:'xdc',solana:'solana',
 } as const;
 const VIRTUAL_ICON_STYLE:Readonly<Record<string,{background:string;label:string}>>={
