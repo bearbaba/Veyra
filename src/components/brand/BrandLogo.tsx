@@ -84,7 +84,7 @@ export function BrandLogo({ logoKey, size = 36, className = '' }: BrandLogoProps
     const fallback=VIRTUAL_ICON_STYLE[logoKey]??{background:'#24364f',label:logoKey.slice(0,2).toUpperCase()};
     return <span className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full ${className}`}
       style={{width:size,height:size,background:fallback.background}} role="img" aria-label={logoKey+' network'}>
-      <NetworkIcon network={networkIcon} size={size} variant="branded"
+      <NetworkIcon name={networkIcon} size={size} variant="branded"
        fallback={<CircleText size={size} background={fallback.background} text={fallback.label}
         color="#fff" fontSize={Math.max(9,Math.round(size*(fallback.label.length>2?0.21:0.36)))}/>}/>
     </span>;
