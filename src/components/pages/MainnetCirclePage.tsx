@@ -354,7 +354,29 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    const sourceClient=client(recovery.source);
    if(!sourceClient||await sourceClient.getChainId()!==recovery.source)throw Error('Source network unavailable.');
    if(verificationScopeRef.current!==scope)throw Error('Wallet changed during recovery.');
-   const receipt=await sourceClient.getTransactionReceipt({hash:candidate as Hash});
+   let receipt:Awaited<ReturnType<typeof sourceClient.getTransactionReceipt>>;
+   try{
+    receipt=await sourceClient.getTransactionReceipt({hash:candidate as Hash});
+   }catch{
+    if(verificationScopeRef.current!==scope)throw Error('Wallet changed during recovery.');
+    // A Gateway deposit on Arc is not a Base -> Arc CCTP burn.
+    // Only read the alternative chain to explain the mismatch; never import it as a burn.
+    const otherClient=client(recovery.source===BASE?ARC:BASE);
+    let foundOnOtherChain=false;
+    if(otherClient){
+     try{
+      await otherClient.getTransactionReceipt({hash:candidate as Hash});
+      foundOnOtherChain=true;
+     }catch{/* Unavailable/unknown alternative is not proof of absence. */}
+    }
+    if(verificationScopeRef.current!==scope)throw Error('Wallet changed during recovery.');
+    throw Error(foundOnOtherChain?
+     'This transaction is on '+label(recovery.source===BASE?ARC:BASE)+
+     ', but this Bridge started on '+label(recovery.source)+
+     '. Use its original source burn hash, not a Gateway deposit.':
+     'No confirmed transaction was found on '+label(recovery.source)+
+     ' for this hash. Check the original wallet transaction; no funds were resent.');
+   }
    if(verificationScopeRef.current!==scope)throw Error('Wallet changed during recovery.');
    if(receipt.status!=='success')throw Error('Source transaction is not confirmed successful.');
    const tx=await sourceClient.getTransaction({hash:candidate as Hash});
@@ -695,7 +717,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        <p className="text-xs leading-5" style={{color:'var(--muted)'}}>Copy the original hash from {label(recovery.source)} wallet history. No new signature or transfer.</p>
        <div className="flex flex-col gap-2 sm:flex-row">
         <input id="veyra-original-burn-hash" value={manualSource}
-         onChange={e=>setManualSource(e.target.value.trim())}
+         onChange={e=>{setManualSource(e.target.value.trim());setError('');}}
          placeholder="0x… source transaction hash" spellCheck={false} autoComplete="off"
          className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-xs"
          style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
