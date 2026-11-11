@@ -16,6 +16,7 @@ import {readMainnetJournal,storageForMainnet} from '@/mainnet/arcMainnetJournal'
 import {readLocalOperations,recordLocalOperation,type LocalOperation} from '@/mainnet/localOperations';
 import {readExchangeActivities,type ExchangeActivity} from '@/mainnet/exchangeActivity';
 import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
+import {readUnverifiedBridgeArchives,type BridgeArchive} from '@/mainnet/independentBridgeRequest';
 import {inspectRecordedOperation,type OperationInspection} from '@/mainnet/inspectRecordedOperation';
 import {readSettlementIntent,writeSettlementIntent} from '@/mainnet/settlementJournal';
 import type {VeyraPage} from '../layout/AppShell';
@@ -49,6 +50,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const [filter,setFilter]=useState<'All'|'Send'|'Exchange'>('All');
  const [exchangeActivities,setExchangeActivities]=useState<ExchangeActivity[]>([]);
  const [exchangeIntents,setExchangeIntents]=useState<ExchangeIntent[]>([]);
+ const [archivedBridges,setArchivedBridges]=useState<BridgeArchive[]>([]);
  const [exchangeIntentBlocked,setExchangeIntentBlocked]=useState(false);
  const verifiedCache=useRef(new Map<string,{checked:number;state:OperationInspection}>());
  const [queuedReceipts,setQueuedReceipts]=useState<ReceiptOutboxItem[]>([]);
@@ -56,7 +58,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const [outboxBlocked,setOutboxBlocked]=useState(false);
  useEffect(()=>{
   let active=true,working=false;
-  verifiedCache.current.clear();setLocalOwner('');setEntries([]);setExchangeActivities([]);setExchangeIntents([]);setExchangeIntentBlocked(false);setStates({});setUnknownSettlement(false);
+  verifiedCache.current.clear();setLocalOwner('');setEntries([]);setExchangeActivities([]);setExchangeIntents([]);setArchivedBridges([]);setExchangeIntentBlocked(false);setStates({});setUnknownSettlement(false);
   if(!address)return;
   const owner=address;
   async function update(){
@@ -84,6 +86,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     if(!active)return;
     const tasks=readExchangeIntents(owner);
     setEntries(list);setExchangeActivities(readExchangeActivities(owner));
+    setArchivedBridges(readUnverifiedBridgeArchives(owner,window.localStorage));
     setExchangeIntents(tasks.kind==='ready'?tasks.items:[]);
     setExchangeIntentBlocked(tasks.kind==='blocked');setLocalOwner(owner.toLowerCase());
     for(let i=0;i<list.length&&active;i+=3){
@@ -219,6 +222,8 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
  const scopedEntries=address&&localOwner===address.toLowerCase()?entries:[];
  const scopedExchange=address&&localOwner===address.toLowerCase()?exchangeActivities:[];
  const scopedIntents=address&&localOwner===address.toLowerCase()?exchangeIntents:[];
+ const scopedArchives=address&&localOwner===address.toLowerCase()?archivedBridges:[];
+ const legacyArchives=filter==='All'||filter==='Exchange'?scopedArchives.filter(x=>!x.record.intentId):[];
  const intentHashes=new Set(scopedIntents.flatMap(x=>[
   ...(x.sourceHash?[x.sourceHash.toLowerCase()]:[]),
   ...(x.destinationHash?[x.destinationHash.toLowerCase()]:[])]));
@@ -338,7 +343,9 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
       {task.stage==='PARTIAL'?
        'Partial completion · source consumed; destination not credited. Check the existing route or refund before taking further action.':
        task.stage==='DESTINATION_VERIFIED'?'Destination verification recorded by browser · reopen Exchange to recheck onchain':
-       task.stage==='SOURCE_UNKNOWN'?'Wallet outcome uncertain · never resubmit the source transaction automatically':
+       task.stage==='SOURCE_UNKNOWN'?(task.newTransferAuthorizedAt?
+         'Earlier source outcome remains unknown · separate new transfer explicitly authorized (not an automatic retry).':
+         'Wallet outcome uncertain · never resubmit the source transaction automatically'):
        task.stage==='REFUND_PENDING'?'Refund processing · verify where funds return':
        task.stage==='REFUNDED'?'Refund recorded · inspect original proof':
        task.stage==='SOURCE_REVERTED'?'Source revert recorded on this device · reopen Exchange to recheck onchain before another transaction.':
@@ -362,6 +369,19 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
      </details>
      <button type="button" onClick={()=>onNavigate(task.mode==='bridge'?'bridge':'convert')}
       className="mt-3 text-xs font-semibold" style={{color:'var(--accent)'}}>Open {task.mode==='bridge'?'Bridge':'Swap'} tracking</button>
+    </article>)}
+   </section>}
+   {legacyArchives.length>0&&<section aria-label="Earlier unverified Bridge requests"
+    className="overflow-hidden rounded-2xl border"
+    style={{borderColor:'var(--border)',background:'var(--surface)'}}>
+    {legacyArchives.map((item,i)=><article key={item.archivedAt+':'+i}
+     className="border-b p-4 last:border-0" style={{borderColor:'var(--border)'}}>
+     <p className="text-sm font-semibold">Earlier Bridge request · {item.record.amount} USDC</p>
+     <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
+      Original transaction outcome unknown. The local request was preserved for investigation, not
+      marked failed or completed. A new Bridge is always a separate payment.
+     </p>
+     <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Saved {new Date(item.archivedAt).toLocaleString()}</p>
     </article>)}
    </section>}
    {exchangeShown.length>0&&<section aria-label="Exchange activities" className="overflow-hidden rounded-2xl border"

@@ -19,6 +19,9 @@ export type ExchangeIntent={
  amountIn:string;minimumOut:string;createdAt:number;updatedAt:number;
  stage:ExchangeIntentStage;sourceHash?:string;destinationHash?:string;
  holdingChainId?:number;holdingToken?:string;message?:string;
+ /** The user explicitly opted to start a distinct, separately signed transfer.
+  * The earlier request remains SOURCE_UNKNOWN, not completed or reverted. */
+ newTransferAuthorizedAt?:number;
  steps:ExchangeStep[];
 };
 type Store=Pick<Storage,'getItem'|'setItem'|'removeItem'|'length'|'key'>;
@@ -60,6 +63,7 @@ function valid(x:unknown,owner:string,id:string):x is ExchangeIntent{
  (v.holdingChainId===undefined||Number.isSafeInteger(v.holdingChainId))&&
  (v.holdingToken===undefined||typeof v.holdingToken==='string'&&v.holdingToken.length<85)&&
  (v.message===undefined||typeof v.message==='string'&&v.message.length<=300)&&
+ (v.newTransferAuthorizedAt===undefined||Number.isSafeInteger(v.newTransferAuthorizedAt)&&v.newTransferAuthorizedAt>=v.createdAt)&&
  Array.isArray(v.steps)&&v.steps.length<=12&&v.steps.every(s=>
   s&&['approval','source','destination','refund'].includes(s.stage)&&
   Number.isSafeInteger(s.chainId)&&typeof s.token==='string'&&s.token.length<85&&
@@ -88,12 +92,22 @@ export function readExchangeIntents(owner:string,s?:Store):ExchangeIntentRead{
   return {kind:'ready',items:items.sort((a,b)=>b.createdAt-a.createdAt)};
  }catch{return {kind:'blocked',items:[]};}
 }
+/** A previous source outcome remains unknown, but this user explicitly
+ * authorized a new, independent intent after the old no-hash checkpoint was archived.
+ * This is NOT a settlement verdict; any discovered prior source proof restores
+ * the ordinary single-inflight signing gate.
+ */
+export function mayStartSeparateExchangeIntent(intent:ExchangeIntent):boolean{
+ return ['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(intent.stage)||
+  !!intent.newTransferAuthorizedAt&&['SOURCE_UNKNOWN','AWAITING_WALLET'].includes(intent.stage)&&
+   !intent.sourceHash&&!intent.destinationHash&&!intent.steps.some(step=>!!step.hash);
+}
 export function createExchangeIntent(intent:ExchangeIntent,s?:Store):boolean{
  if(!valid(intent,intent.owner,intent.id)||intent.stage!=='REVIEWED'||intent.steps.length!==0)return false;
  try{
   const store=s??window.localStorage,all=readExchangeIntents(intent.owner,store);
   if(all.kind!=='ready'||all.items.length>=60||
-    all.items.some(v=>!['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(v.stage)))return false;
+    all.items.some(v=>!mayStartSeparateExchangeIntent(v)))return false;
   const k=key(intent.owner,intent.id);
   if(store.getItem(k)!==null)return false;
   const raw=JSON.stringify({...intent,owner:intent.owner.toLowerCase(),id:intent.id.toLowerCase()});
@@ -115,5 +129,28 @@ export function advanceExchangeIntent(owner:string,id:string,next:ExchangeIntent
    return false;
   const encoded=JSON.stringify(updated);
   store.setItem(k,encoded);return store.getItem(k)===encoded;
+ }catch{return false;}
+}
+
+/** Explicit new-payment authorization, not a settlement verdict or cancellation.
+ * An UNKNOWN original may still settle later. Never invoke automatically.
+ */
+export function authorizeSeparateExchangeIntent(owner:string,id:string,s?:Store,now=Date.now()):boolean{
+ if(!OWNER.test(owner)||!ID.test(id)||!Number.isSafeInteger(now))return false;
+ try{
+  const store=s??window.localStorage,k=key(owner,id),raw=store.getItem(k);
+  if(!raw)return false;
+  const prior:unknown=JSON.parse(raw);
+  if(!valid(prior,owner,id))return false;
+  if(prior.newTransferAuthorizedAt!==undefined)return true;
+  if(!['SOURCE_UNKNOWN','AWAITING_WALLET'].includes(prior.stage)||
+     prior.sourceHash||prior.destinationHash||prior.steps.some(step=>step.hash))
+   return false;
+  if(now<prior.createdAt)return false;
+  const next:ExchangeIntent={...prior,newTransferAuthorizedAt:now,updatedAt:now,
+   message:'Earlier source outcome remains unknown. User explicitly authorized a separate new transfer; do not automatically retry the earlier operation.'};
+  if(!valid(next,owner,id))return false;
+  const encoded=JSON.stringify(next);store.setItem(k,encoded);
+  return store.getItem(k)===encoded;
  }catch{return false;}
 }
