@@ -101,12 +101,13 @@ function AssetPicker({side,mode,value,other,balances,onChoose,onClose}:{
 /** Every Circle Bridge network is visible and searchable, but only independently
  * integrated Veyra routes can be selected or quoted. No placeholder route signs.
  */
-function BridgeNetworkPicker({side,from,selectedId,balances,onChoose,onClose}:{
- side:ReviewedSide;from:ExchangeAsset;selectedId:string;balances:Record<string,bigint>;
+function BridgeNetworkPicker({side,from,selectedId,selectedFromNetworkId,balances,onChoose,onClose}:{
+ side:ReviewedSide;from:ExchangeAsset;selectedId:string;selectedFromNetworkId:string;balances:Record<string,bigint>;
  onChoose:(network:BridgeNetworkDirectoryEntry)=>void;onClose:()=>void;
 }){
  const [query,setQuery]=useState('');
- const available=reviewedExchangeNetworks('bridge',side,side==='to'?from:undefined);
+ const available=side==='to'&&idOf(from.chainId)!==selectedFromNetworkId?[]:
+  reviewedExchangeNetworks('bridge',side,side==='to'?from:undefined);
  const availableById=new Map(available.map(network=>[network.chainId,network] as const));
  const term=query.trim().toLowerCase();
  const matches=CIRCLE_USDC_BRIDGE_NETWORKS.filter(network=>
@@ -390,7 +391,7 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
    other={picking==='from'?to:from} balances={balances}
    onChoose={picking==='from'?chooseSource:chooseDestination} onClose={()=>setPicking(null)}/>}
   {picking&&mode==='bridge'&&<BridgeNetworkPicker side={picking} from={from}
-    selectedId={picking==='from'?fromNetworkId:toNetworkId}
+    selectedId={picking==='from'?fromNetworkId:toNetworkId} selectedFromNetworkId={fromNetworkId}
     balances={balances} onChoose={network=>chooseBridgeNetwork(picking,network)}
     onClose={()=>setPicking(null)}/>}
  </main>;
