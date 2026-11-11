@@ -42,7 +42,7 @@ async function run(name,viewport,mobile){
  for(const step of steps){
   if(mobile){
    const nav=page.getByRole('navigation',{name:'Primary navigation'});
-   if(step==='Swap'||step==='Bridge'){
+   if(step==='Friends'||step==='Activity'){
     await nav.getByRole('button',{name:'More Veyra features'}).click();
     await page.getByRole('region',{name:'More Veyra features'}).getByRole('button',{name:step,exact:true}).click();
    }else await nav.getByRole('button',{name:step,exact:true}).click();
