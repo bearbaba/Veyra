@@ -22,6 +22,7 @@ import {withMainnetWalletSigningLock} from '@/mainnet/mainnetWalletSigningLock';
 import {recordVerifiedExchangeProof,recordVerifiedSourceRevert} from '@/mainnet/recordVerifiedExchangeProof';
 import {getAppKitBridgeSteps} from '@/core/bridge/arcAppKitBridge';
 import {assertCctpBridgeLinked,findCctpDestinationMintHash} from '@/mainnet/verifyCctpBridgeLink';
+import {CCTP_V2_BURN_EVENT,discoverOriginalCctpSource} from '@/mainnet/discoverOriginalCctpBurn';
 import {assertMainnetConsumerSigningAllowed,MAINNET_PUBLIC_BETA,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
 import {readBridgeQuoteAmounts,assertBridgeQuoteWithinReviewedCap} from '@/mainnet/bridgeQuoteGuard';
 import {feeBurdenMessage} from '@/mainnet/feeBurden';
@@ -118,6 +119,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
  const lock=useRef(false);
  const verificationScopeRef=useRef('');
  const autoCheckBudget=useRef({id:'',attempts:0});
+ const sourceSearchBudget=useRef({id:'',next:0});
  const owner=address?.toLowerCase()??'';
  // New wallet/route renders immediately invalidate any in-flight read-only check.
  verificationScopeRef.current=mode+':'+owner;
@@ -359,6 +361,45 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    x.amountIn===recovery.amount&&x.minOut===recovery.minimum&&
    Math.abs(x.createdAt-original.createdAt)<=120000).map(x=>x.originalHash);
   const candidates=[...new Set([...fromJournal,...fromActivity].map(x=>x.toLowerCase()))];
+  // The SDK sometimes returns no hash despite sending a direct CCTP burn.
+  // Search only around this exact wallet-scoped request, matching the canonical
+  // TokenMessengerV2 burn token, amount, destination domain and mint recipient.
+  // A log is a candidate, NEVER completion proof; tx sender/receipt/Circle
+  // attestation must still be checked below and in verify().
+  if(candidates.length===0){
+   const scanId=owner+':'+original.id;
+   const budget=sourceSearchBudget.current;
+   if(budget.id!==scanId||Date.now()>=budget.next){
+    sourceSearchBudget.current={id:scanId,next:Date.now()+600_000};
+    const sourceClient=client(recovery.source);
+    const sourceChain=getMainnetChain(recovery.source);
+    const destinationChain=getMainnetChain(recovery.destination);
+    if(sourceClient&&sourceChain?.usdc&&destinationChain?.cctpDomain!=null){
+     const requestScope=verificationScopeRef.current;
+     try{
+      if(await sourceClient.getChainId()!==recovery.source)return;
+      const sourceToken=sourceChain.usdc;
+      const found=await discoverOriginalCctpSource({
+       latestBlock:()=>sourceClient.getBlockNumber(),
+       timestamp:async blockNumber=>Number((await sourceClient.getBlock({blockNumber})).timestamp),
+       burnLogs:async(fromBlock,toBlock)=>{
+        const logs=await sourceClient.getLogs({
+         address:CCTP_V2_MAINNET.tokenMessengerV2,
+         event:CCTP_V2_BURN_EVENT,args:{burnToken:sourceToken},
+         fromBlock,toBlock,
+        });
+        return logs.map(log=>({transactionHash:log.transactionHash,args:log.args}));
+       },
+      },{
+       owner,sourceToken,destinationDomain:destinationChain.cctpDomain,
+       amount:parseUnits(recovery.amount,6),intentCreatedAt:original.createdAt,
+      });
+      if(verificationScopeRef.current!==requestScope)return;
+      if(found)candidates.push(found);
+     }catch{/* RPC/indexing unavailability is not proof of failure. Retry later. */}
+    }
+   }
+  }
   if(candidates.length!==1)return; // Missing/conflicting evidence: never guess or unlock.
   const candidate=candidates[0];
   lock.current=true;setBusy(true);setError('');
