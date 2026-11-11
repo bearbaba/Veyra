@@ -7,7 +7,7 @@
  * intent ID, quote and wallet confirmation.
  */
 import {parseUnits} from 'viem';
-import {readExchangeIntents,authorizeSeparateExchangeIntent} from './exchangeIntentJournal';
+import {readExchangeIntents,authorizeSeparateExchangeIntent,mayStartSeparateExchangeIntent} from './exchangeIntentJournal';
 import {circleCctpBridgePair} from './circleBridgePolicy';
 
 export type UnverifiedBridgeRequest={
@@ -61,9 +61,7 @@ export function authorizeIndependentBridge(args:{
     currentIntent.steps.some(step=>!!step.hash)))
    return blocked('A source transaction may be underway. The original operation remains protected.');
   // Never bypass another separate unresolved wallet operation.
-  if(all.items.some(x=>x.id!==record.intentId&&
-    !['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(x.stage)&&
-    !x.newTransferAuthorizedAt))
+  if(all.items.some(x=>x.id!==record.intentId&&!mayStartSeparateExchangeIntent(x)))
    return blocked('Another unresolved Exchange operation requires its own review.');
   const archiveKey=unverifiedBridgeArchiveKey(owner,record.intentId??archiveId);
   const archive:BridgeArchive={record,archivedAt:now,status:'SOURCE_OUTCOME_UNKNOWN'};
