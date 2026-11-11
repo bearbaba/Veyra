@@ -32,6 +32,7 @@ import {Notice,TxStepper} from '@/components/ui/primitives';
 import {exchangeStageView} from '@/mainnet/exchangeStage';
 import {validStoredExchangeRecovery,withFreshVerification} from '@/mainnet/recoveryTrust';
 import {networkRequirement} from '@/mainnet/walletNetworkRequirement';
+import {authorizeIndependentBridge} from '@/mainnet/independentBridgeRequest';
 
 const kit=new AppKit();
 const ARC=5042,BASE=8453;
@@ -116,6 +117,8 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
  const [error,setError]=useState('');
  const [proof,setProof]=useState('');
  const [manualMint,setManualMint]=useState('');
+ const [newBridgeReview,setNewBridgeReview]=useState(false);
+ const [newBridgeAcknowledged,setNewBridgeAcknowledged]=useState(false);
  const lock=useRef(false);
  const verificationScopeRef=useRef('');
  const autoCheckBudget=useRef({id:'',attempts:0});
@@ -146,6 +149,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
  const notice=signingBlock?signingNotice(signingBlock):null;
  useEffect(()=>{
   setQuote(null);setProof('');setError('');setManualMint('');
+  setNewBridgeReview(false);setNewBridgeAcknowledged(false);
   if(!address){setRecovery(null);setUnknownStorage(false);return;}
   try{
    const raw=localStorage.getItem(key(mode,address));
@@ -264,7 +268,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     throw Error('Another Exchange operation requires review. Open its original Swap or Bridge tracking before signing.');
    const existingIntents=readExchangeIntents(owner);
    if(existingIntents.kind!=='ready'||existingIntents.items.some(task=>
-    !['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(task.stage)))
+    !['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(task.stage)&&!task.newTransferAuthorizedAt))
     throw Error('Unresolved Exchange intent or unreadable recovery storage. Inspect Activity first.');
    const {params:p}=await params(mode==='bridge'?quote.bridgeMaxFee:undefined);
    const fresh=mode==='swap'?
@@ -566,6 +570,28 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    setBusy(false);
   }
  }
+ /** Only a direct user action can authorize a distinct, fresh Bridge.
+  * No payment, wallet signature or proof deletion happens here.
+  */
+ function startIndependentBridge(){
+  if(mode!=='bridge'||!address||!recovery||busy||lock.current||
+     !newBridgeReview||!newBridgeAcknowledged||
+     recovery.hash||recovery.burnHash||recovery.mintHash)return;
+  lock.current=true;setBusy(true);setError('');
+  try{
+   const result=authorizeIndependentBridge({
+    owner,legacyKey:key(mode,address),record:recovery,
+    archiveId:crypto.randomUUID(),storage:localStorage,
+   });
+   if(result.kind==='blocked')throw Error(result.reason);
+   setRecovery(null);setQuote(null);setAmount('');setMinimum('');
+   setNewBridgeReview(false);setNewBridgeAcknowledged(false);
+   setProof('Earlier request preserved as unverified in Activity. Review a fresh quote before any wallet signature.');
+   window.dispatchEvent(new Event('veyra:mainnet:exchange-activity'));
+  }catch(e){
+   setError(e instanceof Error?e.message:'Earlier Bridge is still protected.');
+  }finally{lock.current=false;setBusy(false);}
+ }
  // Automatic, read-only reconciliation: never signs, approves or resubmits.
  useEffect(()=>{
   if(!address||!recovery||!['PENDING','UNKNOWN'].includes(recovery.status))return;
@@ -776,6 +802,37 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
       <p role="status" className="text-xs" style={{color:'var(--muted)'}}>
        Veyra checks the original wallet and Circle evidence automatically. No transaction ID or signature required.
       </p>}
+     {mode==='bridge'&&recovery&&!recovery.hash&&!recovery.burnHash&&!recovery.mintHash&&
+      ['UNKNOWN','PENDING'].includes(recovery.status)&&!unknownStorage&&
+      <div className="space-y-2 border-t pt-3" style={{borderColor:'var(--border)'}}>
+       {!newBridgeReview?
+        <button type="button" disabled={busy} onClick={()=>setNewBridgeReview(true)}
+         className="text-xs font-semibold underline disabled:opacity-50"
+         style={{color:'var(--accent)'}}>Review a separate new Bridge</button>:
+        <div className="space-y-3 rounded-xl border p-3" style={{borderColor:'var(--border)'}}>
+         <p className="text-xs font-semibold">Start a separate transfer?</p>
+         <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
+          The earlier request has no confirmed source transaction, but might still have been broadcast.
+          A new Bridge is a separate transfer and could send additional USDC.
+          Veyra preserves the earlier unresolved request in Activity and never retries it automatically.
+         </p>
+         <label className="flex items-start gap-2 text-xs leading-5">
+          <input type="checkbox" checked={newBridgeAcknowledged}
+           onChange={e=>setNewBridgeAcknowledged(e.target.checked)}
+           className="mt-1 shrink-0"/>
+          <span>I understand the previous result is unknown and a new wallet signature may send USDC again.</span>
+         </label>
+         <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={!newBridgeAcknowledged||busy}
+           onClick={startIndependentBridge}
+           className="veyra-btn-primary rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50">
+           Start fresh review
+          </button>
+          <button type="button" onClick={()=>{setNewBridgeReview(false);setNewBridgeAcknowledged(false);}}
+           className="rounded-lg border px-3 py-2 text-xs" style={{borderColor:'var(--border)'}}>Keep tracking</button>
+         </div>
+        </div>}
+      </div>}
      <div className="flex flex-wrap items-center gap-4 pt-1" aria-label="Recovery actions">
       {onOpenActivity&&<button type="button" onClick={onOpenActivity}
        className="inline-flex min-h-9 items-center gap-1.5 rounded-md text-xs font-semibold underline-offset-4 hover:underline"
