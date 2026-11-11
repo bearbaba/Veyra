@@ -288,23 +288,23 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
   if(reversed.kind!==mode)return;
   setFrom(to);setTo(from);
  }
- const networkButton=(a:ExchangeAsset,side:ReviewedSide,active:boolean)=>(
-  <button type="button" key={exchangeAssetId(a)}
-   disabled={locked} onClick={()=>setPicking(side)}
-   aria-pressed={active}
+ const networkButton=(network:BridgeNetworkDirectoryEntry,side:ReviewedSide)=>(
+  <button type="button" key={network.id} disabled={engineBusy}
+   onClick={()=>setPicking(side)}
    className="flex min-h-14 min-w-0 flex-1 items-center gap-1.5 rounded-xl border p-2 text-left disabled:opacity-50 sm:gap-2 sm:p-3"
-   style={{background:active?'var(--accent-muted)':'var(--veyra-control)',
-    borderColor:active?'var(--border-strong)':'var(--border)',color:'var(--ink)'}}>
-   <BrandLogo logoKey={a.chainId===ARC?'arc':a.chainId===1?'ethereum':'base'} size={26}/>
-   <span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold sm:text-sm">{nameOf(a.chainId)}</span>
-    <span className="block truncate text-[10px]" style={{color:'var(--muted)'}}>USDC <span className="hidden sm:inline">· Mainnet</span></span></span><ChevronDown className="size-3.5 shrink-0"/>
+   style={{background:'var(--accent-muted)',borderColor:'var(--border-strong)',color:'var(--ink)'}}>
+   <BrandLogo logoKey={network.logo} size={26}/>
+   <span className="min-w-0 flex-1">
+    <span className="block truncate text-xs font-semibold sm:text-sm">{network.name}</span>
+    <span className="block truncate text-[10px]" style={{color:'var(--muted)'}}>USDC · {network.vm==='svm'?'Solana':'Mainnet'}</span>
+   </span><ChevronDown className="size-3.5 shrink-0"/>
   </button>
  );
  return <main className="veyra-page veyra-route-page mx-auto w-full max-w-2xl space-y-3 px-4 py-4 md:px-7 md:py-6">
   <header>
    <p className="veyra-eyebrow">VEYRA · MAINNET</p>
    <h1 className="veyra-page-title">{mode==='swap'?'Swap':'Bridge'}</h1>
-   <p className="veyra-page-subtitle">{mode==='swap'?'Exchange USDC and EURC on Arc.':'Move USDC between Arc and Base.'}</p>
+   <p className="veyra-page-subtitle">{mode==='swap'?'Exchange USDC and EURC on Arc.':'Choose from 19 Circle networks. Only integrated Veyra routes can execute.'}</p>
   </header>
   <section className="veyra-card space-y-3 p-3 sm:p-5" aria-label={mode==='swap'?'Swap form':'Bridge form'}>
    {status==='paused'&&notice?<SigningNoticeBanner headline={notice.headline} body={notice.body}/>:
@@ -354,14 +354,14 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
      aria-label="Bridge route">
      <div className="min-w-0 space-y-1.5">
       <p className="text-[11px] font-semibold" style={{color:'var(--muted)'}}>FROM</p>
-      <div className="flex min-w-0">{networkButton(from,'from',true)}</div>
+      <div className="flex min-w-0">{networkButton(chosenFrom,'from')}</div>
      </div>
-     <button type="button" disabled={locked} onClick={reverse} aria-label="Reverse bridge direction"
+     <button type="button" disabled={engineBusy} onClick={reverse} aria-label="Reverse bridge direction"
       className="veyra-btn-secondary mb-1 flex size-9 shrink-0 items-center justify-center rounded-full p-0 disabled:opacity-50"
       ><ArrowRightLeft className="size-4"/></button>
      <div className="min-w-0 space-y-1.5">
       <p className="text-[11px] font-semibold" style={{color:'var(--muted)'}}>TO</p>
-      <div className="flex min-w-0">{networkButton(to,'to',true)}</div>
+      <div className="flex min-w-0">{networkButton(chosenTo,'to')}</div>
      </div>
     </div>
    </>}
@@ -369,7 +369,10 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
     embedded mode={mode} selection={selection} onFinancialBusyChange={setEngineBusy}
     onOpenActivity={onNavigate?()=>onNavigate('activity'):undefined}/>:
     <p role="status" className="rounded-xl border p-3 text-sm" style={{color:'var(--warning)',borderColor:'var(--border)'}}>
-     This pair has no reviewed {mode} quote route. No transaction can start.
+     {mode==='bridge'?
+      chosenFrom.id===chosenTo.id?'Choose two different networks.':
+      chosenFrom.name+' → '+chosenTo.name+' is available to explore, but Veyra does not yet have a live quote for this pair. No transaction can start.':
+      'This pair has no reviewed swap quote route. No transaction can start.'}
     </p>}
    {separateLock&&<div role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t pt-2 text-[11px]"
     style={{color:'var(--muted)',borderColor:'var(--border)'}}>
@@ -387,7 +390,8 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
    other={picking==='from'?to:from} balances={balances}
    onChoose={picking==='from'?chooseSource:chooseDestination} onClose={()=>setPicking(null)}/>}
   {picking&&mode==='bridge'&&<BridgeNetworkPicker side={picking} from={from}
-    balances={balances} onChoose={picking==='from'?chooseSource:chooseDestination}
+    selectedId={picking==='from'?fromNetworkId:toNetworkId}
+    balances={balances} onChoose={network=>chooseBridgeNetwork(picking,network)}
     onClose={()=>setPicking(null)}/>}
  </main>;
 }
