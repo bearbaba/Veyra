@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import {NetworkIcon} from '@web3icons/react/dynamic';
 import { TokenUSDC, TokenEURC, TokenETH, TokenWBTC, TokenUSDT, TokenDAI,
  NetworkEthereum, NetworkBase, NetworkArbitrumOne, NetworkOptimism, NetworkAvalanche, NetworkPolygon } from '@web3icons/react';
 
@@ -24,6 +25,29 @@ const NETWORK_MARKS = {
  optimism:NetworkOptimism,avalanche:NetworkAvalanche,polygon:NetworkPolygon,
 } as const;
 
+/** Exact Web3Icons registry keys, not generated URLs. A visible local
+ * network-specific fallback remains if an icon package/asset cannot load.
+ * https://github.com/0xa3k5/web3icons/blob/main/docs/icons.md
+ */
+export const VIRTUAL_NETWORK_ICON_IDS:Readonly<Record<string,string>>={
+ unichain:'unichain',linea:'linea',sonic:'sonic',monad:'monad',
+ sei:'sei-network',ink:'ink',world:'world-chain',hyperevm:'hyper-evm',
+ plume:'plume',codex:'codex',xdc:'xdc',solana:'solana',
+} as const;
+const VIRTUAL_ICON_STYLE:Readonly<Record<string,{background:string;label:string}>>={
+ unichain:{background:'#f64f28',label:'U'},
+ linea:{background:'#151f30',label:'L'},
+ sonic:{background:'#f97328',label:'S'},
+ monad:{background:'#8767dc',label:'M'},
+ sei:{background:'#cb2f4e',label:'SEI'},
+ ink:{background:'#181818',label:'INK'},
+ world:{background:'#202020',label:'W'},
+ hyperevm:{background:'#122521',label:'HYPE'},
+ plume:{background:'#d35d32',label:'P'},
+ codex:{background:'#2b3847',label:'CX'},
+ xdc:{background:'#16609f',label:'XDC'},
+ solana:{background:'#191722',label:'SOL'},
+};
 interface BrandLogoProps {
   logoKey: string;
   size?: number;
@@ -53,6 +77,17 @@ export function BrandLogo({ logoKey, size = 36, className = '' }: BrandLogoProps
         />
       </span>
     );
+  }
+
+  const networkIcon=VIRTUAL_NETWORK_ICON_IDS[logoKey];
+  if(networkIcon){
+    const fallback=VIRTUAL_ICON_STYLE[logoKey]??{background:'#24364f',label:logoKey.slice(0,2).toUpperCase()};
+    return <span className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full ${className}`}
+      style={{width:size,height:size,background:fallback.background}} role="img" aria-label={logoKey+' network'}>
+      <NetworkIcon name={networkIcon} size={size} variant="branded"
+       fallback={<CircleText size={size} background={fallback.background} text={fallback.label}
+        color="#fff" fontSize={Math.max(9,Math.round(size*(fallback.label.length>2?0.21:0.36)))}/>}/>
+    </span>;
   }
 
   const TokenMark = TOKEN_MARKS[logoKey as keyof typeof TOKEN_MARKS];
