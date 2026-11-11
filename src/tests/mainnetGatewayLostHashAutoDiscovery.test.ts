@@ -8,7 +8,7 @@ import {VIRTUAL_NETWORK_ICON_IDS} from '../components/brand/BrandLogo';
 import {CIRCLE_USDC_BRIDGE_NETWORKS} from '../mainnet/circleBridgeNetworkDirectory';
 
 const owner='0x1111111111111111111111111111111111111111';
-const token=getMainnetChain(8453)!.usdc;
+const token=getMainnetChain(8453)?.usdc??'0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const hashA=`0x${'ab'.repeat(32)}`,hashB=`0x${'cd'.repeat(32)}`;
 const amount=parseUnits('0.1',6);
 const input=encodeFunctionData({abi:gatewayDepositAbi,functionName:'deposit',args:[token,amount]});
@@ -44,7 +44,7 @@ describe('automatic original Gateway deposit recovery',()=>{
   expect(calls[0]?.[3].toLowerCase()).toBe(token.toLowerCase());
  });
  it('rejects Gateway deposits with different sender, target, token, amount, method, or wrong RPC chain',async()=>{
-  const wrongToken=getMainnetChain(1)!.usdc;
+  const wrongToken=getMainnetChain(1)?.usdc??'0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
   const scenarios=[
    {from:'0x2222222222222222222222222222222222222222'},
    {to:wrongToken},
