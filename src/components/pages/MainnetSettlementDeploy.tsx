@@ -61,13 +61,12 @@ export function MainnetSettlementDeploy(){
   const [blocked,setBlocked]=useState(false);
   const [review,setReview]=useState<ReviewState|null>(null);
   const [accepted,setAccepted]=useState(false);
-  const [manualHash,setManualHash]=useState('');
   const [message,setMessage]=useState('');
   const [busy,setBusy]=useState(false);
   const lock=useRef(false);
 
   useEffect(()=>{
-    setReview(null);setAccepted(false);setManualHash('');setMessage('');
+    setReview(null);setAccepted(false);setMessage('');
     if(!address){setRecord(null);setBlocked(false);return;}
     try{setRecord(read(address));setBlocked(false);}
     catch{setRecord(null);setBlocked(true);setMessage('Saved deployment record is unreadable. No new deployment will be signed until reviewed.');}
@@ -168,10 +167,9 @@ export function MainnetSettlementDeploy(){
       });
       pending={...pending,txHash:hash,phase:'PENDING'};
       store(pending);setRecord(pending);
-      setManualHash(hash);
       setReview(null);setAccepted(false);
       try{await verifyTx(hash,pending);}
-      catch(e){setMessage('Transaction submitted. '+err(e)+' Check the original hash below; do not redeploy.');}
+      catch(e){setMessage('Deployment submitted. Veyra will check the original receipt automatically.');}
     }catch(e){
       // Wallet error 4001 means the owner explicitly rejected signing; no tx exists.
       // All other send errors stay locked to prevent accidental duplicate deployments.
@@ -185,15 +183,28 @@ export function MainnetSettlementDeploy(){
     }finally{lock.current=false;setBusy(false);}
   }
 
-  async function verifyAgain(){
-    if(!owner||!record||lock.current||!publicClient)return;
-    const hash=(record.txHash??manualHash) as Hex;
-    if(!HASH.test(hash)){setMessage('Enter the original deployment transaction hash from MetaMask/Arc Explorer.');return;}
-    lock.current=true;setBusy(true);setMessage('');
-    try{await verifyTx(hash,record);}
-    catch(e){setMessage('Verification not complete: '+err(e));}
-    finally{lock.current=false;setBusy(false);}
-  }
+  // Read-only receipt polling, never a second deployment or wallet signature.
+  useEffect(()=>{
+    if(!owner||!record?.txHash||record.phase==='VERIFIED'||!publicClient)return;
+    let active=true,attempts=0,nextAttempt=0;
+    const check=()=>{
+      if(!active||lock.current||Date.now()<nextAttempt)return;
+      attempts++;
+      nextAttempt=Date.now()+(attempts<=4?15000:120000);
+      lock.current=true;setBusy(true);
+      void verifyTx(record.txHash!,record).catch(()=>{
+        if(active)setMessage('Deployment reconciliation is still in progress.');
+      }).finally(()=>{
+        lock.current=false;
+        if(active)setBusy(false);
+      });
+    };
+    check();
+    const timer=window.setInterval(check,15000);
+    window.addEventListener('focus',check);
+    return()=>{active=false;window.clearInterval(timer);window.removeEventListener('focus',check);};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[owner,record?.txHash,record?.phase,publicClient]);
 
   const signed=record?.phase==='VERIFIED';
   const details=record?.contract&&record.txHash
@@ -260,15 +271,9 @@ export function MainnetSettlementDeploy(){
         className="flex items-center gap-2 break-all font-mono text-xs" style={{color:'var(--accent)'}}>
         {record.txHash} <ExternalLink className="size-4"/>
       </a>}
-      {!signed&&<div className="space-y-2">
-        <input aria-label="Original deployment transaction hash" value={record.txHash??manualHash}
-          onChange={e=>setManualHash(e.target.value)} placeholder="Original deployment hash 0x…"
-          className="w-full rounded-xl border p-3 font-mono text-xs"
-          style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
-        <button type="button" onClick={()=>void verifyAgain()} disabled={busy}
-          className="w-full rounded-xl border px-4 py-3 font-semibold disabled:opacity-50"
-          style={{borderColor:'var(--border-strong)',color:'var(--ink)'}}>Verify original transaction on Arc</button>
-      </div>}
+      {!signed&&<p role="status" className="text-xs" style={{color:'var(--muted)'}}>
+        Veyra checks the original deployment receipt automatically. No transaction ID or verification step required.
+      </p>}
       {record.contract&&<p className="break-all font-mono text-xs">Contract: {record.contract}</p>}
       {signed&&<div className="space-y-2">
         <p className="text-xs" style={{color:'var(--success)'}}>
