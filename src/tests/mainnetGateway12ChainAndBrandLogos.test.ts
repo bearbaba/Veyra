@@ -7,12 +7,6 @@ import {chooseGatewaySource} from '../components/pages/MainnetUnifiedBalancePane
 import {planGatewayMultiSource} from '../mainnet/gatewayMultiSourceAllocation';
 
 const owner='0x1111111111111111111111111111111111111111';
-function ledger(rows:{chain:string;confirmedBalance:string}[]){
- const total=rows.reduce((sum,row)=>sum+BigInt(row.confirmedBalance.replace('.','')),0n);
- return {token:'USDC',totalConfirmedBalance:(Number(total)/1e6).toString(),
-  totalPendingBalance:'2.5',breakdown:[{depositor:owner,
-   totalConfirmed:(Number(total)/1e6).toString(),breakdown:rows}]};
-}
 const source=(f:string)=>readFileSync(new URL('../'+f,import.meta.url),'utf8');
 
 describe('Circle Gateway EVM ledger completeness and independent signing scope',()=>{
