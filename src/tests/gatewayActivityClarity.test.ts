@@ -6,6 +6,7 @@ const receipts=source('components/pages/MainnetUnifiedActivity.tsx');
 const activity=source('components/pages/MainnetActivityPage.tsx');
 const home=source('components/pages/MainnetHomePage.tsx');
 const reconcile=source('mainnet/gatewayMainnetReconcile.ts');
+const journal=source('mainnet/gatewayMainnetJournal.ts');
 const ledger=source('mainnet/gatewayMainnetBalances.ts');
 
 describe('unified deposits present finality and spendable Circle ledger separately',()=>{
@@ -27,7 +28,7 @@ describe('unified deposits present finality and spendable Circle ledger separate
  it('does not convert aggregate available USDC into attributed deposit proof',()=>{
   expect(reconcile).toContain("kind:'deposit',status:'SOURCE_FINALIZED'");
   expect(reconcile).toContain("Only Circle live Available is spendable.");
-  expect(reconcile).toContain("gatewayCreditReference");
+  expect(journal).toContain("gatewayCreditReference");
   expect(ledger).toContain("return parseGatewayMainnetBalance(response,owner)");
   expect(receipts).not.toContain("receipt.status==='SOURCE_FINALIZED'?'Verified'");
  });
