@@ -14,6 +14,7 @@ import {EXCHANGE_ASSETS,exchangeAssetId,resolveExchangeRoute,type ExchangeAsset}
 import {reviewedExchangeAssets,reviewedExchangeNetworks,reviewedRouteStatus,
  type ReviewedExchangeMode,type ReviewedSide} from '@/mainnet/reviewedExchangeRoutes';
 import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
+import {CIRCLE_USDC_BRIDGE_NETWORKS} from '@/mainnet/circleBridgeNetworkDirectory';
 import type {VeyraPage} from '../layout/AppShell';
 
 const ARC=5042,BASE=8453;
@@ -97,49 +98,72 @@ function AssetPicker({side,mode,value,other,balances,onChoose,onClose}:{
   </section>
  </div>;
 }
+/** Every Circle Bridge network is visible and searchable, but only independently
+ * integrated Veyra routes can be selected or quoted. No placeholder route signs.
+ */
 function BridgeNetworkPicker({side,from,balances,onChoose,onClose}:{
  side:ReviewedSide;from:ExchangeAsset;balances:Record<string,bigint>;
  onChoose:(a:ExchangeAsset)=>void;onClose:()=>void;
 }){
  const [query,setQuery]=useState('');
- const options=reviewedExchangeNetworks('bridge',side,side==='to'?from:undefined)
-  .filter(x=>x.name.toLowerCase().includes(query.trim().toLowerCase()));
+ const available=reviewedExchangeNetworks('bridge',side,side==='to'?from:undefined);
+ const availableById=new Map(available.map(network=>[network.chainId,network] as const));
+ const term=query.trim().toLowerCase();
+ const matches=CIRCLE_USDC_BRIDGE_NETWORKS.filter(network=>
+  !term||[network.name,network.id,String(network.chainId??''),String(network.circleDomain)]
+   .some(value=>value.toLowerCase().includes(term)));
  useEffect(()=>{
   const onKey=(e:KeyboardEvent)=>{if(e.key==='Escape')onClose();};
   window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey);
  },[onClose]);
  return <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 sm:items-center sm:p-5"
-   role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+  role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
   <section role="dialog" aria-modal="true" aria-label={'Select '+side+' network'}
    className="flex max-h-[85dvh] w-full max-w-md flex-col gap-3 rounded-t-2xl border p-4 shadow-2xl sm:rounded-2xl"
    style={{background:'var(--surface)',borderColor:'var(--border-strong)',color:'var(--ink)'}}>
    <header className="flex items-center justify-between gap-3">
     <div><h2 className="text-lg font-bold">{side==='from'?'From network':'To network'}</h2>
-     <p className="text-xs" style={{color:'var(--muted)'}}>Native USDC · integrated CCTP routes</p></div>
+     <p className="text-xs" style={{color:'var(--muted)'}}>
+      19 networks listed by Circle · Veyra enables routes only after integration
+     </p></div>
     <button type="button" onClick={onClose} aria-label="Close network selector"
      className="veyra-btn-secondary rounded-lg p-2"><X className="size-4"/></button>
    </header>
    <label className="relative block">
     <Search className="absolute left-3 top-3.5 size-4" style={{color:'var(--muted)'}}/>
     <input autoFocus value={query} onChange={e=>setQuery(e.target.value)}
-     placeholder="Search network" aria-label="Search supported networks"
+     placeholder="Search 19 networks" aria-label="Search Circle Bridge networks"
      className="veyra-route-input w-full rounded-xl border py-3 pl-10 pr-3 text-sm"
      style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
    </label>
-   <div className="min-h-0 overflow-y-auto space-y-2">
-    {options.length===0?<p className="py-6 text-center text-sm" style={{color:'var(--muted)'}}>
-     No available network matches your search.</p>:
-     options.map(x=><button key={x.chainId} type="button" onClick={()=>onChoose(x.asset)}
-      className="veyra-route-control flex w-full items-center gap-3 rounded-xl p-3 text-left">
-      <BrandLogo logoKey={x.logo} size={34}/>
-      <span className="min-w-0 flex-1"><span className="block font-semibold">{x.name}</span>
-       <span className="block text-xs" style={{color:'var(--muted)'}}>USDC · Mainnet</span></span>
-      <span className="text-right text-xs tabular-nums" style={{color:'var(--muted)'}}>
-       {balances[exchangeAssetId(x.asset)]===undefined?'Balance —':formatUnits(balances[exchangeAssetId(x.asset)],6)+' USDC'}
-      </span>
-     </button>)}
+   <div className="min-h-0 overflow-y-auto space-y-1" role="listbox" aria-label="Circle Bridge networks">
+    {matches.length===0?<p className="py-6 text-center text-sm" style={{color:'var(--muted)'}}>
+     No network matches your search.</p>:
+     matches.map(network=>{
+      const ready=network.chainId!==null?availableById.get(network.chainId):undefined;
+      const balance=ready?balances[exchangeAssetId(ready.asset)]:undefined;
+      return <button key={network.id} type="button" role="option" aria-selected={false}
+       disabled={!ready} onClick={()=>{if(ready)onChoose(ready.asset);}}
+       className="veyra-route-control flex w-full items-center gap-3 rounded-xl p-3 text-left disabled:cursor-not-allowed disabled:opacity-55"
+       title={ready?'Select '+network.name:'Veyra route integration and acceptance pending'}>
+       <BrandLogo logoKey={network.logo} size={34}/>
+       <span className="min-w-0 flex-1">
+        <span className="block font-semibold">{network.name}</span>
+        <span className="block text-xs" style={{color:'var(--muted)'}}>
+         {network.vm==='svm'?'Solana wallet integration pending':
+          ready?'Native USDC · Veyra quote available':'Circle supported · Veyra integration pending'}
+        </span>
+       </span>
+       <span className="text-right text-xs tabular-nums" style={{color:ready?'var(--ink)':'var(--muted)'}}>
+        {ready?balance===undefined?'Balance —':formatUnits(balance,6)+' USDC':'Not live'}
+       </span>
+      </button>;
+     })}
    </div>
-   <p className="text-xs" style={{color:'var(--muted)'}}>Arc routes require independent quote, contract and destination mint acceptance.</p>
+   <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
+    Circle network support is not a Veyra execution guarantee.
+    Only selectable routes can request a live quote; transaction signing retains independent safety gates.
+   </p>
   </section>
  </div>;
 }
