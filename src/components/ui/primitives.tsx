@@ -104,7 +104,7 @@ export function TxStepper({ stage, stalled = false }: { stage: TxStage; stalled?
               className="inline-flex min-w-0 items-center gap-2">
               <span className="size-1.5 shrink-0 rounded-full" aria-hidden="true"
                 style={{ background: tone }} />
-              <span className={active ? 'font-semibold' : 'font-medium'}
+              <span className={'veyra-step-label '+(active ? 'font-semibold' : 'font-medium')}
                 style={{ color: tone }}>{name}</span>
               {index < TX_DISPLAY_STEPS.length - 1 &&
                 <span className="mx-3 h-px w-4 sm:mx-4 sm:w-5" aria-hidden="true"
