@@ -66,7 +66,6 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
   const [journal,setJournal] = useState<MainnetJournal|null>(null);
   const [blockedStorage,setBlockedStorage] = useState(false);
   const [loadedFor,setLoadedFor] = useState<string|null>(null);
-  const [hashInput,setHashInput] = useState('');
   const [receipt,setReceipt] = useState<MainnetReconciliation|null>(null);
   const [error,setError] = useState<string|null>(null);
   const [completed,setCompleted]=useState<MainnetJournal|null>(null);
@@ -157,7 +156,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
       const hash=await requestMainnetCanaryTransfer(await provider(),review.plan,()=>{requested=true;});
       submittedHash=hash;
       const next:MainnetJournal={...initial,hash,stage:'PENDING'};
-      setJournal(next);setHashInput(hash);
+      setJournal(next);
       recordLocalOperation({type:'Pay',hash,owner:address,amount:review.plan.amount,asset:'USDC',chainId:5042,
        status:'SUBMITTED',destination:review.plan.to,
        note:sharedDraft?.note?.trim().slice(0,120)||undefined,
@@ -189,22 +188,6 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
       }
       setError(msg(e)+caution);
     }finally{lock.current=false;setBusy(false);setReview(null);setAck(false);}
-  }
-  async function verify(){
-    if(!journal||!address||lock.current)return;
-    lock.current=true;setBusy(true);setError(null);
-    try{
-      const plan=buildMainnetPayPlan(journal.from,journal.to,journal.amount);
-      const result=await reconcileMainnetCanary(plan,journal.hash||hashInput);
-      setReceipt(result);
-      const next:MainnetJournal={...journal,hash:result.hash,
-        stage:result.state==='VERIFIED'?'VERIFIED':result.state==='REVERTED'?'REVERTED':'PENDING'};
-      setJournal(next);
-      if(result.state==='VERIFIED')recordLocalOperation({type:'Pay',hash:result.hash,owner:address,amount:journal.amount,asset:'USDC',chainId:5042,status:'RECORDED',destination:journal.to,note:journal.note,recipientLabel:journal.recipientLabel,recipientSnapshotId:journal.recipientSnapshotId});
-      if(!writeMainnetJournal(next,storageForMainnet()))
-        setError('Could not save receipt state. Preserve the transaction hash.');
-    }catch(e){setError(msg(e)+' Previous transaction lock remains.');}
-    finally{lock.current=false;setBusy(false);}
   }
   // After a wallet signs, reconcile against Arc automatically; never submit again.
   useEffect(()=>{
@@ -282,7 +265,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
       if(!clearMainnetJournal(address,storageForMainnet())){setError('Cannot clear reverted payment lock.');return;}
     }else if(!completed)return;
     setJournal(null);setCompleted(null);setOutboxItem(null);setReview(null);setReceipt(null);setAccountReceipt(null);setReceiptSessionScope('');
-    setRecipient('');setAmount('');setHashInput('');setError(null);
+    setRecipient('');setAmount('');setError(null);
   }
   const shownJournal=journal?.from.toLowerCase()===address?.toLowerCase()?journal:null;
   const shownCompleted=!shownJournal&&completed?.from.toLowerCase()===address?.toLowerCase()?completed:null;
@@ -414,19 +397,9 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
               style={{color:'var(--accent)'}} target="_blank" rel="noreferrer">
               {shownJournal.hash}<ExternalLink className="size-4"/></a>
           </details>}
-          {!shownJournal.hash&&<details className="rounded-xl border p-3" style={{borderColor:'var(--border)'}}>
-            <summary className="cursor-pointer text-xs" style={{color:'var(--muted)'}}>Advanced recovery · only if the wallet did not return a hash</summary>
-            <p className="my-2 text-xs" style={{color:'var(--warning)'}}>
-              The original wallet request has an uncertain outcome. Do not send again. Normally Veyra recovers automatically; only use this fallback if your wallet can identify the exact original transaction.
-            </p>
-            <input className={field} placeholder="Original transaction from wallet history"
-              value={hashInput} style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}
-              onChange={e=>setHashInput(e.target.value)}/>
-          </details>}
-          {!['VERIFIED','REVERTED'].includes(shownJournal.stage)&&
-            <button className="veyra-btn-secondary rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-40"
-              disabled={busy||!(shownJournal.hash||hashInput)} 
-              onClick={()=>void verify()}>Check original receipt</button>}
+          {!shownJournal.hash&&<p role="status" className="text-xs" style={{color:'var(--muted)'}}>
+            Veyra is reconciling the wallet outcome automatically. No transaction ID or manual verification required.
+          </p>}
           {shownJournal.stage==='REVERTED'&&<button className="veyra-btn-secondary rounded-xl px-4 py-2 text-sm font-semibold"
                onClick={reset}>Start a different payment</button>}
         </>}
