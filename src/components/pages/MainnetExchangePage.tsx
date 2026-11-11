@@ -2,7 +2,7 @@
  * quote executor are selectable. The wider exchange catalog is NOT a trade menu.
  * The single embedded Circle component owns amount, live quote, signing and recovery.
  */
-import {useEffect,useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {useAccount,useReadContracts} from 'wagmi';
 import {erc20Abi,formatUnits} from 'viem';
 import {ArrowDownUp,ArrowRightLeft,ChevronDown,Search,X,ShieldCheck,Info} from 'lucide-react';
@@ -14,12 +14,12 @@ import {EXCHANGE_ASSETS,exchangeAssetId,resolveExchangeRoute,type ExchangeAsset}
 import {reviewedExchangeAssets,reviewedExchangeNetworks,reviewedRouteStatus,
  type ReviewedExchangeMode,type ReviewedSide} from '@/mainnet/reviewedExchangeRoutes';
 import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
-import {CIRCLE_USDC_BRIDGE_NETWORKS} from '@/mainnet/circleBridgeNetworkDirectory';
+import {CIRCLE_USDC_BRIDGE_NETWORKS,type BridgeNetworkDirectoryEntry} from '@/mainnet/circleBridgeNetworkDirectory';
 import type {VeyraPage} from '../layout/AppShell';
 
 const ARC=5042,BASE=8453;
 const asset=(chain:number,symbol:string)=>EXCHANGE_ASSETS.find(a=>a.chainId===chain&&a.symbol===symbol)!;
-const nameOf=(chain:number)=>chain===ARC?'Arc':chain===BASE?'Base':chain===1?'Ethereum':'Unknown network';
+const idOf=(chain:number)=>CIRCLE_USDC_BRIDGE_NETWORKS.find(n=>n.chainId===chain)?.id??'arc';
 function recordedExchange(owner:string):null|{mode:'swap'|'bridge';source:ExchangeAsset;destination:ExchangeAsset;status:string}{
  if(!owner)return null;
  try{
@@ -101,9 +101,9 @@ function AssetPicker({side,mode,value,other,balances,onChoose,onClose}:{
 /** Every Circle Bridge network is visible and searchable, but only independently
  * integrated Veyra routes can be selected or quoted. No placeholder route signs.
  */
-function BridgeNetworkPicker({side,from,balances,onChoose,onClose}:{
- side:ReviewedSide;from:ExchangeAsset;balances:Record<string,bigint>;
- onChoose:(a:ExchangeAsset)=>void;onClose:()=>void;
+function BridgeNetworkPicker({side,from,selectedId,balances,onChoose,onClose}:{
+ side:ReviewedSide;from:ExchangeAsset;selectedId:string;balances:Record<string,bigint>;
+ onChoose:(network:BridgeNetworkDirectoryEntry)=>void;onClose:()=>void;
 }){
  const [query,setQuery]=useState('');
  const available=reviewedExchangeNetworks('bridge',side,side==='to'?from:undefined);
@@ -142,27 +142,28 @@ function BridgeNetworkPicker({side,from,balances,onChoose,onClose}:{
      matches.map(network=>{
       const ready=network.chainId!==null?availableById.get(network.chainId):undefined;
       const balance=ready?balances[exchangeAssetId(ready.asset)]:undefined;
-      return <button key={network.id} type="button" role="option" aria-selected={false}
-       disabled={!ready} onClick={()=>{if(ready)onChoose(ready.asset);}}
-       className="veyra-route-control flex w-full items-center gap-3 rounded-xl p-3 text-left disabled:cursor-not-allowed disabled:opacity-55"
-       title={ready?'Select '+network.name:'Veyra route integration and acceptance pending'}>
+      return <button key={network.id} type="button" role="option" aria-selected={network.id===selectedId}
+       onClick={()=>onChoose(network)}
+       className="veyra-route-control flex w-full items-center gap-3 rounded-xl p-3 text-left"
+       style={{background:network.id===selectedId?'var(--accent-muted)':'transparent'}}
+       title={'Explore '+network.name+' Bridge availability'}>
        <BrandLogo logoKey={network.logo} size={34}/>
        <span className="min-w-0 flex-1">
         <span className="block font-semibold">{network.name}</span>
         <span className="block text-xs" style={{color:'var(--muted)'}}>
          {network.vm==='svm'?'Solana wallet integration pending':
-          ready?'Native USDC · Veyra quote available':'Circle supported · Veyra integration pending'}
+          ready?'Native USDC · Veyra quote available':'Circle listed · Route not live yet'}
         </span>
        </span>
        <span className="text-right text-xs tabular-nums" style={{color:ready?'var(--ink)':'var(--muted)'}}>
-        {ready?balance===undefined?'Balance —':formatUnits(balance,6)+' USDC':'Not live'}
+        {ready?balance===undefined?'Balance —':formatUnits(balance,6)+' USDC':'Select'}
        </span>
       </button>;
      })}
    </div>
    <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
     Circle network support is not a Veyra execution guarantee.
-    Only selectable routes can request a live quote; transaction signing retains independent safety gates.
+    All networks are selectable. Only verified Veyra routes can quote or sign.
    </p>
   </section>
  </div>;
