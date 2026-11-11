@@ -18,7 +18,7 @@ describe('Mainnet payments stay compact; no wallet safety guard is removed',()=>
   expect(circle).toContain('Refresh quote');
   expect(circle).toContain('className="size-4 animate-spin"');
   expect(circle).toContain('Fee & route details');
-  expect(circle).toContain('Transaction details');
+  expect(circle).toContain('Evidence &amp; history');
   expect(circle).toContain('{!recovery&&!unknownStorage&&<>');
   expect(circle).toContain('reserveCircleExchangeBeforeSigning');
   expect(circle).toContain('withMainnetWalletSigningLock');
