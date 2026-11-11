@@ -310,7 +310,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
    <div className="mt-2 space-y-2">{current.chains.map(c=><div key={c.chainId} className="flex items-center justify-between gap-2">
     <span className="flex min-w-0 items-center gap-2">
      <BrandLogo logoKey={GATEWAY_MAINNET_LEDGER_CHAINS.find(x=>x.chainId===c.chainId)?.logo??'usdc'} size={22}/>
-     <span className="truncate">{GATEWAY_MAINNET_LEDGER_CHAINS.find(x=>x.chainId===c.chainId)?.chain.replaceAll('_',' ')??c.chain}</span>
+     <span className="truncate">{GATEWAY_MAINNET_LEDGER_CHAINS.find(x=>x.chainId===c.chainId)?.chain.replace('_',' ')??c.chain}</span>
      {C.some(ready=>ready.chainId===c.chainId)&&<span className="text-[10px]" style={{color:'var(--success)'}}>Send ready</span>}
     </span><span className="shrink-0 tabular-nums">{formatUnits(c.available,6)} USDC</span>
    </div>)}</div>
