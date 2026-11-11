@@ -53,7 +53,7 @@ describe('Bridge separate transfer without losing the original unknown source',(
   expect(archived[0]?.record).toEqual(record);
   // A separate fresh operation may now be reserved without deleting old evidence.
   expect(createExchangeIntent({
-   ...original.items[0]!,id:'33333333-3333-4333-8333-333333333333',
+   ...original.items[0],id:'33333333-3333-4333-8333-333333333333',
    stage:'REVIEWED',newTransferAuthorizedAt:undefined,steps:[],
    createdAt:2_000_010,updatedAt:2_000_010,sourceHash:undefined,
   },s)).toBe(true);
@@ -86,7 +86,7 @@ describe('Bridge separate transfer without losing the original unknown source',(
   const s=memory();prepare(s);
   const first=readExchangeIntents(owner,s);
   if(first.kind!=='ready')throw Error('intent not created');
-  const second:ExchangeIntent={...first.items[0]!,id:'44444444-4444-4444-8444-444444444444',stage:'REVIEWED',
+  const second:ExchangeIntent={...first.items[0],id:'44444444-4444-4444-8444-444444444444',stage:'REVIEWED',
    createdAt:1_100_000,updatedAt:1_100_000,newTransferAuthorizedAt:undefined};
   // The journal API correctly refuses to create another active intent.
   expect(createExchangeIntent(second,s)).toBe(false);
