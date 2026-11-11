@@ -393,9 +393,4 @@ body {
 @media (max-width:380px) {
   .veyra-route-page .veyra-card {border-radius:1rem!important;}
   .veyra-route-page [aria-label="Transaction progress"] li {gap:.35rem;}
-  .veyra-route-page [aria-label="Transaction progress"] li > span:last-child {
-    margin-left:.4rem;
-    margin-right:.4rem;
-    width:.6rem;
-  }
 }
