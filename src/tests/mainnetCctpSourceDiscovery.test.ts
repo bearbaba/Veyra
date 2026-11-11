@@ -15,9 +15,9 @@ const validLog={
  },
 };
 function reader(logs:typeof validLog[]=[]):OriginalCctpSourceReader{
- return {latestBlock:vi.fn(async()=>1000n),
-  timestamp:vi.fn(async block=>1000+Number(block)*2),
-  burnLogs:vi.fn(async()=>logs),
+ return {latestBlock:vi.fn(()=>Promise.resolve(1000n)),
+  timestamp:vi.fn((block:bigint)=>Promise.resolve(1000+Number(block)*2)),
+  burnLogs:vi.fn(()=>Promise.resolve(logs)),
  };
 }
 describe('safe automatic original CCTP source discovery',()=>{
@@ -29,9 +29,9 @@ describe('safe automatic original CCTP source discovery',()=>{
   const r=reader([validLog]);
   expect(await discoverOriginalCctpSource(r,original,3_000_000)).toBe(hashA);
   expect(r.burnLogs).toHaveBeenCalledTimes(1);
-  const [from,to]=(r.burnLogs as ReturnType<typeof vi.fn>).mock.calls[0];
-  expect(from).toBeGreaterThan(300n);
-  expect(to).toBeLessThanOrEqual(1000n);
+  const call=vi.mocked(r.burnLogs).mock.calls[0];
+  expect(call?.[0]).toBeGreaterThan(300n);
+  expect(call?.[1]).toBeLessThanOrEqual(1000n);
  });
  it('does not confuse Gateway, other recipients, networks or amounts',async()=>{
   for(const change of [
