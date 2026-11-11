@@ -16,7 +16,7 @@ import {circleCctpBridgePair} from '@/mainnet/circleBridgePolicy';
 import {ARC_VERIFIED_ASSETS,assertArcSwapCandidate} from '@/config/arcVerifiedAssets';
 import {recordLocalOperation} from '@/mainnet/localOperations';
 import {recordExchangeActivity,readExchangeActivities} from '@/mainnet/exchangeActivity';
-import {advanceExchangeIntent,readExchangeIntents} from '@/mainnet/exchangeIntentJournal';
+import {advanceExchangeIntent,readExchangeIntents,mayStartSeparateExchangeIntent} from '@/mainnet/exchangeIntentJournal';
 import {reserveCircleExchangeBeforeSigning} from '@/mainnet/reserveCircleExchange';
 import {withMainnetWalletSigningLock} from '@/mainnet/mainnetWalletSigningLock';
 import {recordVerifiedExchangeProof,recordVerifiedSourceRevert} from '@/mainnet/recordVerifiedExchangeProof';
@@ -267,8 +267,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    if(localStorage.getItem(key(otherMode,address)))
     throw Error('Another Exchange operation requires review. Open its original Swap or Bridge tracking before signing.');
    const existingIntents=readExchangeIntents(owner);
-   if(existingIntents.kind!=='ready'||existingIntents.items.some(task=>
-    !['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(task.stage)&&!task.newTransferAuthorizedAt))
+   if(existingIntents.kind!=='ready'||existingIntents.items.some(task=>!mayStartSeparateExchangeIntent(task)))
     throw Error('Unresolved Exchange intent or unreadable recovery storage. Inspect Activity first.');
    const {params:p}=await params(mode==='bridge'?quote.bridgeMaxFee:undefined);
    const fresh=mode==='swap'?
