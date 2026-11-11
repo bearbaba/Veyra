@@ -3,11 +3,15 @@
  */
 import {useEffect,useRef,useState} from 'react';
 import {useAccount,usePublicClient} from 'wagmi';
+import {parseAbiItem,type Address} from 'viem';
 import {Clock3,ExternalLink} from 'lucide-react';
-import {readGatewayMainnetHistory,readGatewayMainnetOperation,
+import {readGatewayMainnetHistory,readGatewayMainnetOperation,writeGatewayMainnetOperation,
  type GatewayMainnetReceipt,type GatewayMainnetOperation} from '@/mainnet/gatewayMainnetJournal';
 import {reconcileGatewayMainnetOperation} from '@/mainnet/gatewayMainnetReconcile';
 import {fetchGatewayForwardingProof} from '@/mainnet/gatewayMainnetProviderRead';
+import {discoverOriginalGatewayDeposit} from '@/mainnet/discoverOriginalGatewayDeposit';
+import {getMainnetChain} from '@/config/mainnetCatalog';
+const gatewayTransferEvent=parseAbiItem('event Transfer(address indexed from,address indexed to,uint256 value)');
 const explorer=(chainId:number)=>chainId===1?'https://etherscan.io/tx/':
  chainId===8453?'https://basescan.org/tx/':'https://explorer.arc.io/tx/';
 export function MainnetUnifiedActivity(){
@@ -21,6 +25,7 @@ export function MainnetUnifiedActivity(){
  const visibleLimit=useRef(100);
  const [hasOlder,setHasOlder]=useState(false);
  const lock=useRef(false);
+ const recoveryRef=useRef({operationId:'',lastChecked:0});
  const checkRef=useRef<()=>Promise<void>>(()=>Promise.resolve());
  const owner=address?.toLowerCase()??'';
  const activeId=active&&active!=='blocked'?active.id:'';
@@ -37,6 +42,46 @@ export function MainnetUnifiedActivity(){
   lock.current=true;setChecking(true);setNotice('');
   try{
    const network=(id:number)=>id===5042?arc:id===8453?base:id===1?ethereum:undefined;
+   // When the provider dropped the original hash after the wallet prompt,
+   // scan only a bounded source window for a UNIQUE real Gateway deposit.
+   // Absence or ambiguity never authorizes re-submission.
+   if(active.kind==='deposit'&&!active.sourceHash){
+    const id=address.toLowerCase()+':'+active.id;
+    if(recoveryRef.current.operationId!==id||
+       Date.now()-recoveryRef.current.lastChecked>=10*60_000){
+     recoveryRef.current={operationId:id,lastChecked:Date.now()};
+     const client=network(active.chainId);
+     const token=getMainnetChain(active.chainId)?.usdc;
+     if(client&&token){
+      try{
+       const found=await discoverOriginalGatewayDeposit({
+        chainId:()=>client.getChainId(),
+        latestBlock:()=>client.getBlockNumber(),
+        blockTimestamp:async block=>(await client.getBlock({blockNumber:block})).timestamp,
+        transferLogs:async(from,to,owner,usdc,gateway)=>{
+         const logs=await client.getLogs({address:usdc as Address,event:gatewayTransferEvent,
+          args:{from:owner as Address,to:gateway as Address},fromBlock:from,toBlock:to});
+         return logs.filter(log=>typeof log.args.value==='bigint'&&log.blockNumber!==null)
+          .map(log=>({transactionHash:log.transactionHash,
+           blockNumber:log.blockNumber,value:log.args.value as bigint}));
+        },
+        getTransaction:async hash=>{
+         const tx=await client.getTransaction({hash});
+         return {hash:tx.hash,from:tx.from,to:tx.to,input:tx.input};
+        },
+       },active);
+       if(found){
+        const latest=readGatewayMainnetOperation(address);
+        if(latest&&latest!=='blocked'&&latest.id===active.id&&!latest.sourceHash){
+         const linked={...latest,status:'SUBMITTED' as const,sourceHash:found};
+         if(!writeGatewayMainnetOperation(linked))
+          throw Error('Original Gateway source evidence could not be saved; signing remains locked.');
+        }
+       }
+      }catch{/* RPC unavailable, multiple matches or unsupported history: fail closed. */}
+     }
+    }
+   }
    const outcome=await reconcileGatewayMainnetOperation(address,{
     getTransaction:async(id,hash)=>{
      const client=network(id);if(!client)throw Error('Source RPC unavailable.');
