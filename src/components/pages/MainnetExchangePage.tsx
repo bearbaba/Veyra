@@ -173,6 +173,9 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
  const mode:ReviewedExchangeMode=initialBridge?'bridge':'swap';
  const [from,setFrom]=useState<ExchangeAsset>(()=>asset(initialBridge?ARC:ARC,'USDC'));
  const [to,setTo]=useState<ExchangeAsset>(()=>initialBridge?asset(BASE,'USDC'):asset(ARC,'EURC'));
+ const [fromNetworkId,setFromNetworkId]=useState('arc');
+ const [toNetworkId,setToNetworkId]=useState('base');
+ const restoredRouteOwner=useRef('');
  const [picking,setPicking]=useState<ReviewedSide|null>(null);
  const [prior,setPrior]=useState<ReturnType<typeof recordedExchange>>(null);
  const [unknownPrior,setUnknownPrior]=useState(false);
@@ -202,7 +205,7 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
   return b;
  },[readable,walletBalances]);
  useEffect(()=>{
-  if(!address){setPrior(null);setUnknownPrior(false);setIntentPrior(null);setIntentBlocked(false);return;}
+  if(!address){setPrior(null);setUnknownPrior(false);setIntentPrior(null);setIntentBlocked(false);restoredRouteOwner.current='';return;}
   const refresh=()=>{
    try{
     const previous=recordedExchange(owner);
@@ -213,7 +216,12 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
     setIntentBlocked(pending.kind==='blocked');
     setIntentPrior(pending.kind==='ready'?pending.items.find(i=>
      !['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(i.stage))??null:null);
-    if(previous?.mode===mode){setFrom(previous.source);setTo(previous.destination);}
+    // Restore once: a 3-second poll must never force users back to old route.
+    if(previous?.mode===mode&&restoredRouteOwner.current!==owner+':'+mode){
+     restoredRouteOwner.current=owner+':'+mode;
+     setFrom(previous.source);setTo(previous.destination);
+     setFromNetworkId(idOf(previous.source.chainId));setToNetworkId(idOf(previous.destination.chainId));
+    }
    }catch{setUnknownPrior(true);setPrior(null);}
   };
   refresh();
@@ -227,12 +235,19 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
  const separateLock=unknownPrior||intentBlocked||intentPrior?.stage==='PARTIAL'||
   (!!prior&&prior.mode!==mode)||(!prior&&!!intentPrior);
  const route=resolveExchangeRoute(from,to);
- const canQuote=route.kind===mode;
- const status=reviewedRouteStatus(mode,from,to,isCircleSigningReady(mode));
+ const chosenFrom=CIRCLE_USDC_BRIDGE_NETWORKS.find(n=>n.id===fromNetworkId)!;
+ const chosenTo=CIRCLE_USDC_BRIDGE_NETWORKS.find(n=>n.id===toNetworkId)!;
+ // The selected network must match the executable reviewed asset, otherwise
+ // a stale Arc/Base route could be signed while Arbitrum/other was displayed.
+ const displayMatchesExecution=mode==='swap'||(
+  chosenFrom.chainId===from.chainId&&chosenTo.chainId===to.chainId&&
+  fromNetworkId!==toNetworkId);
+ const canQuote=displayMatchesExecution&&route.kind===mode;
+ const status=canQuote?reviewedRouteStatus(mode,from,to,isCircleSigningReady(mode)):'not-integrated';
  const signingBlock=circleSigningBlock(mode);
  const notice=signingBlock?signingNotice(signingBlock):null;
  const statusLabel=status==='paused'?(notice?.headline??'Quotes only'):
-  status==='reviewable'?'Live quote required before signing':'Route not supported';
+  status==='reviewable'?'Live quote required before signing':'Selected route is not live yet';
  const selection:ExchangeExecutionSelection={fromChainId:from.chainId,toChainId:to.chainId,
   fromToken:from.symbol as 'USDC'|'EURC',toToken:to.symbol as 'USDC'|'EURC'};
  function chooseSource(next:ExchangeAsset){
@@ -247,13 +262,32 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
   if(locked||!availableDestinations.some(a=>exchangeAssetId(a)===exchangeAssetId(next)))return;
   setTo(next);setPicking(null);
  }
+ function chooseBridgeNetwork(side:ReviewedSide,network:BridgeNetworkDirectoryEntry){
+  // Browsing is always free of wallet prompts; signing remains independently guarded.
+  if(engineBusy)return;
+  const known=network.chainId===null?undefined:
+   EXCHANGE_ASSETS.find(a=>a.chainId===network.chainId&&a.symbol==='USDC');
+  if(side==='from'){
+   setFromNetworkId(network.id);
+   if(known)setFrom(known);
+  }else{
+   setToNetworkId(network.id);
+   if(known)setTo(known);
+  }
+  setPicking(null);
+ }
  function reverse(){
+  if(mode==='bridge'){
+   if(engineBusy)return;
+   setFromNetworkId(toNetworkId);setToNetworkId(fromNetworkId);
+   setFrom(to);setTo(from);
+   return;
+  }
   if(locked)return;
   const reversed=resolveExchangeRoute(to,from);
   if(reversed.kind!==mode)return;
   setFrom(to);setTo(from);
  }
- 
  const networkButton=(a:ExchangeAsset,side:ReviewedSide,active:boolean)=>(
   <button type="button" key={exchangeAssetId(a)}
    disabled={locked} onClick={()=>setPicking(side)}
