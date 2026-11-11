@@ -637,8 +637,8 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        recovery?.status==='REVERTED'?'The original source transaction reverted onchain. Check its receipt.':
        unknownStorage?'Saved operation cannot be read. Signing stays locked. Check Activity.':
        (mode==='bridge'?!recovery?.burnHash:!recovery?.hash)
-        ?'Source hash unavailable on this device. Check Activity or your wallet. Do not submit again.'
-        :'This '+title.toLowerCase()+' is unresolved. Verify onchain before another transfer. Do not submit again.'}
+        ?'Transaction ID unavailable. Check Activity or your wallet. Do not submit again.'
+        :'Previous transfer is unconfirmed. Verify onchain. Do not submit again.'}
      </p>
      {(recovery?.hash||recovery?.burnHash||recovery?.mintHash||recovery?.downgradedFrom)&&
       <details className="text-[11px]" style={{color:'var(--muted)'}}>
