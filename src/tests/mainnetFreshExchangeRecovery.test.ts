@@ -97,6 +97,16 @@ describe('onchain recovery path does not authorize another financial request',()
   expect(circle).toContain("const otherMode:Mode=mode==='swap'?'bridge':'swap'");
   expect(circle).toContain('localStorage.getItem(key(otherMode,address))');
  });
+ it('offers read-only original source recovery without weakening the duplicate lock',()=>{
+  expect(circle).toContain('Recover original source transaction');
+  expect(circle).toContain('async function recoverSourceHash()');
+  expect(circle).toContain('sourceClient.getTransactionReceipt({hash:candidate as Hash})');
+  expect(circle).toContain('tx.from.toLowerCase()!==owner');
+  expect(circle).toContain('CCTP_V2_MAINNET.tokenMessengerV2.toLowerCase()');
+  expect(circle).toContain("const next:Recovery={...current,status:'PENDING',burnHash:candidate}");
+  expect(circle).toContain("if(!current||current.intentId!==recovery.intentId||current.burnHash)");
+  expect(circle).toContain("if(localStorage.getItem(key(mode,address)))throw Error('Previous operation must be resolved first.')");
+ });
  it('never displays cached terminal outcomes as proof on Activity or Home',()=>{
   const activity=readFileSync(new URL('../components/pages/MainnetActivityPage.tsx',import.meta.url),'utf8');
   const home=readFileSync(new URL('../components/pages/MainnetHomePage.tsx',import.meta.url),'utf8');

@@ -342,6 +342,36 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
    setError(reason+(saved?' Original operation remains locked. Do not sign again.':''));
   }finally{lock.current=false;setBusy(false);}
  }
+ // Restore missing CCTP source evidence, without signing or clearing the lock.
+ async function recoverSourceHash(){
+  if(mode!=='bridge'||!recovery||!address||recovery.burnHash||lock.current)return;
+  const candidate=manualSource.trim();
+  if(!HASH.test(candidate)){setError('Enter the complete original source transaction hash.');return;}
+  lock.current=true;setBusy(true);setError('');
+  const scope=verificationScopeRef.current;
+  try{
+   if(recovery.owner!==owner)throw Error('Wrong wallet.');
+   const sourceClient=client(recovery.source);
+   if(!sourceClient||await sourceClient.getChainId()!==recovery.source)throw Error('Source network unavailable.');
+   if(verificationScopeRef.current!==scope)throw Error('Wallet changed during recovery.');
+   const receipt=await sourceClient.getTransactionReceipt({hash:candidate as Hash});
+   if(verificationScopeRef.current!==scope)throw Error('Wallet changed during recovery.');
+   if(receipt.status!=='success')throw Error('Source transaction is not confirmed successful.');
+   const tx=await sourceClient.getTransaction({hash:candidate as Hash});
+   if(verificationScopeRef.current!==scope)throw Error('Wallet changed during recovery.');
+   if(tx.from.toLowerCase()!==owner)throw Error('Original transaction belongs to a different wallet.');
+   if(!receipt.logs.some(log=>log.address.toLowerCase()===CCTP_V2_MAINNET.tokenMessengerV2.toLowerCase()))
+    throw Error('CCTP source burn event missing.');
+   const current=parseSaved(localStorage.getItem(key(mode,address)),address,mode);
+   if(!current||current.intentId!==recovery.intentId||current.burnHash)
+    throw Error('Saved operation changed. Inspect Activity before continuing.');
+   const next:Recovery={...current,status:'PENDING',burnHash:candidate};
+   localStorage.setItem(key(mode,address),JSON.stringify(next));setRecovery(next);setManualSource('');
+   setProof('Original source located. Destination verification will continue without resending funds.');
+  }catch(e){
+   if(verificationScopeRef.current===scope)setError(e instanceof Error?e.message:'Source check unavailable. Signing remains locked.');
+  }finally{lock.current=false;setBusy(false);}
+ }
  async function verify(){
   if(!recovery||!address||lock.current)return;
   lock.current=true;setBusy(true);setError('');
@@ -658,6 +688,23 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
          View on explorer</a>}
        </div>
       </details>}
+     {mode==='bridge'&&recovery&&!recovery.burnHash&&
+      !['VERIFIED','REVERTED'].includes(recovery.status)&&
+      <div className="space-y-2 border-t pt-3" style={{borderColor:'var(--border)'}}>
+       <label htmlFor="veyra-original-burn-hash" className="block text-xs font-semibold">Recover original source transaction</label>
+       <p className="text-xs leading-5" style={{color:'var(--muted)'}}>Copy the original hash from {label(recovery.source)} wallet history. No new signature or transfer.</p>
+       <div className="flex flex-col gap-2 sm:flex-row">
+        <input id="veyra-original-burn-hash" value={manualSource}
+         onChange={e=>setManualSource(e.target.value.trim())}
+         placeholder="0x… source transaction hash" spellCheck={false} autoComplete="off"
+         className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-xs"
+         style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}/>
+        <button type="button" disabled={busy||!HASH.test(manualSource)}
+         onClick={()=>void recoverSourceHash()}
+         className="min-h-9 shrink-0 rounded-lg px-3 text-xs font-semibold disabled:opacity-50"
+         style={{background:'var(--accent-muted)',color:'var(--accent)'}}>Verify source</button>
+       </div>
+      </div>}
      <div className="flex flex-wrap items-center gap-4 pt-1" aria-label="Recovery actions">
       {recovery&&recovery.status!=='VERIFIED'&&recovery.status!=='REVERTED'&&
        (mode==='swap'?!!recovery.hash:!!recovery.burnHash)&&
