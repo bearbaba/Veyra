@@ -53,7 +53,7 @@ describe('single-surface Mainnet Swap and Bridge', () => {
 
   it('styles a single route card and ensures locked selectors remain legible', () => {
     expect(css).toContain('.veyra-route-page .veyra-card::before');
-    expect(css).toContain('[aria-label="Bridge route"] button:disabled');
+    expect(css).toContain(':is([aria-label="Bridge route"],[aria-label="Swap token route"]) button:disabled');
     expect(css).toContain('opacity:.84!important');
     expect(circle).toContain("background:embedded?'transparent':'var(--surface)'");
   });
