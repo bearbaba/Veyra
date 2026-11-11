@@ -139,30 +139,65 @@ export function MainnetUnifiedActivity(){
   {notice&&<p role="status" className="text-xs" style={{color:'var(--muted)'}}>{notice}</p>}
   {history==='blocked'?<p role="alert" className="text-xs" style={{color:'var(--warning)'}}>
    Unified history is unreadable. Signing remains blocked until safely recovered.
-  </p>:history.map(receipt=><div key={receipt.operationId} className="rounded-xl border p-3"
-   style={{borderColor:'var(--border)',color:'var(--ink)'}}>
-   <p className="text-sm font-semibold">
-    {receipt.kind==='deposit'?'Unified deposit':'Unified transfer'} · {
-     receipt.status==='SOURCE_FINALIZED'?'Source finalized · credit not attributed':
-     receipt.status==='VERIFIED'?(receipt.kind==='deposit'&&!receipt.gatewayCreditReference?'Legacy credit · review required':'Verified'):
-     receipt.status==='REVERTED'?'Reverted':'Cancelled before submission'}
-   </p>
-   <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
-    {receipt.amount} USDC · {new Date(receipt.verifiedAt).toLocaleString()}
-   </p>
-   <details className="mt-2 text-xs" style={{color:'var(--muted)'}}>
-    <summary className="cursor-pointer">Receipt details</summary>
-    <div className="mt-2 space-y-1 break-all">
-     {receipt.sourceHash&&<a href={explorer(receipt.chainId)+receipt.sourceHash} target="_blank"
-      rel="noreferrer" className="block underline">Source: {receipt.sourceHash}</a>}
-     {receipt.destinationHash&&receipt.destinationChainId&&<a href={explorer(receipt.destinationChainId)+receipt.destinationHash}
-      target="_blank" rel="noreferrer" className="block underline">Destination: {receipt.destinationHash}</a>}
-     {receipt.gatewayCreditReference&&<p>Circle credit reference: {receipt.gatewayCreditReference}</p>}
-     {receipt.received&&<p>Recipient received: {receipt.received} USDC</p>}
-     <p>Recorded: {new Date(receipt.verifiedAt).toISOString()}</p>
-    </div>
-   </details>
-  </div>)}
+  </p>:<div className="divide-y" style={{borderColor:'var(--border)'}}>
+   {history.map(receipt=>{
+    const finalizedDeposit=receipt.kind==='deposit'&&receipt.status==='SOURCE_FINALIZED';
+    const legacyCredit=receipt.kind==='deposit'&&receipt.status==='VERIFIED'&&!receipt.gatewayCreditReference;
+    const status=finalizedDeposit?'Source finalized':legacyCredit?'Credit needs review':
+     receipt.status==='VERIFIED'?'Verified':
+     receipt.status==='REVERTED'?'Reverted':'Cancelled';
+    return <article key={receipt.operationId} aria-label="Unified receipt"
+     className="py-3 first:pt-0 last:pb-0">
+     <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+      <div className="min-w-0">
+       <p className="text-sm font-semibold" style={{color:'var(--ink)'}}>
+        {receipt.kind==='deposit'?'Deposit to Unified':'Unified transfer'} · {receipt.amount} USDC
+       </p>
+       <p className="mt-1 text-[11px]" style={{color:'var(--muted)'}}>
+        {new Date(receipt.verifiedAt).toLocaleString()} · {
+         receipt.chainId===5042?'Arc':receipt.chainId===8453?'Base':'Ethereum'}
+       </p>
+      </div>
+      <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-semibold"
+       style={{color:finalizedDeposit?'var(--accent)':
+        receipt.status==='VERIFIED'&&!legacyCredit?'var(--success)':
+        'var(--warning)'}}>
+       <span className="size-1.5 rounded-full bg-current" aria-hidden="true"/>
+       {status}
+      </span>
+     </div>
+     {finalizedDeposit&&<p className="mt-2 max-w-[65ch] text-xs leading-5"
+      style={{color:'var(--muted)'}}>
+      Deposit confirmed onchain. Circle Available is read separately; this deposit's
+      individual Gateway credit has not been attributed.
+     </p>}
+     {legacyCredit&&<p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+      Historical balance evidence is not an individual Circle credit receipt.
+     </p>}
+     <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+      {receipt.sourceHash&&<a href={explorer(receipt.chainId)+receipt.sourceHash}
+       target="_blank" rel="noreferrer"
+       className="inline-flex items-center gap-1 font-semibold hover:underline"
+       style={{color:'var(--accent)'}}>
+       View source <ExternalLink className="size-3" aria-hidden="true"/>
+      </a>}
+      <details style={{color:'var(--muted)'}}>
+       <summary className="cursor-pointer hover:underline">Receipt details</summary>
+       <div className="mt-2 space-y-1.5 break-all text-[11px]">
+        {receipt.sourceHash&&<p>Source transaction: {receipt.sourceHash}</p>}
+        {receipt.destinationHash&&receipt.destinationChainId&&<a
+         href={explorer(receipt.destinationChainId)+receipt.destinationHash}
+         target="_blank" rel="noreferrer" className="block underline">
+         Destination: {receipt.destinationHash}</a>}
+        {receipt.gatewayCreditReference&&<p>Circle credit reference: {receipt.gatewayCreditReference}</p>}
+        {receipt.received&&<p>Recipient received: {receipt.received} USDC</p>}
+        <p>Recorded: {new Date(receipt.verifiedAt).toISOString()}</p>
+       </div>
+      </details>
+     </div>
+    </article>;
+   })}
+  </div>}
   {history!=='blocked'&&hasOlder&&<button type="button"
    className="veyra-btn-secondary min-h-10 w-full rounded-xl px-3 text-xs"
    onClick={()=>{if(!address)return;const next=Math.min(visibleLimit.current+100,9900);
@@ -172,8 +207,8 @@ export function MainnetUnifiedActivity(){
    Load older
   </button>}
   <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
-   Older receipts can be loaded from local history. Device-only, no backend sync.
-   Source finality is not proof of Gateway credit. Available is read separately from Circle.
+   History on this device. Circle's current Available balance is read separately;
+   a finalized source deposit does not, by itself, establish individual Gateway credit.
   </p>
  </section>;
 }
