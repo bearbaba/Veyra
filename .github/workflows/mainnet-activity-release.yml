@@ -101,6 +101,12 @@ jobs:
           src/tests/phase6ArcMainnetPay.test.ts
           src/tests/settlementGasAndVerification.test.ts
           src/tests/phase3MainnetCatalog.test.ts
+          src/tests/mainnetGateway12ChainAndBrandLogos.test.ts
+          src/tests/gatewayMainnetBalances.test.ts
+          src/tests/gatewayMultiSourceAllocation.test.ts
+          src/tests/gatewayMainnetSecondOperation.test.ts
+          src/tests/gatewayMainnetReconciliation.test.ts
+          src/tests/mainnetUnifiedIntegrationUx.test.ts
           src/tests/mainnetCircle19NetworkDirectory.test.ts
           src/tests/mainnetCircleBridgeBatchVerification.test.ts
           src/tests/mainnetCircleMainnetCctpPolicy.test.ts
