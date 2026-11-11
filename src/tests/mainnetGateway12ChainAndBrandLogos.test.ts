@@ -15,7 +15,7 @@ describe('Circle Gateway EVM ledger completeness and independent signing scope',
   expect(new Set(GATEWAY_MAINNET_LEDGER_CHAINS.map(x=>x.domain)).size).toBe(12);
   expect(GATEWAY_MAINNET_LEDGER_CHAINS.find(x=>x.chain==='World_Chain')?.chainId).toBe(480);
   expect(GATEWAY_MAINNET_LEDGER_CHAINS.find(x=>x.chain==='HyperEVM')?.domain).toBe(19);
-  expect(GATEWAY_MAINNET_LEDGER_CHAINS.some(x=>x.chain==='Solana')).toBe(false);
+  expect(GATEWAY_MAINNET_LEDGER_CHAINS.some(x=>String(x.chain)==='Solana')).toBe(false);
   expect(GATEWAY_MAINNET_CHAINS.map(x=>x.chain)).toEqual(['Arc','Ethereum','Base']);
  });
  it('reads confirmed extra-chain Gateway credit, while spend-ready excludes unintegrated source funds',()=>{
