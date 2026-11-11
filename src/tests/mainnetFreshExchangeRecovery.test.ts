@@ -107,6 +107,13 @@ describe('onchain recovery path does not authorize another financial request',()
   expect(circle).toContain("if(!current||current.intentId!==recovery.intentId||current.burnHash)");
   expect(circle).toContain("if(localStorage.getItem(key(mode,address)))throw Error('Previous operation must be resolved first.')");
  });
+ it('rejects wrong-network source hashes without treating Gateway deposits as Bridge burns',()=>{
+  expect(circle).toContain("await otherClient.getTransactionReceipt({hash:candidate as Hash})");
+  expect(circle).toContain("'This transaction is on '+label(recovery.source===BASE?ARC:BASE)");
+  expect(circle).toContain("'Use its original source burn hash, not a Gateway deposit.'");
+  expect(circle).toContain("if(verificationScopeRef.current!==scope)throw Error('Wallet changed during recovery.')");
+  expect(circle).toContain("setManualSource(e.target.value.trim());setError('')");
+ });
  it('never displays cached terminal outcomes as proof on Activity or Home',()=>{
   const activity=readFileSync(new URL('../components/pages/MainnetActivityPage.tsx',import.meta.url),'utf8');
   const home=readFileSync(new URL('../components/pages/MainnetHomePage.tsx',import.meta.url),'utf8');
