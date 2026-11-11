@@ -9,8 +9,8 @@ import {ChevronDown,RefreshCw,ArrowDownLeft,SendHorizontal,Clock3,ShieldAlert} f
 import {BrandLogo} from '../brand/BrandLogo';
 import {useUnifiedSocial} from '@/features/social/UnifiedSocial';
 import {isMainnetSessionForWallet} from '@/mainnet/signedWalletReceiptScope';
-import {GATEWAY_MAINNET_CHAINS,GATEWAY_MAINNET_WRITE_ENABLED,
- gatewayMainnetAmount,fetchGatewayMainnetBalances,formatGatewayUsdc,
+import {GATEWAY_MAINNET_CHAINS,GATEWAY_MAINNET_LEDGER_CHAINS,GATEWAY_MAINNET_WRITE_ENABLED,
+ verifiedGatewaySigningBalance,gatewayMainnetAmount,fetchGatewayMainnetBalances,formatGatewayUsdc,
  type GatewayMainnetBalance} from '@/mainnet/gatewayMainnetBalances';
 import {readGatewayMainnetOperation,type GatewayMainnetOperation} from '@/mainnet/gatewayMainnetJournal';
 import {planGatewayMultiSource,matchingGatewayAllocation,type GatewayAllocation} from '@/mainnet/gatewayMultiSourceAllocation';
@@ -26,7 +26,8 @@ const C=GATEWAY_MAINNET_CHAINS;
 export function chooseGatewaySource(balance:GatewayMainnetBalance,raw:string):number|null{
  if(!gatewayMainnetAmount(raw))return null;
  const amount=parseUnits(raw,6);
- return [...balance.chains].filter(c=>c.available>=amount).sort((a,b)=>{
+ return [...balance.chains].filter(c=>c.available>=amount&&
+  GATEWAY_MAINNET_CHAINS.some(allowed=>allowed.chainId===c.chainId&&allowed.chain===c.chain)).sort((a,b)=>{
   if(a.available!==b.available)return a.available>b.available?-1:1;
   return a.chainId-b.chainId;
  })[0]?.chainId??null;
@@ -64,6 +65,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
  const session=social.session?.token??'';
  const canRead=!!address&&signed;
  const current=scope===owner+':'+session?snapshot:null;
+ const signingAvailable=current?verifiedGatewaySigningBalance(current):null;
  const activeSource=C.find(x=>x.chainId===sourceId)!;
  const sourceLedger=current?.chains.find(x=>x.chainId===sourceId)?.available??null;
  const previous=operation!==null;
@@ -76,7 +78,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
  const sourceWalletRaw=walletReads?.[C.findIndex(x=>x.chainId===sourceId)];
  const sourceWalletBalance=sourceWalletRaw?.status==='success'&&
   typeof sourceWalletRaw.result==='bigint'?sourceWalletRaw.result:null;
- const availableForSource=mode==='deposit'?sourceWalletBalance:advanced?sourceLedger:current?.available??null;
+ const availableForSource=mode==='deposit'?sourceWalletBalance:advanced?sourceLedger:signingAvailable;
  function readJournal(){
   setOperation(address?readGatewayMainnetOperation(address):null);
  }
@@ -166,7 +168,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
       try{assertGatewayFundingNet(planned.amount,estimated,fundingNeeded);break;}
       catch{
        if(pass===2)throw Error('Gateway fees cannot cover the Arc wallet shortfall. No signature requested.');
-       const raised=gatewayFundingGrossForNet(fundingNeeded,estimated,current.available);
+       const raised=gatewayFundingGrossForNet(fundingNeeded,estimated,verifiedGatewaySigningBalance(current));
        if(raised===planned.amount)throw Error('Gateway fees cannot be covered. No signature requested.');
        const next=planGatewayMultiSource(current,raised,advanced?sourceId:undefined);
        if(next[0]?.chainId!==planned.sourceChainId)
@@ -243,7 +245,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
       <ArrowDownLeft className="size-4"/>Add USDC
      </button>
      <button type="button" onClick={()=>{selectMode('spend');setExpanded(true);}}
-      disabled={Boolean(fundingToWallet)||!canRead||!current||previous||current.available<=0n}
+      disabled={Boolean(fundingToWallet)||!canRead||!current||previous||signingAvailable===null||signingAvailable<=0n}
       className="veyra-btn-secondary inline-flex min-h-10 items-center gap-1.5 px-3 text-xs font-semibold disabled:opacity-40">
       <SendHorizontal className="size-4"/>Send to wallet
      </button>
@@ -268,7 +270,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
   {(!compact||expanded)&&<div className={compact?'mt-3 rounded-xl border p-3 sm:p-4':'contents'} style={compact?{borderColor:'var(--border)'}:undefined}>
   <div className="flex flex-wrap items-start justify-between gap-3">
    <div><p className="text-sm font-bold" style={{color:'var(--ink)'}}>Unified Balance</p>
-    <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Circle Gateway · Arc, Ethereum and Base</p></div>
+    <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Circle Gateway · 12 EVM networks · 3 execution-ready</p></div>
    <button type="button" aria-label="Refresh Unified Balance" disabled={!canRead||loading}
     onClick={()=>{if(!address)return;setLoading(true);
      void fetchGatewayMainnetBalances(address).then(x=>{setSnapshot(x);setScope(owner+':'+session);setError('');})
@@ -311,7 +313,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
    <button type="button" disabled={Boolean(fundingToWallet)||!canRead||!current||previous} onClick={()=>selectMode('deposit')}
     className="veyra-btn-secondary flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs font-semibold disabled:opacity-40">
     <ArrowDownLeft className="size-4"/> Add USDC</button>
-   <button type="button" disabled={Boolean(fundingToWallet)||!canRead||!current||previous||current.available<=0n} onClick={()=>selectMode('spend')}
+   <button type="button" disabled={Boolean(fundingToWallet)||!canRead||!current||previous||signingAvailable===null||signingAvailable<=0n} onClick={()=>selectMode('spend')}
     className="veyra-btn-secondary flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs font-semibold disabled:opacity-40">
     <SendHorizontal className="size-4"/> Send to wallet</button>
   </div>}
@@ -362,7 +364,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
      style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}/>
    </label>
    <div className="flex items-center justify-between text-xs" style={{color:'var(--muted)'}}>
-    <span>{mode==='deposit'?'Wallet':advanced?'Selected source':'Combined confirmed'} available: {fmt(availableForSource)} USDC</span>
+    <span>{mode==='deposit'?'Wallet':advanced?'Selected source':'Veyra send-ready'} available: {fmt(availableForSource)} USDC</span>
     <button type="button" disabled={availableForSource===null||availableForSource===0n}
      onClick={()=>{if(availableForSource===null)return;
       setAmount(formatUnits(availableForSource,6));
