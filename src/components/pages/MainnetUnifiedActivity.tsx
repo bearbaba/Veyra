@@ -143,7 +143,7 @@ export function MainnetUnifiedActivity(){
    {history.map(receipt=>{
     const finalizedDeposit=receipt.kind==='deposit'&&receipt.status==='SOURCE_FINALIZED';
     const legacyCredit=receipt.kind==='deposit'&&receipt.status==='VERIFIED'&&!receipt.gatewayCreditReference;
-    const status=finalizedDeposit?'Source finalized':legacyCredit?'Credit needs review':
+    const status=finalizedDeposit?'Deposit confirmed':legacyCredit?'Credit needs review':
      receipt.status==='VERIFIED'?'Verified':
      receipt.status==='REVERTED'?'Reverted':'Cancelled';
     return <article key={receipt.operationId} aria-label="Unified receipt"
@@ -159,7 +159,7 @@ export function MainnetUnifiedActivity(){
        </p>
       </div>
       <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-semibold"
-       style={{color:finalizedDeposit?'var(--accent)':
+       style={{color:finalizedDeposit?'var(--success)':
         receipt.status==='VERIFIED'&&!legacyCredit?'var(--success)':
         'var(--warning)'}}>
        <span className="size-1.5 rounded-full bg-current" aria-hidden="true"/>
