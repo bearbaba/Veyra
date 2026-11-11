@@ -110,7 +110,7 @@ describe('onchain recovery path does not authorize another financial request',()
  it('rejects wrong-network source hashes without treating Gateway deposits as Bridge burns',()=>{
   expect(circle).toContain("await otherClient.getTransactionReceipt({hash:candidate as Hash})");
   expect(circle).toContain("'This transaction is on '+label(recovery.source===BASE?ARC:BASE)");
-  expect(circle).toContain("'Use its original source burn hash, not a Gateway deposit.'");
+  expect(circle).toContain("Use its original source burn hash, not a Gateway deposit.");
   expect(circle).toContain("if(verificationScopeRef.current!==scope)throw Error('Wallet changed during recovery.')");
   expect(circle).toContain("setManualSource(e.target.value.trim());setError('')");
  });
