@@ -2,7 +2,7 @@
  * quote executor are selectable. The wider exchange catalog is NOT a trade menu.
  * The single embedded Circle component owns amount, live quote, signing and recovery.
  */
-import {useEffect,useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {useAccount,useReadContracts} from 'wagmi';
 import {erc20Abi,formatUnits} from 'viem';
 import {ArrowDownUp,ArrowRightLeft,ChevronDown,Search,X,ShieldCheck,Info} from 'lucide-react';
@@ -14,12 +14,12 @@ import {EXCHANGE_ASSETS,exchangeAssetId,resolveExchangeRoute,type ExchangeAsset}
 import {reviewedExchangeAssets,reviewedExchangeNetworks,reviewedRouteStatus,
  type ReviewedExchangeMode,type ReviewedSide} from '@/mainnet/reviewedExchangeRoutes';
 import {readExchangeIntents,type ExchangeIntent} from '@/mainnet/exchangeIntentJournal';
-import {CIRCLE_USDC_BRIDGE_NETWORKS} from '@/mainnet/circleBridgeNetworkDirectory';
+import {CIRCLE_USDC_BRIDGE_NETWORKS,type BridgeNetworkDirectoryEntry} from '@/mainnet/circleBridgeNetworkDirectory';
 import type {VeyraPage} from '../layout/AppShell';
 
 const ARC=5042,BASE=8453;
 const asset=(chain:number,symbol:string)=>EXCHANGE_ASSETS.find(a=>a.chainId===chain&&a.symbol===symbol)!;
-const nameOf=(chain:number)=>chain===ARC?'Arc':chain===BASE?'Base':chain===1?'Ethereum':'Unknown network';
+const idOf=(chain:number)=>CIRCLE_USDC_BRIDGE_NETWORKS.find(n=>n.chainId===chain)?.id??'arc';
 function recordedExchange(owner:string):null|{mode:'swap'|'bridge';source:ExchangeAsset;destination:ExchangeAsset;status:string}{
  if(!owner)return null;
  try{
@@ -101,12 +101,13 @@ function AssetPicker({side,mode,value,other,balances,onChoose,onClose}:{
 /** Every Circle Bridge network is visible and searchable, but only independently
  * integrated Veyra routes can be selected or quoted. No placeholder route signs.
  */
-function BridgeNetworkPicker({side,from,balances,onChoose,onClose}:{
- side:ReviewedSide;from:ExchangeAsset;balances:Record<string,bigint>;
- onChoose:(a:ExchangeAsset)=>void;onClose:()=>void;
+function BridgeNetworkPicker({side,from,selectedId,selectedFromNetworkId,balances,onChoose,onClose}:{
+ side:ReviewedSide;from:ExchangeAsset;selectedId:string;selectedFromNetworkId:string;balances:Record<string,bigint>;
+ onChoose:(network:BridgeNetworkDirectoryEntry)=>void;onClose:()=>void;
 }){
  const [query,setQuery]=useState('');
- const available=reviewedExchangeNetworks('bridge',side,side==='to'?from:undefined);
+ const available=side==='to'&&idOf(from.chainId)!==selectedFromNetworkId?[]:
+  reviewedExchangeNetworks('bridge',side,side==='to'?from:undefined);
  const availableById=new Map(available.map(network=>[network.chainId,network] as const));
  const term=query.trim().toLowerCase();
  const matches=CIRCLE_USDC_BRIDGE_NETWORKS.filter(network=>
@@ -142,27 +143,28 @@ function BridgeNetworkPicker({side,from,balances,onChoose,onClose}:{
      matches.map(network=>{
       const ready=network.chainId!==null?availableById.get(network.chainId):undefined;
       const balance=ready?balances[exchangeAssetId(ready.asset)]:undefined;
-      return <button key={network.id} type="button" role="option" aria-selected={false}
-       disabled={!ready} onClick={()=>{if(ready)onChoose(ready.asset);}}
-       className="veyra-route-control flex w-full items-center gap-3 rounded-xl p-3 text-left disabled:cursor-not-allowed disabled:opacity-55"
-       title={ready?'Select '+network.name:'Veyra route integration and acceptance pending'}>
+      return <button key={network.id} type="button" role="option" aria-selected={network.id===selectedId}
+       onClick={()=>onChoose(network)}
+       className="veyra-route-control flex w-full items-center gap-3 rounded-xl p-3 text-left"
+       style={{background:network.id===selectedId?'var(--accent-muted)':'transparent'}}
+       title={'Explore '+network.name+' Bridge availability'}>
        <BrandLogo logoKey={network.logo} size={34}/>
        <span className="min-w-0 flex-1">
         <span className="block font-semibold">{network.name}</span>
         <span className="block text-xs" style={{color:'var(--muted)'}}>
          {network.vm==='svm'?'Solana wallet integration pending':
-          ready?'Native USDC · Veyra quote available':'Circle supported · Veyra integration pending'}
+          ready?'Native USDC · Veyra quote available':'Circle listed · Route not live yet'}
         </span>
        </span>
        <span className="text-right text-xs tabular-nums" style={{color:ready?'var(--ink)':'var(--muted)'}}>
-        {ready?balance===undefined?'Balance —':formatUnits(balance,6)+' USDC':'Not live'}
+        {ready?balance===undefined?'Balance —':formatUnits(balance,6)+' USDC':'Select'}
        </span>
       </button>;
      })}
    </div>
    <p className="text-xs leading-5" style={{color:'var(--muted)'}}>
     Circle network support is not a Veyra execution guarantee.
-    Only selectable routes can request a live quote; transaction signing retains independent safety gates.
+    All networks are selectable. Only verified Veyra routes can quote or sign.
    </p>
   </section>
  </div>;
@@ -172,6 +174,9 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
  const mode:ReviewedExchangeMode=initialBridge?'bridge':'swap';
  const [from,setFrom]=useState<ExchangeAsset>(()=>asset(initialBridge?ARC:ARC,'USDC'));
  const [to,setTo]=useState<ExchangeAsset>(()=>initialBridge?asset(BASE,'USDC'):asset(ARC,'EURC'));
+ const [fromNetworkId,setFromNetworkId]=useState('arc');
+ const [toNetworkId,setToNetworkId]=useState('base');
+ const restoredRouteOwner=useRef('');
  const [picking,setPicking]=useState<ReviewedSide|null>(null);
  const [prior,setPrior]=useState<ReturnType<typeof recordedExchange>>(null);
  const [unknownPrior,setUnknownPrior]=useState(false);
@@ -201,7 +206,7 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
   return b;
  },[readable,walletBalances]);
  useEffect(()=>{
-  if(!address){setPrior(null);setUnknownPrior(false);setIntentPrior(null);setIntentBlocked(false);return;}
+  if(!address){setPrior(null);setUnknownPrior(false);setIntentPrior(null);setIntentBlocked(false);restoredRouteOwner.current='';return;}
   const refresh=()=>{
    try{
     const previous=recordedExchange(owner);
@@ -212,7 +217,12 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
     setIntentBlocked(pending.kind==='blocked');
     setIntentPrior(pending.kind==='ready'?pending.items.find(i=>
      !['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(i.stage))??null:null);
-    if(previous?.mode===mode){setFrom(previous.source);setTo(previous.destination);}
+    // Restore once: a 3-second poll must never force users back to old route.
+    if(previous?.mode===mode&&restoredRouteOwner.current!==owner+':'+mode){
+     restoredRouteOwner.current=owner+':'+mode;
+     setFrom(previous.source);setTo(previous.destination);
+     setFromNetworkId(idOf(previous.source.chainId));setToNetworkId(idOf(previous.destination.chainId));
+    }
    }catch{setUnknownPrior(true);setPrior(null);}
   };
   refresh();
@@ -226,12 +236,19 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
  const separateLock=unknownPrior||intentBlocked||intentPrior?.stage==='PARTIAL'||
   (!!prior&&prior.mode!==mode)||(!prior&&!!intentPrior);
  const route=resolveExchangeRoute(from,to);
- const canQuote=route.kind===mode;
- const status=reviewedRouteStatus(mode,from,to,isCircleSigningReady(mode));
+ const chosenFrom=CIRCLE_USDC_BRIDGE_NETWORKS.find(n=>n.id===fromNetworkId)!;
+ const chosenTo=CIRCLE_USDC_BRIDGE_NETWORKS.find(n=>n.id===toNetworkId)!;
+ // The selected network must match the executable reviewed asset, otherwise
+ // a stale Arc/Base route could be signed while Arbitrum/other was displayed.
+ const displayMatchesExecution=mode==='swap'||(
+  chosenFrom.chainId===from.chainId&&chosenTo.chainId===to.chainId&&
+  fromNetworkId!==toNetworkId);
+ const canQuote=displayMatchesExecution&&route.kind===mode;
+ const status=canQuote?reviewedRouteStatus(mode,from,to,isCircleSigningReady(mode)):'not-integrated';
  const signingBlock=circleSigningBlock(mode);
  const notice=signingBlock?signingNotice(signingBlock):null;
  const statusLabel=status==='paused'?(notice?.headline??'Quotes only'):
-  status==='reviewable'?'Live quote required before signing':'Route not supported';
+  status==='reviewable'?'Live quote required before signing':'Selected route is not live yet';
  const selection:ExchangeExecutionSelection={fromChainId:from.chainId,toChainId:to.chainId,
   fromToken:from.symbol as 'USDC'|'EURC',toToken:to.symbol as 'USDC'|'EURC'};
  function chooseSource(next:ExchangeAsset){
@@ -246,30 +263,49 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
   if(locked||!availableDestinations.some(a=>exchangeAssetId(a)===exchangeAssetId(next)))return;
   setTo(next);setPicking(null);
  }
+ function chooseBridgeNetwork(side:ReviewedSide,network:BridgeNetworkDirectoryEntry){
+  // Browsing is always free of wallet prompts; signing remains independently guarded.
+  if(engineBusy)return;
+  const known=network.chainId===null?undefined:
+   EXCHANGE_ASSETS.find(a=>a.chainId===network.chainId&&a.symbol==='USDC');
+  if(side==='from'){
+   setFromNetworkId(network.id);
+   if(known)setFrom(known);
+  }else{
+   setToNetworkId(network.id);
+   if(known)setTo(known);
+  }
+  setPicking(null);
+ }
  function reverse(){
+  if(mode==='bridge'){
+   if(engineBusy)return;
+   setFromNetworkId(toNetworkId);setToNetworkId(fromNetworkId);
+   setFrom(to);setTo(from);
+   return;
+  }
   if(locked)return;
   const reversed=resolveExchangeRoute(to,from);
   if(reversed.kind!==mode)return;
   setFrom(to);setTo(from);
  }
- 
- const networkButton=(a:ExchangeAsset,side:ReviewedSide,active:boolean)=>(
-  <button type="button" key={exchangeAssetId(a)}
-   disabled={locked} onClick={()=>setPicking(side)}
-   aria-pressed={active}
+ const networkButton=(network:BridgeNetworkDirectoryEntry,side:ReviewedSide)=>(
+  <button type="button" key={network.id} disabled={engineBusy}
+   onClick={()=>setPicking(side)}
    className="flex min-h-14 min-w-0 flex-1 items-center gap-1.5 rounded-xl border p-2 text-left disabled:opacity-50 sm:gap-2 sm:p-3"
-   style={{background:active?'var(--accent-muted)':'var(--veyra-control)',
-    borderColor:active?'var(--border-strong)':'var(--border)',color:'var(--ink)'}}>
-   <BrandLogo logoKey={a.chainId===ARC?'arc':a.chainId===1?'ethereum':'base'} size={26}/>
-   <span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold sm:text-sm">{nameOf(a.chainId)}</span>
-    <span className="block truncate text-[10px]" style={{color:'var(--muted)'}}>USDC <span className="hidden sm:inline">· Mainnet</span></span></span><ChevronDown className="size-3.5 shrink-0"/>
+   style={{background:'var(--accent-muted)',borderColor:'var(--border-strong)',color:'var(--ink)'}}>
+   <BrandLogo logoKey={network.logo} size={26}/>
+   <span className="min-w-0 flex-1">
+    <span className="block truncate text-xs font-semibold sm:text-sm">{network.name}</span>
+    <span className="block truncate text-[10px]" style={{color:'var(--muted)'}}>USDC · {network.vm==='svm'?'Solana':'Mainnet'}</span>
+   </span><ChevronDown className="size-3.5 shrink-0"/>
   </button>
  );
  return <main className="veyra-page veyra-route-page mx-auto w-full max-w-2xl space-y-3 px-4 py-4 md:px-7 md:py-6">
   <header>
    <p className="veyra-eyebrow">VEYRA · MAINNET</p>
    <h1 className="veyra-page-title">{mode==='swap'?'Swap':'Bridge'}</h1>
-   <p className="veyra-page-subtitle">{mode==='swap'?'Exchange USDC and EURC on Arc.':'Move USDC between Arc and Base.'}</p>
+   <p className="veyra-page-subtitle">{mode==='swap'?'Exchange USDC and EURC on Arc.':'Choose from 19 Circle networks. Only integrated Veyra routes can execute.'}</p>
   </header>
   <section className="veyra-card space-y-3 p-3 sm:p-5" aria-label={mode==='swap'?'Swap form':'Bridge form'}>
    {status==='paused'&&notice?<SigningNoticeBanner headline={notice.headline} body={notice.body}/>:
@@ -319,14 +355,14 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
      aria-label="Bridge route">
      <div className="min-w-0 space-y-1.5">
       <p className="text-[11px] font-semibold" style={{color:'var(--muted)'}}>FROM</p>
-      <div className="flex min-w-0">{networkButton(from,'from',true)}</div>
+      <div className="flex min-w-0">{networkButton(chosenFrom,'from')}</div>
      </div>
-     <button type="button" disabled={locked} onClick={reverse} aria-label="Reverse bridge direction"
+     <button type="button" disabled={engineBusy} onClick={reverse} aria-label="Reverse bridge direction"
       className="veyra-btn-secondary mb-1 flex size-9 shrink-0 items-center justify-center rounded-full p-0 disabled:opacity-50"
       ><ArrowRightLeft className="size-4"/></button>
      <div className="min-w-0 space-y-1.5">
       <p className="text-[11px] font-semibold" style={{color:'var(--muted)'}}>TO</p>
-      <div className="flex min-w-0">{networkButton(to,'to',true)}</div>
+      <div className="flex min-w-0">{networkButton(chosenTo,'to')}</div>
      </div>
     </div>
    </>}
@@ -334,7 +370,10 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
     embedded mode={mode} selection={selection} onFinancialBusyChange={setEngineBusy}
     onOpenActivity={onNavigate?()=>onNavigate('activity'):undefined}/>:
     <p role="status" className="rounded-xl border p-3 text-sm" style={{color:'var(--warning)',borderColor:'var(--border)'}}>
-     This pair has no reviewed {mode} quote route. No transaction can start.
+     {mode==='bridge'?
+      chosenFrom.id===chosenTo.id?'Choose two different networks.':
+      chosenFrom.name+' → '+chosenTo.name+' is available to explore, but Veyra does not yet have a live quote for this pair. No transaction can start.':
+      'This pair has no reviewed swap quote route. No transaction can start.'}
     </p>}
    {separateLock&&<div role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t pt-2 text-[11px]"
     style={{color:'var(--muted)',borderColor:'var(--border)'}}>
@@ -352,7 +391,8 @@ export function MainnetExchangePage({initialBridge=false,onNavigate}:{initialBri
    other={picking==='from'?to:from} balances={balances}
    onChoose={picking==='from'?chooseSource:chooseDestination} onClose={()=>setPicking(null)}/>}
   {picking&&mode==='bridge'&&<BridgeNetworkPicker side={picking} from={from}
-    balances={balances} onChoose={picking==='from'?chooseSource:chooseDestination}
+    selectedId={picking==='from'?fromNetworkId:toNetworkId} selectedFromNetworkId={fromNetworkId}
+    balances={balances} onChoose={network=>chooseBridgeNetwork(picking,network)}
     onClose={()=>setPicking(null)}/>}
  </main>;
 }

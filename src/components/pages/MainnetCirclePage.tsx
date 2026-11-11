@@ -128,7 +128,8 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
  verificationScopeRef.current=mode+':'+owner;
  useEffect(()=>()=>{verificationScopeRef.current='unmounted';},[]);
  useEffect(()=>{
-  onFinancialBusyChange?.(busy||!!recovery);
+  // A saved recovery must block signing, not exploration of other networks.
+  onFinancialBusyChange?.(busy);
   return()=>onFinancialBusyChange?.(false);
  },[busy,recovery,onFinancialBusyChange]);
  const card=embedded?'rounded-2xl border p-4 sm:p-5':'rounded-2xl border p-5 sm:p-6';
