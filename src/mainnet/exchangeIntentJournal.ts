@@ -97,7 +97,9 @@ export function createExchangeIntent(intent:ExchangeIntent,s?:Store):boolean{
  try{
   const store=s??window.localStorage,all=readExchangeIntents(intent.owner,store);
   if(all.kind!=='ready'||all.items.length>=60||
-    all.items.some(v=>!['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(v.stage)&&!v.newTransferAuthorizedAt))return false;
+    all.items.some(v=>!['DESTINATION_VERIFIED','REFUNDED','SOURCE_REVERTED','CANCELLED_BEFORE_SOURCE'].includes(v.stage)&&
+      !(v.newTransferAuthorizedAt&&['SOURCE_UNKNOWN','AWAITING_WALLET'].includes(v.stage)&&
+        !v.sourceHash&&!v.destinationHash&&!v.steps.some(step=>!!step.hash))))return false;
   const k=key(intent.owner,intent.id);
   if(store.getItem(k)!==null)return false;
   const raw=JSON.stringify({...intent,owner:intent.owner.toLowerCase(),id:intent.id.toLowerCase()});
