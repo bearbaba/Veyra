@@ -101,6 +101,7 @@ jobs:
           src/tests/phase6ArcMainnetPay.test.ts
           src/tests/settlementGasAndVerification.test.ts
           src/tests/phase3MainnetCatalog.test.ts
+          src/tests/mainnetGatewayLostHashAutoDiscovery.test.ts
           src/tests/mainnetGateway12ChainAndBrandLogos.test.ts
           src/tests/gatewayMainnetBalances.test.ts
           src/tests/gatewayMultiSourceAllocation.test.ts
