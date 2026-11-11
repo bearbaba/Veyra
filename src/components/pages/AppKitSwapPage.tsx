@@ -54,12 +54,11 @@ export function AppKitSwapPage({embedded=false,initialIntent=null}:{
  const [error,setError]=useState<string|null>(null);
  const [pending,setPending]=useState<ArcSwapCheckpoint|null>(null);
  const [verified,setVerified]=useState<ArcSwapReceipt|null>(null);
- const [hashInput,setHashInput]=useState('');
  const inFlight=useRef(false);
  const signingAllowed=VEYRA_ENV==='testnet'&&!IS_UI_ONLY_PREVIEW&&identityReady;
  const owner=address?.toLowerCase()??'';
  useEffect(()=>{
-  setQuote(null);setVerified(null);setHashInput('');setError(null);
+  setQuote(null);setVerified(null);setError(null);
   if(!address||!identity){setPending(null);return;}
   setPending(readArcSwapCheckpoint(localStorage,address,identity));
  },[address,identity]);
@@ -161,8 +160,8 @@ export function AppKitSwapPage({embedded=false,initialIntent=null}:{
    if(!signingAllowed||!address||!identity||pending.owner!==owner||
       pending.identity!==identity||await arc.getChainId()!==ARC_SWAP_CHAIN_ID)
     throw Error('Swap owner, identity or verified Arc RPC is unavailable.');
-   const hash=pending.txHash||( /^0x[0-9a-fA-F]{64}$/.test(hashInput)?hashInput:undefined);
-   if(!hash)throw Error('Find the transaction hash in your wallet first. Never resend blindly.');
+   const hash=pending.txHash;
+   if(!hash)return;
    const stored=readArcSwapCheckpoint(localStorage,address,identity);
    if(!stored||stored.owner!==owner||stored.identity!==identity)
     throw Error('Pending Swap record changed. Stop and inspect Activity.');
@@ -186,6 +185,22 @@ export function AppKitSwapPage({embedded=false,initialIntent=null}:{
   }catch(e){setError(e instanceof Error?e.message:'Swap receipt unverified. Do not resend.');}
   finally{setBusy(false);inFlight.current=false;}
  }
+ // Automatic read-only confirmation; the SDK never sends another transaction here.
+ useEffect(()=>{
+  if(!pending?.txHash||!address||!identity||!signingAllowed)return;
+  let active=true,attempts=0,nextAttempt=0;
+  const check=()=>{
+   if(!active||inFlight.current||Date.now()<nextAttempt)return;
+   attempts++;
+   nextAttempt=Date.now()+(attempts<=4?15000:120000);
+   void verify();
+  };
+  check();
+  const timer=window.setInterval(check,15000);
+  window.addEventListener('focus',check);
+  return()=>{active=false;window.clearInterval(timer);window.removeEventListener('focus',check);};
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[address,identity,pending?.txHash,pending?.state,signingAllowed]);
  if(VEYRA_ENV==='mainnet'||IS_UI_ONLY_PREVIEW)
   return <div role="status" className="rounded-2xl border p-5"
    style={{borderColor:'var(--border)',color:'var(--muted)'}}>
@@ -237,14 +252,7 @@ export function AppKitSwapPage({embedded=false,initialIntent=null}:{
     <p className="font-semibold">Swap pending verification · Do not resend</p>
     <p>{pending.amount} {pending.from} → {pending.to}</p>
     {pending.txHash?<p className="break-all font-mono">{pending.txHash}</p>:
-     <label className="block">Transaction hash from your wallet history
-      <input value={hashInput} onChange={e=>setHashInput(e.target.value)}
-       placeholder="0x…" className="mt-1 w-full rounded-xl border p-2"
-       style={{borderColor:'var(--border)',color:'var(--ink)'}}/>
-     </label>}
-    <button type="button" disabled={busy} onClick={()=>void verify()}
-     className="rounded-xl border px-3 py-2 disabled:opacity-50"
-     style={{borderColor:'var(--border)'}}>Verify on-chain receipt</button>
+     <p>Veyra is synchronizing the original wallet result automatically. No transaction ID required.</p>}
    </div>}
    {verified&&<div role="status" className="rounded-xl border p-3 text-xs space-y-1"
     style={{borderColor:'var(--success)'}}>
