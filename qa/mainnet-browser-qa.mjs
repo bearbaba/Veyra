@@ -68,7 +68,7 @@ async function run(name,viewport,mobile){
  await routePicker.locator('button').first().click();
  dialog=page.getByRole('dialog',{name:'Select from network'});
  await dialog.getByRole('option',{name:/Solana/}).click();
- if(!await routePicker.getByText('Solana').isVisible())
+ if(!await routePicker.getByText('Solana',{exact:true}).isVisible())
   throw Error(name+': Solana network selection was blocked');
  status=await page.locator('[aria-label="Bridge form"] [role="status"]').allTextContents();
  if(!status.some(x=>x.includes('does not yet have a live quote')&&x.includes('No transaction can start.')))
