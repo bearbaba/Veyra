@@ -3,7 +3,7 @@
  */
 import {useEffect,useRef,useState} from 'react';
 import {useAccount,usePublicClient} from 'wagmi';
-import {Clock3,ExternalLink,RefreshCw} from 'lucide-react';
+import {Clock3,ExternalLink} from 'lucide-react';
 import {readGatewayMainnetHistory,readGatewayMainnetOperation,
  type GatewayMainnetReceipt,type GatewayMainnetOperation} from '@/mainnet/gatewayMainnetJournal';
 import {reconcileGatewayMainnetOperation} from '@/mainnet/gatewayMainnetReconcile';
@@ -94,8 +94,15 @@ export function MainnetUnifiedActivity(){
   // depends on the owner; checkRef always points to the latest callback.
   // eslint-disable-next-line react-hooks/exhaustive-deps
  },[address]);
+ // No manual TX verification: automatically check only the original operation.
+ // Read-only, 45s cadence while open; the reconciliation lock prevents overlap.
  useEffect(()=>{
-  if(activeId&&document.visibilityState==='visible')void checkRef.current();
+  if(!activeId)return;
+  if(document.visibilityState==='visible')void checkRef.current();
+  const timer=window.setInterval(()=>{
+   if(document.visibilityState==='visible')void checkRef.current();
+  },45000);
+  return()=>window.clearInterval(timer);
  },[activeId]);
  if(!active&&(history==='blocked'||history.length===0))return null;
  return <section aria-label="Unified operation history" className="veyra-card space-y-3 p-4">
@@ -116,13 +123,10 @@ export function MainnetUnifiedActivity(){
      {' · '}{active.status==='SOURCE_CONFIRMED'?'Deposit confirmed · credit pending':
       active.status==='UNKNOWN'?'Wallet outcome unknown':'Waiting for independent verification'}
     </p>
-    <button type="button" disabled={checking} onClick={()=>void checkOriginal()}
-     className="veyra-btn-secondary mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs disabled:opacity-50">
-     <RefreshCw className={'size-4 '+(checking?'animate-spin':'')}/>
-     {checking?'Checking…':'Check status'}
-    </button>
-    <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>
-     Checks automatically on opening Activity and returning to this tab; never asks for a signature.
+    <p role="status" className="mt-2 text-xs" style={{color:'var(--muted)'}}>
+     {checking?'Checking the original transaction automatically…':
+      'Veyra automatically verifies the original receipt while Activity is open and whenever you return.'}
+     No transaction ID or manual verification is needed.
     </p>
     <details className="mt-3 text-xs" style={{color:'var(--muted)'}}>
      <summary className="cursor-pointer">Details · original request</summary>
