@@ -57,7 +57,7 @@ export type BatchBridgeNetworkStatus={
 
 export function bridgeBatchStatus():BatchBridgeNetworkStatus[]{
  const published=new Map(CIRCLE_CHAIN_EVIDENCE.map(x=>[x.id,x]));
- const veyraIntegrated=new Set(CIRCLE_CCTP_MAINNET.map(x=>x.chainId));
+ const veyraIntegrated=new Set<number>(CIRCLE_CCTP_MAINNET.map(x=>x.chainId));
  return CIRCLE_USDC_BRIDGE_NETWORKS.map(chain=>{
   const evidence=published.get(chain.id);
   const sourceChain=chain.chainId===null?undefined:getMainnetChain(chain.chainId);
