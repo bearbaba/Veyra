@@ -156,7 +156,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
       const hash=await requestMainnetCanaryTransfer(await provider(),review.plan,()=>{requested=true;});
       submittedHash=hash;
       const next:MainnetJournal={...initial,hash,stage:'PENDING'};
-      setJournal(next);setHashInput(hash);
+      setJournal(next);
       recordLocalOperation({type:'Pay',hash,owner:address,amount:review.plan.amount,asset:'USDC',chainId:5042,
        status:'SUBMITTED',destination:review.plan.to,
        note:sharedDraft?.note?.trim().slice(0,120)||undefined,
@@ -265,7 +265,7 @@ export function MainnetPayPage({friendHandle,recipientWallet,onRecipientUsed,emb
       if(!clearMainnetJournal(address,storageForMainnet())){setError('Cannot clear reverted payment lock.');return;}
     }else if(!completed)return;
     setJournal(null);setCompleted(null);setOutboxItem(null);setReview(null);setReceipt(null);setAccountReceipt(null);setReceiptSessionScope('');
-    setRecipient('');setAmount('');setHashInput('');setError(null);
+    setRecipient('');setAmount('');setError(null);
   }
   const shownJournal=journal?.from.toLowerCase()===address?.toLowerCase()?journal:null;
   const shownCompleted=!shownJournal&&completed?.from.toLowerCase()===address?.toLowerCase()?completed:null;
