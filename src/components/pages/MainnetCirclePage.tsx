@@ -698,7 +698,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
          onChange={e=>setManualSource(e.target.value.trim())}
          placeholder="0x… source transaction hash" spellCheck={false} autoComplete="off"
          className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-xs"
-         style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}/>
+         style={{background:'var(--surface-raised)',borderColor:'var(--border)',color:'var(--ink)'}}/>
         <button type="button" disabled={busy||!HASH.test(manualSource)}
          onClick={()=>void recoverSourceHash()}
          className="min-h-9 shrink-0 rounded-lg px-3 text-xs font-semibold disabled:opacity-50"
