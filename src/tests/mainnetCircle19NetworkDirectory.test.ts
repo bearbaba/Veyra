@@ -42,7 +42,7 @@ describe('Circle Bridge 19-network directory without falsely enabling Mainnet si
   expect(exchangeUI).toContain('chosenFrom.chainId===from.chainId');
   expect(exchangeUI).toContain('chosenTo.chainId===to.chainId');
   expect(exchangeUI).toContain('const canQuote=displayMatchesExecution&&route.kind===mode');
-  expect(exchangeUI).toContain('Only independently accepted routes can quote or sign');
+  expect(exchangeUI).toContain('Only verified Veyra routes can quote or sign.');
   expect(exchangeUI).toContain('Selected route is not live yet');
   expect(exchangeUI).not.toContain('Circle supported · Veyra integration pending');
  });
