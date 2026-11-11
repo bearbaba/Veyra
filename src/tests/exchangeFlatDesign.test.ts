@@ -35,7 +35,7 @@ describe('single-surface Mainnet Swap and Bridge', () => {
     expect(tracking).toContain('Signing stays locked.');
     expect(tracking).toContain('Evidence &amp; history');
     expect(tracking).toContain('No funds were resent.');
-    expect(tracking).toContain('Source hash unavailable on this device.');
+    expect(tracking).toContain('Transaction ID unavailable.');
     expect(tracking).toContain('Verify onchain');
     expect(tracking).toContain('Open Activity');
     expect(tracking).not.toContain('rounded-2xl border p-3.5');
