@@ -250,7 +250,7 @@ export function MainnetActivityPage({onPay,onNavigate}:{onPay:()=>void;onNavigat
     </p>
    </div>
    {address&&<span className="flex items-center gap-2 text-xs" style={{color:'var(--muted)'}}>
-    {syncing&&<RefreshCw className="size-4 animate-spin"/>}{syncing?'Updating…':'Up to date'}
+    {syncing&&<RefreshCw className="size-4 animate-spin"/>}{syncing?'Checking account receipts…':serverHistoryStatus==='ready'?'Account receipts checked':'Local history available'}
    </span>}
   </header>
   {address&&filter==='All'&&<MainnetUnifiedActivity/>}
