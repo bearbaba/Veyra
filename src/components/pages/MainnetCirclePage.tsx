@@ -674,14 +674,15 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        <h2 className="text-sm font-semibold tracking-tight">
         {recovery?.status==='VERIFIED'?title+' verified':
          recovery?.status==='REVERTED'?'Transaction reverted':
-         unknownStorage?'Recovery needs attention':title+' needs review'}
+         unknownStorage?'Recovery needs attention':
+         (mode==='bridge'&&!recovery?.burnHash)?'Bridge request saved · no source proof':title+' needs review'}
        </h2>
       </div>
       <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold"
        style={{color:recovery?.status==='VERIFIED'?'var(--success)':'var(--warning)'}}>
        <span className="size-1.5 rounded-full" style={{background:'currentColor'}} aria-hidden="true"/>
        {recovery?.status==='VERIFIED'?'Verified':recovery?.status==='REVERTED'?'Reverted':
-        busy?'Checking':'Locked'}
+        busy?'Checking':mode==='bridge'&&!recovery?.burnHash?'Unverified request':'Needs review'}
       </span>
      </div>
      <p className="max-w-[55ch] text-xs leading-5" style={{color:'var(--muted)'}}>
@@ -689,7 +690,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        recovery?.status==='REVERTED'?'The original source transaction reverted onchain. Check its receipt.':
        unknownStorage?'Saved operation cannot be read. Signing stays locked. Check Activity.':
        (mode==='bridge'?!recovery?.burnHash:!recovery?.hash)
-        ?'Transaction ID unavailable. Check Activity or your wallet. Do not submit again.'
+        ?'No Bridge source transaction has been verified. This is a saved wallet request, not proof that USDC moved. Check your original source-network wallet history before any new transfer.'
         :'Previous transfer is unconfirmed. Verify onchain. Do not submit again.'}
      </p>
      {(recovery?.hash||recovery?.burnHash||recovery?.mintHash||recovery?.downgradedFrom)&&
@@ -713,8 +714,8 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
      {mode==='bridge'&&recovery&&!recovery.burnHash&&
       !['VERIFIED','REVERTED'].includes(recovery.status)&&
       <div className="space-y-2 border-t pt-3" style={{borderColor:'var(--border)'}}>
-       <label htmlFor="veyra-original-burn-hash" className="block text-xs font-semibold">Recover original source transaction</label>
-       <p className="text-xs leading-5" style={{color:'var(--muted)'}}>Copy the original hash from {label(recovery.source)} wallet history. No new signature or transfer.</p>
+       <label htmlFor="veyra-original-burn-hash" className="block text-xs font-semibold">Check an existing Bridge source transaction</label>
+       <p className="text-xs leading-5" style={{color:'var(--muted)'}}>Only enter a Bridge transaction from {label(recovery.source)}. Do not use your Arc Gateway deposit hash. This read-only check does not send money.</p>
        <div className="flex flex-col gap-2 sm:flex-row">
         <input id="veyra-original-burn-hash" value={manualSource}
          onChange={e=>{setManualSource(e.target.value.trim());setError('');}}
