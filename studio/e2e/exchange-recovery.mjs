@@ -33,7 +33,7 @@ const locked = async (page, app, newAttemptButton) => {
   check('no way to start a new attempt', (await page.getByRole('button', { name: newAttemptButton }).count()) === 0
     && (await page.getByRole('button', { name: 'Refresh quote' }).count()) === 0
     && (await page.getByRole('button', { name: 'Confirm in wallet' }).count()) === 0);
-  const missingHash=/Source hash unavailable on this device/.test(t);
+  const missingHash=/Transaction ID unavailable/.test(t);
   check('recheck only appears with the original source hash',
     (await page.getByRole('button', { name: 'Verify destination onchain' }).count()) === (missingHash?0:1));
   check('a real Activity navigation action is available',
@@ -56,7 +56,7 @@ await scenario('Bridge Base -> Arc, PENDING with a burn hash', { label: 'Bridge'
 
 await scenario('Bridge, stored VERIFIED with NO proof hashes is not trusted', { label: 'Bridge', seed: { ...BASE_ARC, status: 'VERIFIED' } }, async ({ app, page, stored }) => {
   await locked(page, app, /review bridge/i);
-  check('explains why missing source evidence prevents a recheck', /Source hash unavailable on this device/.test(await bodyText(page)));
+  check('explains why missing source evidence prevents a recheck', /Transaction ID unavailable/.test(await bodyText(page)));
   check('the downgrade is written back, so every reader sees it', (await stored())?.status === 'PENDING');
 });
 
@@ -81,7 +81,7 @@ await scenario('Swap EURC -> USDC, PENDING with a transaction hash', { label: 'S
 
 await scenario('Swap, UNKNOWN with no transaction hash', { label: 'Swap', seed: { ...EURC_USDC, status: 'UNKNOWN' } }, async ({ app, page }) => {
   await locked(page, app, /review swap/i);
-  check('keeps the missing Swap hash locked without offering an unusable recheck', /Source hash unavailable on this device/.test(await bodyText(page)));
+  check('keeps the missing Swap hash locked without offering an unusable recheck', /Transaction ID unavailable/.test(await bodyText(page)));
 });
 
 await scenario('Swap, stored VERIFIED with no hash is not trusted', { label: 'Swap', seed: { ...EURC_USDC, status: 'VERIFIED' } }, async ({ app, page, stored }) => {
