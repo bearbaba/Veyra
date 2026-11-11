@@ -232,7 +232,7 @@ export function MainnetHomePage({onNavigate}:{onNavigate:(page:VeyraPage)=>void}
   </Notice>}
   {pending.length>0&&<Notice tone="warning" action={<button type="button" onClick={()=>onNavigate('activity')}
    className="shrink-0 text-xs font-semibold" style={{color:'var(--accent)'}}>View</button>}>
-   Payment processing. Check Activity before sending again.
+   An earlier payment is still pending. Check Activity before another send.
   </Notice>}
   <section className={card} style={cardStyle} aria-label="Recent activity">
    <div className="flex items-center justify-between gap-3">
