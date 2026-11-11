@@ -60,8 +60,10 @@ async function run(name,viewport,mobile){
  if(!await routePicker.getByText('Arbitrum One').isVisible())
   throw Error(name+': Arbitrum selection was not retained');
  let status=await page.locator('[aria-label="Bridge form"] [role="status"]').allTextContents();
- if(!status.some(x=>x.includes('live Veyra quote is not yet available')))
+ if(!status.some(x=>x.includes('does not yet have a live quote')&&x.includes('No transaction can start.')))
   throw Error(name+': unreviewed Arbitrum route must not show a signing quote');
+ if(await page.locator('[aria-label="Bridge form"]').getByText('Connect your wallet to check the balance').count()>0)
+  throw Error(name+': Arbitrum incorrectly rendered an executable wallet quote form');
  await check('bridge-arbitrum-selected');
  await routePicker.locator('button').first().click();
  dialog=page.getByRole('dialog',{name:'Select from network'});
@@ -69,7 +71,7 @@ async function run(name,viewport,mobile){
  if(!await routePicker.getByText('Solana').isVisible())
   throw Error(name+': Solana network selection was blocked');
  status=await page.locator('[aria-label="Bridge form"] [role="status"]').allTextContents();
- if(!status.some(x=>x.includes('live Veyra quote is not yet available')))
+ if(!status.some(x=>x.includes('does not yet have a live quote')&&x.includes('No transaction can start.')))
   throw Error(name+': unsupported Solana route must not be quoted');
  await check('bridge-solana-selected');
  await routePicker.locator('button').first().click();
@@ -79,7 +81,7 @@ async function run(name,viewport,mobile){
  dialog=page.getByRole('dialog',{name:'Select to network'});
  await dialog.getByRole('option',{name:/Base/}).click();
  status=await page.locator('[aria-label="Bridge form"] [role="status"]').allTextContents();
- if(status.some(x=>x.includes('live Veyra quote is not yet available')))
+ if(status.some(x=>x.includes('does not yet have a live quote')&&x.includes('No transaction can start.')))
   throw Error(name+': integrated Arc/Base route did not recover after browsing');
  await check('bridge-base-restored');
  if(!mobile){
