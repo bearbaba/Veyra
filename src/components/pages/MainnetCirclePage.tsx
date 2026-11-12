@@ -776,7 +776,7 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
        recovery?.status==='REVERTED'?'The original source transaction reverted onchain. Check its receipt.':
        unknownStorage?'Saved operation cannot be read. Signing stays locked. Check Activity.':
        (mode==='bridge'?!recovery?.burnHash:!recovery?.hash)
-        ?'No Bridge source transaction has been verified. This is a saved wallet request, not proof that USDC moved. Check your original source-network wallet history before any new transfer.'
+        ?(mode==='bridge'?'No Bridge source transaction has been verified.':'No Swap source transaction has been verified.')+' This is a saved wallet request, not proof that tokens moved. Check your original source-network wallet history before any new transfer.'
         :'Original transfer is being checked automatically. No duplicate transfer will be submitted.'}
      </p>
      {(recovery?.hash||recovery?.burnHash||recovery?.mintHash||recovery?.downgradedFrom)&&
