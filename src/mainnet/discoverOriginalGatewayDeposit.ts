@@ -21,6 +21,8 @@ const AFTER_MS=60*60_000;
 const MAX_AGE_MS=30*24*60*60_000;
 const SCAN_CHUNK=1_500n;
 const MAX_SPAN=30_000n;
+// Bound transaction reads even if an adversary floods the matching Transfer topic.
+const MAX_CANDIDATES=32;
 export type GatewayDepositTransferLog={
  transactionHash:string;blockNumber:bigint;value:bigint;
 };
@@ -73,29 +75,40 @@ export async function discoverOriginalGatewayDeposit(
  const token=getAddress(chain.usdc).toLowerCase();
  const gateway=getAddress(GATEWAY_MAINNET_WALLET).toLowerCase();
  const amount=parseUnits(operation.amount,6);
- const candidates=new Set<string>();
+
+ // Transfer topics narrow the search, but only a transaction that calls the
+ // exact Gateway Wallet deposit(token, amount) can be attributed to this intent.
+ // An unrelated direct USDC transfer must not make a genuine deposit ambiguous.
+ const candidateHashes=new Set<`0x${string}`>();
  for(let start=from;start<until;start+=SCAN_CHUNK){
   const end=start+SCAN_CHUNK<until?start+SCAN_CHUNK:until;
   const logs=await reader.transferLogs(start,end-1n,owner,token,gateway);
   for(const log of logs){
    if(log.value!==amount||log.blockNumber<start||log.blockNumber>=end||
     !HASH.test(log.transactionHash))continue;
-   candidates.add(log.transactionHash.toLowerCase());
-   // Two plausible deposits in the same window make attribution ambiguous.
-   if(candidates.size>1)return null;
+   candidateHashes.add(log.transactionHash.toLowerCase() as `0x${string}`);
+   if(candidateHashes.size>MAX_CANDIDATES)return null;
   }
  }
- if(candidates.size!==1)return null;
- const hash=[...candidates][0] as `0x${string}`;
- const transaction=await reader.getTransaction(hash);
- if(transaction.hash.toLowerCase()!==hash||!isAddress(transaction.from)||
-  transaction.from.toLowerCase()!==owner||!transaction.to||
-  !isAddress(transaction.to)||transaction.to.toLowerCase()!==gateway||
-  !/^0x[0-9a-fA-F]+$/.test(transaction.input))return null;
- try{
-  const call=decodeFunctionData({abi:gatewayDepositAbi,data:transaction.input as Hex});
-  if(call.functionName!=='deposit'||getAddress(call.args[0]).toLowerCase()!==token||
-   call.args[1]!==amount)return null;
- }catch{return null;}
- return hash;
+ let unique:`0x${string}`|null=null;
+ for(const hash of candidateHashes){
+  let transaction:Awaited<ReturnType<GatewayDepositSourceReader['getTransaction']>>;
+  try{transaction=await reader.getTransaction(hash);}
+  catch{return null;} // Unknown candidate may be another valid deposit.
+  if(!transaction||typeof transaction.hash!=='string'||
+   transaction.hash.toLowerCase()!==hash)return null;
+  if(!isAddress(transaction.from)||transaction.from.toLowerCase()!==owner||
+   !transaction.to||!isAddress(transaction.to)||
+   transaction.to.toLowerCase()!==gateway||
+   !/^0x[0-9a-fA-F]+$/.test(transaction.input))continue;
+  try{
+   const call=decodeFunctionData({abi:gatewayDepositAbi,data:transaction.input as Hex});
+   if(call.functionName!=='deposit'||getAddress(call.args[0]).toLowerCase()!==token||
+    call.args[1]!==amount)continue;
+  }catch{continue;}
+  // Two independently valid deposits cannot be attributed to one checkpoint.
+  if(unique!==null)return null;
+  unique=hash;
+ }
+ return unique;
 }
