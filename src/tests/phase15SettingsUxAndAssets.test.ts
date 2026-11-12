@@ -34,7 +34,9 @@ describe('Phase 15 — simple account experience, honest readiness and branded t
     expect(brand).toContain('TokenEURC');
     expect(brand).toContain('eurc: TokenEURC');
     expect(brand).not.toContain("eurc: 'https://");
-    expect(brand).not.toContain("@web3icons/react/dynamic");
+    expect(brand).toContain("import {NetworkIcon} from '@web3icons/react/dynamic';");
+    expect(brand).toContain('const TokenMark = TOKEN_MARKS[logoKey as keyof typeof TOKEN_MARKS]');
+    expect(brand).toContain('NetworkIcon name={networkIcon}');
     expect(brand).toContain('case \x27usyc\x27:');
     const registry=file('config/productRegistry.ts');
     expect(registry).toContain("executionEnabled: false, logoKey: 'eurc'");
