@@ -36,7 +36,7 @@ describe('single-surface Mainnet Swap and Bridge', () => {
     expect(tracking).toContain('Evidence &amp; history');
     expect(tracking).toContain('No funds were resent.');
     expect(tracking).toContain('No transaction ID or signature required.');
-    expect(tracking).toContain('checking automatically');
+    expect(tracking).toContain('being checked automatically');
     expect(tracking).toContain('Open Activity');
     expect(tracking).not.toContain('rounded-2xl border p-3.5');
     expect(tracking).not.toContain('linear-gradient(');
