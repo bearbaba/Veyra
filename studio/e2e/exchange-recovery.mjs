@@ -40,9 +40,16 @@ const locked = async (page, app, newAttemptButton) => {
     /checked automatically|checks the original wallet and Circle evidence automatically|No Swap source transaction has been verified/i.test(t));
   check('a real Activity navigation action is available',
     (await page.getByRole('button', { name: 'Open Activity' }).count()) === 1);
-  check('route selector may browse other pairs without reopening original signing',
-    (await page.getByRole('button', { name: /Reverse (bridge direction|swap pair)/ }).first().isEnabled()) &&
-    (await page.getByRole('button', { name: newAttemptButton }).count()) === 0);
+  const reverse=page.getByRole('button', { name: /Reverse (bridge direction|swap pair)/ }).first();
+  if(/bridge/i.test(newAttemptButton.source)){
+    check('Bridge picker may browse other pairs without reopening original signing',
+      (await reverse.isEnabled()) &&
+      (await page.getByRole('button', { name: newAttemptButton }).count()) === 0);
+  }else{
+    check('unresolved Swap keeps its token reversal locked without reopening signing',
+      (await reverse.isDisabled()) &&
+      (await page.getByRole('button', { name: newAttemptButton }).count()) === 0);
+  }
   check('no provider quote was requested', feeGets(app, 6, 26).length + feeGets(app, 26, 6).length + swapPosts(app).length === 0);
   check('not shown as verified', !/Destination verified/.test(t));
 }
