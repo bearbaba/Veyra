@@ -28,24 +28,28 @@ async function scenario(title, { seed, label, raw = null }, run) {
 
 const locked = async (page, app, newAttemptButton) => {
   const t = await bodyText(page);
-  check('states the original outcome is locked without repeating warnings', /Do not submit again/.test(t) && /Locked/.test(t));
+  check('original operation remains visibly unresolved, not silently completed',
+    /needs review|Unverified request|Recovery needs attention/i.test(t) && !/Destination verified/.test(t));
   check('unresolved outcome stays on Track', (await currentStage(page)) === 'Track', await currentStage(page));
-  check('no way to start a new attempt', (await page.getByRole('button', { name: newAttemptButton }).count()) === 0
-    && (await page.getByRole('button', { name: 'Refresh quote' }).count()) === 0
-    && (await page.getByRole('button', { name: 'Confirm in wallet' }).count()) === 0);
-  const missingHash=/Transaction ID unavailable/.test(t);
-  check('recheck only appears with the original source hash',
-    (await page.getByRole('button', { name: 'Verify destination onchain' }).count()) === (missingHash?0:1));
+  check('existing operation cannot be submitted again or blindly quoted',
+    (await page.getByRole('button', { name: newAttemptButton }).count()) === 0 &&
+    (await page.getByRole('button', { name: 'Refresh quote' }).count()) === 0 &&
+    (await page.getByRole('button', { name: 'Confirm in wallet' }).count()) === 0);
+  check('verification happens automatically without a misleading manual action',
+    (await page.getByRole('button', { name: 'Verify destination onchain' }).count()) === 0 &&
+    /checked automatically|checks the original wallet and Circle evidence automatically/i.test(t));
   check('a real Activity navigation action is available',
     (await page.getByRole('button', { name: 'Open Activity' }).count()) === 1);
-  check('the direction control is locked', await page.getByRole('button', { name: /Reverse (bridge direction|swap pair)/ }).first().isDisabled());
+  check('route selector may browse other pairs without reopening original signing',
+    (await page.getByRole('button', { name: /Reverse (bridge direction|swap pair)/ }).first().isEnabled()) &&
+    (await page.getByRole('button', { name: newAttemptButton }).count()) === 0);
   check('no provider quote was requested', feeGets(app, 6, 26).length + feeGets(app, 26, 6).length + swapPosts(app).length === 0);
   check('not shown as verified', !/Destination verified/.test(t));
-};
+}
 
 await scenario('Bridge Base -> Arc, PENDING with a burn hash', { label: 'Bridge', seed: { ...BASE_ARC, status: 'PENDING', burnHash: H('ab') } }, async ({ app, page, stored }) => {
   await locked(page, app, /review bridge/i);
-  await page.getByRole('button', { name: 'Verify destination onchain' }).click();
+  // The background observer performs this check read-only; no manual Verify button exists.
   await page.waitForTimeout(7000);
   const t = await bodyText(page);
   const s = await stored();
@@ -56,7 +60,7 @@ await scenario('Bridge Base -> Arc, PENDING with a burn hash', { label: 'Bridge'
 
 await scenario('Bridge, stored VERIFIED with NO proof hashes is not trusted', { label: 'Bridge', seed: { ...BASE_ARC, status: 'VERIFIED' } }, async ({ app, page, stored }) => {
   await locked(page, app, /review bridge/i);
-  check('explains why missing source evidence prevents a recheck', /Transaction ID unavailable/.test(await bodyText(page)));
+  check('explains why missing source evidence prevents a new send', /No Bridge source transaction has been verified/.test(await bodyText(page)));
   check('the downgrade is written back, so every reader sees it', (await stored())?.status === 'PENDING');
 });
 
@@ -81,7 +85,7 @@ await scenario('Swap EURC -> USDC, PENDING with a transaction hash', { label: 'S
 
 await scenario('Swap, UNKNOWN with no transaction hash', { label: 'Swap', seed: { ...EURC_USDC, status: 'UNKNOWN' } }, async ({ app, page }) => {
   await locked(page, app, /review swap/i);
-  check('keeps the missing Swap hash locked without offering an unusable recheck', /Transaction ID unavailable/.test(await bodyText(page)));
+  check('keeps the missing Swap hash unresolved without calling it a Bridge', /No Swap source transaction has been verified/.test(await bodyText(page)));
 });
 
 await scenario('Swap, stored VERIFIED with no hash is not trusted', { label: 'Swap', seed: { ...EURC_USDC, status: 'VERIFIED' } }, async ({ app, page, stored }) => {
@@ -124,13 +128,13 @@ console.log('\n  Downgraded record: survives a reload, keeps its evidence, and d
     await page.waitForTimeout(2000);
     t = await bodyText(page);
     stored = await readStored(page, 'bridge', app.addr);
-    check('after a reload it is still locked and unresolved', /Do not submit again/.test(t) && !/Destination verified/.test(t) && (await page.getByRole('button', { name: /review bridge/i }).count()) === 0);
+    check('after a reload it is still locked and unresolved', !/Destination verified/.test(t) && (await page.getByRole('button', { name: /review bridge/i }).count()) === 0);
     check('after a reload the stored record is exactly what it was (no drift, no loss)', JSON.stringify(stored) === snapshot, JSON.stringify(stored));
 
     await wallet.switchAccount(page, 1);
     await page.waitForTimeout(2500);
     t = await bodyText(page);
-    check('a different wallet is not locked by the first wallet\'s record', /Review bridge/.test(t) && !/Do not submit again/.test(t));
+    check('a different wallet is not locked by the first wallet\'s record', /Review bridge/.test(t) && !/Bridge needs review/.test(t));
     check('and starts at Review', (await currentStage(page)) === 'Review');
     check('the second wallet has no record created or inherited', (await readStored(page, 'bridge', addr1)) === null);
     check('the first wallet\'s record was not modified by the switch', JSON.stringify(await readStored(page, 'bridge', app.addr)) === snapshot);
@@ -138,7 +142,7 @@ console.log('\n  Downgraded record: survives a reload, keeps its evidence, and d
     await wallet.switchAccount(page, 0);
     await page.waitForTimeout(2500);
     t = await bodyText(page);
-    check('switching back restores the lock for the first wallet', /Do not submit again/.test(t) && (await page.getByRole('button', { name: /review bridge/i }).count()) === 0);
+    check('switching back restores the lock for the first wallet', !/Destination verified/.test(t) && (await page.getByRole('button', { name: /review bridge/i }).count()) === 0);
     check('wallet was never asked to sign or send', !app.wallet.methods.some((m) => /sign|send/i.test(m)), app.wallet.methods.join(','));
   } finally { await app.browser.close(); }
 }
@@ -164,7 +168,7 @@ console.log('\n  A cached VERIFIED with both hashes requires fresh onchain proof
     check('second wallet cannot inherit another wallet\'s stale result',
       !/Destination verified/.test(await bodyText(page))&&/Review bridge/.test(await bodyText(page)));
     await wallet.switchAccount(page, 0); await page.waitForTimeout(2500);
-    check('first wallet remains locked awaiting independent proof', /Do not submit again/.test(await bodyText(page)));
+    check('first wallet remains locked awaiting independent proof', (await page.getByRole('button', { name: /review bridge/i }).count()) === 0 && !/Destination verified/.test(await bodyText(page)));
   } finally { await app.browser.close(); }
 }
 
