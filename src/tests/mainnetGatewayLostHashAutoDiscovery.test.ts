@@ -60,7 +60,7 @@ describe('automatic original Gateway deposit recovery',()=>{
  });
  it('ignores a same-amount direct transfer when only one transaction called deposit',async()=>{
   const r=reader([log(hashA),log(hashB)]);
-  r.getTransaction=vi.fn(async(hash:`0x${string}`)=>({
+  r.getTransaction=vi.fn((hash:`0x${string}`)=>Promise.resolve({
    hash,from:owner,to:GATEWAY_MAINNET_WALLET,
    input:hash===hashA?input:'0x12345678',
   }));
@@ -69,9 +69,9 @@ describe('automatic original Gateway deposit recovery',()=>{
  });
  it('fails closed if any candidate transaction cannot be read',async()=>{
   const r=reader([log(hashA),log(hashB)]);
-  r.getTransaction=vi.fn(async(hash:`0x${string}`)=>{
-   if(hash===hashB)throw Error('RPC timeout');
-   return {hash,from:owner,to:GATEWAY_MAINNET_WALLET,input};
+  r.getTransaction=vi.fn((hash:`0x${string}`)=>{
+   if(hash===hashB)return Promise.reject(Error('RPC timeout'));
+   return Promise.resolve({hash,from:owner,to:GATEWAY_MAINNET_WALLET,input});
   });
   expect(await discoverOriginalGatewayDeposit(r,op,3_000_000)).toBeNull();
  });
