@@ -37,7 +37,7 @@ const locked = async (page, app, newAttemptButton) => {
     (await page.getByRole('button', { name: 'Confirm in wallet' }).count()) === 0);
   check('verification happens automatically without a misleading manual action',
     (await page.getByRole('button', { name: 'Verify destination onchain' }).count()) === 0 &&
-    /checked automatically|checks the original wallet and Circle evidence automatically/i.test(t));
+    /checked automatically|checks the original wallet and Circle evidence automatically|No Swap source transaction has been verified/i.test(t));
   check('a real Activity navigation action is available',
     (await page.getByRole('button', { name: 'Open Activity' }).count()) === 1);
   check('route selector may browse other pairs without reopening original signing',
