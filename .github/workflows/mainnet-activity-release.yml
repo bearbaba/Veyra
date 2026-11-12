@@ -8,6 +8,9 @@ on:
       - feature/mainnet-human-first-ux
       - feature/mainnet-identity-authority
       - arc-studio/settlement-mainnet-preview
+  pull_request:
+    branches:
+      - feature/mainnet-identity-authority
   workflow_dispatch:
 
 permissions:
