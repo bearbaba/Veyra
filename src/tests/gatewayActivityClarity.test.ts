@@ -12,7 +12,7 @@ const ledger=source('mainnet/gatewayMainnetBalances.ts');
 describe('unified deposits present finality and spendable Circle ledger separately',()=>{
  it('presents the exact source receipt as source finalized, never individual credit verified',()=>{
   expect(receipts).toContain("receipt.kind==='deposit'&&receipt.status==='SOURCE_FINALIZED'");
-  expect(receipts).toContain("finalizedDeposit?'Source finalized'");
+  expect(receipts).toContain("finalizedDeposit?'Deposit confirmed'");
   expect(receipts).toContain("Deposit confirmed onchain.");
   expect(receipts).toContain("individual Gateway credit has not been attributed.");
   expect(receipts).toContain("Circle Available is read separately");
@@ -35,7 +35,7 @@ describe('unified deposits present finality and spendable Circle ledger separate
  it('avoids misleading fully synced and completed-payment language',()=>{
   expect(activity).toContain("serverHistoryStatus==='ready'?'Account receipts checked':'Local history available'");
   expect(activity).not.toContain("syncing?'Updating…':'Up to date'");
-  expect(home).toContain('An earlier payment is still pending. Check Activity before another send.');
+  expect(home).toContain('An earlier transaction needs reconciliation. View its original status in Activity.');
   expect(home).toContain('pending.length>0');
  });
 });
