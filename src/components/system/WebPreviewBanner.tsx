@@ -34,7 +34,17 @@ export function WebPreviewBanner() {
     };
   }, []);
 
-  if (VEYRA_ENV === 'mainnet' && !IS_UI_ONLY_PREVIEW) return null;
+  if (VEYRA_ENV === 'mainnet' && !IS_UI_ONLY_PREVIEW) {
+    return (
+      <div role="note" className="border-b px-4 py-2 text-xs"
+        style={{background:'rgba(124,159,212,.08)',borderColor:'var(--border)',color:'var(--muted)'}}>
+        <div className="mx-auto max-w-7xl">
+          <strong style={{color:'var(--warning)'}}>Mainnet public beta · Real money.</strong>
+          {' '}Review the network, recipient, amount and fees in your wallet before signing.
+        </div>
+      </div>
+    );
+  }
 
   const online = bffState === 'online';
   const checking = bffState === 'checking';

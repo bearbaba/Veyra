@@ -30,35 +30,53 @@ describe('Human-first payment drafts (never an authorization or verified identit
  });
 });
 describe('Mainnet human-first navigation and transparent settlement',()=>{
- it('puts People on primary navigation and moves Swap/Bridge to More only for mainnet',()=>{
+ it('shows Friends, Swap and Bridge with Exchange/Agent Soon on mainnet',()=>{
   const shell=read('components/layout/AppShell.tsx');
-  expect(shell).toContain("{ id: 'social', label: 'People'");
+  expect(shell).toContain("{ id: 'social', label: 'Friends'");
   expect(shell).toContain("const SECONDARY_NAV: NavItem[] = VEYRA_ENV === 'mainnet'");
   expect(shell).toContain("{ id: 'convert', label: 'Swap'");
   expect(shell).toContain("{ id: 'bridge', label: 'Bridge'");
   expect(shell).toContain("const MOBILE_MORE_NAV = VEYRA_ENV === 'mainnet'");
+  expect(shell).toContain("{ id: 'exchange', label: 'Exchange'");
+  expect(shell).toContain('soon: true');
+  expect(shell).toContain('disabled={item.soon}');
  });
- it('prioritizes Send/Receive/People/Activity rather than four DeFi tool cards',()=>{
+ it('keeps Pay, People and safe Receive available in the redesigned Mainnet Home',()=>{
   const home=read('components/pages/MainnetHomePage.tsx');
-  expect(home).toContain("id:'send',label:'Send'");
-  expect(home).toContain("id:'receive',label:'Receive'");
-  expect(home).toContain("id:'people',label:'People'");
+  expect(home).toContain("id:'send',label:'Pay'");
+  expect(home).toContain("id:'people',label:'Friends'");
+  expect(home).toContain("id:'swap',label:'Swap'");
+  expect(home).toContain("id:'bridge',label:'Bridge'");
   expect(home).toContain("id:'activity',label:'Activity'");
+  expect(home).toContain("onClick={()=>setReceive(v=>!v)} disabled={!address}");
+  expect(home).toContain("onNavigate(id==='send'?'settlement'");
+  expect(home).toContain("signedWallet&&social.identityOrigin==='ready'");
+  expect(home).toContain("No transactions yet.");
   expect(home).toContain('{pending.length>0&&');
  });
- it('defaults to direct wallet transfer and exposes contract only when requested',()=>{
-  const hub=read('components/pages/MainnetPayHub.tsx');
-  expect(hub).toContain("initialMethod='wallet'");
-  expect(hub).toContain('Payment method ·');
-  expect(hub).toContain('{optionsOpen&&');
-  expect(hub).toContain('No escrow or refund');
-  expect(hub).toContain('sharedDraft={draft}');
-  expect(hub).toContain('onDraftChange={changeDraft}');
- });
- it('rechecks a contract review when the shared recipient or amount changes',()=>{
+ it('keeps Wallet and Friends inside one Settlement method',()=>{
+   const hub=read('components/pages/MainnetPayHub.tsx');
+   expect(hub).toContain('Veyra Settlement');
+   expect(hub).toContain('No escrow or automatic refund');
+   expect(hub).toContain('sharedDraft={draft}');
+   expect(hub).toContain('onDraftChange={changeDraft}');
+   expect(hub).toContain('payLocked?');
+   expect(hub).not.toContain('Direct transfer');
+   expect(hub).not.toContain('optionsOpen');
+  });
+  it('rechecks a contract review when the shared recipient or amount changes',()=>{
   const pay=read('components/pages/MainnetPayPage.tsx');
   const contract=read('components/pages/SettlementPage.tsx');
-  expect(pay).toContain('onDraftChange?.({recipient:e.target.value})');
+  const hub=read('components/pages/MainnetPayHub.tsx');
+  const picker=read('components/pages/MainnetPayRecipientPicker.tsx');
+  expect(hub).toContain('onWalletChange={changeWalletRecipient}');
+  expect(picker).toContain("useState<'wallet'|'people'>");
+  expect(picker).toContain('onClick={()=>changeTab(\'wallet\')}');
+  expect(picker).toContain('onClick={()=>changeTab(\'people\')}');
+  expect(picker).toContain('aria-expanded={searchOpen}');
+  expect(picker).toContain('connected.map(friend=>');
+  expect(picker).toContain('lookupMainnetRecipient(');
+  expect(pay).toContain('reverifySelectedIdentity');
   expect(contract).toContain("if(step==='review'||step==='loading-fees'){setSnapshot(null);setStep('form');}");
   expect(contract).toContain('2 confirmations: approve this amount');
   expect(contract).toContain('no escrow, refund or purchase protection.');

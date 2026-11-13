@@ -1,4 +1,5 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
+import {lookupCurrentXAccountId} from './xHandleAuthority.js';
 import type { DbClient } from '../db/client.js';
 import { newSnapshotId } from '../db/ids.js';
 import { isBlockedEither } from '../db/repositories/socialRepository.js';
@@ -28,6 +29,33 @@ export class IdentityResolutionError extends Error {
 export async function resolveRecipient(db: DbClient, rawInput: string, senderUserId?: string): Promise<ResolvedRecipient> {
   const input = rawInput.trim();
   if (/^0x[0-9a-fA-F]{40}$/.test(input)) return { kind: 'WALLET', walletAddress: input };
+  // Explicit X namespace: never resolve @handle by guessing a wallet or
+  // allowing an unrelated Veyra ID to hijack the X handle.
+  const xQuery=/^x:([a-z0-9_]{1,15})$/i.exec(input);
+  if(xQuery){
+    const handle=xQuery[1]!;
+    const [bound]=await db.select({veyraUserId:linkedIdentities.veyraUserId,
+      externalId:linkedIdentities.externalId})
+      .from(linkedIdentities)
+      .innerJoin(veyraUsers,eq(veyraUsers.veyraUserId,linkedIdentities.veyraUserId))
+      .where(and(eq(linkedIdentities.provider,'X'),
+        sql`lower(${linkedIdentities.externalHandle})=lower(${handle})`,
+        eq(linkedIdentities.status,'ACTIVE'),isNull(linkedIdentities.revokedAt),
+        eq(veyraUsers.status,'ACTIVE'),isNull(veyraUsers.deletedAt))).limit(1);
+    if(!bound)throw new IdentityResolutionError('X_NOT_LINKED',
+      'This X handle is not linked to a verified Veyra ID. Invite them to link their account.');
+    const liveId=await lookupCurrentXAccountId(handle);
+    if(liveId===null)throw new IdentityResolutionError('X_LOOKUP_NOT_VERIFIED',
+      'Current X username ownership could not be verified. Use the verified Veyra ID instead.');
+    if(liveId!==bound.externalId)throw new IdentityResolutionError('X_HANDLE_CHANGED',
+      'This X handle no longer belongs to its former linked X account. Ask them to reconnect X.');
+    if(senderUserId&&senderUserId!==bound.veyraUserId&&
+      await isBlockedEither(db,senderUserId,bound.veyraUserId))
+      throw new IdentityResolutionError('RECIPIENT_BLOCKED',
+       'Payment cannot be initiated because a block relationship exists');
+    return {kind:'VEYRA_IDENTITY',veyraUserId:bound.veyraUserId};
+  }
+
 
   let lookup: ReturnType<typeof parseRecipientHandle>;
   try {
@@ -68,23 +96,8 @@ export async function resolveRecipient(db: DbClient, rawInput: string, senderUse
     throw new IdentityResolutionError('RECIPIENT_NOT_FOUND', 'No verified Veyra ID matched this recipient.');
   }
 
-  const [linked] = await db
-    .select({ veyraUserId: linkedIdentities.veyraUserId })
-    .from(linkedIdentities)
-    .where(and(
-      eq(linkedIdentities.provider, 'X'),
-      sql`lower(${linkedIdentities.externalHandle}) = lower(${handle})`,
-      eq(linkedIdentities.status, 'ACTIVE'),
-      isNull(linkedIdentities.revokedAt),
-    ))
-    .limit(1);
-  if (linked) {
-    if (senderUserId && senderUserId !== linked.veyraUserId && await isBlockedEither(db, senderUserId, linked.veyraUserId)) {
-      throw new IdentityResolutionError('RECIPIENT_BLOCKED', 'Payment cannot be initiated because a block relationship exists');
-    }
-    return { kind: 'VEYRA_IDENTITY', veyraUserId: linked.veyraUserId };
-  }
-
+  // Never use a cached X handle as an implicit alias. X requires the explicit
+  // x: namespace and fresh provider-owner verification above.
   throw new IdentityResolutionError('RECIPIENT_NOT_FOUND', 'No Veyra or linked X identity matched this recipient');
 }
 

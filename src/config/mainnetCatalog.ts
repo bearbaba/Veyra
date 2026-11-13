@@ -10,7 +10,7 @@ export interface MainnetChainCatalogEntry {
   chainId: number;
   name: string;
   usdc: `0x${string}`;
-  cctpDomain: number;
+  cctpDomain: number | null;
   rpcEnvKey: string;
   explorerUrl: string;
 }
@@ -26,7 +26,8 @@ export const CCTP_V2_MAINNET = {
 
 export const MAINNET_CHAIN_CATALOG: readonly MainnetChainCatalogEntry[] = [
   // Arc is Veyra's home network. The ERC-20 facade uses 6 decimals; native gas uses 18.
-  // Contract and CCTP domain: https://docs.arc.io/arc/references/contract-addresses
+  // Arc (Mainnet chainId 5042, Testnet chainId 5042002) shares Circle domain 26.
+  // Domain is NOT a chain ID; provider support, deployed contracts and signing acceptance are separate.
   // RPC and chain ID: https://docs.arc.io/arc/references/connect-to-arc
   {
     chainId: 5042,
@@ -102,13 +103,13 @@ export function validateMainnetCatalog(): string[] {
   const domains = new Set<number>();
   const arc = MAINNET_CHAIN_CATALOG.find((chain) => chain.chainId === 5042);
   if (!arc || arc.usdc.toLowerCase() !== '0x3600000000000000000000000000000000000000' || arc.cctpDomain !== 26 || arc.rpcEnvKey !== 'ARC_MAINNET_RPC_URL') {
-    errors.push('Arc Mainnet (5042) must use its verified USDC facade, CCTP domain 26 and dedicated mainnet RPC configuration.');
+    errors.push('Arc Mainnet must retain the verified USDC facade, Circle domain 26 and dedicated Mainnet RPC; domain 26 alone never authorizes CCTP signing.');
   }
   for (const chain of MAINNET_CHAIN_CATALOG) {
     if (seen.has(chain.chainId)) errors.push(`Duplicate mainnet chainId ${chain.chainId}.`);
-    if (domains.has(chain.cctpDomain)) errors.push(`Duplicate CCTP domain ${chain.cctpDomain}.`);
+    if (chain.cctpDomain !== null && domains.has(chain.cctpDomain)) errors.push(`Duplicate CCTP domain ${chain.cctpDomain}.`);
     seen.add(chain.chainId);
-    domains.add(chain.cctpDomain);
+    if (chain.cctpDomain !== null) domains.add(chain.cctpDomain);
     if (!/^0x[0-9a-fA-F]{40}$/.test(chain.usdc)) errors.push(`${chain.name} has invalid USDC address.`);
     if (!/^https:\/\//.test(chain.explorerUrl)) errors.push(`${chain.name} explorer must use HTTPS.`);
   }

@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Search, Bot, SendHorizontal, ArrowLeftRight, LayoutList, Settings, Home, X, Route, Sparkles } from 'lucide-react';
 import type { VeyraPage } from '../layout/AppShell';
+import {VEYRA_ENV} from '@/lib/env';
 
 interface CommandBarProps {
   open: boolean;
@@ -16,17 +17,26 @@ interface CommandBarProps {
   onNavigate: (page: VeyraPage) => void;
 }
 
-const PRIMARY_ACTIONS = [
+const PRIMARY_ACTIONS = VEYRA_ENV === 'mainnet' ? [
+  { label: 'Home', page: 'home' as VeyraPage, icon: <Home className="size-4" />, hint: 'Wallet and balances' },
+  { label: 'Friends', page: 'social' as VeyraPage, icon: <Search className="size-4" />, hint: 'Your friends' },
+  { label: 'Pay', page: 'settlement' as VeyraPage, icon: <SendHorizontal className="size-4" />, hint: 'Send USDC' },
+  { label: 'Swap', page: 'convert' as VeyraPage, icon: <ArrowLeftRight className="size-4" />, hint: 'Exchange USDC and EURC' },
+  { label: 'Bridge', page: 'bridge' as VeyraPage, icon: <Route className="size-4" />, hint: 'Move USDC between networks' },
+] : [
   { label: 'Ask Veyra', page: 'agent' as VeyraPage, icon: <Bot className="size-4" />, hint: 'Chat or plan in any language' },
-  { label: 'Pay someone', page: 'pay' as VeyraPage, icon: <SendHorizontal className="size-4" />, hint: 'Veyra ID, X handle, or wallet' },
+  { label: 'Pay someone', page: 'pay' as VeyraPage, icon: <SendHorizontal className="size-4" />, hint: 'Send USDC to a verified Veyra ID or wallet' },
   { label: 'Activity', page: 'activity' as VeyraPage, icon: <LayoutList className="size-4" />, hint: 'Receipts and history' },
   { label: 'Home', page: 'home' as VeyraPage, icon: <Home className="size-4" />, hint: 'Identity and balances' },
 ];
 
-const SECONDARY_ACTIONS = [
+const SECONDARY_ACTIONS = VEYRA_ENV === 'mainnet' ? [
+  { label: 'Activity', page: 'activity' as VeyraPage, icon: <LayoutList className="size-4" />, hint: 'Receipts and history' },
+  { label: 'Settings', page: 'settings' as VeyraPage, icon: <Settings className="size-4" />, hint: 'Identity and preferences' },
+] : [
   { label: 'Settings', page: 'settings' as VeyraPage, icon: <Settings className="size-4" />, hint: 'Identity, runtime, and policy' },
-  { label: 'Convert (advanced)', page: 'convert' as VeyraPage, icon: <ArrowLeftRight className="size-4" />, hint: 'Direct conversion flow' },
-  { label: 'Bridge (advanced)', page: 'bridge' as VeyraPage, icon: <Route className="size-4" />, hint: 'Direct CCTP test flow' },
+  { label: 'Swap', page: 'convert' as VeyraPage, icon: <ArrowLeftRight className="size-4" />, hint: 'Direct conversion flow' },
+  { label: 'Bridge', page: 'bridge' as VeyraPage, icon: <Route className="size-4" />, hint: 'Direct CCTP test flow' },
 ];
 
 export function CommandBar({ open, onClose, onNavigate }: CommandBarProps) {
@@ -64,6 +74,7 @@ export function CommandBar({ open, onClose, onNavigate }: CommandBarProps) {
   }
 
   function handleAskAgent() {
+    if(VEYRA_ENV==='mainnet')return;
     const value = query.trim();
     if (value) sessionStorage.setItem('veyra:pending-query', value);
     onNavigate('agent');
@@ -91,8 +102,8 @@ export function CommandBar({ open, onClose, onNavigate }: CommandBarProps) {
                 ref={inputRef}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={(event) => { if (event.key === 'Enter' && query.trim()) handleAskAgent(); }}
-                placeholder="Ask Veyra in any language, or navigate…"
+                onKeyDown={(event) => { if (VEYRA_ENV!=='mainnet'&&event.key === 'Enter' && query.trim()) handleAskAgent(); }}
+                placeholder={VEYRA_ENV==='mainnet'?"Search pages…":"Ask Veyra in any language, or navigate…"}
                 className="flex-1 bg-transparent text-sm outline-none"
                 style={{ color: 'var(--ink)' }}
               />
@@ -100,7 +111,7 @@ export function CommandBar({ open, onClose, onNavigate }: CommandBarProps) {
               <kbd className="rounded-md px-1.5 py-0.5 font-mono text-[10px]" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--subtle)' }}>ESC</kbd>
             </div>
 
-            {query.trim() && (
+            {VEYRA_ENV!=='mainnet'&&query.trim() && (
               <button onClick={handleAskAgent} className="flex w-full items-center gap-3 border-b px-4 py-3 text-left hover:bg-white/5" style={{ borderColor: 'var(--border)' }}>
                 <span className="flex size-8 items-center justify-center rounded-xl" style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}><Bot className="size-4" /></span>
                 <span className="min-w-0 flex-1">

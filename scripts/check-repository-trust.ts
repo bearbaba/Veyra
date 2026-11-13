@@ -9,6 +9,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {isExactStagingBffAllowlist} from './stagingBffAllowlist';
+import {verifyProductionMainnetRouting,type VercelRoutingConfig} from '../server/services/mainnetReleaseRouting';
+
+const MAINNET_BFF_ORIGIN='https://veyra-mainnet-v1-bff.onrender.com';
 
 export const TRUST_FILES = [
   'README.md',
@@ -23,6 +26,7 @@ export const TRUST_FILES = [
   'src/preview/PreviewBaseUsdcBalance.tsx',
   'src/providers/registry/mainnetProviderManifest.ts',
   'vercel.json',
+  'scripts/build-mainnet-pilot.ts',
   '.github/workflows/ci.yml',
 ] as const;
 
@@ -45,8 +49,8 @@ export function validateRepositoryTrust(evidence: TrustEvidence): string[] {
   // Marketing text must say what exists today, not what is planned.
   requireMatch('README.md', /The Intelligent Money Layer on Arc/,
     'README must retain the original Veyra financial application mission.');
-  requireMatch('README.md', /Mainnet financial execution is not enabled/i,
-    'README must disclose disabled Mainnet financial execution.');
+  requireMatch('README.md', /Mainnet financial execution is limited to a capped public beta/i,
+    'README must disclose that Mainnet financial execution is limited to a capped public beta.');
   requireMatch('README.md', /isolated Identity Beta.*(?:unified|financial)/i,
     'README must distinguish the isolated working Identity Beta from unified Production.');
   requireMatch('README.md', /docs\/veyra-single-product-release-contract\.md/,
@@ -76,14 +80,33 @@ export function validateRepositoryTrust(evidence: TrustEvidence): string[] {
     'Unified read-only Base support is missing from the documented current product.');
   requireMatch('src/preview/PreviewBaseUsdcBalance.tsx', /Unavailable —/,
     'Failed Base RPC reads must explicitly disclose unavailable state.');
-  requireMatch('vercel.json',
-    /(?:VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1|VITE_VEYRA_ENV=testnet VITE_VEYRA_UNIFIED_STAGING=1 VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_TESTNET_PAY=1 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=0 VITE_VEYRA_IDENTITY_BETA=0) bun run build/,
-    'Vercel production preview build must remain explicit Testnet-first.');
+  // The deployed build must be exactly one reviewed profile: the Mainnet pilot
+  // script (env applied to the build process itself), the Testnet BFF staging
+  // build, or the static Testnet Preview.
+  const isMainnetPilot=/^bun run typecheck && bun scripts\/build-mainnet-pilot\.ts$/.test(
+    (()=>{try{return (JSON.parse(evidence['vercel.json']) as {buildCommand?:string}).buildCommand??'';}catch{return '';}})());
+  if(isMainnetPilot){
+    requireMatch('scripts/build-mainnet-pilot.ts',/VITE_VEYRA_ENV:'mainnet'/,
+      'The Mainnet pilot build profile must set VITE_VEYRA_ENV=mainnet.');
+    requireMatch('scripts/build-mainnet-pilot.ts',/VITE_VEYRA_TESTNET_PAY:'0'/,
+      'The Mainnet pilot build profile must disable Testnet payment.');
+    requireMatch('scripts/build-mainnet-pilot.ts',/assertAndPublish\(/,
+      'The Mainnet pilot build must assert the emitted artifact.');
+  } else {
+    requireMatch('vercel.json',
+      /(?:VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1|VITE_VEYRA_ENV=testnet VITE_VEYRA_UNIFIED_STAGING=1 VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_TESTNET_PAY=1 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=0 VITE_VEYRA_IDENTITY_BETA=0) bun run build/,
+      'Vercel production preview build must remain explicit Testnet-first.');
+  }
   // Original finance Production must remain proxy-free. The staging branch
   // permits ONLY the reviewed exact HTTPS BFF route list (not a wildcard).
   const buildString = evidence['vercel.json'];
   const isStaging = buildString.includes('VITE_VEYRA_UNIFIED_STAGING=1');
-  if(isStaging){
+  if(isMainnetPilot){
+    let config:VercelRoutingConfig={};
+    try{config=JSON.parse(buildString) as VercelRoutingConfig;}catch{ /* reported below */ }
+    if(!verifyProductionMainnetRouting(config,MAINNET_BFF_ORIGIN).ok)
+      issues.push('An unexpected backend rewrite needs a separate reviewed security release.');
+  } else if(isStaging){
     let routes:unknown;
     try{routes=(JSON.parse(buildString) as {rewrites?:unknown}).rewrites;}
     catch{routes=undefined;}

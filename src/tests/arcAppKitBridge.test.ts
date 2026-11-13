@@ -51,6 +51,22 @@ describe('Bidirectional App Kit CCTP Testnet acceptance gate',()=>{
   const step=getAppKitBridgeSteps(result);
   expect(step).toEqual({providerState:'success',burnHash,mintHash});
   expect(getAppKitBridgeSteps({state:'pending',steps:[]})).toEqual({providerState:'pending'});
+  // The SDK can provide a tx hash before a burn/mint step reports "success".
+  // Retain that pointer for read-only onchain recovery, never as success proof.
+  expect(getAppKitBridgeSteps({state:'pending',steps:[
+   {name:'burn',state:'pending',txHash:burnHash},
+   {name:'mint',state:'pending'},
+  ]})).toEqual({providerState:'pending',burnHash});
+  expect(getAppKitBridgeSteps({state:'error',steps:[
+   {name:'burn',state:'error',txHash:burnHash},
+  ]})).toEqual({providerState:'error',burnHash});
+  expect(getAppKitBridgeSteps({state:'pending',steps:[
+   {name:'burn',state:'pending',txHash:'0xbroken'},
+  ]})).toEqual({providerState:'pending'});
+  expect(getAppKitBridgeSteps({state:'pending',steps:[
+   {name:'burn',state:'pending',txHash:burnHash},
+   {name:'burn',state:'success',txHash:burnHash},
+  ]})).toEqual({providerState:'pending'});
   const checkpoint={...intent(),state:'SUBMITTED_UNVERIFIED' as const,...step};
   const receipt={status:'success',transactionHash:mintHash,logs:[mint(other,1900000n)]};
   expect(verifyCompletedAppKitBridge(receipt,checkpoint)).toEqual({

@@ -1,0 +1,77 @@
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { Notice, StatusPill, TxStepper, TX_STAGES, TX_DISPLAY_STEPS, txStageIndex, txDisplayStep } from '../components/ui/primitives';
+
+const read = (p: string) => readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
+
+describe('Shared transaction lifecycle', () => {
+  it('defines the single Enter, Review, Confirm, Processing, Verified sequence', () => {
+    expect([...TX_STAGES]).toEqual(['Enter details', 'Review', 'Confirm in wallet', 'Processing', 'Verified']);
+    expect(txStageIndex('Review')).toBeLessThan(txStageIndex('Confirm in wallet'));
+  });
+  it('marks exactly the current step and announces an unresolved outcome', () => {
+    const html = renderToStaticMarkup(createElement(TxStepper, { stage: 'Processing', stalled: true }));
+    expect(html.match(/aria-current="step"/g)).toHaveLength(1);
+    expect(html).toContain('Do not submit again');
+    expect(renderToStaticMarkup(createElement(TxStepper, { stage: 'Review' }))).not.toContain('Do not submit again');
+  });
+  it('uses statically discoverable Tailwind classes for the small-screen stage labels', () => {
+    const html = renderToStaticMarkup(createElement(TxStepper, { stage: 'Review' }));
+    // All sizes use three readable steps, with no hiding of the current status.
+    expect(html).toContain('aria-label="Transaction progress"');
+    expect(html).toContain('Review');
+    expect(html).not.toContain('Step 1 of 3');
+    expect(html.match(/<li\b/g)).toHaveLength(3);
+    expect([...TX_DISPLAY_STEPS]).toEqual(['Review', 'Confirm', 'Complete']);
+    // Tailwind only generates classes it can see as complete strings: never build them dynamically.
+    const source = readFileSync(new URL('../components/ui/primitives.tsx', import.meta.url), 'utf8');
+    expect(source).not.toMatch(/(?:sm|max-\[\d+px\]):\u0024\{/);
+  });
+  it('keeps five internal security stages but maps to three visual phases', () => {
+    expect(TX_STAGES.map(txDisplayStep)).toEqual(['Review', 'Review', 'Confirm', 'Complete', 'Complete']);
+    const pending = renderToStaticMarkup(createElement(TxStepper, { stage: 'Processing', stalled: true }));
+    expect(pending).toContain('>Pending</span>');
+    expect(pending).not.toContain('>Complete</span>');
+    expect(pending).not.toContain('Step 3 of 3');
+    expect(pending).toContain('Outcome unresolved');
+  });
+  it('never marks a step current once the transaction is Verified', () => {
+    expect(renderToStaticMarkup(createElement(TxStepper, { stage: 'Verified' }))).not.toContain('aria-current');
+  });
+});
+
+describe('Notice and StatusPill', () => {
+  it('announces errors assertively and everything else politely', () => {
+    expect(renderToStaticMarkup(createElement(Notice, { tone: 'danger', children: 'x' }))).toContain('role="alert"');
+    expect(renderToStaticMarkup(createElement(Notice, { tone: 'warning', children: 'x' }))).toContain('role="status"');
+    expect(renderToStaticMarkup(createElement(StatusPill, { tone: 'success', children: 'Verified' }))).toContain('Verified');
+  });
+});
+
+describe('Mainnet Home keeps wallet and Gateway funds separate', () => {
+  const home = read('src/components/pages/MainnetHomePage.tsx');
+  it('renders Gateway in its own card, outside the wallet balance card', () => {
+    const wallet = home.indexOf('aria-label="Wallet balance"');
+    const walletEnd = home.indexOf('</section>', wallet);
+    const gateway = home.indexOf('<MainnetUnifiedBalancePanel compact standalone/>');
+    expect(wallet).toBeGreaterThan(-1);
+    expect(gateway).toBeGreaterThan(walletEnd);
+    expect(home).toContain('held separately from your wallet USDC');
+  });
+  it('keeps the phone layout compact: one Quick actions row and no unconditional tall cards', () => {
+    expect(home).toContain('grid grid-cols-5 gap-2 sm:gap-3');
+    expect(home).not.toMatch(/grid-cols-2 gap-3 sm:grid-cols-5/);
+    // Minimum heights apply from the sm breakpoint up only; phones size to their content.
+    expect(home).not.toMatch(/className="[^"]*(?<![:\w-])min-h-\[(?:250|257|273|265|94)px\]/);
+    // Every class is a static string so Tailwind can generate it.
+    expect(home).not.toMatch(/className=\{[^}]*\$\{[^}]*(?:min-h|grid-cols|text-\[)/);
+  });
+  it('shows no duplicate hero action and no developer jargon', () => {
+    const hero = home.slice(home.indexOf('aria-label="Veyra overview"'), home.indexOf('aria-label="Your Veyra identity"'));
+    expect(hero).not.toContain('Friends');
+    expect(home).not.toContain('Testnet fallback');
+    expect(home).toContain('<h2 className="sr-only">Quick actions</h2>');
+  });
+});

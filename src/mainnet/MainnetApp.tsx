@@ -48,7 +48,8 @@ export function MainnetApp() {
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [recoveryBlocked, setRecoveryBlocked] = useState(false);
   const [evidence, setEvidence] = useState<MainnetReconciliation | null>(null);
-  const [manualHash, setManualHash] = useState('');
+  const autoReconcileLock = useRef(false);
+  const autoReconcileClock = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const signing = useRef(false);
@@ -194,12 +195,13 @@ export function MainnetApp() {
         const uncertain: MainnetJournal = { ...initial, stage: 'UNKNOWN' };
         writeMainnetJournal(uncertain, storageForMainnet());
         setJournal(uncertain); setReview(null);
-        setError('Wallet response uncertain. Inspect wallet history and reconcile using the original hash. Never sign a duplicate.');
+        setError('Wallet response uncertain. Veyra will retain and check existing evidence without resending.');
       }
     } finally { signing.current = false; setBusy(false); }
   }
   async function reconcile(hash: string) {
-    if (!address || !journal || busy) return;
+    if (!address || !journal || autoReconcileLock.current || signing.current) return;
+    autoReconcileLock.current=true;
     setBusy(true); setError(null);
     try {
       const plan = buildMainnetPayPlan(address, journal.to, journal.amount);
@@ -216,8 +218,24 @@ export function MainnetApp() {
       setJournal(next);
       if (result.state === 'VERIFIED') setBalance(null);
     } catch (cause) { setError(`${errText(cause)} The original lock remains.`); }
-    finally { setBusy(false); }
+    finally { autoReconcileLock.current=false;setBusy(false); }
   }
+  // Read-only receipt checks run without user-entered hashes or wallet prompts.
+  useEffect(() => {
+    if (!address || !journal?.hash || journal.stage !== 'PENDING') return;
+    let active=true;
+    const check=()=>{
+      if(!active||signing.current||autoReconcileLock.current||
+        Date.now()-autoReconcileClock.current<15_000)return;
+      autoReconcileClock.current=Date.now();
+      void reconcile(journal.hash!);
+    };
+    check();
+    const timer=window.setInterval(check,15_000);
+    window.addEventListener('focus',check);
+    return ()=>{active=false;window.clearInterval(timer);window.removeEventListener('focus',check);};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[address,journal?.hash,journal?.stage]);
   function reset() {
     if (!address || !journal || busy || signing.current ||
       !['VERIFIED', 'REVERTED'].includes(journal.stage)) return;
@@ -225,7 +243,7 @@ export function MainnetApp() {
       setError('Could not clear completed local record.'); return;
     }
     setJournal(null); setReview(null); setAck(false); setEvidence(null);
-    setAmount(''); setRecipient(''); setManualHash('');
+    setAmount(''); setRecipient('');
   }
   const readyAccount = !!address && loadedFor === address.toLowerCase();
   const blocked = busy || !readyAccount || recoveryBlocked || !!journal;
@@ -300,11 +318,8 @@ export function MainnetApp() {
                 {journal.hash && <a target="_blank" rel="noreferrer" href={mainnetExplorerTx(journal.hash)} className="vm-explorer">View transaction on Arc Explorer <ExternalLink size={15}/></a>}
                 {journalPending && <div className="vm-inline-note"><ShieldAlert size={16}/> The original request is locked. Do not submit a second payment while status is unknown.</div>}
                 {evidence?.state === 'VERIFIED' && <div className="vm-verified"><CheckCircle2 size={18}/> Transfer log and canonical block verified · Block {evidence.blockNumber.toString()}</div>}
-                {journalPending && <div className="vm-reconcile">
-                  {journal.hash ? <button className="vm-secondary" onClick={() => void reconcile(journal.hash!)} disabled={busy}><RefreshCw size={15}/> Recheck original receipt</button>
-                  : <><label className="vm-label" htmlFor="vm-hash">Recover original transaction hash</label>
-                    <input id="vm-hash" className="vm-input" value={manualHash} onChange={e => setManualHash(e.target.value)} placeholder="0x… 64 hex characters"/>
-                    <button className="vm-secondary" onClick={() => void reconcile(manualHash)} disabled={busy}>Verify original hash</button></>}
+                {journalPending && <div className="vm-inline-note">
+                  <RefreshCw size={15}/> Veyra checks the original receipt automatically. No TX entry or manual verification.
                 </div>}
                 {!journalPending && <button className="vm-secondary" disabled={busy} onClick={reset}>Start a new payment review</button>}
               </>}

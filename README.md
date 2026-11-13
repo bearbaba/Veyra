@@ -6,11 +6,11 @@ Veyra is an open-source, **self-custodial** USDC financial application with the 
 
 Arc is Veyra's home network. Circle USDC and its infrastructure are useful building blocks, **not** an endorsement or a guarantee of swaps, yields, or third-party protocols.
 
-> **Release status:** under development, **not Mainnet money-movement ready**. Arc Mainnet (chain 5042) is wired into the wagmi config and EIP-712 identity flows accept both Arc chains. X OAuth mainnet callback gate is enforced server-side (no silent testnet fallback). X OAuth consent, private chat, unified Pay-by-ID E2E, Bridge/Swap release validation, VeyraSettlement Mainnet deploy, and an independent security review remain incomplete.
+> **Release status:** Mainnet is a **capped public beta**; the product is still under development. Arc Mainnet (chain 5042) is wired into the wagmi config and EIP-712 identity flows accept both Arc chains. X OAuth mainnet callback gate is enforced server-side (no silent testnet fallback). X OAuth consent, private chat, unified Pay-by-ID E2E, Bridge/Swap release validation, VeyraSettlement Mainnet deploy, and an independent security review remain incomplete.
 
 **Single-product completion plan:** [Unified Veyra release contract](docs/veyra-single-product-release-contract.md). No standalone PayLink fork and no automatic Mainnet activation.
 
-**Mainnet financial execution is not enabled.** The isolated Identity Beta must not be mistaken for a live signed financial workflow in the unified Production website. **There is no independent security audit.**
+**Mainnet financial execution is limited to a capped public beta.** Production builds the Arc Mainnet profile; direct wallet USDC Pay is canary-capped at 0.01 USDC per payment, and Swap, Bridge and Gateway are each gated by provider and backend readiness and report their own verification status. The isolated Identity Beta must not be mistaken for a live signed financial workflow in the unified Production website. **There is no independent security audit.**
 
 ## What can I do today?
 

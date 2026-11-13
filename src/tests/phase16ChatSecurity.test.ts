@@ -66,7 +66,8 @@ describe('Phase 16: real friend Chat with encrypted storage, never fake E2EE',()
   });
   it('chat capability is false when the server has no key, and never claims E2EE',()=>{
     const bff=file('server/bff.ts'),page=file('src/components/pages/SocialPage.tsx');
-    expect(bff).toContain('available:Boolean(encryptionKey()),endToEndEncrypted:false');
+    expect(bff).toContain("res.json({ok:true,available:false,requestAvailable:false,endToEndEncrypted:false,reason:'CHAT_KEY_NOT_CONFIGURED'})");
+    expect(bff).not.toContain('endToEndEncrypted:true');
     expect(page).toContain('setChatEnabled(false)');
     expect(page).toContain('response.ok');
     expect(page).toContain('/api/social/chat/capability');

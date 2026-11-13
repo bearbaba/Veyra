@@ -1,5 +1,5 @@
 /**
- * Fail-closed CCTP V2 linkage verification (Arc <-> Base mainnet).
+ * Fail-closed CCTP V2 linkage verification for published Mainnet domains.
  * A valid destination Transfer alone does not prove it belongs to the source burn.
  *
  * Circle assigns the signed-message nonce after the source MessageSent event.
@@ -9,6 +9,7 @@
  */
 import {decodeEventLog,parseAbi,type Hex} from 'viem';
 import {getMainnetChain,CCTP_V2_MAINNET} from '@/config/mainnetCatalog';
+import {circleCctpBridgePair} from './circleBridgePolicy';
 
 const hash=/^0x[0-9a-fA-F]{64}$/;
 const bytes=/^0x(?:[0-9a-fA-F]{2})+$/;
@@ -88,7 +89,8 @@ export async function assertCctpBridgeLinked(
 ):Promise<void>{
  const sourceDomain=getMainnetChain(sourceChain)?.cctpDomain;
  const destDomain=getMainnetChain(destinationChain)?.cctpDomain;
- if(sourceDomain===undefined||destDomain===undefined||sourceDomain===destDomain||
+ if(sourceDomain==null||destDomain==null||sourceDomain===destDomain||
+    !circleCctpBridgePair(sourceChain,destinationChain,'USDC','USDC')||
     !hash.test(burnHash)||!hash.test(mintHash))
   throw Error('Unsupported CCTP route or missing original transaction hash.');
  const token=getMainnetChain(sourceChain)?.usdc;
@@ -117,4 +119,33 @@ export async function assertCctpBridgeLinked(
     {burnToken:token,mintRecipient:owner,amount}));
  if(matches.length!==1)
   throw Error('CCTP source burn and destination mint could not be linked by the Circle signed-message nonce. Do not treat this bridge as complete.');
+}
+
+/** Find the unique candidate mint transaction from the ORIGINAL Circle Iris source hash.
+ * This remains UNVERIFIED until assertCctpBridgeLinked checks the source and destination
+ * logs, exact signed message, nonce, receiving wallet, token and amount onchain.
+ */
+export async function findCctpDestinationMintHash(sourceChain:number,destChain:number,
+ burnHash:string,request:typeof fetch=fetch):Promise<string|null>{
+ if(!circleCctpBridgePair(sourceChain,destChain,'USDC','USDC')||!hash.test(burnHash))
+  throw Error('No supported CCTP Mainnet source transaction.');
+ const domain=getMainnetChain(sourceChain)?.cctpDomain;
+ if(domain==null)throw Error('Missing Circle CCTP domain.');
+ const response=await request('https://iris-api.circle.com/v2/messages/'+domain+
+  '?transactionHash='+encodeURIComponent(burnHash),{
+  method:'GET',cache:'no-store',headers:{Accept:'application/json'},
+  signal:AbortSignal.timeout(12000),
+ });
+ if(!response.ok)return null;
+ const payload:unknown=await response.json();
+ if(!payload||typeof payload!=='object'||Array.isArray(payload)||
+  !('messages' in payload)||!Array.isArray(payload.messages))return null;
+ const relevant=(payload.messages as unknown[]).filter(item=>{
+  if(!item||typeof item!=='object'||Array.isArray(item))return false;
+  const m=item as Record<string,unknown>;
+  return m.status==='complete'&&typeof m.destinationMintTxHash==='string'&&
+   hash.test(m.destinationMintTxHash)&&
+   (typeof m.sourceTxHash!=='string'||m.sourceTxHash.toLowerCase()===burnHash.toLowerCase());
+ }) as Array<{destinationMintTxHash:string}>;
+ return relevant.length===1?relevant[0].destinationMintTxHash:null;
 }
