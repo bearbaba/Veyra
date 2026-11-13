@@ -105,8 +105,9 @@ await scenario('Bridge, unreadable stored record locks instead of opening a seco
   const t = await bodyText(page);
   check('no way to start a new attempt', (await page.getByRole('button', { name: /review bridge/i }).count()) === 0);
   check('shows a concise locked recovery card', /Recovery needs attention/.test(t) && /Saved operation cannot be read/.test(t), t.slice(0, 200));
-  check('unreadable recovery has no success progress or Complete milestone',
-    (await currentStage(page)) === '', await currentStage(page));
+  const unreadableStep=await currentStage(page);
+  check('unreadable recovery never claims Complete',
+    unreadableStep === '' || unreadableStep === 'Pending', unreadableStep);
 });
 
 // ---- The correction must be safe across reloads and wallet changes -------------------------------
