@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { TX_DISPLAY_STEPS, TxStepper, txDisplayStep } from '../components/ui/primitives';
 import { settlementStageView, type SettlementStep } from '../lib/settlementStage';
 
 const STEPS: SettlementStep[] = ['form', 'loading-fees', 'review', 'approve', 'revalidating', 'execute', 'pending', 'verified', 'confirmed', 'error'];
@@ -29,5 +32,33 @@ describe('Settlement lifecycle mapping', () => {
     const page = readFileSync(new URL('../components/pages/SettlementPage.tsx', import.meta.url), 'utf8');
     expect(page).toContain('type Step = SettlementStep;');
     expect(page).toContain('<TxStepper stage={stageView.stage} stalled={stageView.stalled} />');
+  });
+});
+
+describe('Compact Pay progress: Complete is a verified milestone, never a premature success', () => {
+  it('uses Review → Confirm → Complete for the user-facing milestone names', () => {
+    expect(TX_DISPLAY_STEPS).toEqual(['Review', 'Confirm', 'Complete']);
+    expect(txDisplayStep('Review')).toBe('Review');
+    expect(txDisplayStep('Confirm in wallet')).toBe('Confirm');
+    expect(txDisplayStep('Verified')).toBe('Complete');
+    const initial = renderToStaticMarkup(createElement(TxStepper, {stage:'Review'}));
+    expect(initial).toContain('>Complete</span>');
+    expect(initial).toContain('Review amount, recipient and fees.');
+  });
+  it('keeps processing and unknown outcomes explicitly unverified', () => {
+    const processing = renderToStaticMarkup(createElement(TxStepper, {stage:'Processing'}));
+    expect(processing).toContain('>Processing</span>');
+    expect(processing).not.toContain('>Complete</span>');
+    expect(processing).toContain('Processing. Awaiting onchain verification.');
+    const unresolved = renderToStaticMarkup(createElement(TxStepper, {stage:'Processing', stalled:true}));
+    expect(unresolved).toContain('>Pending</span>');
+    expect(unresolved).not.toContain('>Complete</span>');
+    expect(unresolved).toContain('Outcome unresolved. Do not submit again.');
+  });
+  it('marks Complete only after independently verified receipt', () => {
+    const verified = renderToStaticMarkup(createElement(TxStepper, {stage:'Verified'}));
+    expect(verified).toContain('>Complete</span>');
+    expect(verified).toContain('Transaction verified onchain');
+    expect(verified).not.toContain('>Pending</span>');
   });
 });
