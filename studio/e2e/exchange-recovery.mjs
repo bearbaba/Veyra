@@ -30,7 +30,8 @@ const locked = async (page, app, newAttemptButton) => {
   const t = await bodyText(page);
   check('original operation remains visibly unresolved, not silently completed',
     /needs review|Unverified request|Recovery needs attention/i.test(t) && !/Destination verified/.test(t));
-  check('unresolved outcome stays on Track', (await currentStage(page)) === 'Track', await currentStage(page));
+  check('unresolved outcome stays visibly Pending, never Complete',
+    (await currentStage(page)) === 'Pending', await currentStage(page));
   check('existing operation cannot be submitted again or blindly quoted',
     (await page.getByRole('button', { name: newAttemptButton }).count()) === 0 &&
     (await page.getByRole('button', { name: 'Refresh quote' }).count()) === 0 &&
@@ -104,7 +105,8 @@ await scenario('Bridge, unreadable stored record locks instead of opening a seco
   const t = await bodyText(page);
   check('no way to start a new attempt', (await page.getByRole('button', { name: /review bridge/i }).count()) === 0);
   check('shows a concise locked recovery card', /Recovery needs attention/.test(t) && /Saved operation cannot be read/.test(t), t.slice(0, 200));
-  check('unresolved outcome stays on Track', (await currentStage(page)) === 'Track');
+  check('unreadable recovery has no success progress or Complete milestone',
+    (await currentStage(page)) === '', await currentStage(page));
 });
 
 // ---- The correction must be safe across reloads and wallet changes -------------------------------
