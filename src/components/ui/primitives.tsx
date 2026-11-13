@@ -66,18 +66,20 @@ export function txStageIndex(stage: TxStage): number {
 }
 
 /** Only presentation is condensed. Financial operations keep all five internal states. */
-export const TX_DISPLAY_STEPS = ['Review', 'Confirm', 'Track'] as const;
+export const TX_DISPLAY_STEPS = ['Review', 'Confirm', 'Complete'] as const;
 export type TxDisplayStep = typeof TX_DISPLAY_STEPS[number];
 
 export function txDisplayStep(stage: TxStage): TxDisplayStep {
   if (stage === 'Enter details' || stage === 'Review') return 'Review';
   if (stage === 'Confirm in wallet') return 'Confirm';
-  return 'Track';
+  return 'Complete';
 }
 
 /**
  * Quiet progress line: three familiar words, no nested box or step numbers.
  * This is presentation only. UNKNOWN/PENDING remain unverified and locked.
+ * The final milestone is Complete, but pending/unknown payments display Processing/Pending
+ * until independent onchain verification is complete.
  * An accessible status announcement retains the complete safety explanation.
  */
 export function TxStepper({ stage, stalled = false }: { stage: TxStage; stalled?: boolean }) {
@@ -105,7 +107,7 @@ export function TxStepper({ stage, stalled = false }: { stage: TxStage; stalled?
               <span className="size-1.5 shrink-0 rounded-full" aria-hidden="true"
                 style={{ background: tone }} />
               <span className={'veyra-step-label '+(active ? 'font-semibold' : 'font-medium')}
-                style={{ color: tone }}>{name}</span>
+                style={{ color: tone }}>{stage === 'Processing' && index === current ? (stalled ? 'Pending' : 'Processing') : name}</span>
               {index < TX_DISPLAY_STEPS.length - 1 &&
                 <span className="mx-3 h-px w-4 sm:mx-4 sm:w-5" aria-hidden="true"
                   style={{ background: 'var(--border-strong)' }} />}
