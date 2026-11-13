@@ -11,17 +11,20 @@ const css = source('index.css');
 
 describe('single-surface Mainnet Swap and Bridge', () => {
   it('keeps the real financial lifecycle unchanged while presenting three quiet labels', () => {
-    expect(TX_STAGES.map(txDisplayStep)).toEqual(['Review','Review','Confirm','Track','Track']);
+    expect(TX_STAGES.map(txDisplayStep)).toEqual(['Review','Review','Confirm','Complete','Complete']);
     const pending = renderToStaticMarkup(createElement(TxStepper, { stage: 'Processing', stalled: true }));
     expect(pending.match(/<li\b/g)).toHaveLength(3);
     expect(pending.match(/aria-current="step"/g)).toHaveLength(1);
     expect(pending).toContain('Outcome unresolved. Do not submit again.');
+    expect(pending).toContain('>Pending</span>');
+    expect(pending).not.toContain('>Complete</span>');
     expect(pending).toContain('veyra-step-label');
     expect(pending).not.toContain('Step 3 of 3');
     expect(pending).not.toContain('rounded-xl border p-1');
     const verified = renderToStaticMarkup(createElement(TxStepper, { stage: 'Verified' }));
     expect(verified).not.toContain('aria-current');
     expect(verified).toContain('Transaction verified onchain');
+    expect(verified).toContain('>Complete</span>');
   });
 
   it('removes duplicate bordered tracking panels without hiding safety status', () => {
