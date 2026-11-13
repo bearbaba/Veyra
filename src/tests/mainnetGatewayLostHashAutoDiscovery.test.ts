@@ -58,6 +58,30 @@ describe('automatic original Gateway deposit recovery',()=>{
   }
   expect(await discoverOriginalGatewayDeposit(reader([log(hashA,amount+1n)]),op,3_000_000)).toBeNull();
  });
+ it('ignores a same-amount direct transfer when only one transaction called deposit',async()=>{
+  const r=reader([log(hashA),log(hashB)]);
+  r.getTransaction=vi.fn((hash:`0x${string}`)=>Promise.resolve({
+   hash,from:owner,to:GATEWAY_MAINNET_WALLET,
+   input:hash===hashA?input:'0x12345678',
+  }));
+  expect(await discoverOriginalGatewayDeposit(r,op,3_000_000)).toBe(hashA);
+  expect(r.getTransaction).toHaveBeenCalledTimes(2);
+ });
+ it('fails closed if any candidate transaction cannot be read',async()=>{
+  const r=reader([log(hashA),log(hashB)]);
+  r.getTransaction=vi.fn((hash:`0x${string}`)=>{
+   if(hash===hashB)return Promise.reject(Error('RPC timeout'));
+   return Promise.resolve({hash,from:owner,to:GATEWAY_MAINNET_WALLET,input});
+  });
+  expect(await discoverOriginalGatewayDeposit(r,op,3_000_000)).toBeNull();
+ });
+ it('bounds RPC transaction lookups when Transfer events are flooded',async()=>{
+  const logs=Array.from({length:33},(_,i)=>
+   log(`0x${String(i+1).padStart(64,'0')}`));
+  const r=reader(logs);
+  expect(await discoverOriginalGatewayDeposit(r,op,3_000_000)).toBeNull();
+  expect(r.getTransaction).not.toHaveBeenCalled();
+ });
  it('never chooses between two plausible source deposits',async()=>{
   expect(await discoverOriginalGatewayDeposit(reader([log(hashA),log(hashB)]),op,3_000_000)).toBeNull();
   expect(await discoverOriginalGatewayDeposit(reader([log('0x1234')]),op,3_000_000)).toBeNull();
