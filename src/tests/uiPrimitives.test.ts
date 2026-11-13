@@ -24,15 +24,16 @@ describe('Shared transaction lifecycle', () => {
     expect(html).toContain('Review');
     expect(html).not.toContain('Step 1 of 3');
     expect(html.match(/<li\b/g)).toHaveLength(3);
-    expect([...TX_DISPLAY_STEPS]).toEqual(['Review', 'Confirm', 'Track']);
+    expect([...TX_DISPLAY_STEPS]).toEqual(['Review', 'Confirm', 'Complete']);
     // Tailwind only generates classes it can see as complete strings: never build them dynamically.
     const source = readFileSync(new URL('../components/ui/primitives.tsx', import.meta.url), 'utf8');
     expect(source).not.toMatch(/(?:sm|max-\[\d+px\]):\u0024\{/);
   });
   it('keeps five internal security stages but maps to three visual phases', () => {
-    expect(TX_STAGES.map(txDisplayStep)).toEqual(['Review', 'Review', 'Confirm', 'Track', 'Track']);
+    expect(TX_STAGES.map(txDisplayStep)).toEqual(['Review', 'Review', 'Confirm', 'Complete', 'Complete']);
     const pending = renderToStaticMarkup(createElement(TxStepper, { stage: 'Processing', stalled: true }));
-    expect(pending).toContain('Track');
+    expect(pending).toContain('>Pending</span>');
+    expect(pending).not.toContain('>Complete</span>');
     expect(pending).not.toContain('Step 3 of 3');
     expect(pending).toContain('Outcome unresolved');
   });
