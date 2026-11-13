@@ -31,12 +31,12 @@ describe('single-surface Mainnet Swap and Bridge', () => {
     expect(end).toBeGreaterThan(start);
     const tracking = circle.slice(start, end);
     expect(tracking).toContain('aria-label="Exchange tracking status"');
-    expect(tracking).toContain('Do not submit again.');
+    expect(tracking).toContain('No duplicate transfer will be submitted.');
     expect(tracking).toContain('Signing stays locked.');
     expect(tracking).toContain('Evidence &amp; history');
     expect(tracking).toContain('No funds were resent.');
-    expect(tracking).toContain('Transaction ID unavailable.');
-    expect(tracking).toContain('Verify onchain');
+    expect(tracking).toContain('No transaction ID or signature required.');
+    expect(tracking).toContain('being checked automatically');
     expect(tracking).toContain('Open Activity');
     expect(tracking).not.toContain('rounded-2xl border p-3.5');
     expect(tracking).not.toContain('linear-gradient(');
@@ -45,7 +45,7 @@ describe('single-surface Mainnet Swap and Bridge', () => {
   it('preserves read-only verifier and real Activity navigation, hiding unusable rechecks', () => {
     expect(circle).toContain("onOpenActivity?:()=>void");
     expect(circle).toContain("mode==='swap'?!!recovery.hash:!!recovery.burnHash");
-    expect(circle).toContain('onClick={()=>void verify()}');
+    expect(circle).toContain('else if(mode===\'swap\'?!!recovery.hash:!!recovery.burnHash)void verify();');
     expect(exchange).toContain("onOpenActivity={onNavigate?()=>onNavigate('activity'):undefined}");
     expect(circle).toContain("if(localStorage.getItem(key(otherMode,address)))");
     expect(circle).toContain('return withFreshVerification(v as Recovery);');
