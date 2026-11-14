@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock3, LockKeyhole, ShieldCheck } from 'lucide-react';
 import {
   isCircleServiceDraftFresh,
@@ -5,7 +6,12 @@ import {
 } from '@/core/agent/circleServiceSpendDraft';
 
 export function CircleServiceSpendDraftCard({ draft }: { draft: CircleServiceSpendDraft }) {
-  const fresh = isCircleServiceDraftFresh(draft, Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setNow(Date.now()), Math.max(0, draft.expiresAt - Date.now()) + 10);
+    return () => window.clearTimeout(timeout);
+  }, [draft.expiresAt]);
+  const fresh = isCircleServiceDraftFresh(draft, now);
   return (
     <section className="mt-3 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--border-strong)' }} aria-label="Unapproved Circle service draft">
       <div className="flex flex-wrap items-center justify-between gap-2">
