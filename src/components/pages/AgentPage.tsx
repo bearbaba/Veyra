@@ -20,6 +20,7 @@ import {
 import type { IntentResult } from '@/core/intent/intentSchema';
 import { buildCapabilityIntentGraph, type CapabilityIntentGraph } from '@/core/agent/intentGraph';
 import { ActionCard } from '../transfer/ActionCard';
+import { CircleAgentEconomyPanel } from '../agent/CircleAgentEconomyPanel';
 import type { VeyraPage } from '../layout/AppShell';
 
 interface AgentPageProps {
@@ -172,6 +173,8 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
         <CapabilityPill label="Planner" online={capabilities.planning === 'ONLINE'} icon={<Bot className="size-3.5" />} fallbackLabel="Local planner" />
         <CapabilityPill label="Execution" online={capabilities.execution === 'AVAILABLE'} icon={<LockKeyhole className="size-3.5" />} fallbackLabel="Review locked" />
       </div>
+
+      <CircleAgentEconomyPanel />
 
       <div className="flex-1 overflow-y-auto py-6">
         {messages.length === 0 ? (
