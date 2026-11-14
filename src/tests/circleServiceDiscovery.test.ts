@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { validateCircleFilters } from '../core/agent/circleDiscoveryEndpoint.js';
 import {
   atomicUsdcToDecimal, normalizeCircleDiscovery, previewServiceSpend,
 } from '../core/agent/circleServiceDiscovery.js';
@@ -54,6 +55,17 @@ describe('Circle marketplace discovery is read only', () => {
     expect(previewServiceSpend('8000', '3', '0.023999').status).toBe('OVER_DRAFT_BUDGET');
     expect(previewServiceSpend('8000', '101', '1').status).toBe('INVALID_INPUT');
     expect(previewServiceSpend('8000', '1', '0').status).toBe('INVALID_INPUT');
+  });
+
+  it('rejects unsafe proxy inputs and normalizes valid filters', () => {
+    expect(validateCircleFilters('weather', 'CREATIVE', '0.1')).toEqual({
+      query: 'weather', category: 'CREATIVE', maxUsdPrice: '0.1',
+    });
+    expect(validateCircleFilters(['multi'], '', '')).toBeNull();
+    expect(validateCircleFilters('hi', 'UNKNOWN_CATEGORY', '')).toBeNull();
+    expect(validateCircleFilters('hi', '', '1001')).toBeNull();
+    expect(validateCircleFilters('hi', '', '-1')).toBeNull();
+    expect(validateCircleFilters('x'.repeat(101), '', '')).toBeNull();
   });
 
   it('supports the alternate resources response without trusting unknown metadata', () => {
