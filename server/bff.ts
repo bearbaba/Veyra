@@ -30,7 +30,7 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { validateIntentResponse } from '../src/core/intent/intentSchema';
 import { createFallbackAgentResponse, validateAgentChatResponse, type AgentHistoryMessage } from '../src/core/agent/agentV2';
-import { CIRCLE_DISCOVERY_CATEGORIES, normalizeCircleDiscovery } from '../src/core/agent/circleServiceDiscovery.js';
+import { loadCircleServices, validateCircleFilters } from '../src/core/agent/circleDiscoveryEndpoint.js';
 import { MANIFEST_CONSTANTS } from '../src/providers/registry/providerManifest';
 import { createWalletChallenge, verifyWalletChallenge, WalletProofError } from './services/walletProofService.js';
 import { beginIdentityRegistration, completeIdentityRegistration, IdentityRegistrationError } from './services/identityRegistrationService.js';
@@ -910,50 +910,19 @@ app.get('/api/agent/status', (_req: Request, res: Response): void => {
 });
 
 // ── GET /api/agent/services: read-only Circle marketplace discovery ──────────
-// Fixed public upstream; no caller-provided URL, wallet access, payment or signer.
-// Listing prices are untrusted until individually verified at payment time.
 app.get('/api/agent/services', AGENT_RATE, async (req: Request, res: Response): Promise<void> => {
-  const q = req.query.q ?? '';
-  const category = req.query.category ?? '';
-  const maxUsdPrice = req.query.maxUsdPrice ?? '';
-  if (typeof q !== 'string' || q.length > 100
-    || typeof category !== 'string'
-    || (category !== '' && !CIRCLE_DISCOVERY_CATEGORIES.includes(category as typeof CIRCLE_DISCOVERY_CATEGORIES[number]))
-    || typeof maxUsdPrice !== 'string'
-    || (maxUsdPrice !== '' && (!/^(0|[1-9]\\d{0,3})(?:\\.\\d{1,6})?$/.test(maxUsdPrice) || Number(maxUsdPrice) > 1000))) {
+  const filters = validateCircleFilters(req.query.q, req.query.category, req.query.maxUsdPrice);
+  if (!filters) {
     res.status(400).json({ ok: false, error: 'Invalid discovery filter' });
     return;
   }
-
-  const params = new URLSearchParams({ limit: '100', type: 'http' });
-  if (q.trim()) params.set('query', q.trim());
-  if (category) params.set('category', category);
-  if (maxUsdPrice) params.set('maxUsdPrice', maxUsdPrice);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 7000);
   try {
-    const response = await fetch('https://api.circle.com/v2/x402/discovery/resources?' + params.toString(), {
-      signal: controller.signal,
-      headers: { Accept: 'application/json' },
-    });
-    if (!response.ok) throw new Error('Circle discovery unavailable: HTTP ' + response.status);
-    const payload: unknown = await response.json();
-    const services = normalizeCircleDiscovery(payload, {
-      query: q.trim(), category, maxUsdPrice,
-    });
+    const data = await loadCircleServices(filters);
     res.setHeader('Cache-Control', 'public, max-age=30');
-    res.json({
-      ok: true,
-      mode: 'DISCOVERY_ONLY',
-      source: 'Circle public x402 Discovery API',
-      asOf: new Date().toISOString(),
-      services,
-    });
+    res.json(data);
   } catch (error) {
     console.error('[BFF] Circle read-only discovery failed:', error);
     res.status(503).json({ ok: false, mode: 'DISCOVERY_ONLY', error: 'Marketplace discovery is temporarily unavailable. No payment was attempted.' });
-  } finally {
-    clearTimeout(timeout);
   }
 });
 
