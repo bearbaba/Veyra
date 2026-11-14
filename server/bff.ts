@@ -911,7 +911,7 @@ app.get('/api/agent/status', (_req: Request, res: Response): void => {
 
 // ── GET /api/agent/services: read-only Circle marketplace discovery ──────────
 app.get('/api/agent/services', AGENT_RATE, async (req: Request, res: Response): Promise<void> => {
-  const filters = validateCircleFilters(req.query.q, req.query.category, req.query.maxUsdPrice);
+  const filters = validateCircleFilters(req.query.q, req.query.category, req.query.maxUsdPrice, req.query.network);
   if (!filters) {
     res.status(400).json({ ok: false, error: 'Invalid discovery filter' });
     return;
