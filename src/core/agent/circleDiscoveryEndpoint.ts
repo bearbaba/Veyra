@@ -12,6 +12,7 @@ export interface ValidatedCircleFilters {
   query: string;
   category: string;
   maxUsdPrice: string;
+  network: string;
 }
 
 export interface CircleDiscoveryResult {
@@ -26,10 +27,13 @@ export function validateCircleFilters(
   inputQuery: unknown,
   inputCategory: unknown,
   inputMaxUsdPrice: unknown,
+  inputNetwork: unknown = '',
 ): ValidatedCircleFilters | null {
   const query = inputQuery ?? '';
   const category = inputCategory ?? '';
   const maxUsdPrice = inputMaxUsdPrice ?? '';
+  const network = inputNetwork ?? '';
+  if (typeof network !== 'string' || (network !== '' && !['arc', 'base', 'polygon'].includes(network))) return null;
   if (typeof query !== 'string' || query.length > 100
     || typeof category !== 'string'
     || (category !== '' && !CIRCLE_DISCOVERY_CATEGORIES.includes(category as typeof CIRCLE_DISCOVERY_CATEGORIES[number]))
@@ -37,13 +41,14 @@ export function validateCircleFilters(
     || (maxUsdPrice !== '' && (!/^(0|[1-9]\d{0,3})(?:\.\d{1,6})?$/.test(maxUsdPrice) || Number(maxUsdPrice) > 1000))) {
     return null;
   }
-  return { query: query.trim(), category, maxUsdPrice };
+  return { query: query.trim(), category, maxUsdPrice, network };
 }
 
 export async function loadCircleServices(filters: ValidatedCircleFilters): Promise<CircleDiscoveryResult> {
   const params = new URLSearchParams({ limit: '100', type: 'http' });
   if (filters.query) params.set('query', filters.query);
   if (filters.category) params.set('category', filters.category);
+  if (filters.network) params.set('network', filters.network);
   if (filters.maxUsdPrice) params.set('maxUsdPrice', filters.maxUsdPrice);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 7000);
