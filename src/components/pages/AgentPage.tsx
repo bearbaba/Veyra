@@ -21,6 +21,8 @@ import type { IntentResult } from '@/core/intent/intentSchema';
 import { buildCapabilityIntentGraph, type CapabilityIntentGraph } from '@/core/agent/intentGraph';
 import { ActionCard } from '../transfer/ActionCard';
 import { CircleAgentEconomyPanel } from '../agent/CircleAgentEconomyPanel';
+import { CircleServiceSpendDraftCard } from '../agent/CircleServiceSpendDraftCard';
+import { getCircleServiceDraftMessage, type CircleServiceSpendDraft } from '@/core/agent/circleServiceSpendDraft';
 import type { VeyraPage } from '../layout/AppShell';
 
 interface AgentPageProps {
@@ -35,6 +37,7 @@ interface Message {
   degraded?: boolean;
   locale?: string;
   capabilityGraph?: CapabilityIntentGraph;
+  serviceDraft?: CircleServiceSpendDraft;
   ts: number;
 }
 
@@ -143,6 +146,18 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
     setLoading(false);
   }
 
+  function appendCircleServiceDraft(draft: CircleServiceSpendDraft) {
+    const agentMessage: Message = {
+      id: crypto.randomUUID(),
+      role: 'agent',
+      text: getCircleServiceDraftMessage(draft),
+      serviceDraft: draft,
+      ts: Date.now(),
+    };
+    // Never feed a service draft into LLM or financial ActionCard execution.
+    setMessages((current) => [...current, agentMessage]);
+  }
+
   function clearConversation() {
     setMessages([]);
     sessionStorage.removeItem('veyra:agent-history');
@@ -174,7 +189,7 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
         <CapabilityPill label="Execution" online={capabilities.execution === 'AVAILABLE'} icon={<LockKeyhole className="size-3.5" />} fallbackLabel="Review locked" />
       </div>
 
-      <CircleAgentEconomyPanel />
+      <CircleAgentEconomyPanel onDraft={appendCircleServiceDraft} />
 
       <div className="flex-1 overflow-y-auto py-6">
         {messages.length === 0 ? (
@@ -205,6 +220,7 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
                       <div className="rounded-2xl rounded-tl-md px-4 py-3 text-sm leading-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)', color: 'var(--ink-2)' }}>
                         {message.text}
                       </div>
+                      {message.serviceDraft && <CircleServiceSpendDraftCard draft={message.serviceDraft} />}
                       {message.capabilityGraph && message.capabilityGraph.nodes.length > 1 && (
                         <IntentGraphPreview graph={message.capabilityGraph} />
                       )}
