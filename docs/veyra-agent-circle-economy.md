@@ -73,6 +73,19 @@ Never embed API keys, OTPs, seed phrases or access tokens in source, prompts, br
 - **Merchant trust:** mere appearance in the Marketplace is not a guarantee of quality, authorization or safe output.
 - **Direct paid API execution:** unavailable. The current Agent may prepare actions, but Veyra execution still requires deterministic review and user wallet signatures.
 
+
+## Agent chat availability (Vercel Preview)
+
+- `GET /api/agent/status` now reports **actual** runtime capabilities. Without a configured server-side model key, `conversation=FALLBACK`, `planning=FALLBACK`, `execution=LOCKED`.
+- `POST /api/agent/chat` runs the deterministic Agent V2 fallback on Vercel, rather than returning a missing-route 404.
+- If a developer configures `OPENAI_API_KEY` as a **protected server-side Vercel environment variable**, the chat endpoint may use the OpenAI direct API for **non-financial conversation only**; optional `OPENAI_MODEL` chooses the model (default `gpt-4o-mini`). Neither key nor model setting is shipped to the browser.
+- Transfer, bridge and swap intents are handled by the deterministic parser, independently from LLM responses, and financial execution is **always locked** in this Vercel endpoint.
+- Bare EVM addresses never imply a transfer and must not yield an `Amount = 0` card. The parser only accepts explicit payment verbs and positive amounts. An address can finish a pending transfer clarification but cannot revive a previously complete transfer.
+- Financial review cards do not display misleading fixed confidence percentages; malformed and zero amounts cannot unlock review.
+- Serverless endpoint integration checks cover GET status, HTTP methods, bad JSON and unsafe wallet prompts. Regression cases cover standalone addresses, explicit transfers, missing amounts and untrusted model proposals.
+
+To enable full AI chat in preview, the project owner must configure the provider credential in **Vercel project settings** under Environment Variables for the intended Preview environment and redeploy. No credential is required for deterministic fallback. Never paste API keys into ChatGPT, GitHub code, or user-visible app settings.
+
 ## Next promotion gates
 
 1. CI green: typecheck, lint, unit tests and production build.
