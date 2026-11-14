@@ -15,6 +15,24 @@ A separate expandable **Agent economy** explorer now supports:
 
 The explorer is **not a wallet, payment, quote, endorsement or agent permission**. Listing metadata and prices are untrusted. Service listings can change; every future paid call requires fresh provider, price, schema, chain, token, wallet and policy verification.
 
+## Agent workflow (Phase 2: implemented)
+
+1. Search by keyword, Circle category and chain (**Arc, Base or Polygon**), with an optional maximum advertised per-call price.
+2. Select a listing with a recognized network and canonical USDC quote.
+3. Enter the intended number of API calls (1–100) and a draft USDC budget.
+4. Click **Add draft to Agent** to create a structured `CIRCLE_SERVICE_SPEND_DRAFT` message in Agent chat.
+5. The card shows provider, network, unit price, call count, estimated total and budget. The snapshot expires after **5 minutes**.
+
+A draft always carries `authorization: NOT_GRANTED`, `execution: DISABLED` and `status: REVIEW_REQUIRED`. No signature, x402 request or paid API call is possible. Drafts are *never included in subsequent LLM history*, preventing untrusted marketplace descriptions from becoming LLM instructions. Expiration never converts a draft to authorization: users must rediscover the service.
+
+The 5-minute expiry is only a UI/planning freshness guard, **not a spending policy**, a signed quote, a provider rate lock or a reservation. Unit amounts use integer USDC atomic units to prevent floating-point rounding.
+
+Additional files:
+- `src/core/agent/circleServiceSpendDraft.ts` — draft builders and expiry
+- `src/components/agent/CircleServiceSpendDraftCard.tsx` — non-authorizing review card
+- `src/tests/circleServiceSpendDraft.test.ts` — security and boundary tests
+
+
 ## Integration details
 
 - Browser: `src/components/agent/CircleAgentEconomyPanel.tsx`
