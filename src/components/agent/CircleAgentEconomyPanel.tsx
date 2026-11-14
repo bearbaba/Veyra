@@ -67,9 +67,12 @@ export function CircleAgentEconomyPanel() {
         signal: controller.signal,
         headers: { Accept: 'application/json' },
       });
-      const data: CircleSearchResponse = await response.json();
-      if (!response.ok || data.ok !== true || data.mode !== 'DISCOVERY_ONLY' || !Array.isArray(data.services)) {
-        throw new Error(data.error || 'Service discovery is unavailable.');
+      const raw: unknown = await response.json();
+      const data: Partial<CircleSearchResponse> | null = raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? raw as Partial<CircleSearchResponse>
+        : null;
+      if (!response.ok || data?.ok !== true || data.mode !== 'DISCOVERY_ONLY' || !Array.isArray(data.services)) {
+        throw new Error(data?.error || 'Service discovery is unavailable.');
       }
       if (request !== requestNumber.current) return;
       setServices(data.services.slice(0, 18));
