@@ -104,6 +104,17 @@ describe('Circle marketplace discovery is read only', () => {
     expect(previewServiceSpend('8000', '1', '0').status).toBe('INVALID_INPUT');
   });
 
+  it('accepts the additional shopping category seen in Circle live data', () => {
+    expect(validateCircleFilters('', 'TRAVEL_SHOPPING', '', 'base')).toMatchObject({
+      category: 'TRAVEL_SHOPPING', network: 'base',
+    });
+    const listing = {
+      ...good,
+      metadata: { ...good.metadata, provider: { ...good.metadata.provider, category: 'TRAVEL_SHOPPING' } },
+    };
+    expect(normalizeCircleDiscovery({ items: [listing] }, { category: 'TRAVEL_SHOPPING' })).toHaveLength(1);
+  });
+
   it('rejects unsafe proxy inputs and normalizes valid filters', () => {
     expect(validateCircleFilters('weather', 'CREATIVE', '0.1')).toEqual({
       query: 'weather', category: 'CREATIVE', maxUsdPrice: '0.1', network: '',
