@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
+import { buildCircleServiceSpendDraft, type CircleServiceSpendDraft } from '@/core/agent/circleServiceSpendDraft';
 import {
   ArrowUpRight, ChevronDown, ChevronUp, CircleDollarSign, Compass,
-  ExternalLink, Loader2, Search, ShieldCheck, Wallet,
+  ExternalLink, Loader2, Search, ShieldCheck, Wallet, ClipboardCheck,
 } from 'lucide-react';
 import {
   CIRCLE_DISCOVERY_CATEGORIES,
@@ -31,7 +32,7 @@ interface CircleSearchResponse {
  * No endpoint in this component funds wallets, pays sellers, or triggers x402.
  * Provider data is presented as a listing, never as a Veyra-executable quote.
  */
-export function CircleAgentEconomyPanel() {
+export function CircleAgentEconomyPanel({ onDraft }: { onDraft: (draft: CircleServiceSpendDraft) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
@@ -44,6 +45,7 @@ export function CircleAgentEconomyPanel() {
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [asOf, setAsOf] = useState<string | null>(null);
+  const [draftError, setDraftError] = useState<string | null>(null);
   const requestNumber = useRef(0);
 
   const selected = useMemo(() => services.find((service) => service.id === selectedId), [services, selectedId]);
@@ -55,6 +57,7 @@ export function CircleAgentEconomyPanel() {
     setSearched(true);
     setError(null);
     setSelectedId(null);
+    setDraftError(null);
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 9000);
     const params = new URLSearchParams();
@@ -84,6 +87,17 @@ export function CircleAgentEconomyPanel() {
       window.clearTimeout(timeout);
       if (request === requestNumber.current) setLoading(false);
     }
+  }
+
+  function addDraftToAgent() {
+    if (!selected) return;
+    const result = buildCircleServiceSpendDraft(selected, calls, budget, crypto.randomUUID(), Date.now());
+    if (!result.ok) {
+      setDraftError('Unable to draft this service plan. Verify the price and budget first.');
+      return;
+    }
+    setDraftError(null);
+    onDraft(result.draft);
   }
 
   return (
@@ -148,7 +162,7 @@ export function CircleAgentEconomyPanel() {
                   <button
                     type="button"
                     key={service.id}
-                    onClick={() => { setSelectedId(service.id); setCalls('1'); }}
+                    onClick={() => { setSelectedId(service.id); setCalls('1'); setDraftError(null); }}
                     className="min-w-0 rounded-xl p-3 text-left transition-colors"
                     style={{ background: active ? 'var(--accent-muted)' : 'var(--surface-strong)', border: active ? '1px solid var(--accent)' : '1px solid var(--border)' }}
                     aria-pressed={active}
@@ -195,6 +209,13 @@ export function CircleAgentEconomyPanel() {
                   {spendPreview.totalUsdc && <span className="ml-2" style={{ color: 'var(--ink)' }}>Total: {spendPreview.totalUsdc} USDC</span>}
                 </div>
               </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <span className="text-[11px]" style={{ color: 'var(--muted)' }}>Snapshot expires after 5 minutes. Adding a plan does not authorize spending.</span>
+                <button type="button" onClick={addDraftToAgent} disabled={spendPreview.status !== 'WITHIN_DRAFT_BUDGET' || loading} className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
+                  <ClipboardCheck className="size-4" /> Add draft to Agent
+                </button>
+              </div>
+              {draftError && <p role="alert" className="mt-2 text-xs" style={{ color: 'var(--warning)' }}>{draftError}</p>}
               <div className="mt-3 flex items-start gap-2 text-[11px] leading-5" style={{ color: 'var(--muted)' }}>
                 <ShieldCheck className="mt-0.5 size-4 shrink-0" style={{ color: 'var(--accent)' }} />
                 Price and merchant terms must be rechecked before a future payment. Auto-pay, wallet provisioning and x402 execution remain disabled in Veyra.
