@@ -871,7 +871,7 @@ app.post('/api/agent/chat', AGENT_RATE, async (req: Request, res: Response): Pro
         planning: 'ONLINE',
         execution: 'LOCKED',
         provider: providerLabel,
-      });
+      }, history);
       res.json({
         ...validated,
         degraded: false,
