@@ -75,8 +75,15 @@ function sanitizeText(value: unknown, max = 800): string {
 }
 
 function extractAmount(message: string): string | undefined {
-  const match = message.match(/(?:^|\s)(\d{1,18}(?:[.,]\d{1,8})?)(?=\s|$|\p{L}|\p{S})/u);
-  return match?.[1];
+  // A hex wallet address starts with 0x. Its prefix must NEVER become a zero-valued amount.
+  const withoutHexLiterals = message.replace(/0x[a-fA-F0-9]+/gi, ' ');
+  const match = withoutHexLiterals.match(/(?:^|\s)(\d{1,18}(?:[.,]\d{1,8})?)(?=\s|$|\p{L}|\p{S})/u);
+  if (!match?.[1] || !/[1-9]/.test(match[1])) return undefined;
+  return match[1];
+}
+
+export function isStandaloneWalletAddress(message: string): boolean {
+  return /^0x[a-fA-F0-9]{40}$/.test(message.trim());
 }
 
 function extractTokens(message: string): string[] {
@@ -294,7 +301,8 @@ function buildIntent(message: string, locale: string): IntentResult | undefined 
 
   const isBridge = hasAny(message, BRIDGE_HINTS);
   const isConvert = !isBridge && hasAny(message, CONVERT_HINTS);
-  const isTransfer = !isBridge && !isConvert && (hasAny(message, TRANSFER_HINTS) || Boolean(recipient && amount));
+  // A recipient and a number do not, by themselves, prove permission to send funds.
+  const isTransfer = !isBridge && !isConvert && hasAny(message, TRANSFER_HINTS);
   if (!isBridge && !isConvert && !isTransfer) return undefined;
 
   if (isTransfer) {
@@ -412,6 +420,15 @@ function looksLikeFinancialFragment(message: string): boolean {
   );
 }
 
+export function hasPendingFinancialClarification(history: AgentHistoryMessage[]): boolean {
+  const lastTwoUserMessages = history.filter((item) => item.role === 'user').slice(-2)
+    .map((item) => sanitizeText(item.text, 500)).filter(Boolean);
+  if (!lastTwoUserMessages.length) return false;
+  const priorIntent = buildIntent(lastTwoUserMessages.join('\n'), 'en');
+  // Only an explicit, incomplete prior payment instruction may be completed by a bare address.
+  return priorIntent?.status === 'NEEDS_CLARIFICATION';
+}
+
 export function createFallbackAgentResponse(
   message: string,
   options: { provider?: string; executionAvailable?: boolean; history?: AgentHistoryMessage[] } = {},
@@ -424,7 +441,8 @@ export function createFallbackAgentResponse(
   // latest message looks like a financial fragment (for example "@alice" after
   // "send 20 USDC"), fold in only the recent USER context and re-run the
   // deterministic parser. Agent replies are never used as financial input.
-  if (!intent && looksLikeFinancialFragment(clean) && options.history?.length) {
+  if (!intent && looksLikeFinancialFragment(clean) && options.history?.length
+    && hasPendingFinancialClarification(options.history)) {
     const recentUserContext = options.history
       .filter((item) => item.role === 'user')
       .slice(-2)
@@ -458,7 +476,11 @@ export function createFallbackAgentResponse(
 
   return {
     ok: true,
-    reply: isGreeting(clean)
+    reply: isStandaloneWalletAddress(clean)
+      ? (locale === 'vi'
+        ? 'Mình thấy một địa chỉ ví EVM. Bạn muốn kiểm tra địa chỉ, hay chuẩn bị giao dịch chuyển tiền riêng? Hãy nói rõ hành động, số tiền và tài sản. Kế hoạch dịch vụ Circle không cho phép thanh toán.'
+        : 'I see an EVM wallet address. Do you want to inspect it or prepare a separate transfer? Please specify the action, amount and asset. A Circle service draft does not authorize payment.')
+      : isGreeting(clean)
       ? localized(locale, 'hello')
       : isHelpQuestion(clean)
         ? localized(locale, 'help')
@@ -474,11 +496,15 @@ export function validateAgentChatResponse(
   rawInput: unknown,
   fallbackMessage: string,
   fallbackCapabilities?: Partial<AgentCapabilities>,
+  history: AgentHistoryMessage[] = [],
 ): AgentChatResponse {
   const fallback = createFallbackAgentResponse(fallbackMessage, {
     provider: fallbackCapabilities?.provider,
     executionAvailable: fallbackCapabilities?.execution === 'AVAILABLE',
+    history,
   });
+  // A standalone wallet address may never be promoted to an action by an LLM.
+  if (isStandaloneWalletAddress(fallbackMessage) && !hasPendingFinancialClarification(history)) return fallback;
   if (!rawInput || typeof rawInput !== 'object' || Array.isArray(rawInput)) return fallback;
   const raw = rawInput as Record<string, unknown>;
   const reply = sanitizeText(raw.reply, 1200);
