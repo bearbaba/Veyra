@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { getChain } from '@/onchain-facts';
 import { AlertTriangle, CheckCircle2, Clock3, LockKeyhole, ShieldCheck } from 'lucide-react';
 import {
   isCircleServiceDraftFresh,
@@ -25,7 +26,7 @@ export function CircleServiceSpendDraftCard({ draft }: { draft: CircleServiceSpe
         </span>
       </div>
       <p className="mt-2 text-sm font-semibold" style={{ color: 'var(--ink)' }}>{draft.serviceTitle}</p>
-      <p className="mt-1 break-all text-[11px]" style={{ color: 'var(--muted)' }}>{draft.provider} · {draft.network}</p>
+      <p className="mt-1 break-all text-[11px]" style={{ color: 'var(--muted)' }}>{draft.provider} · {/^eip155:(\d+)$/.test(draft.network) ? (getChain(Number(draft.network.slice(7)))?.name ?? draft.network) : draft.network}</p>
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
         {[
           ['Calls', String(draft.calls)],
