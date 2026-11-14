@@ -30,6 +30,7 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { validateIntentResponse } from '../src/core/intent/intentSchema';
 import { createFallbackAgentResponse, validateAgentChatResponse, type AgentHistoryMessage } from '../src/core/agent/agentV2';
+import { loadCircleServices, validateCircleFilters } from '../src/core/agent/circleDiscoveryEndpoint.js';
 import { MANIFEST_CONSTANTS } from '../src/providers/registry/providerManifest';
 import { createWalletChallenge, verifyWalletChallenge, WalletProofError } from './services/walletProofService.js';
 import { beginIdentityRegistration, completeIdentityRegistration, IdentityRegistrationError } from './services/identityRegistrationService.js';
@@ -870,7 +871,7 @@ app.post('/api/agent/chat', AGENT_RATE, async (req: Request, res: Response): Pro
         planning: 'ONLINE',
         execution: 'LOCKED',
         provider: providerLabel,
-      });
+      }, history);
       res.json({
         ...validated,
         degraded: false,
@@ -906,6 +907,23 @@ app.get('/api/agent/status', (_req: Request, res: Response): void => {
     provider: online ? `${LLM_PROVIDER}:${LLM_MODEL}` : 'local-fallback',
     ts: Date.now(),
   });
+});
+
+// ── GET /api/agent/services: read-only Circle marketplace discovery ──────────
+app.get('/api/agent/services', AGENT_RATE, async (req: Request, res: Response): Promise<void> => {
+  const filters = validateCircleFilters(req.query.q, req.query.category, req.query.maxUsdPrice, req.query.network);
+  if (!filters) {
+    res.status(400).json({ ok: false, error: 'Invalid discovery filter' });
+    return;
+  }
+  try {
+    const data = await loadCircleServices(filters);
+    res.setHeader('Cache-Control', 'public, max-age=30');
+    res.json(data);
+  } catch (error) {
+    console.error('[BFF] Circle read-only discovery failed:', error);
+    res.status(503).json({ ok: false, mode: 'DISCOVERY_ONLY', error: 'Marketplace discovery is temporarily unavailable. No payment was attempted.' });
+  }
 });
 
 // ── POST /api/agent/parse ────────────────────────────────────────────────────

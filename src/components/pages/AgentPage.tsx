@@ -20,6 +20,9 @@ import {
 import type { IntentResult } from '@/core/intent/intentSchema';
 import { buildCapabilityIntentGraph, type CapabilityIntentGraph } from '@/core/agent/intentGraph';
 import { ActionCard } from '../transfer/ActionCard';
+import { CircleAgentEconomyPanel } from '../agent/CircleAgentEconomyPanel';
+import { CircleServiceSpendDraftCard } from '../agent/CircleServiceSpendDraftCard';
+import { getCircleServiceDraftMessage, type CircleServiceSpendDraft } from '@/core/agent/circleServiceSpendDraft';
 import type { VeyraPage } from '../layout/AppShell';
 
 interface AgentPageProps {
@@ -34,6 +37,7 @@ interface Message {
   degraded?: boolean;
   locale?: string;
   capabilityGraph?: CapabilityIntentGraph;
+  serviceDraft?: CircleServiceSpendDraft;
   ts: number;
 }
 
@@ -94,7 +98,8 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
     if (input) inputRef.current?.focus();
   }, [input]);
 
-  const history = useMemo<AgentHistoryMessage[]>(() => messages.slice(-10).map((message) => ({ role: message.role, text: message.text })), [messages]);
+  // Circle listing names are external/untrusted data: never replay spend drafts into the LLM context.
+  const history = useMemo<AgentHistoryMessage[]>(() => messages.filter((message) => !message.serviceDraft).slice(-10).map((message) => ({ role: message.role, text: message.text })), [messages]);
 
   async function sendMessage() {
     const text = input.trim();
@@ -119,7 +124,7 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
       window.clearTimeout(timeout);
       if (!request.ok) throw new Error(`Agent service returned ${request.status}`);
       const raw: unknown = await request.json();
-      response = validateAgentChatResponse(raw, text, capabilities);
+      response = validateAgentChatResponse(raw, text, capabilities, priorHistory);
     } catch {
       // Browser-side safety net: chat never collapses just because the BFF or
       // configured model is unavailable. Execution remains locked.
@@ -140,6 +145,18 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
     };
     setMessages((current) => [...current, agentMessage]);
     setLoading(false);
+  }
+
+  function appendCircleServiceDraft(draft: CircleServiceSpendDraft) {
+    const agentMessage: Message = {
+      id: crypto.randomUUID(),
+      role: 'agent',
+      text: getCircleServiceDraftMessage(draft),
+      serviceDraft: draft,
+      ts: Date.now(),
+    };
+    // Never feed a service draft into LLM or financial ActionCard execution.
+    setMessages((current) => [...current, agentMessage]);
   }
 
   function clearConversation() {
@@ -173,6 +190,15 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
         <CapabilityPill label="Execution" online={capabilities.execution === 'AVAILABLE'} icon={<LockKeyhole className="size-3.5" />} fallbackLabel="Review locked" />
       </div>
 
+      {capabilities.conversation === 'FALLBACK' && (
+        <div role="status" className="mt-3 flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs leading-5" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--muted)' }}>
+          <WifiOff className="mt-0.5 size-4 shrink-0" style={{ color: 'var(--warning)' }} />
+          AI chat is not connected on this preview. Veyra uses a deterministic local assistant for financial planning; it does not make payments or sign for you.
+        </div>
+      )}
+
+      <CircleAgentEconomyPanel onDraft={appendCircleServiceDraft} />
+
       <div className="flex-1 overflow-y-auto py-6">
         {messages.length === 0 ? (
           <AgentWelcome onSelect={(query) => { setInput(query); inputRef.current?.focus(); }} />
@@ -202,6 +228,7 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
                       <div className="rounded-2xl rounded-tl-md px-4 py-3 text-sm leading-6" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)', color: 'var(--ink-2)' }}>
                         {message.text}
                       </div>
+                      {message.serviceDraft && <CircleServiceSpendDraftCard draft={message.serviceDraft} />}
                       {message.capabilityGraph && message.capabilityGraph.nodes.length > 1 && (
                         <IntentGraphPreview graph={message.capabilityGraph} />
                       )}

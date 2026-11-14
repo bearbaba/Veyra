@@ -6,6 +6,70 @@ import {
   type AgentHistoryMessage,
 } from '../core/agent/agentV2.js';
 
+const wallet = '0xD6b8A3A5eB329410D9504784812b8569afA8C2aF';
+
+describe('Wallet address and Circle draft safety regression', () => {
+  it('never interprets an isolated EVM address as a zero-value transfer', () => {
+    const response = createFallbackAgentResponse(wallet);
+    expect(response.mode).toBe('CHAT');
+    expect(response.intent).toBeUndefined();
+    expect(response.reply).toMatch(/wallet address/i);
+  });
+
+  it('never invents a transfer from an amount and address without a payment verb', () => {
+    const response = createFallbackAgentResponse(wallet + ' 20 USDC');
+    expect(response.mode).toBe('CHAT');
+    expect(response.intent).toBeUndefined();
+  });
+
+  it('requires a strictly positive amount on an explicitly requested payment', () => {
+    const zero = createFallbackAgentResponse('Send 0 USDC to ' + wallet);
+    expect(zero.mode).toBe('CLARIFICATION');
+    expect(zero.intent?.status).toBe('NEEDS_CLARIFICATION');
+    expect(zero.intent?.candidates[0]?.amountRaw).toBeUndefined();
+    expect(zero.intent?.missingParams).toContain('amountRaw');
+    const valid = createFallbackAgentResponse('Send 2 USDC to ' + wallet);
+    expect(valid.mode).toBe('ACTION');
+    expect(valid.intent?.candidates[0]?.amountRaw?.raw).toBe('2');
+  });
+
+  it('allows an address to complete only an explicitly unfinished transfer', () => {
+    const history: AgentHistoryMessage[] = [
+      { role: 'user', text: 'Send 20 USDC' },
+      { role: 'agent', text: 'Who should receive it?' },
+    ];
+    const response = createFallbackAgentResponse(wallet, { history });
+    expect(response.mode).toBe('ACTION');
+    expect(response.intent?.candidates[0]?.amountRaw?.raw).toBe('20');
+    expect(response.intent?.candidates[0]?.recipientRaw?.raw).toBe(wallet);
+  });
+
+  it('will not revive a previously completed payment when a new address appears', () => {
+    const history: AgentHistoryMessage[] = [
+      { role: 'user', text: 'Send 20 USDC to @alice' },
+      { role: 'agent', text: 'Ready for review.' },
+    ];
+    const response = createFallbackAgentResponse(wallet, { history });
+    expect(response.mode).toBe('CHAT');
+    expect(response.intent).toBeUndefined();
+  });
+
+  it('rejects a model-generated payment intent for an isolated address', () => {
+    const response = validateAgentChatResponse({
+      ok: true,
+      reply: 'Transfer ready',
+      mode: 'ACTION',
+      intent: {
+        status: 'RESOLVED',
+        candidates: [{ actionType: 'TRANSFER', recipient: wallet, fromAmount: '0.01', fromCurrency: 'USDC', confidence: 0.99 }],
+      },
+    }, wallet, { execution: 'LOCKED' }, []);
+    expect(response.mode).toBe('CHAT');
+    expect(response.intent).toBeUndefined();
+    expect(response.capabilities.execution).toBe('LOCKED');
+  });
+});
+
 describe('Phase 3D Agent V2', () => {
   it('detects Vietnamese and keeps a Vietnamese transfer actionable', () => {
     const response = createFallbackAgentResponse('Gửi 20 USDC cho @alice');

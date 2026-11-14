@@ -169,6 +169,7 @@ readiness is checked separately.
 - `docs/veyra-phase4d-provider-activation.md` — activation evidence/promotion
 - `docs/veyra-phase4e-appkit-execution-safety.md` — App Kit execution safety
 - `docs/veyra-phase4f-crash-safe-cctp-recovery.md` — CCTP crash/recovery hardening
+- `docs/veyra-agent-circle-economy.md` — Circle x402 service discovery, safe budget preview and future Agent Wallet gates
 
 ## Mainnet
 
