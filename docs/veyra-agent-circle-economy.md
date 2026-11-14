@@ -20,10 +20,12 @@ The explorer is **not a wallet, payment, quote, endorsement or agent permission*
 - Browser: `src/components/agent/CircleAgentEconomyPanel.tsx`
 - Pure normalization & budget preview: `src/core/agent/circleServiceDiscovery.ts`
 - Test coverage: `src/tests/circleServiceDiscovery.test.ts`
-- BFF endpoint: `GET /api/agent/services?q=<query>&category=<category>&maxUsdPrice=<decimal>`
+- Same-origin endpoint: `GET /api/agent/services?q=<query>&category=<category>&maxUsdPrice=<decimal>`
+- Express backend route: `server/bff.ts` / Vercel Vite serverless function: `api/agent/services.ts`
+- Shared validation and public upstream call: `src/core/agent/circleDiscoveryEndpoint.ts`
 - Circle upstream: `https://api.circle.com/v2/x402/discovery/resources` — public, keyless, HTTP GET only
 
-The BFF uses a **hard-coded Circle URL** (no user-controlled upstream/SSRF), enforces bounded query length and filter allowlists, adds a 7-second abort and the existing rate limits, and returns at most 18 sanitized cards. The UI never fetches service endpoints, signs for a wallet, sends credentials or makes an x402 payment.
+Both server endpoints use a **hard-coded Circle URL** (no user-controlled upstream/SSRF), enforces bounded query length and filter allowlists, adds a 7-second abort and the existing rate limits, and returns at most 18 sanitized cards. The UI never fetches service endpoints, signs for a wallet, sends credentials or makes an x402 payment.
 
 The formatter shows a price in USDC only if the quote's EIP-155 chain and token address match Veyra's canonical `getUsdc(chainId)` facts with 6 decimals. Other assets/chains show **Quote unknown** and cannot be treated as budget-authorized.
 
