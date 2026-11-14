@@ -15,8 +15,13 @@ export function ActionCard({ intent, onNavigate }: ActionCardProps) {
   const isConvert = best.actionType === 'CONVERT';
   const isBridge = best.actionType === 'BRIDGE';
   const isUnsupported = intent.status === 'UNSUPPORTED';
-  const needsClarification = intent.status === 'NEEDS_CLARIFICATION' || intent.status === 'AMBIGUOUS';
-  const isActionable = (isTransfer || isConvert || isBridge) && !isUnsupported && !needsClarification;
+  // A generated field is only a string, never an amount authority. Hide zero or
+  // malformed amounts and refuse review until the deterministic pipeline can recheck.
+  const amountText = best.amountRaw?.raw.trim() ?? '';
+  const amountNumber = amountText.match(/^(?:0|[1-9]\d*)(?:[.,]\d+)?/u)?.[0] ?? '';
+  const hasPositiveAmount = Boolean(amountNumber && /[1-9]/.test(amountNumber));
+  const needsClarification = intent.status === 'NEEDS_CLARIFICATION' || intent.status === 'AMBIGUOUS' || !hasPositiveAmount;
+  const isActionable = (isTransfer || isConvert || isBridge) && intent.status === 'RESOLVED' && hasPositiveAmount;
 
   function handleProceed() {
     if (!isActionable) return;
@@ -37,16 +42,16 @@ export function ActionCard({ intent, onNavigate }: ActionCardProps) {
           </span>
           <div>
             <div className="text-sm font-bold" style={{ color: 'var(--ink)' }}>{title}</div>
-            <div className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--subtle)' }}>Agent proposal · {(best.confidence * 100).toFixed(0)}% confidence</div>
+            <div className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--subtle)' }}>Unverified interpretation · no transaction submitted</div>
           </div>
         </div>
         <span className="rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ background: needsClarification ? 'var(--warning-muted)' : 'var(--success-muted)', color: needsClarification ? 'var(--warning)' : 'var(--success)' }}>
-          {needsClarification ? 'Needs input' : 'Ready to review'}
+          {isUnsupported ? 'Unavailable' : isActionable ? 'Ready to review' : 'Needs input'}
         </span>
       </div>
 
       <div className="grid gap-2 p-4 sm:grid-cols-2">
-        {best.amountRaw && <Detail label="Amount" value={best.amountRaw.raw} />}
+        <Detail label="Amount" value={hasPositiveAmount ? amountText : 'Required (> 0)'} />
         {best.tokenRaw && <Detail label={isConvert ? 'From asset' : 'Asset'} value={best.tokenRaw.raw} />}
         {best.targetTokenRaw && <Detail label="To asset" value={best.targetTokenRaw.raw} />}
         {best.recipientRaw && <Detail label="Recipient" value={best.recipientRaw.raw} />}
