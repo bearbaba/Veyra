@@ -98,7 +98,8 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
     if (input) inputRef.current?.focus();
   }, [input]);
 
-  const history = useMemo<AgentHistoryMessage[]>(() => messages.slice(-10).map((message) => ({ role: message.role, text: message.text })), [messages]);
+  // Circle listing names are external/untrusted data: never replay spend drafts into the LLM context.
+  const history = useMemo<AgentHistoryMessage[]>(() => messages.filter((message) => !message.serviceDraft).slice(-10).map((message) => ({ role: message.role, text: message.text })), [messages]);
 
   async function sendMessage() {
     const text = input.trim();
