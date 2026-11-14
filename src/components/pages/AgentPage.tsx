@@ -124,7 +124,7 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
       window.clearTimeout(timeout);
       if (!request.ok) throw new Error(`Agent service returned ${request.status}`);
       const raw: unknown = await request.json();
-      response = validateAgentChatResponse(raw, text, capabilities);
+      response = validateAgentChatResponse(raw, text, capabilities, priorHistory);
     } catch {
       // Browser-side safety net: chat never collapses just because the BFF or
       // configured model is unavailable. Execution remains locked.
