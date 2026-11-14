@@ -21,10 +21,10 @@ afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('Circle public API proxy response', () => {
   it('uses only the fixed Circle endpoint and normalizes server-filtered semantic matches', async () => {
-    const fetchMock = vi.fn(async (_url: RequestInfo | URL) => new Response(JSON.stringify({ items: [good] }), {
+    const fetchMock = vi.fn((_url: RequestInfo | URL) => Promise.resolve(new Response(JSON.stringify({ items: [good] }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
-    }));
+    })));
     vi.stubGlobal('fetch', fetchMock);
     const filters = validateCircleFilters('best realtime coin data', 'FINANCIAL_ANALYSIS', '0.01', 'arc');
     expect(filters).not.toBeNull();
@@ -32,7 +32,9 @@ describe('Circle public API proxy response', () => {
     const response = await loadCircleServices(filters);
     expect(response.mode).toBe('DISCOVERY_ONLY');
     expect(response.services).toHaveLength(0); // The upstream mock ignored category; local category guard holds.
-    const callUrl = String(fetchMock.mock.calls[0]?.[0] || '');
+    const callUrl = fetchMock.mock.calls[0]?.[0];
+    expect(typeof callUrl).toBe('string');
+    if (typeof callUrl !== 'string') throw new Error('Expected a fixed HTTP URL');
     expect(callUrl).toContain('https://api.circle.com/v2/x402/discovery/resources?');
     expect(new URL(callUrl).searchParams.get('query')).toBe('best realtime coin data');
     expect(new URL(callUrl).searchParams.get('category')).toBe('FINANCIAL_ANALYSIS');
@@ -41,7 +43,7 @@ describe('Circle public API proxy response', () => {
   });
 
   it('keeps Circle semantic query matches even when no substring is present', async () => {
-    const fetched = vi.fn(async () => new Response(JSON.stringify({ items: [good] }), { status: 200 }));
+    const fetched = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ items: [good] }), { status: 200 })));
     vi.stubGlobal('fetch', fetched);
     const filters = validateCircleFilters('weather api', 'WEB_SEARCH_RESEARCH', '0.01');
     if (!filters) throw new Error('Unexpected filters');
