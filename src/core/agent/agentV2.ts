@@ -1,4 +1,4 @@
-import { validateIntentResponse, type IntentResult } from '../intent/intentSchema';
+import { validateIntentResponse, type IntentResult } from '../intent/intentSchema.js';
 
 export type AgentMode = 'CHAT' | 'ACTION' | 'CLARIFICATION';
 export type AgentServiceMode = 'ONLINE' | 'FALLBACK';
