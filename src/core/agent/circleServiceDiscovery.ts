@@ -109,7 +109,7 @@ function normalizeEntry(raw: unknown): CircleServicePreview | null {
     return aAmount < bAmount ? -1 : aAmount > bAmount ? 1 : 0;
   });
   const cheapest = knownQuotes[0];
-  const network = cheapest?.network ?? safeText(record(quotes[0])?.network, 55) || 'Network not verified';
+  const network = cheapest?.network ?? (safeText(record(quotes[0])?.network, 55) || 'Network not verified');
   const gateway = meta?.supportsCircleGateway === true
     || quotes.some((q) => record(q)?.scheme === 'GatewayWalletBatched');
   const x402 = meta?.supportsVanillax402 === true || quotes.some((q) => record(q)?.scheme === 'exact');
