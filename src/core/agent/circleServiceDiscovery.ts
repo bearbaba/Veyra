@@ -13,6 +13,7 @@ export const CIRCLE_DISCOVERY_CATEGORIES = [
   'PREDICTION_MARKETS',
   'CREATIVE',
   'INFRASTRUCTURE',
+  'TRAVEL_SHOPPING', // Appears in the live Circle catalog even if older docs list six categories.
 ] as const;
 
 export type CircleServiceCategory = typeof CIRCLE_DISCOVERY_CATEGORIES[number];
