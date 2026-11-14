@@ -68,9 +68,7 @@ export function CircleAgentEconomyPanel() {
         headers: { Accept: 'application/json' },
       });
       const raw: unknown = await response.json();
-      const data: Partial<CircleSearchResponse> | null = raw && typeof raw === 'object' && !Array.isArray(raw)
-        ? raw as Partial<CircleSearchResponse>
-        : null;
+      const data = raw as Partial<CircleSearchResponse> | null;
       if (!response.ok || data?.ok !== true || data.mode !== 'DISCOVERY_ONLY' || !Array.isArray(data.services)) {
         throw new Error(data?.error || 'Service discovery is unavailable.');
       }
