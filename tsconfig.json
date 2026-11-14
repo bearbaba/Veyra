@@ -42,6 +42,7 @@
   "include": [
     "src",
     "scripts",
-    "server"
+    "server",
+    "api"
   ]
 }
