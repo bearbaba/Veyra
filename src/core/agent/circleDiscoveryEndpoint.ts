@@ -61,6 +61,7 @@ export async function loadCircleServices(filters: ValidatedCircleFilters): Promi
       asOf: new Date().toISOString(),
       services: normalizeCircleDiscovery(payload, {
         query: filters.query,
+        upstreamQueryMatched: Boolean(filters.query),
         category: filters.category,
         maxUsdPrice: filters.maxUsdPrice,
       }),
