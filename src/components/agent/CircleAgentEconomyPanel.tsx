@@ -18,6 +18,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   PREDICTION_MARKETS: 'Prediction markets',
   CREATIVE: 'Creative',
   INFRASTRUCTURE: 'Infrastructure',
+  TRAVEL_SHOPPING: 'Travel & shopping',
 };
 
 function friendlyNetwork(network: string): string {
@@ -166,7 +167,9 @@ export function CircleAgentEconomyPanel({ onDraft }: { onDraft: (draft: CircleSe
           {error && <div role="alert" className="mt-3 rounded-xl px-3 py-3 text-xs" style={{ color: 'var(--warning)', border: '1px solid var(--border)' }}>{error}</div>}
           {!loading && searched && !error && services.length === 0 && (
             <div className="mt-3 rounded-xl px-4 py-6 text-center text-xs" style={{ color: 'var(--muted)', border: '1px dashed var(--border)' }}>
-              No listings matched the filters in this response. Try a broader search.
+              {network === 'arc'
+                ? 'Circle returned no Arc listings for these filters. Try Base or remove the price/category filter. No cross-chain payment is performed.'
+                : 'No listings matched the filters in this response. Try a broader search.'}
             </div>
           )}
           {services.length > 0 && (
