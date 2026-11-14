@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { validateCircleFilters } from '../core/agent/circleDiscoveryEndpoint.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { loadCircleServices, validateCircleFilters } from '../core/agent/circleDiscoveryEndpoint.js';
+
 import {
   atomicUsdcToDecimal, normalizeCircleDiscovery, previewServiceSpend,
 } from '../core/agent/circleServiceDiscovery.js';
@@ -15,6 +16,39 @@ const good = {
     { scheme: 'exact', network: 'eip155:8453', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', amount: '8000' },
   ],
 };
+
+afterEach(() => { vi.unstubAllGlobals(); });
+
+describe('Circle public API proxy response', () => {
+  it('uses only the fixed Circle endpoint and normalizes server-filtered semantic matches', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ items: [good] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const filters = validateCircleFilters('best realtime coin data', 'FINANCIAL_ANALYSIS', '0.01');
+    expect(filters).not.toBeNull();
+    if (!filters) return;
+    const response = await loadCircleServices(filters);
+    expect(response.mode).toBe('DISCOVERY_ONLY');
+    expect(response.services).toHaveLength(0); // The upstream mock ignored category; local category guard holds.
+    const callUrl = String(fetchMock.mock.calls[0]?.[0] || '');
+    expect(callUrl).toContain('https://api.circle.com/v2/x402/discovery/resources?');
+    expect(new URL(callUrl).searchParams.get('query')).toBe('best realtime coin data');
+    expect(new URL(callUrl).searchParams.get('category')).toBe('FINANCIAL_ANALYSIS');
+    expect(new URL(callUrl).searchParams.get('maxUsdPrice')).toBe('0.01');
+  });
+
+  it('keeps Circle semantic query matches even when no substring is present', async () => {
+    const fetched = vi.fn(async () => new Response(JSON.stringify({ items: [good] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetched);
+    const filters = validateCircleFilters('weather api', 'WEB_SEARCH_RESEARCH', '0.01');
+    if (!filters) throw new Error('Unexpected filters');
+    const result = await loadCircleServices(filters);
+    expect(result.services).toHaveLength(1);
+    expect(result.services[0]?.priceUsdc).toBe('0.008');
+  });
+});
 
 describe('Circle marketplace discovery is read only', () => {
   it('normalizes a Circle listing using the canonical USDC address and exact decimals', () => {
