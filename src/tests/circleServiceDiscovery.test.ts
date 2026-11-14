@@ -21,7 +21,7 @@ afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('Circle public API proxy response', () => {
   it('uses only the fixed Circle endpoint and normalizes server-filtered semantic matches', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ items: [good] }), {
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL) => new Response(JSON.stringify({ items: [good] }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     }));
