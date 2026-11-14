@@ -63,6 +63,16 @@ describe('Circle marketplace discovery is read only', () => {
     expect(items[0]?.category).toBe('WEB_SEARCH_RESEARCH');
   });
 
+  it('does not infer vanilla x402 support from exact scheme when Circle marks it disabled', () => {
+    const listing = {
+      ...good,
+      metadata: { ...good.metadata, supportsVanillax402: false },
+    };
+    const item = normalizeCircleDiscovery({ items: [listing] })[0];
+    expect(item?.gateway).toBe(true);
+    expect(item?.x402).toBe(false);
+  });
+
   it('does not label arbitrary tokens as USDC or present a trusted price', () => {
     const changed = { ...good, accepts: [{ ...good.accepts[0], asset: '0x0000000000000000000000000000000000000001' }] };
     const item = normalizeCircleDiscovery({ items: [changed] })[0];
