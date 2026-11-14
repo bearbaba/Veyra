@@ -18,6 +18,8 @@ The explorer is **not a wallet, payment, quote, endorsement or agent permission*
 ## Agent workflow (Phase 2: implemented)
 
 1. Search by keyword, Circle category and chain (**Arc, Base or Polygon**), with an optional maximum advertised per-call price.
+   - Circle's live catalog also includes `TRAVEL_SHOPPING` in addition to the six categories in its older public guide.
+   - A live read-only preview check returned 200 with Base service listings; the Arc filter returned zero items in the sampled response on 2026-11-14. This is not evidence that Arc lacks support globally.
 2. Select a listing with a recognized network and canonical USDC quote.
 3. Enter the intended number of API calls (1–100) and a draft USDC budget.
 4. Click **Add draft to Agent** to create a structured `CIRCLE_SERVICE_SPEND_DRAFT` message in Agent chat.
