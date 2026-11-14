@@ -14,6 +14,7 @@ export default {
       url.searchParams.get('q'),
       url.searchParams.get('category'),
       url.searchParams.get('maxUsdPrice'),
+      url.searchParams.get('network'),
     );
     if (!filters) return Response.json({ ok: false, error: 'Invalid discovery filter' }, { status: 400 });
     try {
