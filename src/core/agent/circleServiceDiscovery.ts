@@ -114,7 +114,10 @@ function normalizeEntry(raw: unknown): CircleServicePreview | null {
   const network = cheapest?.network ?? (safeText(record(quotes[0])?.network, 55) || 'Network not verified');
   const gateway = meta?.supportsCircleGateway === true
     || quotes.some((q) => record(q)?.scheme === 'GatewayWalletBatched');
-  const x402 = meta?.supportsVanillax402 === true || quotes.some((q) => record(q)?.scheme === 'exact');
+  // Respect an explicit Circle rail capability flag; 'exact' alone does not prove vanilla x402.
+  const x402 = typeof meta?.supportsVanillax402 === 'boolean'
+    ? meta.supportsVanillax402
+    : quotes.some((q) => record(q)?.scheme === 'exact');
   return {
     id, provider, title, description, category, network,
     amountAtomic: cheapest?.amount ?? null,
