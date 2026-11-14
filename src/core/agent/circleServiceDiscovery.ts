@@ -35,6 +35,8 @@ export interface CircleDiscoveryFilters {
   query?: string;
   category?: string;
   maxUsdPrice?: string;
+  /** Circle upstream query may match semantically; do not discard its results by local substring. */
+  upstreamQueryMatched?: boolean;
 }
 
 export interface ServiceSpendPreview {
@@ -138,7 +140,7 @@ export function normalizeCircleDiscovery(
     const service = normalizeEntry(raw);
     if (!service || seen.has(service.id)) continue;
     const haystack = [service.provider, service.title, service.description, service.category, service.id].join(' ').toLowerCase();
-    if (query && !haystack.includes(query)) continue;
+    if (query && !filters.upstreamQueryMatched && !haystack.includes(query)) continue;
     if (category && service.category !== category) continue;
     if (max !== null && (service.amountAtomic === null || BigInt(service.amountAtomic) > max)) continue;
     seen.add(service.id);
