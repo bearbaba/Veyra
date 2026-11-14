@@ -26,7 +26,7 @@ describe('Circle public API proxy response', () => {
       headers: { 'Content-Type': 'application/json' },
     }));
     vi.stubGlobal('fetch', fetchMock);
-    const filters = validateCircleFilters('best realtime coin data', 'FINANCIAL_ANALYSIS', '0.01');
+    const filters = validateCircleFilters('best realtime coin data', 'FINANCIAL_ANALYSIS', '0.01', 'arc');
     expect(filters).not.toBeNull();
     if (!filters) return;
     const response = await loadCircleServices(filters);
@@ -37,6 +37,7 @@ describe('Circle public API proxy response', () => {
     expect(new URL(callUrl).searchParams.get('query')).toBe('best realtime coin data');
     expect(new URL(callUrl).searchParams.get('category')).toBe('FINANCIAL_ANALYSIS');
     expect(new URL(callUrl).searchParams.get('maxUsdPrice')).toBe('0.01');
+    expect(new URL(callUrl).searchParams.get('network')).toBe('arc');
   });
 
   it('keeps Circle semantic query matches even when no substring is present', async () => {
@@ -93,12 +94,14 @@ describe('Circle marketplace discovery is read only', () => {
 
   it('rejects unsafe proxy inputs and normalizes valid filters', () => {
     expect(validateCircleFilters('weather', 'CREATIVE', '0.1')).toEqual({
-      query: 'weather', category: 'CREATIVE', maxUsdPrice: '0.1',
+      query: 'weather', category: 'CREATIVE', maxUsdPrice: '0.1', network: '',
     });
     expect(validateCircleFilters(['multi'], '', '')).toBeNull();
     expect(validateCircleFilters('hi', 'UNKNOWN_CATEGORY', '')).toBeNull();
     expect(validateCircleFilters('hi', '', '1001')).toBeNull();
     expect(validateCircleFilters('hi', '', '-1')).toBeNull();
+    expect(validateCircleFilters('hi', '', '', 'ethereum;malicious')).toBeNull();
+    expect(validateCircleFilters('hi', '', '', ['arc'])).toBeNull();
     expect(validateCircleFilters('x'.repeat(101), '', '')).toBeNull();
   });
 
