@@ -1,0 +1,63 @@
+import { describe, expect, it } from 'vitest';
+import {
+  atomicUsdcToDecimal, normalizeCircleDiscovery, previewServiceSpend,
+} from '../core/agent/circleServiceDiscovery.js';
+
+const good = {
+  resource: 'https://api.example.com/v1/weather',
+  metadata: {
+    provider: { name: 'Weather Example', description: 'Forecast data', category: 'WEB_SEARCH_RESEARCH' },
+    description: 'Hourly weather',
+    supportsCircleGateway: true,
+  },
+  accepts: [
+    { scheme: 'exact', network: 'eip155:8453', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', amount: '8000' },
+  ],
+};
+
+describe('Circle marketplace discovery is read only', () => {
+  it('normalizes a Circle listing using the canonical USDC address and exact decimals', () => {
+    const items = normalizeCircleDiscovery({ items: [good] });
+    expect(items).toHaveLength(1);
+    expect(items[0]?.priceUsdc).toBe('0.008');
+    expect(items[0]?.gateway).toBe(true);
+    expect(items[0]?.x402).toBe(true);
+    expect(items[0]?.category).toBe('WEB_SEARCH_RESEARCH');
+  });
+
+  it('does not label arbitrary tokens as USDC or present a trusted price', () => {
+    const changed = { ...good, accepts: [{ ...good.accepts[0], asset: '0x0000000000000000000000000000000000000001' }] };
+    const item = normalizeCircleDiscovery({ items: [changed] })[0];
+    expect(item?.amountAtomic).toBeNull();
+    expect(item?.priceUsdc).toBeNull();
+    expect(previewServiceSpend(item?.amountAtomic ?? null, '1', '1').status).toBe('UNKNOWN_PRICE');
+  });
+
+  it('drops non-HTTPS URLs and deduplicates services', () => {
+    const bad = { ...good, resource: 'javascript:alert(1)' };
+    expect(normalizeCircleDiscovery({ items: [bad, good, good] })).toHaveLength(1);
+  });
+
+  it('filters by category, search and maximum quoted USDC', () => {
+    expect(normalizeCircleDiscovery({ items: [good] }, { query: 'forecast' })).toHaveLength(1);
+    expect(normalizeCircleDiscovery({ items: [good] }, { category: 'CREATIVE' })).toHaveLength(0);
+    expect(normalizeCircleDiscovery({ items: [good] }, { maxUsdPrice: '0.007' })).toHaveLength(0);
+    expect(normalizeCircleDiscovery({ items: [good] }, { maxUsdPrice: '0.008' })).toHaveLength(1);
+  });
+
+  it('uses integer amounts for budget previews, never number floating point', () => {
+    expect(atomicUsdcToDecimal('1')).toBe('0.000001');
+    expect(atomicUsdcToDecimal('1000001')).toBe('1.000001');
+    expect(previewServiceSpend('8000', '3', '0.024')).toEqual({
+      status: 'WITHIN_DRAFT_BUDGET', totalUsdc: '0.024',
+    });
+    expect(previewServiceSpend('8000', '3', '0.023999').status).toBe('OVER_DRAFT_BUDGET');
+    expect(previewServiceSpend('8000', '101', '1').status).toBe('INVALID_INPUT');
+    expect(previewServiceSpend('8000', '1', '0').status).toBe('INVALID_INPUT');
+  });
+
+  it('supports the alternate resources response without trusting unknown metadata', () => {
+    expect(normalizeCircleDiscovery({ resources: [good] })).toHaveLength(1);
+    expect(normalizeCircleDiscovery({ items: 'malformed' })).toEqual([]);
+  });
+});
