@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { buildCircleServiceSpendDraft, type CircleServiceSpendDraft } from '@/core/agent/circleServiceSpendDraft';
+import { getChain } from '@/onchain-facts';
 import {
   ArrowUpRight, ChevronDown, ChevronUp, CircleDollarSign, Compass,
   ExternalLink, Loader2, Search, ShieldCheck, Wallet, ClipboardCheck,
@@ -19,6 +20,11 @@ const CATEGORY_LABELS: Record<string, string> = {
   INFRASTRUCTURE: 'Infrastructure',
 };
 
+function friendlyNetwork(network: string): string {
+  const parsed = /^eip155:(\d+)$/.exec(network);
+  return parsed ? (getChain(Number(parsed[1]))?.name ?? network) : network;
+}
+
 interface CircleSearchResponse {
   ok: boolean;
   mode?: string;
@@ -36,6 +42,7 @@ export function CircleAgentEconomyPanel({ onDraft }: { onDraft: (draft: CircleSe
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
+  const [network, setNetwork] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
   const [services, setServices] = useState<CircleServicePreview[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -63,6 +70,7 @@ export function CircleAgentEconomyPanel({ onDraft }: { onDraft: (draft: CircleSe
     const params = new URLSearchParams();
     if (query.trim()) params.set('q', query.trim().slice(0, 100));
     if (category) params.set('category', category);
+    if (network) params.set('network', network);
     if (maxPrice.trim()) params.set('maxUsdPrice', maxPrice.trim());
 
     try {
@@ -98,6 +106,7 @@ export function CircleAgentEconomyPanel({ onDraft }: { onDraft: (draft: CircleSe
     }
     setDraftError(null);
     onDraft(result.draft);
+    setExpanded(false);
   }
 
   return (
@@ -129,7 +138,7 @@ export function CircleAgentEconomyPanel({ onDraft }: { onDraft: (draft: CircleSe
       </div>
       {expanded && (
         <div className="border-t px-4 pb-5 pt-4 sm:px-5" style={{ borderColor: 'var(--border)' }}>
-          <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_170px_120px_auto]" onSubmit={(event) => { event.preventDefault(); void findServices(); }}>
+          <form className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_160px_115px_110px_auto]" onSubmit={(event) => { event.preventDefault(); void findServices(); }}>
             <label className="flex min-w-0 items-center gap-2 rounded-xl px-3" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
               <Search className="size-4 shrink-0" style={{ color: 'var(--muted)' }} />
               <input value={query} onChange={(event) => setQuery(event.target.value)} maxLength={100} placeholder="Search APIs or services" className="min-w-0 flex-1 bg-transparent py-3 text-xs outline-none" style={{ color: 'var(--ink)' }} aria-label="Search services" />
@@ -137,6 +146,12 @@ export function CircleAgentEconomyPanel({ onDraft }: { onDraft: (draft: CircleSe
             <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Service category" className="min-w-0 rounded-xl px-3 py-3 text-xs outline-none" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
               <option value="">All categories</option>
               {CIRCLE_DISCOVERY_CATEGORIES.map((value) => <option key={value} value={value}>{CATEGORY_LABELS[value]}</option>)}
+            </select>
+            <select value={network} onChange={(event) => setNetwork(event.target.value)} aria-label="Payment network" className="min-w-0 rounded-xl px-3 py-3 text-xs outline-none" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)', color: 'var(--ink)' }}>
+              <option value="">All networks</option>
+              <option value="arc">Arc</option>
+              <option value="base">Base</option>
+              <option value="polygon">Polygon</option>
             </select>
             <input value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} placeholder="Max $/call" maxLength={12} inputMode="decimal" aria-label="Maximum USDC per call" className="min-w-0 rounded-xl px-3 py-3 text-xs outline-none" style={{ background: 'var(--surface-strong)', border: '1px solid var(--border)', color: 'var(--ink)' }} />
             <button type="submit" disabled={loading} className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-xs font-bold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
@@ -179,7 +194,7 @@ export function CircleAgentEconomyPanel({ onDraft }: { onDraft: (draft: CircleSe
                     <p className="mt-2 line-clamp-2 text-[11px] leading-5" style={{ color: 'var(--muted)' }}>{service.description}</p>
                     <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]" style={{ color: 'var(--subtle)' }}>
                       <span className="rounded-md px-1.5 py-1" style={{ border: '1px solid var(--border)' }}>{CATEGORY_LABELS[service.category] || service.category}</span>
-                      <span className="rounded-md px-1.5 py-1" style={{ border: '1px solid var(--border)' }}>{service.network}</span>
+                      <span className="rounded-md px-1.5 py-1" style={{ border: '1px solid var(--border)' }}>{friendlyNetwork(service.network)}</span>
                       {service.gateway && <span className="rounded-md px-1.5 py-1" style={{ border: '1px solid var(--border)' }}>Gateway</span>}
                     </div>
                   </button>
