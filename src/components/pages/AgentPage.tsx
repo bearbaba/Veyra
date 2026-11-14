@@ -190,6 +190,13 @@ export function AgentPage({ onNavigate }: AgentPageProps) {
         <CapabilityPill label="Execution" online={capabilities.execution === 'AVAILABLE'} icon={<LockKeyhole className="size-3.5" />} fallbackLabel="Review locked" />
       </div>
 
+      {capabilities.conversation === 'FALLBACK' && (
+        <div role="status" className="mt-3 flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs leading-5" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--muted)' }}>
+          <WifiOff className="mt-0.5 size-4 shrink-0" style={{ color: 'var(--warning)' }} />
+          AI chat is not connected on this preview. Veyra uses a deterministic local assistant for financial planning; it does not make payments or sign for you.
+        </div>
+      )}
+
       <CircleAgentEconomyPanel onDraft={appendCircleServiceDraft} />
 
       <div className="flex-1 overflow-y-auto py-6">
