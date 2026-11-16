@@ -1,0 +1,39 @@
+name: Veyra Mainnet source trust
+
+on:
+  push:
+    branches:
+      - develop
+      - feature/mainnet-identity-authority
+  pull_request:
+    branches:
+      - develop
+      - feature/mainnet-identity-authority
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mainnet-trust-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trust:
+    name: Repository and source safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: Verify provenance, release documentation and repository safety
+        run: bun run check:repository-trust
+      - name: Ensure developer tools are isolated from production
+        run: bun run check:dev-isolation
+      # Full financial Vitest, PG16, Mainnet build, Settlement V2 and Chromium
+      # are checked by mainnet-activity-release.yml and compact-mainnet-ux-quality.yml.
+      # This workflow never signs, sends or changes an onchain permission.
