@@ -6,9 +6,11 @@ on:
       - chatgpt/compact-ux-3stage-swap-horizontal
       - chatgpt/mainnet-fresh-receipt-recovery
       - feature/mainnet-identity-authority
+      - develop
   pull_request:
     branches:
       - feature/mainnet-identity-authority
+      - develop
     paths:
       - src/components/layout/AppShell.tsx
       - src/components/command/CommandBar.tsx
@@ -18,6 +20,9 @@ on:
       - src/mainnet/recoveryTrust.ts
       - src/components/pages/MainnetExchangePage.tsx
       - src/components/ui/primitives.tsx
+      - src/config.ts
+      - src/lib/env.ts
+      - vite.config.ts
       - src/tests/**
       - e2e/mainnet-calm-ui-browser.mjs
       - studio/e2e/exchange-recovery.mjs
