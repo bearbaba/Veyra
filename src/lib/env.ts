@@ -19,7 +19,8 @@ function resolveEnv(): VeyraEnv {
   const raw = (import.meta.env as Record<string, string | undefined>).VITE_VEYRA_ENV;
   // GitHub/Studio imports must never silently open the obsolete Testnet experience.
   // Non-production builds remain financially read-only through release signing gates.
-  if (!raw) return 'mainnet';
+  // Node integration tests retain the old local fixture; user-facing browser imports default to Mainnet.
+  if (!raw) return typeof window === 'undefined' ? 'local' : 'mainnet';
   const v = String(raw).toLowerCase().trim();
   if (v === 'mainnet') return 'mainnet';
   if (v === 'testnet') return 'testnet';
