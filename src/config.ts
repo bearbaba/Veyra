@@ -4,38 +4,25 @@
  */
 
 import { http, createConfig } from 'wagmi'
-import { fallback } from 'viem'
-import { base, baseSepolia, mainnet, sepolia } from 'wagmi/chains'
-import { arcTestnet, arc } from 'viem/chains'
+import { base, mainnet } from 'wagmi/chains'
+import { arc } from 'viem/chains'
 import { injected } from 'wagmi/connectors'
 import { registerChain } from './tracing'
 
 // Pre-register chain RPC URLs so trace events show correct chain names immediately
-registerChain(arcTestnet.id, arcTestnet.rpcUrls.default.http[0])
 registerChain(arc.id, arc.rpcUrls.default.http[0])
 registerChain(base.id, 'https://mainnet.base.org')
-registerChain(sepolia.id, sepolia.rpcUrls.default.http[0])
-registerChain(baseSepolia.id, 'https://sepolia.base.org')
 
 export const config = createConfig({
   // arc: Arc Mainnet (chainId 5042) — USDC as native gas + ERC-20
-  // arcTestnet: Arc Testnet (chainId 5042002)
   // mainnet: ENS resolution
-  // sepolia: CCTP V2 destination chain (receiveMessage)
-  chains: [arc, base, arcTestnet, sepolia, baseSepolia, mainnet],
+  // Wallets may connect only to the verified Mainnet networks in the public app.
+  // Historical Testnet tools are not reachable from this connector.
+  chains: [arc, base, mainnet],
   connectors: [injected()],
   transports: {
     [arc.id]: http('https://rpc.mainnet.arc.io', { timeout: 12000, retryCount: 1 }),
-    // Use independently verified Arc Testnet endpoints. A temporary outage/CORS
-    // failure on the official RPC should not strand Review Transfer.
-    // Contract reverts still fail closed; no simulation is ever skipped.
     [base.id]: http('https://mainnet.base.org', { timeout: 12000, retryCount: 1 }),
-    [arcTestnet.id]: fallback([
-      http('https://rpc.testnet.arc.io', { timeout: 12000, retryCount: 1 }),
-      http('https://arc-testnet.drpc.org', { timeout: 12000, retryCount: 1 }),
-    ], { rank: false }),
-    [sepolia.id]: http(),
-    [baseSepolia.id]: http('https://sepolia.base.org', { timeout: 12000, retryCount: 1 }),
     [mainnet.id]: http(),
   },
 })
