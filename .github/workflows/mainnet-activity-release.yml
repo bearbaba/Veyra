@@ -7,10 +7,12 @@ on:
       - fix/mainnet-p0-journal-cctp-link
       - feature/mainnet-human-first-ux
       - feature/mainnet-identity-authority
+      - develop
       - arc-studio/settlement-mainnet-preview
   pull_request:
     branches:
       - feature/mainnet-identity-authority
+      - develop
   workflow_dispatch:
 
 permissions:
