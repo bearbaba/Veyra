@@ -2,7 +2,7 @@
  * Veyra environment resolution.
  *
  * Responsibilities:
- * - resolve current environment (local | testnet | mainnet)
+ * - resolve current environment (Mainnet by default; legacy explicit envs only for historical verification)
  * - validate required variables per environment
  * - mainnet anti-testnet safety guard
  * - enforce that LLM secrets never appear in frontend env
@@ -17,7 +17,9 @@ export const VEYRA_ENV: VeyraEnv = resolveEnv();
 
 function resolveEnv(): VeyraEnv {
   const raw = (import.meta.env as Record<string, string | undefined>).VITE_VEYRA_ENV;
-  if (!raw) return 'local';
+  // GitHub/Studio imports must never silently open the obsolete Testnet experience.
+  // Non-production builds remain financially read-only through release signing gates.
+  if (!raw) return 'mainnet';
   const v = String(raw).toLowerCase().trim();
   if (v === 'mainnet') return 'mainnet';
   if (v === 'testnet') return 'testnet';
@@ -103,8 +105,8 @@ export function validateEnv(): void {
 /**
  * Compile-time hard lock for static Vercel UI preview builds.
  * This cannot be toggled by query params, localStorage or a runtime API.
- * The Vercel build command always sets VITE_VEYRA_UI_ONLY=1. A real authenticated
- * testnet release requires its own reviewed build and API readiness gates.
+ * The isolated UI-preview flag cannot authorize any wallet transaction.
+ * Mainnet signing still requires the separately verified Production release.
  */
 export const IS_UI_ONLY_PREVIEW =
   (import.meta.env as Record<string, string | undefined>).VITE_VEYRA_UI_ONLY === '1';
