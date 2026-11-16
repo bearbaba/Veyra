@@ -53,6 +53,7 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     const app = read('src/preview/PreviewApp.tsx');
     const surfaces = read('src/preview/PreviewSurfaces.tsx');
     const ci = read('.github/workflows/ci.yml');
+    const mainnetCi = read('.github/workflows/mainnet-activity-release.yml');
     const audit = read('scripts/check-vercel-preview-bundle.ts');
 
     expect(vite).toContain("process.env.VITE_VEYRA_UI_ONLY === '1'");
@@ -69,8 +70,9 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
       expect(content).not.toMatch(/from ['\"][^'\"]*(?:wagmi|connectkit|\/api\/|hooks\/useBridge|hooks\/useTransfer|securityBootstrap|providerManifest|receiptStore)/i);
     }
 
-    expect(ci).toContain('Assert no wallet signing and BFF code in preview JavaScript');
-    expect(ci).toContain('bun run check:vercel-preview-bundle');
+    expect(ci).toContain('bun run check:repository-trust');
+    expect(mainnetCi).toContain('Build exact full Mainnet release profile');
+    expect(mainnetCi).toContain('bun run check:prod-bundle');
     expect(audit).toContain('eth_sendTransaction');
     expect(audit).toContain('depositForBurn');
     expect(audit).toContain('receiveMessage');
