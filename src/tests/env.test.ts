@@ -3,7 +3,7 @@
  *
  * Note: import.meta.env is not available in the vitest node environment.
  * These tests import the functions and verify they work with the
- * environment as-is (no VITE_* vars set = Mainnet default, no LLM keys).
+ * environment as-is (legacy Node fixtures remain local; browser GitHub imports default to Mainnet).
  */
 import { describe, it, expect } from 'vitest';
 
