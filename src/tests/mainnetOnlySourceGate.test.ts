@@ -7,7 +7,7 @@ const read=(path:string)=>readFileSync(new URL('../'+path,import.meta.url),'utf8
 describe('Mainnet-only GitHub/Studio import defaults',()=>{
  it('defaults the user-facing app to Mainnet without environment variables',()=>{
   const env=read('lib/env.ts');
-  expect(env).toContain("if (!raw) return 'mainnet';");
+  expect(env).toContain("if (!raw) return typeof window === 'undefined' ? 'local' : 'mainnet';");
   expect(env).toContain("assertNoTestnetLeakInMainnet()");
   const vite=read('../vite.config.ts');
   expect(vite).toContain("process.env.VITE_VEYRA_ENV || 'mainnet'");
