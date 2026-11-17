@@ -23,7 +23,11 @@ describe('Mainnet route catalogue used by Home and Agent',()=>{
   expect(MAINNET_ROUTES.pay.network).toContain('5042');
   expect(MAINNET_ROUTES.swap.readiness).toBe('live-quote');
   expect(MAINNET_ROUTES.bridge.readiness).toBe('live-quote');
-  expect(MAINNET_ROUTES.gateway.readiness).toBe('backend-required');
+  expect(MAINNET_ROUTES.gateway.readiness).toBe('live-balance');
+  expect(MAINNET_ROUTES.gateway.network).toContain('Circle Gateway');
+  expect(MAINNET_ROUTES.gateway.summary).toContain('confirmed and pending USDC');
+  expect(MAINNET_ROUTES.gateway.summary).toContain('separately enabled release gate');
+  expect(routeLabel('gateway')).toBe('Verified balance required');
   expect(MAINNET_ROUTES.identity.readiness).toBe('backend-required');
   expect(routeLabel('bridge')).toBe('Live quote required');
  });
