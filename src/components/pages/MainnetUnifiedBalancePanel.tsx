@@ -244,12 +244,12 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
    {!GATEWAY_MAINNET_WRITE_ENABLED&&<p role="status" className="text-xs font-semibold"
     style={{color:'var(--warning)'}}>Quotes and review only · Mainnet transfers paused</p>}
    <div className="flex items-center justify-between">
-    <p className="text-sm font-bold">{mode==='deposit'?'Add USDC':'Send Unified USDC'}</p>
+    <p className="text-sm font-bold">{mode==='deposit'?'Add USDC':canPilot?'Send Unified USDC':'Review Unified transfer'}</p>
     {(review||!fundingToWallet)&&<button type="button" disabled={busy} onClick={()=>{if(review){setReview(false);setFees(null);}else{setMode(null);}}} className="veyra-btn-secondary px-2 text-xs">{review?'Edit':'Close'}</button>}
    </div>
    {mode==='spend'&&<p className="text-xs leading-relaxed" style={{color:'var(--muted)'}}>
     Send from confirmed Circle Gateway USDC, not the Wallet USDC shown on Home. Fees are
-    estimated before wallet confirmation; the amount received can differ after fees.
+    estimated before wallet confirmation; the amount received can differ after fees. This is a Gateway wallet transfer, not a Veyra ID payment. Use Pay for a separate verified Settlement payment.
    </p>}
    {!review&&<>
    <details className="text-xs" style={{color:'var(--muted)'}}>
@@ -298,7 +298,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
      style={{background:'var(--surface)',borderColor:'var(--border)',color:'var(--ink)'}}/>
    </label>
    <div className="flex items-center justify-between text-xs" style={{color:'var(--muted)'}}>
-    <span>{mode==='deposit'?'Wallet':advanced?'Selected source':'Veyra send-ready'} available: {fmt(availableForSource)} USDC</span>
+    <span>{mode==='deposit'?'Wallet':advanced?'Selected source':'Gateway quote-eligible sources'} available: {fmt(availableForSource)} USDC</span>
     <button type="button" disabled={availableForSource===null||availableForSource===0n}
      onClick={()=>{if(availableForSource===null)return;
       setAmount(formatUnits(availableForSource,6));
@@ -357,7 +357,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
     onClick={()=>void(review?execute():preview())}
     className={'flex min-h-12 w-full items-center justify-center gap-2 py-3 disabled:opacity-40 '+(review?'veyra-btn-primary':'veyra-btn-secondary')}>
     {busy&&<RefreshCw className="size-4 animate-spin" aria-hidden="true"/>}
-    {busy?'Checking live status…':review?'Confirm in wallet':
+    {busy?'Checking live status…':review?canPilot?'Confirm in wallet':'Signing not enabled':
       mode==='deposit'?'Review deposit':'Review transfer fees'}
    </button>
    <details className="text-[11px]" style={{color:'var(--muted)'}}>
@@ -431,7 +431,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
      <button type="button" onClick={()=>selectMode('spend')}
       disabled={Boolean(fundingToWallet)||!canRead||!current||previous||signingAvailable===null||signingAvailable<=0n}
       className="veyra-btn-secondary inline-flex min-h-10 items-center gap-1.5 px-3 text-xs font-semibold disabled:opacity-40">
-      <SendHorizontal className="size-4"/>Send to wallet
+      <SendHorizontal className="size-4"/>{canPilot?'Send to wallet':'Review transfer'}
      </button>
      <button type="button" onClick={()=>setExpanded(x=>!x)} aria-expanded={expanded}
       aria-label={expanded?'Hide Unified details':'Show Unified details'}
@@ -454,7 +454,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
   {(!compact||expanded)&&<div className={compact?'mt-3 rounded-xl border p-3 sm:p-4':'contents'} style={compact?{borderColor:'var(--border)'}:undefined}>
   <div className="flex flex-wrap items-start justify-between gap-3">
    <div><p className="text-sm font-bold" style={{color:'var(--ink)'}}>Unified Balance</p>
-    <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Circle Gateway · 12 EVM networks · 3 execution-ready</p></div>
+    <p className="mt-1 text-xs" style={{color:'var(--muted)'}}>Circle Gateway · 12 EVM networks · 3 quote-supported sources</p></div>
    <button type="button" aria-label="Refresh Unified Balance" disabled={!canRead||loading}
     onClick={()=>{if(!address)return;setLoading(true);
      void fetchGatewayMainnetBalances(address).then(x=>{setSnapshot(x);setScope(owner+':'+session);setError('');})
@@ -481,7 +481,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
   </p>
   {current&&<div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-2 text-xs"
    style={{borderColor:'var(--border)'}}>
-   <span>Veyra send-ready · Arc / Base / Ethereum</span>
+   <span>{canPilot?'Veyra supported sources':'Quote-supported sources'} · Arc / Base / Ethereum</span>
    <strong className="tabular-nums" style={{color:'var(--ink)'}}>{fmt(signingAvailable)} USDC</strong>
   </div>}
   {current&&signingAvailable!==null&&signingAvailable<current.available&&
@@ -495,7 +495,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
     <span className="flex min-w-0 items-center gap-2">
      <BrandLogo logoKey={GATEWAY_MAINNET_LEDGER_CHAINS.find(x=>x.chainId===c.chainId)?.logo??'usdc'} size={22}/>
      <span className="truncate">{GATEWAY_MAINNET_LEDGER_CHAINS.find(x=>x.chainId===c.chainId)?.chain.replace('_',' ')??c.chain}</span>
-     {C.some(ready=>ready.chainId===c.chainId)&&<span className="text-[10px]" style={{color:'var(--success)'}}>Send ready</span>}
+     {C.some(ready=>ready.chainId===c.chainId)&&<span className="text-[10px]" style={{color:canPilot?'var(--success)':'var(--muted)'}}>{canPilot?'Signing source':'Quote source'}</span>}
     </span><span className="shrink-0 tabular-nums">{formatUnits(c.available,6)} USDC</span>
    </div>)}</div>
    <p className="mt-2">Circle confirmed balances · checked {new Date(current.readAt).toLocaleTimeString()}.</p>
@@ -514,7 +514,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
     <ArrowDownLeft className="size-4"/> Add USDC</button>
    <button type="button" disabled={Boolean(fundingToWallet)||!canRead||!current||previous||signingAvailable===null||signingAvailable<=0n} onClick={()=>selectMode('spend')}
     className="veyra-btn-secondary flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs font-semibold disabled:opacity-40">
-    <SendHorizontal className="size-4"/> Send to wallet</button>
+    <SendHorizontal className="size-4"/> {canPilot?'Send to wallet':'Review transfer'}</button>
   </div>}
   {!GATEWAY_MAINNET_WRITE_ENABLED&&<p className="mt-2 text-xs" style={{color:'var(--muted)'}}>
    Gateway transactions are not enabled in Veyra yet. You can inspect the live ledger and review supported routes without signing.
@@ -533,7 +533,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1 text-xs"
       style={{color:'var(--muted)'}}>
       <span>Circle Gateway · Unified Balance</span>
-      <span className="tabular-nums">{fmt(signingAvailable)} USDC send-ready</span>
+      <span className="tabular-nums">{fmt(signingAvailable)} USDC on quote-supported sources</span>
      </div>
      {transferForm}
     </div>
