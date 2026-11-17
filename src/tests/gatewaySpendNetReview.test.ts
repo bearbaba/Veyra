@@ -9,7 +9,7 @@ describe('Gateway exact net-review transparency and safe preflight',()=>{
  it('shows precise net for a 0.1 USDC spend without floating point drift',()=>{
   const fees=parseGatewaySdkFees([
    {type:'forwarder',token:'USDC',amount:'0.0006'},
-   {type:'service',token:'USDC',amount:'0.0004'},
+   {type:'provider',token:'USDC',amount:'0.0004'},
   ]);
   const quote=gatewaySpendQuoteSummary('0.100000',fees);
   expect(quote).toMatchObject({
