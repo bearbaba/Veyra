@@ -235,7 +235,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
               <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
                 {VEYRA_ENV==='mainnet'
                   ?MAINNET_EMERGENCY_READ_ONLY?'Financial signing is paused. You can still review onchain receipts safely.':
-                   MAINNET_CANARY_ONLY?'Legacy direct wallet USDC remains canary-limited. Settlement, Gateway, Swap and Bridge have separate provider, wallet and receipt gates; an available quote is not completed settlement.':
+                   MAINNET_CANARY_ONLY?'Legacy direct wallet USDC stays canary-limited to the authorized wallet and 0.01 USDC per payment. Settlement, Gateway, Swap and Bridge have separate provider, wallet and receipt gates; an available quote is not completed settlement.':
                    'Veyra Settlement Pay requires review, wallet confirmation and an onchain receipt. Quotes are not completed transactions.'
                   :'Every payment is reviewed before wallet approval. Testnet funds only.'}
               </p>
