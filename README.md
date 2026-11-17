@@ -18,6 +18,8 @@ The default GitHub branch now contains the **Mainnet-first Veyra application**. 
 
 **New Arc fee update:** [Fee-waiver disclosure, route limits and Mainnet release gaps](docs/arc-settlement-fees-2026-11.md). Circle's advertised service-fee waivers are not zero-total-cost or gasless transfers.
 
+**Deployments on Vercel Hobby:** [Mainnet release / deployment-budget policy](docs/mainnet-vercel-deployment-budget.md). Vercel auto-deploys only `develop` and explicitly opted-in `release-preview/**` branches; other development pushes are verified by GitHub Actions, not a new Vercel deployment.
+
 ## Historical Phase 5 preview (archive; not today's Mainnet release)
 
 This table describes the **Phase 5 candidate**, not a promise that every feature is present on the older Production deployment.
@@ -84,20 +86,21 @@ Requirements: Bun version in [`.bun-version`](.bun-version), a supported browser
 ```bash
 git clone https://github.com/bearbaba/Veyra.git
 cd Veyra
-git checkout phase5-production-bridge-flow
+# The default develop branch is Mainnet-first.
 bun install --frozen-lockfile
 bun run typecheck
 bun run lint
 bun run test
 ```
 
-For the isolated, Testnet-first UI:
+For an isolated **read-only Mainnet UI** while developing (no signing, wallet funding or BFF credentials):
 
 ```bash
-VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build
-bun run check:vercel-preview-bundle
+VITE_VEYRA_ENV=mainnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_PUBLIC_BETA=0 VITE_VEYRA_GATEWAY_MAINNET_WRITE_ENABLED=0 bun run build
 bun run preview
 ```
+
+This locally built UI is not a Production release or onchain payment acceptance. Use the guarded `bun scripts/build-mainnet-pilot.ts` only as part of the reviewed CI/release process. Archived Testnet procedures remain in Git history for regression evidence.
 
 For local full-stack development (two terminals, **no Mainnet funds**):
 
