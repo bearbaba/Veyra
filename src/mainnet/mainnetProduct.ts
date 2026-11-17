@@ -5,7 +5,7 @@
  * Do not use this catalogue as a financial signing authorization.
  */
 export type MainnetRoute = 'pay'|'settlement'|'swap'|'bridge'|'gateway'|'identity';
-export type RouteReadiness = 'wallet-signature'|'live-quote'|'backend-required';
+export type RouteReadiness = 'wallet-signature'|'live-quote'|'live-balance'|'backend-required';
 export type RouteCapability = {
   title:string; network:string; readiness:RouteReadiness; summary:string;
   destination:'pay'|'settlement'|'convert'|'bridge'|'agent'|'settings'|'social';
@@ -19,13 +19,14 @@ export const MAINNET_ROUTES: Record<MainnetRoute,RouteCapability> = {
     summary:'Live quote and review available; real signing remains paused during the M0 payment pilot.',destination:'convert'},
   bridge:{title:'Bridge',network:'Arc / Base / Ethereum USDC',readiness:'live-quote',
     summary:'Arc/Base/Ethereum native USDC quote candidates; provider support is distinct from Veyra execution acceptance. Signing remains paused.',destination:'bridge'},
-  gateway:{title:'Unified Gateway',network:'Provider not connected',readiness:'backend-required',
-    summary:'Wallet funds are separate; Gateway available funds are not readable on Mainnet yet.',destination:'agent'},
+  gateway:{title:'Unified Gateway',network:'Circle Gateway · 12 EVM ledgers',readiness:'live-balance',
+    summary:'Owner-scoped confirmed and pending USDC can be read with verified identity. Veyra only reviews spend from Arc, Base and Ethereum; signatures require a separately enabled release gate.',destination:'agent'},
   identity:{title:'Veyra ID / X',network:'Backend verification required',readiness:'backend-required',
     summary:'Veyra ID and linked X require verified backend authentication. Local contacts are not verified identities.',destination:'social'},
 };
 export function routeLabel(route:MainnetRoute){
   const state=MAINNET_ROUTES[route].readiness;
   return state==='wallet-signature'?'Wallet-confirmed':
-    state==='live-quote'?'Live quote required':'Not connected';
+    state==='live-quote'?'Live quote required':
+    state==='live-balance'?'Verified balance required':'Not connected';
 }
