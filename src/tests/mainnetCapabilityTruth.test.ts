@@ -36,9 +36,9 @@ describe('Public Mainnet feature status: conservative release truth',()=>{
   expect(byId(parsePublicMainnetCapabilities({...sample,x:{available:false}}),'x')).toBe('unavailable');
  });
  it('uses only an unauthenticated GET, with cache bypass and same-origin policy',async()=>{
-  const mock=vi.fn(async()=>new Response(JSON.stringify(sample),{
+  const mock=vi.fn(()=>Promise.resolve(new Response(JSON.stringify(sample),{
    status:200,headers:{'content-type':'application/json'},
-  }));
+  })));
   vi.stubGlobal('fetch',mock);
   const rows=await fetchPublicMainnetCapabilities();
   expect(byId(rows,'identity')).toBe('available');
@@ -50,10 +50,10 @@ describe('Public Mainnet feature status: conservative release truth',()=>{
    new Response('<html>Not a capability API</html>',{status:200,headers:{'content-type':'text/html'}}),
    new Response(JSON.stringify({ok:false}),{status:503,headers:{'content-type':'application/json'}}),
   ]){
-   vi.stubGlobal('fetch',vi.fn(async()=>reply));
+   vi.stubGlobal('fetch',vi.fn(()=>Promise.resolve(reply)));
    expect((await fetchPublicMainnetCapabilities()).every(r=>r.status==='unknown')).toBe(true);
   }
-  vi.stubGlobal('fetch',vi.fn(async()=>{throw Error('offline');}));
+  vi.stubGlobal('fetch',vi.fn(()=>Promise.reject(new Error('offline'))));
   expect((await fetchPublicMainnetCapabilities()).every(r=>r.status==='unknown')).toBe(true);
  });
  it('keeps status read-only, behind Settings details, and leaves signer gates unchanged',()=>{
