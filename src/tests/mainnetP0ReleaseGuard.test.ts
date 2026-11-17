@@ -1,5 +1,6 @@
+import {readFileSync} from 'node:fs';
 import {describe,it,expect,vi,afterEach} from 'vitest';
-import {assertMainnetSigningAllowed} from '../mainnet/releaseGates';
+import {assertMainnetSigningAllowed,assertMainnetCanarySigningAllowed,assertMainnetContractCanarySigningAllowed,canSignMainnetCanary,assertMainnetPublicSettlementSigningAllowed,assertMainnetConsumerSigningAllowed} from '../mainnet/releaseGates';
 import {buildMainnetPayPlan,reconcileMainnetCanary} from '../mainnet/arcMainnetPay';
 import {readSettlementIntent,writeSettlementIntent,settlementUnresolved,
   type SettlementIntent} from '../mainnet/settlementJournal';
@@ -14,6 +15,27 @@ describe('read-only rollback and fault injection',()=>{
  it('denies new wallet signing when read-only yet leaves original journal unchanged',()=>{
   expect(()=>assertMainnetSigningAllowed(true)).toThrow('read-only recovery mode');
   expect(()=>assertMainnetSigningAllowed(false)).not.toThrow();
+  expect(canSignMainnetCanary('0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb',10_000n)).toBe(true);
+  expect(canSignMainnetCanary('0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb',10_001n)).toBe(false);
+  expect(canSignMainnetCanary('0x1111111111111111111111111111111111111111',10_000n)).toBe(false);
+  expect(()=>assertMainnetCanarySigningAllowed('0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb',10_000n,false,true)).not.toThrow();
+  expect(()=>assertMainnetCanarySigningAllowed('0x1111111111111111111111111111111111111111',10_000n,false,true)).toThrow('authorized canary wallet');
+  expect(()=>assertMainnetCanarySigningAllowed('0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb',10_000n,true,true)).toThrow('read-only recovery mode');
+  // In-app contract payment canary is owner-only and <=0.01 USDC,
+  // checked again on both approval and pay() signature paths.
+  const owner='0x4C7cb73aC8F8999af21cfc9fF4cF2333a9508Dcb';
+  expect(()=>assertMainnetContractCanarySigningAllowed(owner,10_000n,'pay',false)).not.toThrow();
+  expect(()=>assertMainnetContractCanarySigningAllowed(owner,10_001n,'pay',false)).toThrow('0.01 USDC');
+  expect(()=>assertMainnetContractCanarySigningAllowed(from,10_000n,'pay',false)).toThrow('authorized canary wallet');
+  expect(()=>assertMainnetContractCanarySigningAllowed(owner,10_000n,'escrow',false)).toThrow('escrow signing is not enabled');
+  expect(()=>assertMainnetContractCanarySigningAllowed(owner,10_000n,'pay',true)).toThrow('read-only recovery');
+  const settlementSource=readFileSync(new URL('../components/pages/SettlementPage.tsx',import.meta.url),'utf8');
+  expect(settlementSource.match(/assertMainnetContractCanarySigningAllowed\(address,snapshot\.amountParsed,snapshot\.mode\)/g)).toHaveLength(2);
+  // Deployment and Circle routes remain closed under the normal M0 pilot.
+
+  const deploy=readFileSync(new URL('../components/pages/MainnetSettlementDeploy.tsx',import.meta.url),'utf8');
+  expect(deploy).toContain('assertMainnetSigningAllowed();');
+  expect(deploy).toContain('!MAINNET_CANARY_ONLY && !MAINNET_EMERGENCY_READ_ONLY');
   const m=new Map<string,string>();
   const store={getItem:(k:string)=>m.get(k)??null,setItem:(k:string,v:string)=>{m.set(k,v);},
     removeItem:(k:string)=>{m.delete(k);}};
@@ -46,5 +68,39 @@ describe('read-only rollback and fault injection',()=>{
   expect(storage.has(mainnetJournalKey(from))).toBe(true);
   expect(()=>assertMainnetSigningAllowed(true)).toThrow();
   expect(storage.has(mainnetJournalKey(from))).toBe(true);
+ });
+});
+
+describe('owner-authorized public Mainnet beta safety boundaries',()=>{
+ it('allows positive ordinary Settlement from another wallet, without unlocking escrow or legacy Direct USDC',()=>{
+  expect(()=>assertMainnetPublicSettlementSigningAllowed(from,1n,'pay',false,true)).not.toThrow();
+  expect(()=>assertMainnetPublicSettlementSigningAllowed(from,1_000_000n,'pay',false,true)).not.toThrow();
+  expect(canSignMainnetCanary(from,1n)).toBe(false);
+  expect(()=>assertMainnetPublicSettlementSigningAllowed(from,1n,'escrow',false,true)).toThrow('escrow');
+  expect(()=>assertMainnetPublicSettlementSigningAllowed(from,0n,'pay',false,true)).toThrow('positive');
+  expect(()=>assertMainnetPublicSettlementSigningAllowed('not-a-wallet',1n,'pay',false,true)).toThrow('payer');
+ });
+ it('refuses any signing if emergency recovery is on or beta authorization is missing',()=>{
+  expect(()=>assertMainnetConsumerSigningAllowed(false,true)).not.toThrow();
+  expect(()=>assertMainnetConsumerSigningAllowed(true,true)).toThrow('emergency');
+  expect(()=>assertMainnetConsumerSigningAllowed(false,false)).toThrow('not enabled');
+  expect(()=>assertMainnetPublicSettlementSigningAllowed(from,1n,'pay',true,true)).toThrow('emergency');
+  expect(()=>assertMainnetPublicSettlementSigningAllowed(from,1n,'pay',false,false)).toThrow('not enabled');
+ });
+ it('isolates replay-unsafe Payment Requests while keeping legacy V1 ordinary Pay',()=>{
+  const settlement=readFileSync(new URL('../components/pages/SettlementPage.tsx',import.meta.url),'utf8');
+  expect((settlement.match(/if\(isMainnet&&paymentRequest\)/g)??[]).length).toBeGreaterThanOrEqual(3);
+  expect(settlement).toContain('No approval or transfer started.');
+  expect(settlement).toContain('No transfer started.');
+  expect(settlement).toContain('publicClient.simulateContract(');
+ });
+ it('uses explicit beta switches without misrepresenting signed E2E acceptance',()=>{
+  const build=readFileSync(new URL('../../scripts/build-mainnet-pilot.ts',import.meta.url),'utf8');
+  expect(build).toContain("VITE_VEYRA_PUBLIC_BETA:'1'");
+  expect(build).toContain("VITE_VEYRA_CANARY_ONLY:'1'");
+  expect(build).toContain("VITE_VEYRA_MAINNET_BRIDGE_BETA_ENABLED:'1'");
+  expect(build).toContain("VITE_VEYRA_GATEWAY_MAINNET_BETA_ENABLED:'1'");
+  expect(build).not.toContain("VITE_VEYRA_MAINNET_BRIDGE_E2E_ACCEPTED:'1'");
+  expect(build).not.toContain("VITE_VEYRA_GATEWAY_MAINNET_E2E_ACCEPTED:'1'");
  });
 });

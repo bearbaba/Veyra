@@ -52,10 +52,11 @@ describe('Phase 32 — request supported source network only at wallet signing b
     expect(page).toContain("simulateExactCctpApproval(sourcePublicClient,action)");
     expect(page).not.toContain('simulationCompleted: true');
   });
-  it('registers both CCTP destinations with the wallet, without claiming universal network support',()=>{
+  it('keeps legacy CCTP test fixtures while the public wallet exposes Mainnet networks only',()=>{
     const config=read('src/config.ts');
-    expect(config).toContain('chains: [arc, arcTestnet, sepolia, baseSepolia, mainnet]');
-    expect(config).toContain("[baseSepolia.id]: http('https://sepolia.base.org'");
+    expect(config).toContain('chains: [arc, base, mainnet]');
+    expect(config).not.toContain('arcTestnet');
+    expect(config).not.toContain('baseSepolia');
     const page=read('src/components/pages/BridgePage.tsx');
     expect(page).toContain('MANIFEST_CONSTANTS.ETH_SEPOLIA_CHAIN_ID');
     expect(page).toContain('MANIFEST_CONSTANTS.BASE_SEPOLIA_CHAIN_ID');

@@ -5,7 +5,7 @@ export type MainnetStage = 'AWAITING_WALLET' | 'UNKNOWN' | 'PENDING' | 'VERIFIED
 export type MainnetJournal = {
   from: string; to: string; amount: string; stage: MainnetStage; hash: string | null;
   /** Optional non-authoritative browser-only context. Never used to approve a transaction. */
-  note?:string; recipientLabel?:string;
+  note?:string; recipientLabel?:string; recipientSnapshotId?:string; senderUserId?:string;
 };
 export type JournalRead =
   | { kind: 'empty' } | { kind: 'blocked' } | { kind: 'active'; value: MainnetJournal };
@@ -35,7 +35,11 @@ export function readMainnetJournal(from: string, storage: Pick<StorageLike, 'get
       !['AWAITING_WALLET','UNKNOWN','PENDING','VERIFIED','REVERTED'].includes(value.stage ?? '') ||
       !(value.hash === null || typeof value.hash === 'string' && HASH.test(value.hash)) ||
       (value.note!==undefined && (typeof value.note!=='string'||value.note.length>120)) ||
-      (value.recipientLabel!==undefined && (typeof value.recipientLabel!=='string'||value.recipientLabel.length>50)))
+      (value.recipientLabel!==undefined && (typeof value.recipientLabel!=='string'||value.recipientLabel.length>50)) ||
+      (value.senderUserId!==undefined&&(typeof value.senderUserId!=='string'||
+        !/^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(value.senderUserId))) ||
+      (value.recipientSnapshotId!==undefined&&(typeof value.recipientSnapshotId!=='string'||
+        !/^snp_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(value.recipientSnapshotId))))
       return { kind: 'blocked' };
     buildMainnetPayPlan(from, value.to, value.amount);
     if ((value.stage === 'PENDING' || value.stage === 'VERIFIED' || value.stage === 'REVERTED') && !value.hash) {
@@ -45,7 +49,8 @@ export function readMainnetJournal(from: string, storage: Pick<StorageLike, 'get
     // Terminal state is always rechecked with the public RPC after reload.
     return { kind: 'active', value: { from, to: value.to, amount: value.amount,
       stage: value.stage === 'VERIFIED' || value.stage === 'REVERTED' ? 'PENDING' : value.stage as MainnetStage,
-      hash: value.hash, note:value.note, recipientLabel:value.recipientLabel } };
+      hash: value.hash, note:value.note, recipientLabel:value.recipientLabel,
+      recipientSnapshotId:value.recipientSnapshotId,senderUserId:value.senderUserId } };
   } catch {
     return { kind: 'blocked' };
   }

@@ -33,10 +33,11 @@ describe('Phase 25 — untrusted Preview identity and Bridge safety UX',()=>{
     const banner=read('src/components/system/WebPreviewBanner.tsx');
     const social=read('src/features/social/UnifiedSocial.tsx');
     expect(entry).toContain('No signature was requested.');
-    expect(entry).toContain('Open stable Testnet site');
+    expect(entry).toContain('This domain is not approved for Veyra ID.');
     expect(entry).toContain('Technical details');
     expect(entry).toContain('403 ORIGIN_NOT_ALLOWED');
-    expect(entry).toContain('target="_blank" rel="noopener noreferrer"');
+    // The Mainnet identity gate never links out to a Testnet site.
+    expect(entry).not.toContain('target="_blank"');
     expect(entry).toContain('social.identityOrigin');
     expect(banner).toContain('Sign-in unavailable on this Preview');
     expect(social).toContain("identityOrigin!=='ready'");

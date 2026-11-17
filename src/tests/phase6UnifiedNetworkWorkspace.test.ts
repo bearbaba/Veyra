@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { productionBuildMode, mainnetRoutingIssues } from './support/productionProfile';
 import { encodeFunctionData, parseAbi } from 'viem';
 import {
   PREVIEW_ARC_MAINNET_CHAIN_ID, PREVIEW_ARC_MAINNET_RPC,
@@ -58,10 +59,14 @@ describe('Phase 6 unified Veyra network selector safety', () => {
     }
     const vercel = src('vercel.json');
     const staging = vercel.includes('VITE_VEYRA_UNIFIED_STAGING=1');
-    expect(vercel).toContain(staging
-      ? 'VITE_VEYRA_ENV=testnet VITE_VEYRA_UNIFIED_STAGING=1 VITE_VEYRA_UI_ONLY=0'
-      : 'VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1');
-    if (staging) expect(vercel).toContain('VITE_VEYRA_MAINNET_PAY=0');
+    if (productionBuildMode() === 'mainnet') {
+      expect(vercel).toContain('scripts/build-mainnet-pilot.ts');
+    } else {
+      expect(vercel).toContain(staging
+        ? 'VITE_VEYRA_ENV=testnet VITE_VEYRA_UNIFIED_STAGING=1 VITE_VEYRA_UI_ONLY=0'
+        : 'VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1');
+      if (staging) expect(vercel).toContain('VITE_VEYRA_MAINNET_PAY=0');
+    }
   });
   it('has a compact, explicit default-Testnet selector and discards forms when switching', () => {
     const app = src('src/preview/PreviewApp.tsx');

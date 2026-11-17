@@ -262,6 +262,23 @@ export function AppKitBridgePage({embedded=false}:{embedded?:boolean}={}){
   }catch(e){setError(e instanceof Error?e.message:'Destination mint remains unverified. Do not resend.');}
   finally{busyRef.current=false;setBusy(false);}
  }
+ // Confirm the ORIGINAL CCTP destination receipt automatically when the SDK has a mint hash.
+ useEffect(()=>{
+  if(!pending?.burnHash||!pending.mintHash||pending.providerState!=='success'||
+     !address||!identity||!canSign)return;
+  let active=true,attempts=0,nextAttempt=0;
+  const check=()=>{
+   if(!active||busyRef.current||Date.now()<nextAttempt)return;
+   attempts++;
+   nextAttempt=Date.now()+(attempts<=4?15000:120000);
+   void verify();
+  };
+  check();
+  const timer=window.setInterval(check,15000);
+  window.addEventListener('focus',check);
+  return()=>{active=false;window.clearInterval(timer);window.removeEventListener('focus',check);};
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[address,identity,pending?.burnHash,pending?.mintHash,pending?.providerState,canSign]);
  if(VEYRA_ENV==='mainnet'||IS_UI_ONLY_PREVIEW)
   return <div role="status" className="rounded-2xl border p-5"
    style={{borderColor:'var(--border)',color:'var(--muted)'}}>
@@ -341,10 +358,8 @@ export function AppKitBridgePage({embedded=false}:{embedded?:boolean}={}){
     {pending.burnHash&&<p className="break-all">Source burn: {pending.burnHash}</p>}
     {pending.mintHash&&<p className="break-all">Destination mint: {pending.mintHash}</p>}
     <p>Circle status: {pending.providerState??'unknown'}</p>
-    {pending.providerState==='success'&&pending.mintHash&&<button type="button"
-     disabled={busy} onClick={()=>void verify()}
-     className="rounded-xl border px-3 py-2 disabled:opacity-50"
-     style={{borderColor:'var(--border)'}}>Verify destination mint receipt</button>}
+    {pending.providerState==='success'&&pending.mintHash&&
+     <p>Veyra is verifying the destination receipt automatically.</p>}
     {lastResult?.state==='error'&&<button type="button" disabled={busy}
      onClick={()=>void retry()} className="rounded-xl border px-3 py-2 disabled:opacity-50"
      style={{borderColor:'var(--border)'}}>Resume existing Bridge (never reburn)</button>}

@@ -13,10 +13,10 @@ describe('Veyra repository safety / README provenance contract', () => {
   });
   it('fails if the marketing homepage stops warning about disabled real-money Mainnet signing', () => {
     const broken = modified('README.md', value =>
-      value.replace('Mainnet financial execution is not enabled',
+      value.replace('Mainnet financial execution is limited to a capped public beta',
         'Mainnet financial execution enabled'));
     expect(validateRepositoryTrust(broken)).toContain(
-      'README must disclose disabled Mainnet financial execution.');
+      'README must disclose that Mainnet financial execution is limited to a capped public beta.');
   });
   it('fails if Mainnet financial providers are enabled without release review', () => {
     const broken = modified('src/providers/registry/mainnetProviderManifest.ts', value =>
@@ -36,8 +36,9 @@ describe('Veyra repository safety / README provenance contract', () => {
       'The public Veyra UI must continue defaulting to Testnet.');
   });
   it('fails if Vercel starts forwarding to an unreviewed financial backend', () => {
-    const rewrite = modified('vercel.json', value => value.replace(
-      'https://veyra-testnet-acceptance-bff.onrender.com/api/health', 'https://attacker.example/api/health'));
+    const rewrite = modified('vercel.json', value => value
+      .replace('https://veyra-testnet-acceptance-bff.onrender.com/api/health', 'https://attacker.example/api/health')
+      .replace('https://veyra-mainnet-v1-bff.onrender.com/api/health', 'https://attacker.example/api/health'));
     expect(validateRepositoryTrust(rewrite)).toContain(
       'An unexpected backend rewrite needs a separate reviewed security release.');
   });

@@ -13,6 +13,11 @@ export const ARC_TESTNET_LOGIN_CHAIN = 5042002;
 export const ARC_MAINNET_LOGIN_CHAIN = 5042;
 /** Both Arc chains share the same identity DB. chainId is recorded per binding. */
 export const ARC_SUPPORTED_LOGIN_CHAINS = new Set([ARC_TESTNET_LOGIN_CHAIN, ARC_MAINNET_LOGIN_CHAIN]);
+export function isWalletLoginChainAllowed(chainId:number,env:NodeJS.ProcessEnv=process.env):boolean{
+ if(env.VEYRA_ENV==='mainnet')return chainId===ARC_MAINNET_LOGIN_CHAIN;
+ if(env.VEYRA_ENV==='testnet')return chainId===ARC_TESTNET_LOGIN_CHAIN;
+ return ARC_SUPPORTED_LOGIN_CHAINS.has(chainId);
+}
 const LOGIN_TTL_MS = 5 * 60 * 1000;
 const PURPOSE = 'Sign in to Veyra. No payments or transfers.';
 export const WALLET_LOGIN_TYPES = {
@@ -160,7 +165,7 @@ export async function beginWalletLogin(
   requestedOrigin?: unknown, observedOrigin?: string,
 ) {
   const origin = resolveTrustedLoginOriginForEnv(requestedOrigin, observedOrigin);
-  if (!ARC_SUPPORTED_LOGIN_CHAINS.has(chainId)) {
+  if (!isWalletLoginChainAllowed(chainId)) {
     throw new WalletLoginError('UNSUPPORTED_CHAIN', 400);
   }
   const walletAddress = validateAddress(walletAddressInput);
@@ -223,7 +228,7 @@ export async function completeWalletLogin(
   signature: string,
   requestedOrigin?: unknown,
   observedOrigin?: string,
-): Promise<{ sessionToken: string; veyraUserId: string; walletAddress: string }> {
+): Promise<{ sessionToken: string; veyraUserId: string; walletAddress: string; chainId:number }> {
   const origin = resolveTrustedLoginOriginForEnv(requestedOrigin, observedOrigin);
   if (!/^lgn_[0-9a-f]{32}$/.test(challengeId) || !/^0x[0-9a-fA-F]{130}$/.test(signature)) {
     throw new WalletLoginError('INVALID_LOGIN_PROOF', 400);
@@ -247,7 +252,7 @@ export async function completeWalletLogin(
   const recordChainId = Number(record.chainId);
   if (expiresAt <= Date.now() || issuedAt > Date.now() + 60_000 ||
       expiresAt - issuedAt !== LOGIN_TTL_MS ||
-      !ARC_SUPPORTED_LOGIN_CHAINS.has(recordChainId) || record.appOrigin !== origin) {
+      !isWalletLoginChainAllowed(recordChainId) || record.appOrigin !== origin) {
     throw new WalletLoginError('LOGIN_CHALLENGE_EXPIRED_OR_MISMATCHED', 410);
   }
   const walletAddress = validateAddress(record.walletAddress);
@@ -297,5 +302,6 @@ export async function completeWalletLogin(
     sessionToken: issueSessionToken(user.userId, secret, { ttlSeconds: 900 }),
     veyraUserId: user.userId,
     walletAddress,
+    chainId: recordChainId,
   };
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { productionBuildMode, mainnetRoutingIssues } from './support/productionProfile';
 
 function read(path: string): string {
   return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
@@ -13,10 +14,14 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     };
     expect(config.framework).toBe('vite');
     expect(config.installCommand).toBe('bun install --frozen-lockfile');
-    expect([
-      'VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build',
-      'VITE_VEYRA_ENV=testnet VITE_VEYRA_UNIFIED_STAGING=1 VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_TESTNET_PAY=1 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=0 VITE_VEYRA_IDENTITY_BETA=0 bun run build',
-    ]).toContain(config.buildCommand);
+    if (productionBuildMode() === 'mainnet') {
+      expect(config.buildCommand).toBe('bun run typecheck && bun scripts/build-mainnet-pilot.ts');
+    } else {
+      expect([
+        'VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build',
+        'VITE_VEYRA_ENV=testnet VITE_VEYRA_UNIFIED_STAGING=1 VITE_VEYRA_UI_ONLY=0 VITE_VEYRA_TESTNET_PAY=1 VITE_VEYRA_MAINNET_MVP=0 VITE_VEYRA_MAINNET_PAY=0 VITE_VEYRA_IDENTITY_BETA=0 bun run build',
+      ]).toContain(config.buildCommand);
+    }
     expect(config.outputDirectory).toBe('dist');
     expect(pkg.scripts?.build).toBe('vite build');
   });
@@ -48,6 +53,7 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     const app = read('src/preview/PreviewApp.tsx');
     const surfaces = read('src/preview/PreviewSurfaces.tsx');
     const ci = read('.github/workflows/ci.yml');
+    const mainnetCi = read('.github/workflows/mainnet-activity-release.yml');
     const audit = read('scripts/check-vercel-preview-bundle.ts');
 
     expect(vite).toContain("process.env.VITE_VEYRA_UI_ONLY === '1'");
@@ -64,8 +70,9 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
       expect(content).not.toMatch(/from ['\"][^'\"]*(?:wagmi|connectkit|\/api\/|hooks\/useBridge|hooks\/useTransfer|securityBootstrap|providerManifest|receiptStore)/i);
     }
 
-    expect(ci).toContain('Assert no wallet signing and BFF code in preview JavaScript');
-    expect(ci).toContain('bun run check:vercel-preview-bundle');
+    expect(ci).toContain('bun run check:repository-trust');
+    expect(mainnetCi).toContain('Build exact full Mainnet release profile');
+    expect(mainnetCi).toContain('bun run check:prod-bundle');
     expect(audit).toContain('eth_sendTransaction');
     expect(audit).toContain('depositForBurn');
     expect(audit).toContain('receiveMessage');
@@ -192,7 +199,10 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
       env?: Record<string, string>;
     };
     const staging = read('vercel.json').includes('VITE_VEYRA_UNIFIED_STAGING=1');
-    if(staging){
+    if (productionBuildMode() === 'mainnet') {
+      // Mainnet rewrites must all target the single reviewed Mainnet backend.
+      expect(mainnetRoutingIssues()).toEqual([]);
+    } else if(staging){
       const {STAGING_APPROVED_REWRITES}=await import('../../scripts/stagingBffAllowlist');
       expect(config.rewrites).toEqual(STAGING_APPROVED_REWRITES);
     } else {
@@ -212,7 +222,7 @@ describe('Phase 5 Vercel frontend-only preview readiness', () => {
     // establish live wallet acceptance, let alone Mainnet payment approval.
     expect(readme).toContain('The isolated Identity Beta must not be mistaken for a live signed financial workflow in the unified Production website.');
     expect(readme).toContain('X OAuth consent, private chat, unified Pay-by-ID E2E');
-    expect(readme).toContain('Mainnet financial execution is not enabled');
+    expect(readme).toContain('Mainnet financial execution is limited to a capped public beta');
     expect(runbook).toContain('DATABASE_URL');
     expect(runbook).toContain('UI-only preview');
     expect(runbook).toContain('second wallet-signing/broadcast boundary remains');

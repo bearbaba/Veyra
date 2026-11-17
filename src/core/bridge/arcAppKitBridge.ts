@@ -78,8 +78,12 @@ export function getAppKitBridgeSteps(raw:unknown):{
    (s as Record<string,unknown>).name===name);
   if(matches.length!==1)return undefined;
   const s=matches[0] as Record<string,unknown>;
-  return s.state==='success'&&typeof s.txHash==='string'&&
-    /^0x[0-9a-fA-F]{64}$/.test(s.txHash)?s.txHash:undefined;
+  // A valid hash is a broadcast pointer, NOT a claim of successful settlement.
+  // Preserve it even while the SDK step is pending/error so onchain recovery
+  // can verify the original transaction without asking for a manual TX hash.
+  return ['success','pending','error'].includes(String(s.state))&&
+    typeof s.txHash==='string'&&/^0x[0-9a-fA-F]{64}$/.test(s.txHash)
+    ?s.txHash:undefined;
  };
  return {providerState:data.state,
   ...(recognized('burn')?{burnHash:recognized('burn')}:{}),

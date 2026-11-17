@@ -1,0 +1,25 @@
+# Dedicated Mainnet BFF image. Never share the Testnet acceptance service or DB.
+# Build from a reviewed release SHA; migrations run separately after backup.
+# No API keys, session secrets, private keys, cookies, or URLs are baked here.
+FROM oven/bun:1.3.14 AS dependencies
+WORKDIR /app
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --production
+
+FROM oven/bun:1.3.14
+WORKDIR /app
+ENV NODE_ENV=production \
+    VEYRA_ENV=mainnet \
+    VEYRA_HOSTED_BACKEND=1 \
+    VEYRA_MAINNET_IDENTITY_ONLY=1 \
+    BFF_PORT=3001
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY --chown=bun:bun package.json .bun-version ./
+COPY --chown=bun:bun src ./src
+# Contract ABI is imported by src/config/veyraSettlement.ts at backend runtime.
+# Without this pinned artifact the read-only Settlement indexer cannot boot.
+COPY --chown=bun:bun contracts/contract-metadata/VeyraSettlement.json ./contracts/contract-metadata/VeyraSettlement.json
+COPY --chown=bun:bun server ./server
+USER bun
+EXPOSE 3001
+CMD ["bun", "server/mainnetBffEntrypoint.ts"]

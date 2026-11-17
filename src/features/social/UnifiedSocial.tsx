@@ -9,6 +9,7 @@ import {normalizeBetaHandle,signReviewedIdentity,type BrowserProvider,type Ident
 import {bindCurrentIdentityWallet,clearSignedIdentitySession,setSignedIdentitySession} from '../../lib/api/liveIdentitySession';
 import {probeIdentityOrigin,type IdentityOriginStatus} from '../../lib/api/identityOriginProbe';
 import {rememberVerifiedVeyraId} from '../../lib/api/lastVerifiedVeyraId';
+import {VEYRA_ENV} from '../../lib/env';
 
 export type SocialFriend={veyraUserId:string;veyraHandle?:string|null;state:'CONNECTED'|'INCOMING_PENDING'|'OUTGOING_PENDING';updatedAt:string};
 export type SocialNotice={notificationId:string;kind:string;actorUserId:string|null;eventRef?:string;createdAt:string;readAt:string|null};
@@ -94,7 +95,8 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     return()=>{originRevision.current++;};
   },[recheckIdentityOrigin]);
   const ready=Boolean(isConnected&&address&&connector&&
-    (chainId===ARC_TESTNET_CHAIN_ID||chainId===ARC_MAINNET_CHAIN_ID));
+    (VEYRA_ENV==='mainnet'?chainId===ARC_MAINNET_CHAIN_ID:
+      chainId===ARC_TESTNET_CHAIN_ID||chainId===ARC_MAINNET_CHAIN_ID));
   const resetLocal=useCallback(()=>{
     generation.current++;friendRefreshEpoch.current++;noticePageTicket.current=null;
     incomingBusy.current=false;incomingLastAt.current=0;incomingUnavailable.current=null;setIncomingStatus('idle');
@@ -144,7 +146,9 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     }finally{pending.current=false;setBusy(false);}
   }
   const wallet=async()=>{
-    if(!ready||!address||!connector||!chainId)throw new Error('Connect your wallet on Arc Testnet (5042002) or Arc Mainnet (5042).');
+    if(!ready||!address||!connector||!chainId)
+      throw new Error(VEYRA_ENV==='mainnet'?'Connect your wallet on Arc Mainnet (5042).':
+        'Connect on an authorized Arc network.');
     const raw:unknown=await connector.getProvider();
     if(!raw||typeof raw!=='object'||!('request' in raw)||typeof raw.request!=='function')
       throw new Error('This wallet cannot sign a reviewed Veyra identity request.');
@@ -255,6 +259,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
   // Only the signed BFF can independently verify inbound on-chain transfers.
   // Polling runs only in visible, authenticated browsers; NOT a 24/7 worker.
   const checkIncoming=useCallback(async()=>{
+    if(VEYRA_ENV==='mainnet'){setIncomingStatus('unavailable');return;}
     const s=session;
     if(!s||s.walletKey!==current.current||identityOrigin!=='ready'||
       incomingBusy.current||incomingUnavailable.current===s.walletKey||
@@ -278,7 +283,7 @@ export function UnifiedSocialProvider({children}:{children:ReactNode}){
     }finally{incomingBusy.current=false;}
   },[session,identityOrigin,refresh]);
   useEffect(()=>{
-    if(!session||identityOrigin!=='ready')return;
+    if(!session||identityOrigin!=='ready'||VEYRA_ENV==='mainnet')return;
     void checkIncoming();
     const timer=window.setInterval(()=>{
       if(document.visibilityState==='visible')void checkIncoming();

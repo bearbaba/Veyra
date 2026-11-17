@@ -23,7 +23,14 @@ recovery_file*.dat
 *.db
 .idea
 .vscode
+# Expose only the pinned, public contract ABI used at Mainnet backend runtime.
+# Do not send any other contract artifacts, keys or build output to the image.
 contracts
+!contracts/
+contracts/*
+!contracts/contract-metadata/
+contracts/contract-metadata/*
+!contracts/contract-metadata/VeyraSettlement.json
 docs
 public
 src/tests

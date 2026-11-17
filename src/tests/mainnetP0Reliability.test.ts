@@ -11,7 +11,7 @@ const owner='0x1111111111111111111111111111111111111111';
 const recipient='0x2222222222222222222222222222222222222222';
 const burnHash='0x'+'a'.repeat(64);
 const mintHash='0x'+'b'.repeat(64);
-const sourceDomain=26;
+const sourceDomain=0;
 const destDomain=6;
 function storage(){
  const values=new Map<string,string>();
@@ -75,7 +75,7 @@ const recipient32='0x'+'0'.repeat(24)+recipient.slice(2);
 const word=(n:bigint)=>n.toString(16).padStart(64,'0');
 const pad=(addr:string)=>'0'.repeat(24)+addr.slice(2).toLowerCase();
 const amount=100000n;
-const burnToken='0x3600000000000000000000000000000000000000';
+const burnToken='0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 const body='0x'+u32(1)+pad(burnToken)+pad(owner)+word(amount)+pad(owner)+word(0n)+word(0n)+word(0n);
 const buildMessage=(n:string,b:string)=>'0x'+u32(1)+u32(sourceDomain)+u32(destDomain)+
  n.slice(2)+sender.slice(2)+recipient32.slice(2)+'0'.repeat(64)+u32(2000)+u32(2000)+b.slice(2);
@@ -125,17 +125,17 @@ describe('CCTP V2 independently linked burn and mint receipts',()=>{
  });
  it('fails closed on Circle Iris 429 without treating the destination mint as verified',async()=>{
   vi.stubGlobal('fetch',vi.fn(()=>({ok:false,status:429})));
-  await expect(assertCctpBridgeLinked(5042,8453,burnHash,mintHash,burn,mint,owner,amount))
+  await expect(assertCctpBridgeLinked(1,8453,burnHash,mintHash,burn,mint,owner,amount))
    .rejects.toThrow('attestation unavailable');
  });
  it('fails closed on Circle Iris network timeout or CORS rejection',async()=>{
   vi.stubGlobal('fetch',vi.fn(()=>{throw new Error('NetworkError: Failed to fetch');}));
-  await expect(assertCctpBridgeLinked(5042,8453,burnHash,mintHash,burn,mint,owner,amount))
+  await expect(assertCctpBridgeLinked(1,8453,burnHash,mintHash,burn,mint,owner,amount))
    .rejects.toThrow('Failed to fetch');
  });
  it('rejects malformed Circle attestation JSON and does not accept a random mint',async()=>{
   vi.stubGlobal('fetch',vi.fn(()=>({ok:true,json:()=>({messages:[]})})));
-  await expect(assertCctpBridgeLinked(5042,8453,burnHash,mintHash,burn,mint,owner,amount))
+  await expect(assertCctpBridgeLinked(1,8453,burnHash,mintHash,burn,mint,owner,amount))
    .rejects.toThrow('could not be linked');
  });
  it('requires Circle Iris to map the exact original burn to its destination',async()=>{
@@ -144,8 +144,8 @@ describe('CCTP V2 independently linked burn and mint receipts',()=>{
     sourceTxHash:burnHash,destinationMintTxHash:mintHash}],
   })}));
   vi.stubGlobal('fetch',fetchMock);
-  await expect(assertCctpBridgeLinked(5042,8453,burnHash,mintHash,burn,mint,owner,amount)).resolves.toBeUndefined();
-  expect(fetchMock.mock.calls[0][0]).toContain('/v2/messages/26?transactionHash='+burnHash);
-  await expect(assertCctpBridgeLinked(5042,8453,burnHash,'0x'+'c'.repeat(64),burn,mint,owner,amount)).rejects.toThrow('could not be linked');
+  await expect(assertCctpBridgeLinked(1,8453,burnHash,mintHash,burn,mint,owner,amount)).resolves.toBeUndefined();
+  expect(fetchMock.mock.calls[0][0]).toContain('/v2/messages/0?transactionHash='+burnHash);
+  await expect(assertCctpBridgeLinked(1,8453,burnHash,'0x'+'c'.repeat(64),burn,mint,owner,amount)).rejects.toThrow('could not be linked');
  });
 });

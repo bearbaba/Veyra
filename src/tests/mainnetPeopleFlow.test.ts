@@ -1,7 +1,7 @@
 import {describe,it,expect,afterEach,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
-import {validVerifiedRecipient,type VerifiedMainnetRecipient} from '../mainnet/verifiedRecipient';
-import {readBridgeQuoteAmounts} from '../mainnet/bridgeQuoteGuard';
+import {validVerifiedRecipient,isSameVerifiedPaymentReceiver,type VerifiedMainnetRecipient} from '../mainnet/verifiedRecipient';
+import {readBridgeQuoteAmounts,assertBridgeQuoteWithinReviewedCap} from '../mainnet/bridgeQuoteGuard';
 import {readLocalOperations,recordLocalOperation} from '../mainnet/localOperations';
 const src=(p:string)=>readFileSync(new URL('../'+p,import.meta.url),'utf8');
 const a='0x1111111111111111111111111111111111111111';
@@ -16,22 +16,52 @@ describe('Server-verifiable Veyra ID send safety',()=>{
   expect(validVerifiedRecipient(v,a,b,Date.parse('2036-01-01'))).toBe(false);
   expect(validVerifiedRecipient({...v,veyraUserId:'fake'},a,b,Date.parse('2034-01-01'))).toBe(false);
  });
+ it('refreshes an expired ID only for the exact same person and receiving wallet',()=>{
+  const next={...v,snapshotId:'snp_ABCDEFGHJKLMNPQ',reviewToken:'new-review-token',expiresAt:'2036-01-01T00:00:00Z'};
+  expect(isSameVerifiedPaymentReceiver(v,next)).toBe(true);
+  expect(isSameVerifiedPaymentReceiver(v,{...next,wallet:a})).toBe(false);
+  expect(isSameVerifiedPaymentReceiver(v,{...next,walletId:'wlt_DIFFERENT'})).toBe(false);
+  expect(isSameVerifiedPaymentReceiver(v,{...next,veyraUserId:'usr_OTHERPERSONABCDE'})).toBe(false);
+ });
  it('runs server recipient verification before journal write and wallet request',()=>{
   const pay=src('components/pages/MainnetPayPage.tsx');
   const start=pay.indexOf('async function send()');
-  const verify=pay.indexOf('await reverifySelectedIdentity(review.plan)',start);
+  const verify=pay.indexOf('const renewed=await reverifySelectedIdentity(review.plan)',start);
   const journal=pay.indexOf('writeMainnetJournal(initial',start);
   const send=pay.indexOf('requestMainnetCanaryTransfer',start);
   expect(verify).toBeGreaterThan(start);
   expect(journal).toBeGreaterThan(verify);
   expect(send).toBeGreaterThan(journal);
  });
- it('never treats an unauthenticated local contact as a signed Veyra ID',()=>{
+ it('People and Pay use one server-backed search and keep Friends optional',()=>{
   const people=src('components/pages/MainnetPeoplePage.tsx');
-  expect(people).toContain("data.kind!=='VEYRA_IDENTITY'");
-  expect(people).toContain('social.identityOrigin');
-  expect(people).toContain('verifyPaymentRecipient');
-  expect(people).toContain('Local wallet contacts (not verified Veyra IDs)');
+  const hub=src('components/pages/MainnetPayHub.tsx');
+  const shared=src('components/identity/MainnetRecipientSearch.tsx');
+  expect(people).toContain('<MainnetRecipientSearch');
+  const picker=src('components/pages/MainnetPayRecipientPicker.tsx');
+  expect(hub).toContain('<MainnetPayRecipientPicker');
+  expect(picker).toContain('lookupMainnetRecipient');
+  expect(picker).toContain("found.person.veyraUserId!==expectedId");
+  expect(picker).toContain("filter(f=>f.state==='CONNECTED')");
+  expect(picker).toContain('aria-expanded={searchOpen}');
+  expect(shared).toContain('lookupMainnetRecipient');
+  expect(people).toContain('Saved wallet contacts · Details');
+  expect(people).toContain('aria-expanded={findOpen}');
+  // Shared verified search now returns a pinned recipient instead of a repeated query string.
+  expect(people).toContain('onSelection={select}');
+  expect(people).toContain('lookupMainnetRecipient');
+  expect(people).toContain('verifiedRecipient');
+  expect(people).toContain("social.invite('@'+selected.veyraHandle+'.veyra')");
+  expect(people).toContain('social.respond(userId,decision)');
+  expect(people).toContain('Friend invitations');
+  expect(people).toContain('social.friendsHasMore');
+  expect(people).toContain('social.loadMoreFriends()');
+  expect(people).toContain('disabled={social.loadingMoreFriends}');
+  expect(hub).toContain('onWalletChange={changeWalletRecipient}');
+  expect(picker).toContain("useState<'wallet'|'people'>");
+  expect(picker).toContain("onClick={()=>changeTab('wallet')}");
+  expect(picker).toContain("onClick={()=>changeTab('people')}");
+  expect(hub).toContain("recipient:'',amount:''");
  });
  it('keeps a note and reviewed label with the original browser receipt after status update',()=>{
   const map=new Map<string,string>();
@@ -49,14 +79,54 @@ describe('Server-verifiable Veyra ID send safety',()=>{
   expect(history[0].submittedAt).toBeGreaterThan(0);
  });
 });
-describe('CCTP quote cannot invent the guaranteed minimum',()=>{
- it('rejects provider responses with only estimated fees',()=>{
-  expect(()=>readBridgeQuoteAmounts({fees:[{type:'forwarder',amount:'0.1',token:'USDC'}]},'10'))
-   .toThrow('guaranteed destination minimum');
+describe('Human-first Home cannot treat browser records as server receipts',()=>{
+ it('distinguishes on-device history from canonical verified receipts',()=>{
+  const home=src('components/pages/MainnetHomePage.tsx');
+  expect(home).toContain('Saved on this device · Open Activity for verification');
+  expect(home).not.toContain('Recorded · Activity auto-verifies receipts');
+  expect(home).toContain('listVerifiedMainnetPayReceipts');
+  expect(home).toContain('knownHashes');
+  expect(home).toContain('remote:');
  });
- it('uses only an explicit provider floor no higher than quoted expected output',()=>{
-  expect(readBridgeQuoteAmounts({minimumReceived:{amount:'9.9'},estimatedOutput:{amount:'10'}},'10'))
-   .toEqual({minimum:'9.9',expected:'10'});
-  expect(()=>readBridgeQuoteAmounts({minimumReceived:'10.1',estimatedOutput:'10.1'},'10')).toThrow();
+});
+describe('CCTP fresh quote bound by the original maximum fee',()=>{
+ const q=(fee:string)=>({amount:'0.1',token:'USDC',gasFees:[],
+  fees:[{type:'forwarder',token:'USDC',amount:fee}]});
+ const frozen={minimum:'0.043115',maxFee:'0.056885'};
+ it('permits equal or lower live fees without weakening the signed minimum',()=>{
+  expect(assertBridgeQuoteWithinReviewedCap(q('0.056885'),'0.1',frozen).minimum).toBe('0.043115');
+  expect(assertBridgeQuoteWithinReviewedCap(q('0.04'),'0.1',frozen).minimum).toBe('0.06');
+ });
+ it('refuses higher fees and modified amount before wallet signing',()=>{
+  expect(()=>assertBridgeQuoteWithinReviewedCap(q('0.056886'),'0.1',frozen))
+   .toThrow('fees increased');
+  expect(()=>assertBridgeQuoteWithinReviewedCap({...q('0.04'),amount:'0.2'},'0.1',frozen)).toThrow();
+ });
+});
+describe('Circle CCTP bridge preview: enforce onchain maximum fee',()=>{
+ const quote=(amount='10',fee='0.1')=>({
+  amount,token:'USDC',gasFees:[],fees:[
+   {type:'forwarder',amount:fee,token:'USDC'},
+   {type:'provider',amount:'0',token:'USDC'},
+  ],
+ });
+ it('fails closed on fee-only payloads without the SDK amount, token and gas scope',()=>{
+  expect(()=>readBridgeQuoteAmounts({fees:[{type:'forwarder',amount:'0.1',token:'USDC'}]},'10'))
+   .toThrow('fee-capped USDC quote');
+ });
+ it('locks a fee cap to the reviewed amount with exact six-decimal math',()=>{
+  expect(readBridgeQuoteAmounts(quote(),'10')).toEqual({
+   minimum:'9.9',expected:'9.9',maxFee:'0.1'});
+  expect(readBridgeQuoteAmounts(quote('0.1','0.0025'),'0.1')).toEqual({
+   minimum:'0.0975',expected:'0.0975',maxFee:'0.0025'});
+ });
+ it('rejects a mutated quoted amount, unknown currencies or unresolved provider fees',()=>{
+  expect(()=>readBridgeQuoteAmounts(quote('11'),'10')).toThrow();
+  expect(()=>readBridgeQuoteAmounts({...quote(),token:'WETH'},'10')).toThrow();
+  expect(()=>readBridgeQuoteAmounts({...quote(),fees:[{type:'forwarder',amount:null,token:'USDC'}]},'10')).toThrow();
+  expect(()=>readBridgeQuoteAmounts({...quote(),fees:[{type:'forwarder',amount:'0.1',token:'ETH'}]},'10')).toThrow();
+  expect(()=>readBridgeQuoteAmounts(quote('10','10'),'10')).toThrow('fees exceed');
+  expect(()=>readBridgeQuoteAmounts({...quote(),gasFees:[{error:'no gas quote'}]},'10')).toThrow();
+  expect(()=>readBridgeQuoteAmounts({...quote(),warnings:[{code:'SPEED_DOWNGRADED'}]},'10')).toThrow();
  });
 });

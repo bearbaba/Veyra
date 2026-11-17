@@ -20,8 +20,8 @@ describe('Phase 19 — verified Arc USDC balance display',()=>{
     expect(home).toContain('getUsdc(ARC_TESTNET_CHAIN_ID)');
     expect(home).toContain('chainId: ARC_TESTNET_CHAIN_ID');
     expect(home).toContain("VEYRA_ENV !== 'mainnet'");
-    expect(home).toContain('!balanceError && balanceRaw != null');
-    expect(home).toContain('formatArcUsdcBalance(balanceRaw)');
+    expect(home).toContain('!activeBalanceError && activeBalanceRaw != null');
+    expect(home).toContain('formatArcUsdcBalance(activeBalanceRaw)');
     expect(home).toContain('Balance unavailable. Your funds have not been assumed to be zero. Try Refresh.');
     expect(home).toContain('balanceLoading || formattedBalance===null');
     expect(home).not.toContain('Number(formatUnits(balanceRaw');

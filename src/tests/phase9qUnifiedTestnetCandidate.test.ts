@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { productionBuildMode, mainnetRoutingIssues } from './support/productionProfile';
 import { STAGING_APPROVED_REWRITES, STAGING_ALLOWED_PATHS } from '../../scripts/stagingBffAllowlist';
 const read = (p: string) => readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
 
 describe('Phase 9Q — the one protected Veyra Core Testnet build', () => {
   it('uses the full app and locked Mainnet without touching the original static Preview config', () => {
+    if (productionBuildMode() === 'mainnet') {
+      // This branch deploys the Mainnet profile; the Testnet staging contract is exercised by its own allowlist tests below.
+      expect(mainnetRoutingIssues()).toEqual([]);
+      return;
+    }
     const config = JSON.parse(read('vercel.json')) as { buildCommand: string; rewrites: unknown[]; env?: unknown };
     expect(config.buildCommand).toContain('VITE_VEYRA_UNIFIED_STAGING=1');
     expect(config.buildCommand).toContain('VITE_VEYRA_UI_ONLY=0');
@@ -43,15 +49,16 @@ describe('Phase 9Q — the one protected Veyra Core Testnet build', () => {
     expect(banner).toContain("type.toLowerCase().includes('application/json')");
     expect(banner).toContain('payload.ok === true');
   });
-  it('runs staging safety checks on its branch and PRs targeting that branch only', () => {
+  it('runs Mainnet CI on the default branch rather than activating old Testnet staging', () => {
     const workflow = read('.github/workflows/ci.yml');
-    expect(workflow).toContain('phase9q-unified-core-testnet-release');
-    // A feature PR targeting the Testnet branch must not be mistaken for
-    // a legacy static Production preview; other bases retain production gates.
-    expect(workflow.match(/GITHUB_BASE_REF/g)).toHaveLength(2);
-    expect(workflow).toContain('GITHUB_HEAD_REF');
-    expect(workflow).toContain('check-unified-testnet-staging.ts');
-    expect(workflow).toContain('check-unified-production-release.ts');
+    const mainnet = read('.github/workflows/mainnet-activity-release.yml');
+    expect(workflow).toContain('feature/mainnet-identity-authority');
+    expect(workflow).toContain('develop');
+    expect(workflow).toContain('check:repository-trust');
+    expect(workflow).not.toContain('VITE_VEYRA_ENV=testnet');
+    expect(mainnet).toContain('Build exact full Mainnet release profile');
+    expect(mainnet).toContain('Settlement V2 unsigned contract review');
+    // Historical staging policy is still tested, but no public release runs it.
     expect(read('scripts/check-unified-testnet-staging.ts')).toContain('isExactStagingBffAllowlist(cfg.rewrites)');
   });
 });

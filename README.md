@@ -6,13 +6,21 @@ Veyra is an open-source, **self-custodial** USDC financial application with the 
 
 Arc is Veyra's home network. Circle USDC and its infrastructure are useful building blocks, **not** an endorsement or a guarantee of swaps, yields, or third-party protocols.
 
-> **Release status:** under development, **not Mainnet money-movement ready**. Arc Mainnet (chain 5042) is wired into the wagmi config and EIP-712 identity flows accept both Arc chains. X OAuth mainnet callback gate is enforced server-side (no silent testnet fallback). X OAuth consent, private chat, unified Pay-by-ID E2E, Bridge/Swap release validation, VeyraSettlement Mainnet deploy, and an independent security review remain incomplete.
+> **Release status:** Mainnet is a **capped public beta**; the product is still under development. Arc Mainnet (chain 5042) is wired into the wagmi config and EIP-712 identity flows accept both Arc chains. X OAuth mainnet callback gate is enforced server-side (no silent testnet fallback). X OAuth consent, private chat, unified Pay-by-ID E2E, Bridge/Swap release validation, VeyraSettlement Mainnet deploy, and an independent security review remain incomplete.
 
 **Single-product completion plan:** [Unified Veyra release contract](docs/veyra-single-product-release-contract.md). No standalone PayLink fork and no automatic Mainnet activation.
 
-**Mainnet financial execution is not enabled.** The isolated Identity Beta must not be mistaken for a live signed financial workflow in the unified Production website. **There is no independent security audit.**
+**Mainnet financial execution is limited to a capped public beta.** Production builds the Arc Mainnet profile; direct wallet USDC Pay is canary-capped at 0.01 USDC per payment, and Swap, Bridge and Gateway are each gated by provider and backend readiness and report their own verification status. The isolated Identity Beta must not be mistaken for a live signed financial workflow in the unified Production website. **There is no independent security audit.**
 
-## What can I do today?
+## Current Mainnet source (November 17, 2026)
+
+The default GitHub branch now contains the **Mainnet-first Veyra application**. Public wallet connection is restricted to reviewed Arc, Base and Ethereum Mainnet chains. Circle Gateway balance reads span 12 EVM networks, while the Veyra signing allowlist is narrower. Pay, Gateway, Bridge and Swap remain subject to **independent release gates, fresh provider quotes, wallet consent and verifiable receipts**. Importing code into Google AI Studio does not authorize production signing.
+
+**New Arc fee update:** [Fee-waiver disclosure, route limits and Mainnet release gaps](docs/arc-settlement-fees-2026-11.md). Circle's advertised service-fee waivers are not zero-total-cost or gasless transfers.
+
+**Deployments on Vercel Hobby:** [Mainnet release / deployment-budget policy](docs/mainnet-vercel-deployment-budget.md). Vercel auto-deploys only `develop` and explicitly opted-in `release-preview/**` branches; other development pushes are verified by GitHub Actions, not a new Vercel deployment.
+
+## Historical Phase 5 preview (archive; not today's Mainnet release)
 
 This table describes the **Phase 5 candidate**, not a promise that every feature is present on the older Production deployment.
 
@@ -26,7 +34,7 @@ This table describes the **Phase 5 candidate**, not a promise that every feature
 | **Activity** | Local Testnet payment journal and recovery in public Preview; durable owner-scoped receipts in backend source | Cross-device backend receipts **not hosted** in static Preview |
 | **Bridge / Convert / Swap / Earn** | Provider adapters and isolated recovery, verification, or simulation code exist | **Not active** public financial routes; Earn/Borrow/Onramp are deferred |
 
-Only **Testnet** is intended for wallet-approved transfers in the current Preview. The **Mainnet tab is read-only**, with public onchain USDC observations and simulations that never submit transactions. Browsing a catalog never enables a token, provider, or chain for trading.
+For this **historical Phase 5 Preview**, only **Testnet** was intended for wallet-approved transfers. The **Mainnet tab is read-only**, with public onchain USDC observations and simulations that never submit transactions. Browsing a catalog never enables a token, provider, or chain for trading.
 
 ## How Veyra ID works
 
@@ -78,20 +86,21 @@ Requirements: Bun version in [`.bun-version`](.bun-version), a supported browser
 ```bash
 git clone https://github.com/bearbaba/Veyra.git
 cd Veyra
-git checkout phase5-production-bridge-flow
+# The default develop branch is Mainnet-first.
 bun install --frozen-lockfile
 bun run typecheck
 bun run lint
 bun run test
 ```
 
-For the isolated, Testnet-first UI:
+For an isolated **read-only Mainnet UI** while developing (no signing, wallet funding or BFF credentials):
 
 ```bash
-VITE_VEYRA_ENV=testnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_TESTNET_PAY=1 bun run build
-bun run check:vercel-preview-bundle
+VITE_VEYRA_ENV=mainnet VITE_VEYRA_UI_ONLY=1 VITE_VEYRA_PUBLIC_BETA=0 VITE_VEYRA_GATEWAY_MAINNET_WRITE_ENABLED=0 bun run build
 bun run preview
 ```
+
+This locally built UI is not a Production release or onchain payment acceptance. Use the guarded `bun scripts/build-mainnet-pilot.ts` only as part of the reviewed CI/release process. Archived Testnet procedures remain in Git history for regression evidence.
 
 For local full-stack development (two terminals, **no Mainnet funds**):
 
@@ -164,4 +173,4 @@ Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), keep 
 
 **Veyra — Your Identity. Your Friends. Your Money.**
 
-*Built for understandable, user-reviewed payments. Testnet-first. No custody and no promised yields.*
+*Built for understandable, user-reviewed payments. Mainnet-first current source, with historical Testnet safety cases preserved in tests. No custody and no promised yields.*

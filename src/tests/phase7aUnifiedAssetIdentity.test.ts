@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { productionBuildMode, mainnetRoutingIssues } from './support/productionProfile';
 import { PRODUCT_ASSETS } from '../config/productRegistry';
 import { safeWalletIcon, sortWallets, type DiscoveredWallet } from '../preview/PreviewWallet';
 import { UNIFIED_ASSETS, unifiedChains, filterUnifiedCatalog } from '../preview/unifiedAssetCatalog';
@@ -63,7 +64,9 @@ describe('Phase 7A — honest wallet and Unified discovery', () => {
     expect(app).toContain('<PreviewMainnetPay/>');
     expect(app).toContain('<PreviewTestnetPayPage />');
     const deployment = read('vercel.json');
-    if (deployment.includes('VITE_VEYRA_UNIFIED_STAGING=1')) {
+    if (productionBuildMode() === 'mainnet') {
+      expect(deployment).toContain('scripts/build-mainnet-pilot.ts');
+    } else if (deployment.includes('VITE_VEYRA_UNIFIED_STAGING=1')) {
       expect(deployment).toContain('VITE_VEYRA_UI_ONLY=0');
       expect(deployment).toContain('VITE_VEYRA_MAINNET_PAY=0');
     } else {

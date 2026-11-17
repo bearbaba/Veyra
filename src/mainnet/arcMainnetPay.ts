@@ -8,7 +8,7 @@
  */
 import { encodeFunctionData, getAddress, isAddress, parseAbi, parseUnits, toEventSelector, type Address, type Hex } from 'viem';
 import { getMainnetChain } from '../config/mainnetCatalog.js';
-import {assertMainnetSigningAllowed} from './releaseGates';
+import {assertMainnetCanarySigningAllowed} from './releaseGates';
 
 export const ARC_MAINNET_CHAIN_ID = 5042;
 export const ARC_MAINNET_USDC = '0x3600000000000000000000000000000000000000' as Address;
@@ -41,7 +41,7 @@ function checkedHex(value: unknown): Hex {
 function checkedQuantity(value: unknown): bigint { return BigInt(checkedHex(value)); }
 
 export function assertArcMainnetCatalog(): void {
-  if (!ARC || ARC.chainId !== ARC_MAINNET_CHAIN_ID || ARC.cctpDomain !== 26 ||
+  if (!ARC || ARC.chainId !== ARC_MAINNET_CHAIN_ID ||
     ARC.usdc.toLowerCase() !== ARC_MAINNET_USDC.toLowerCase() ||
     ARC.rpcEnvKey !== 'ARC_MAINNET_RPC_URL' || ARC.explorerUrl !== 'https://explorer.arc.io') {
     fail('Arc Mainnet is not verified in the Veyra catalog. All operations are blocked.');
@@ -139,8 +139,8 @@ export async function requestMainnetCanaryTransfer(
   wallet: MainnetWallet, plan: MainnetPlan, onWalletRequest: () => void,
 ): Promise<Hex> {
   if (import.meta.env.VITE_VEYRA_MAINNET_PAY !== '1') fail('Mainnet signing is disabled in this build.');
-  assertMainnetSigningAllowed();
   const reviewed = assertUntamperedMainnetPlan(plan);
+  assertMainnetCanarySigningAllowed(reviewed.from,reviewed.units);
   await mainnetPreflight(wallet, reviewed);
   // Repeat both identity checks directly before invoking the wallet.
   await assertArcMainnetNetwork();

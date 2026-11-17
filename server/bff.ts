@@ -41,6 +41,10 @@ import {
  markStableFxFundingSent,StableFxOwnershipError,
 } from './services/stableFxTradeOwnership.js';
 import { evaluateBrowserOrigin } from './middleware/browserOriginPolicy.js';
+import {isMainnetIdentityOnlyRouteAllowed} from './services/mainnetIdentityOnlyRoutes.js';
+import {quoteAcrossBaseWethToArcUsdc,AcrossQuoteError,isAcrossConfigured,
+ authorizeAcrossQuoteWallet,validateAcrossQuoteRequest,
+ validateAcrossTrackingResponse} from './services/acrossExchangeQuoteService.js';
 import { validateIntentResponse } from '../src/core/intent/intentSchema';
 import { createFallbackAgentResponse, validateAgentChatResponse, type AgentHistoryMessage } from '../src/core/agent/agentV2';
 import { MANIFEST_CONSTANTS } from '../src/providers/registry/providerManifest';
@@ -51,11 +55,18 @@ import { freezeSnapshot, resolveRecipient, verifySnapshot, IdentityResolutionErr
 import { getAuthenticatedVeyraUserId, issueSessionToken } from './auth/session.js';
 import {clearBrowserRestoreCookie,issueBrowserRestoreCookie,verifyBrowserRestoreCookie} from './auth/browserRestoreSession.js';
 import {resolveTrustedLoginOrigin,resolveTrustedLoginOriginForEnv} from './services/walletLoginService.js';
+import {evaluateMainnetIdentityAuthority,evaluateMainnetIdentityAuthenticatedReadAuthority} from './services/mainnetIdentityCapability.js';
+import {indexVerifiedDirectPay,listVerifiedDirectPays,parseDirectPayReceiptRequest,PayReceiptApiError,
+ mainnetActiveBinding} from './services/mainnetPayReceiptService.js';
+import {indexVerifiedSettlement,listVerifiedSettlements,parseSettlementReceiptRequest}
+ from './services/mainnetSettlementReceiptService.js';
 import {sql} from 'drizzle-orm';
 import { FriendInboxInputError, listFriendInbox, parseFriendInboxPagination } from './services/friendInboxService.js';
 import { NotificationInboxError, getNotificationInbox, markOwnerNotificationRead, parseNotificationPagination } from './services/notificationInboxService.js';
-import { getProfile, updateProfile, ProfileError } from './services/profileService.js';
+import { getProfile, updateProfile, revokeXIdentity, ProfileError } from './services/profileService.js';
 import {DirectMessageError,encryptionKey,chatPage,listDirectMessages,sendDirectMessage} from './services/directMessageService.js';
+import {PaymentRequestError,createPaymentRequest,listPeerPaymentRequests,reviewPaymentRequest,cancelPaymentRequest,claimPaymentRequest,getPaymentRequestClaim} from './services/paymentRequestsService.js';
+import {PayJourneyError,readOwnedPayJourney,lockOwnerPayJourney} from './services/mainnetPayJourneyService.js';
 import {IncomingUsdcError,reconcileIncomingUsdc} from './services/incomingUsdcService.js';
 import { beginXOAuthLink, completeXOAuthCallback, finishXOAuthLink, XOAuthError,checkedXReturnOrigin,buildXLinkedReturnUrl,isConfiguredXOAuth,resolveXCallbackUrl } from './services/xOAuthService.js';
 import { preparePaymentRecipient, verifyPaymentRecipient } from './services/paymentRecipientService.js';
@@ -169,6 +180,17 @@ app.use((req: Request, res: Response, next: NextFunction): void => {
   next();
 });
 
+// Restricted Mainnet V1 backend: wallet-authenticated identity and receipt
+// indexing ONLY. Frontend Pay remains wallet-signed and independently gated.
+// Disallow ALL other backend financial/X/Agent endpoints without exceptions.
+app.use('/api', (req:Request,res:Response,next:NextFunction):void=>{
+  if(runtimeConfig.environment==='mainnet'&&process.env.VEYRA_MAINNET_IDENTITY_ONLY==='1'&&
+     !isMainnetIdentityOnlyRouteAllowed(req.method,req.originalUrl.split('?')[0]??'')){
+    res.status(503).json({ok:false,error:'MAINNET_V1_ROUTE_NOT_ENABLED'});return;
+  }
+  next();
+});
+
 // ── Minimal in-process rate limiter ─────────────────────────────────────────
 // (express-rate-limit not available without install; this is a lightweight in-process version)
 
@@ -219,6 +241,7 @@ app.use('/api', GLOBAL_RATE);
 function identityError(res: Response, err: unknown): void {
   if(err instanceof IncomingUsdcError){res.status(err.httpStatus).json({ok:false,error:err.code,message:err.message});return;}
   if(err instanceof DirectMessageError){res.status(err.httpStatus).json({ok:false,error:err.code,message:err.message});return;}
+  if(err instanceof PaymentRequestError){res.status(err.httpStatus).json({ok:false,error:err.code,message:err.message});return;}
   if (err instanceof NotificationInboxError) {
     res.status(err.code === 'NOTIFICATION_NOT_FOUND' ? 404 : 400)
       .json({ ok: false, error: err.code, message: err.message });
@@ -256,14 +279,157 @@ function identityError(res: Response, err: unknown): void {
 // Cookie issuance is restricted to the exact approved Testnet browser Origins.
 // A Set-Cookie header is scoped to /api/auth and is never accepted directly by
 // existing bearer-protected finance/social endpoints.
-function maybeSetRestoreCookie(req:Request,res:Response,userId:string,walletAddress:string):void{
+function maybeSetRestoreCookie(req:Request,res:Response,userId:string,walletAddress:string,chainId:number):void{
   const origin=req.header('origin');
-  if(runtimeConfig.environment!=='testnet'||!runtimeConfig.hostedBackend||
-    !origin||![runtimeConfig.appOrigin,runtimeConfig.testnetSecondaryAppOrigin].includes(origin))return;
+  if(!runtimeConfig.hostedBackend||!origin)return;
+  if(runtimeConfig.environment==='mainnet'){
+    if(chainId!==5042||!evaluateMainnetIdentityAuthority(runtimeConfig,origin))return;
+  }else if(runtimeConfig.environment==='testnet'){
+    if(chainId!==5042002||
+       ![runtimeConfig.appOrigin,runtimeConfig.testnetSecondaryAppOrigin].includes(origin))return;
+  }else return;
   const secret=process.env.VEYRA_SESSION_SECRET;
   if(!secret)return;
-  res.setHeader('Set-Cookie',issueBrowserRestoreCookie(userId,walletAddress,origin,secret));
+  res.setHeader('Set-Cookie',issueBrowserRestoreCookie(userId,walletAddress,origin,secret,Date.now(),chainId));
 }
+
+// Only the canonical production browser origin on a separately hosted Mainnet BFF
+// can advertise ID/recipient verification. Testnet and Preview are NOT Mainnet-ready.
+// Server-side Across quote ONLY. Never forwards provider calldata or keys to the browser.
+// This is an explicit quote-only M1 candidate; real signing requires a separate security review.
+app.get('/api/mainnet/exchange/across/capability', IDENTITY_RATE, (_req:Request,res:Response):void=>{
+ res.json({ok:true,provider:'Across',quoteAvailable:runtimeConfig.environment==='mainnet'&&isAcrossConfigured(),
+  executionEnabled:false,route:'8453:WETH -> 5042:USDC'});
+});
+app.post('/api/mainnet/exchange/across/quote', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
+ if(runtimeConfig.environment!=='mainnet'){
+  res.status(503).json({ok:false,error:'MAINNET_EXCHANGE_ONLY'});return;
+ }
+ const signedUserId=getAuthenticatedVeyraUserId(req);
+ if(!signedUserId){
+  res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;
+ }
+ try{
+  const input=validateAcrossQuoteRequest(req.body);
+  const {db}=await import('./db/client.js');
+  const binding=await mainnetActiveBinding(db,input.owner);
+  if(!authorizeAcrossQuoteWallet(input.owner,signedUserId,binding)){
+   res.status(403).json({ok:false,error:'EXCHANGE_WALLET_NOT_OWNED'});return;
+  }
+  const quote=await quoteAcrossBaseWethToArcUsdc(input);
+  res.json({ok:true,quote});
+ }catch(err){
+  if(err instanceof AcrossQuoteError){res.status(err.httpStatus).json({ok:false,error:err.code,message:err.message});return;}
+  res.status(503).json({ok:false,error:'ACROSS_QUOTE_UNAVAILABLE'});
+ }
+});
+app.get('/api/mainnet/exchange/across/status', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
+ if(runtimeConfig.environment!=='mainnet'||!isAcrossConfigured()){
+  res.status(503).json({ok:false,error:'ACROSS_NOT_CONFIGURED'});return;
+ }
+ if(!getAuthenticatedVeyraUserId(req)){
+  res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;
+ }
+ const hash=String(req.query.originalHash??'');
+ if(!/^0x[0-9a-fA-F]{64}$/.test(hash)){
+  res.status(400).json({ok:false,error:'INVALID_ORIGINAL_HASH'});return;
+ }
+ try{
+  const r=await fetch('https://app.across.to/api/deposit/status?'+
+   new URLSearchParams({depositTxnRef:hash,integratorId:process.env.ACROSS_INTEGRATOR_ID!}),{headers:{Authorization:'Bearer '+process.env.ACROSS_API_KEY!},
+    signal:AbortSignal.timeout(8000),cache:'no-store'});
+  if(!r.ok){res.status(503).json({ok:false,error:'ACROSS_STATUS_UNAVAILABLE'});return;}
+  const evidence=validateAcrossTrackingResponse(await r.json());
+  res.json({ok:true,provider:'Across',originalHash:hash,evidence,
+   verification:'PROVIDER_REPORTED_NOT_INDEPENDENT_ONCHAIN_PROOF'});
+ }catch{res.status(503).json({ok:false,error:'ACROSS_STATUS_UNAVAILABLE'});}
+});
+
+/** Non-secret production capability map, read from the backend process and
+ * its internal PostgreSQL connection. HTTP 200 is never itself a PASS:
+ * every feature is an independently reported boolean or reason code.
+ */
+app.get('/api/health/capabilities',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ if(runtimeConfig.environment!=='mainnet'){
+  res.status(503).json({ok:false,error:'MAINNET_ONLY'});return;
+ }
+ const callback=resolveXCallbackUrl();
+ const x={
+  oauthClientIdConfigured:Boolean(process.env.X_CLIENT_ID),
+  oauthClientSecretConfigured:Boolean(process.env.X_CLIENT_SECRET),
+  exactCallbackConfigured:callback==='https://veyra-mainnet-v1-bff.onrender.com/api/auth/x/callback',
+  xLookupConfigured:Boolean(process.env.X_BEARER_TOKEN),
+  externalPortalCallbackVerified:false,
+ };
+ const chatKeyConfigured=encryptionKey()!==null;
+ try{
+  const {db}=await import('./db/client.js');
+  const result=await db.execute(sql`
+   SELECT to_regclass('public.veyra_users') IS NOT NULL AS identity,
+    to_regclass('public.wallet_bindings') IS NOT NULL AS wallet_bindings,
+    to_regclass('public.veyra_direct_messages') IS NOT NULL AS chat,
+    to_regclass('public.veyra_payment_requests') IS NOT NULL AS requests,
+    to_regclass('public.mainnet_pay_journeys') IS NOT NULL AS journeys,
+    to_regclass('public.mainnet_settlement_receipts') IS NOT NULL AS receipts,
+    (SELECT count(*) FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='veyra_payment_requests'
+       AND column_name IN ('request_id','payer_user_id','requester_user_id',
+         'recipient_wallet','payment_ref','amount_raw','expires_at','status',
+         'claim_id','claim_wallet','claimed_at','tx_hash')) AS request_columns,
+    (SELECT count(*) FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='mainnet_pay_journeys'
+       AND column_name IN ('journey_id','owner_user_id','owner_wallet','payee_wallet',
+         'amount_raw','payment_ref','gateway_operation_id','verified_tx_hash'))
+       AS journey_columns
+  `);
+  const row=result.rows[0] as Record<string,unknown>|undefined;
+  const identity=Boolean(row?.identity&&row?.wallet_bindings);
+  const chat=Boolean(row?.chat)&&chatKeyConfigured;
+  const requests=Boolean(row?.requests)&&Number(row?.request_columns)===12;
+  const journeys=Boolean(row?.journeys)&&Number(row?.journey_columns)===8;
+  res.setHeader('Cache-Control','no-store');
+  res.json({ok:true,environment:'mainnet',databaseReachable:true,
+   identity:{available:identity},
+   x:{...x,available:x.oauthClientIdConfigured&&x.oauthClientSecretConfigured&&
+     x.exactCallbackConfigured&&identity,endToEndAccepted:false},
+   chat:{available:chat,encryptionKeyConfigured:chatKeyConfigured,
+    chatTablePresent:Boolean(row?.chat)},
+   paymentRequests:{available:requests&&chat,tablePresent:Boolean(row?.requests),
+    requiredColumnsPresent:Number(row?.request_columns)===12},
+   payJourneySync:{available:journeys&&identity,tablePresent:Boolean(row?.journeys),
+    requiredColumnsPresent:Number(row?.journey_columns)===8},
+   settlementReceipts:{available:Boolean(row?.receipts)},
+   publicSettlementV2:{available:false,reason:'OWNER_REVIEW_AND_DEPLOY_REQUIRED'}});
+ }catch{
+  res.status(503).json({ok:false,environment:'mainnet',databaseReachable:false,
+   x,chat:{encryptionKeyConfigured:chatKeyConfigured},
+   payJourneySync:{available:false,reason:'INTERNAL_DATABASE_PROBE_UNAVAILABLE'}});
+ }
+});
+
+app.post('/api/identity/mainnet-capability', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
+  const authority=evaluateMainnetIdentityAuthority(runtimeConfig,req.header('origin'));
+  if(!authority){res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;}
+  try{
+    // A configured database URL is not evidence that identities and receipts
+    // are actually available. This endpoint is read-only: no wallet prompts.
+    const {db}=await import('./db/client.js');
+    const readiness=await db.execute(sql`
+      SELECT to_regclass('public.veyra_users') AS users,
+             to_regclass('public.wallet_bindings') AS wallets,
+             to_regclass('public.identity_snapshots') AS snapshots,
+             to_regclass('public.mainnet_direct_pay_receipts') AS receipts
+    `);
+    const row=readiness.rows[0] as Record<string,unknown>|undefined;
+    if(!row||['users','wallets','snapshots','receipts'].some(k=>!row[k])){
+      res.status(503).json({ok:false,error:'MAINNET_IDENTITY_SCHEMA_NOT_READY'});return;
+    }
+    res.setHeader('Cache-Control','no-store');
+    res.json(authority);
+  }catch{
+    res.status(503).json({ok:false,error:'MAINNET_IDENTITY_DATABASE_UNAVAILABLE'});
+  }
+});
 
 // ── Existing verified wallet login ──────────────────────────────────────────
 // Sign in is NOT the wallet-binding proof or an on-chain financial approval.
@@ -287,7 +453,7 @@ app.post('/api/auth/wallet-login/complete', IDENTITY_RATE, async (req: Request, 
     const signature = typeof body.signature === 'string' ? body.signature : '';
     const { db } = await import('./db/client.js');
     const login = await completeWalletLogin(db, challengeId, signature, body.appOrigin, req.header('origin'));
-    maybeSetRestoreCookie(req,res,login.veyraUserId,login.walletAddress);
+    maybeSetRestoreCookie(req,res,login.veyraUserId,login.walletAddress,login.chainId);
     res.setHeader('Cache-Control', 'no-store');
     res.json({ ok: true, ...login });
   } catch (err) { identityError(res, err); }
@@ -306,14 +472,19 @@ app.post('/api/auth/session/restore', IDENTITY_RATE, async(req:Request,res:Respo
     const address=typeof body.walletAddress==='string'?body.walletAddress:'';
     const secret=process.env.VEYRA_SESSION_SECRET??'';
     const claims=verifyBrowserRestoreCookie(req.header('cookie'),secret,origin,address);
-    if(!claims){res.status(401).json({ok:false,error:'SESSION_REAUTH_REQUIRED'});return;}
+    const requiredChainId=runtimeConfig.environment==='mainnet'?5042:5042002;
+    if(!claims||(runtimeConfig.environment==='mainnet'&&
+      (!evaluateMainnetIdentityAuthority(runtimeConfig,origin)||claims.chainId!==5042))||
+      (claims.chainId!==undefined&&claims.chainId!==requiredChainId)){
+      res.status(401).json({ok:false,error:'SESSION_REAUTH_REQUIRED'});return;
+    }
     const {db}=await import('./db/client.js');
     const matching=await db.execute(sql`
       SELECT wb.veyr_user_id AS "userId" FROM wallet_bindings wb
       JOIN veyra_users u ON u.veyr_user_id=wb.veyr_user_id
       WHERE wb.veyr_user_id=${claims.sub}
         AND lower(wb.wallet_address)=${claims.wallet}
-        AND wb.chain_id IN (5042002, 5042) AND wb.status='ACTIVE'
+        AND wb.chain_id = ${requiredChainId} AND wb.status='ACTIVE'
         AND wb.revoked_at IS NULL AND u.status='ACTIVE'
         AND u.deleted_at IS NULL LIMIT 1
     `);
@@ -368,7 +539,7 @@ app.post('/api/identity/register/complete', IDENTITY_RATE, async (req: Request, 
     const { db } = await import('./db/client.js');
     const registration = await completeIdentityRegistration(db, { claimToken, signature: signature as `0x${string}` });
     const profile = await getProfile(db, registration.veyraUserId);
-    maybeSetRestoreCookie(req,res,registration.veyraUserId,registration.walletAddress);
+    maybeSetRestoreCookie(req,res,registration.veyraUserId,registration.walletAddress,registration.chainId);
     res.status(201).json({ ok: true, registration, profile, sessionToken: registration.sessionToken });
   } catch (err) {
     identityError(res, err);
@@ -435,10 +606,32 @@ app.post('/api/social/unfollow', IDENTITY_RATE, async (req: Request, res: Respon
 
 // Chat is independently capability-gated. A signed ID is still required for
 // every actual list/send call; capability does not grant financial authority.
-app.get('/api/social/chat/capability',IDENTITY_RATE,(req:Request,res:Response):void=>{
+app.get('/api/social/chat/capability',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
   const owner=getAuthenticatedVeyraUserId(req);
   if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
-  res.json({ok:true,available:Boolean(encryptionKey()),endToEndEncrypted:false});
+  if(!encryptionKey()){
+    res.json({ok:true,available:false,requestAvailable:false,endToEndEncrypted:false,reason:'CHAT_KEY_NOT_CONFIGURED'});
+    return;
+  }
+  try{
+    const {db}=await import('./db/client.js');
+    const ready=await db.execute(sql`SELECT
+      to_regclass('public.veyra_direct_messages') AS chat,
+      to_regclass('public.veyra_payment_requests') AS requests,
+      (SELECT COUNT(*) FROM information_schema.columns
+       WHERE table_schema='public' AND table_name='veyra_payment_requests'
+         AND column_name IN ('request_id','payer_user_id','requester_user_id',
+          'recipient_wallet','payment_ref','amount_raw','expires_at','status',
+          'claim_id','claim_wallet','claimed_at','tx_hash')) AS request_columns`);
+    const row=ready.rows[0] as {chat?:unknown;requests?:unknown;request_columns?:unknown}|undefined;
+    const requestAvailable=Boolean(row?.chat&&row?.requests&&Number(row?.request_columns)===12);
+    res.json({ok:true,available:Boolean(row?.chat),requestAvailable,
+      endToEndEncrypted:false,
+      ...(!row?.chat?{reason:'CHAT_MIGRATION_NOT_APPLIED'}:
+         !requestAvailable?{requestReason:'REQUEST_MIGRATION_NOT_APPLIED'}:{})});
+  }catch{
+    res.json({ok:true,available:false,requestAvailable:false,endToEndEncrypted:false,reason:'CHAT_DATABASE_UNAVAILABLE'});
+  }
 });
 app.get('/api/social/chat',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
   try{
@@ -463,6 +656,74 @@ app.post('/api/social/chat/send',CHAT_SEND_RATE,async(req:Request,res:Response):
 // On-demand read-triggered chain reconciliation. The client cannot submit
 // transfer hashes, amounts, wallet addresses, or a claimed payment event.
 const INCOMING_SYNC_RATE=rateLimit(2,60_000);
+// Signed ID operations. No browser claim or message ever sets status PAID.
+app.get('/api/social/payment-requests',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ try{
+  const owner=getAuthenticatedVeyraUserId(req);
+  if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  const {db}=await import('./db/client.js');
+  const result=await listPeerPaymentRequests(db,owner,req.query.peerUserId);
+  res.setHeader('Cache-Control','no-store');res.json(result);
+ }catch(e){identityError(res,e);}
+});
+app.post('/api/social/payment-requests/create',CHAT_SEND_RATE,async(req:Request,res:Response):Promise<void>=>{
+ try{
+  const owner=getAuthenticatedVeyraUserId(req);
+  if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  const body=req.body as Record<string,unknown>|undefined;
+  const {db}=await import('./db/client.js');
+  const result=await createPaymentRequest(db,owner,{
+   peerUserId:body?.peerUserId,amount:body?.amount,clientRequestId:body?.clientRequestId});
+  res.setHeader('Cache-Control','no-store');res.json(result);
+ }catch(e){identityError(res,e);}
+});
+app.post('/api/social/payment-requests/review',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ try{
+  const owner=getAuthenticatedVeyraUserId(req);
+  if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  const body=req.body as Record<string,unknown>|undefined;
+  const {db}=await import('./db/client.js');
+  const result=await reviewPaymentRequest(db,owner,body?.requestId);
+  res.setHeader('Cache-Control','no-store');res.json(result);
+ }catch(e){identityError(res,e);}
+});
+app.post('/api/social/payment-requests/cancel',CHAT_SEND_RATE,async(req:Request,res:Response):Promise<void>=>{
+ try{
+  const owner=getAuthenticatedVeyraUserId(req);
+  if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  const body=req.body as Record<string,unknown>|undefined;
+  const {db}=await import('./db/client.js');
+  const result=await cancelPaymentRequest(db,owner,body?.requestId);
+  res.setHeader('Cache-Control','no-store');res.json(result);
+ }catch(e){identityError(res,e);}
+});
+
+app.post('/api/social/payment-requests/attempt',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ try{
+  const owner=getAuthenticatedVeyraUserId(req);
+  if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  const body=req.body as Record<string,unknown>|undefined;
+  const {db}=await import('./db/client.js');
+  const result=await getPaymentRequestClaim(db,owner,{
+   requestId:body?.requestId,attemptId:body?.attemptId,walletAddress:body?.walletAddress,
+  });
+  res.setHeader('Cache-Control','no-store');res.json(result);
+ }catch(e){identityError(res,e);}
+});
+
+app.post('/api/social/payment-requests/claim',CHAT_SEND_RATE,async(req:Request,res:Response):Promise<void>=>{
+ try{
+  const owner=getAuthenticatedVeyraUserId(req);
+  if(!owner){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  const body=req.body as Record<string,unknown>|undefined;
+  const {db}=await import('./db/client.js');
+  const result=await claimPaymentRequest(db,owner,{
+   requestId:body?.requestId,attemptId:body?.attemptId,walletAddress:body?.walletAddress,
+  });
+  res.setHeader('Cache-Control','no-store');res.json(result);
+ }catch(e){identityError(res,e);}
+});
+
 app.post('/api/notifications/sync-incoming',INCOMING_SYNC_RATE,async(req:Request,res:Response):Promise<void>=>{
   try{
     const owner=getAuthenticatedVeyraUserId(req);
@@ -758,13 +1019,27 @@ app.post('/api/identity/verify-payment', IDENTITY_RATE, async (req: Request, res
 
 // Lightweight capability; no X redirects or identity signatures are requested.
 // Returns false until provider credentials and an exact reviewed callback exist.
-app.post('/api/auth/x/capability', IDENTITY_RATE, (req:Request,res:Response):void=>{
+app.post('/api/auth/x/capability', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
   try {
     const origin=req.header('origin');
     checkedXReturnOrigin(origin,[runtimeConfig.appOrigin??'',runtimeConfig.testnetSecondaryAppOrigin??'']);
-    const callbackUrl = resolveXCallbackUrl();
-    res.json({ok:true,available:callbackUrl!==null&&isConfiguredXOAuth(process.env.X_CLIENT_ID, callbackUrl)});
-  } catch(err){identityError(res,err);}
+    const callbackUrl=resolveXCallbackUrl();
+    if(callbackUrl===null||!isConfiguredXOAuth(process.env.X_CLIENT_ID,callbackUrl)){
+      res.json({ok:true,available:false,reason:'X_CREDENTIALS_OR_CALLBACK_NOT_CONFIGURED'});
+      return;
+    }
+    const {db}=await import('./db/client.js');
+    const ready=await db.execute(sql`
+      SELECT
+      (SELECT COUNT(*) FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='oauth_link_states'
+        AND column_name IN ('pending_profile','linked_at')) AS columns_ok
+    `);
+    const row=ready.rows[0] as {columns_ok?:unknown}|undefined;
+    res.json({ok:true,available:Number(row?.columns_ok)===2,
+      lookupAvailable:Boolean(process.env.X_BEARER_TOKEN),
+      ...(Number(row?.columns_ok)!==2?{reason:'X_OAUTH_MIGRATION_NOT_APPLIED'}:{})});
+  }catch(err){identityError(res,err);}
 });
 
 // ── POST /api/auth/x/start ───────────────────────────────────────────────────
@@ -817,6 +1092,17 @@ app.get('/api/auth/x/callback', IDENTITY_RATE, async (req: Request, res: Respons
   } catch (err) {
     identityError(res, err);
   }
+});
+
+// Signed owner can revoke X; no financial signing or wallet rebind.
+app.post('/api/auth/x/revoke',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ try{
+  const userId=getAuthenticatedVeyraUserId(req);
+  if(!userId){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+  const {db}=await import('./db/client.js');
+  const profile=await revokeXIdentity(db,userId);
+  res.setHeader('Cache-Control','no-store');res.json({ok:true,profile});
+ }catch(e){identityError(res,e);}
 });
 
 // ── POST /api/auth/x/finish ─────────────────────────────────────────────────
@@ -2145,6 +2431,118 @@ app.post('/api/receipts/cctp/resolve-source-revert', IDENTITY_RATE, async (req: 
     console.error('[BFF] /api/receipts/cctp/resolve-source-revert error:', err);
     res.status(500).json({ ok: false, error: 'INTERNAL_SERVER_ERROR' });
   }
+});
+
+// Arc Mainnet Direct Pay never uses the Testnet receipt write API.
+// POST is idempotent and verifies the original transaction from trusted RPC.
+// A missing hash, RPC failure, unauthenticated user, unbound wallet or stale
+// source proof MUST NOT be converted into a completed payment.
+app.post('/api/mainnet/pay/receipt/verify', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
+ const authority=evaluateMainnetIdentityAuthority(runtimeConfig,req.header('origin'));
+ if(!authority){res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;}
+ const userId=getAuthenticatedVeyraUserId(req);
+ if(!userId){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+ try{
+  const input=parseDirectPayReceiptRequest(req.body);
+  const {db}=await import('./db/client.js');
+  const receipt=await indexVerifiedDirectPay(db,userId,input);
+  res.setHeader('Cache-Control','no-store');
+  res.status(200).json({ok:true,receipt});
+ }catch(e){
+  if(e instanceof PayReceiptApiError){res.status(e.httpStatus).json({ok:false,error:e.code});return;}
+  console.error('[BFF] Mainnet Pay receipt indexer:',e instanceof Error?e.message:'unknown');
+  res.status(503).json({ok:false,error:'RECEIPT_PERSISTENCE_UNAVAILABLE'});
+ }
+});
+app.get('/api/mainnet/pay/receipts', IDENTITY_RATE, async(req:Request,res:Response):Promise<void>=>{
+ if(!evaluateMainnetIdentityAuthority(runtimeConfig,runtimeConfig.appOrigin)){
+  res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;
+ }
+ const userId=getAuthenticatedVeyraUserId(req);
+ if(!userId){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+ try{
+  const {db}=await import('./db/client.js');
+  const receipts=await listVerifiedDirectPays(db,userId,50);
+  res.setHeader('Cache-Control','no-store');
+  res.json({ok:true,receipts});
+ }catch(e){
+  console.error('[BFF] Mainnet Pay receipt history:',e instanceof Error?e.message:'unknown');
+  res.status(503).json({ok:false,error:'RECEIPT_HISTORY_UNAVAILABLE'});
+ }
+});
+
+// Cross-device read-only arbitration of a single owner-bound Gateway → Pay
+// journey. A browser never supplies paid/completed status, an accepted hash,
+// recipient USDC proof or an override to erase a competing operation.
+app.get('/api/mainnet/pay/journeys',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ if(!evaluateMainnetIdentityAuthenticatedReadAuthority(runtimeConfig,req.header('origin'))){
+  res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;
+ }
+ const userId=getAuthenticatedVeyraUserId(req);
+ if(!userId){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+ try{
+  const ownerWallet=typeof req.query.ownerWallet==='string'?req.query.ownerWallet:'';
+  const {db}=await import('./db/client.js');
+  const journey=await readOwnedPayJourney(db,userId,ownerWallet);
+  res.setHeader('Cache-Control','no-store');res.json({ok:true,journey});
+ }catch(e){
+  if(e instanceof PayJourneyError){res.status(e.httpStatus).json({ok:false,error:e.code});return;}
+  res.status(503).json({ok:false,error:'JOURNEY_DATABASE_UNAVAILABLE'});
+ }
+});
+app.post('/api/mainnet/pay/journeys/lock',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ if(!evaluateMainnetIdentityAuthority(runtimeConfig,req.header('origin'))){
+  res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;
+ }
+ const userId=getAuthenticatedVeyraUserId(req);
+ if(!userId){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+ try{
+  const {db}=await import('./db/client.js');
+  const journey=await lockOwnerPayJourney(db,userId,req.body);
+  res.setHeader('Cache-Control','no-store');res.status(200).json({ok:true,journey});
+ }catch(e){
+  if(e instanceof PayJourneyError){res.status(e.httpStatus).json({ok:false,error:e.code});return;}
+  res.status(503).json({ok:false,error:'JOURNEY_DATABASE_UNAVAILABLE'});
+ }
+});
+
+// Separate canonical contract Settlement index. Never treat a wallet or UI
+// success flag as proof of a payment; contract pay(), event, original USDC
+// transfer logs, canonical block and both owner bindings are checked server-side.
+// These endpoints do not sign, approve, send or retry transactions.
+app.post('/api/mainnet/settlement/receipt/verify',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ if(!evaluateMainnetIdentityAuthority(runtimeConfig,req.header('origin'))){
+  res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;
+ }
+ const userId=getAuthenticatedVeyraUserId(req);
+ if(!userId){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+ try{
+  const input=parseSettlementReceiptRequest(req.body);
+  const {db}=await import('./db/client.js');
+  const receipt=await indexVerifiedSettlement(db,userId,input);
+  res.setHeader('Cache-Control','no-store');
+  res.json({ok:true,receipt});
+ }catch(e){
+  if(e instanceof PayReceiptApiError){res.status(e.httpStatus).json({ok:false,error:e.code});return;}
+  console.error('[BFF] contract Settlement receipt indexer:',e instanceof Error?e.message:'unknown');
+  res.status(503).json({ok:false,error:'SETTLEMENT_RECEIPT_UNAVAILABLE'});
+ }
+});
+app.get('/api/mainnet/settlement/receipts',IDENTITY_RATE,async(req:Request,res:Response):Promise<void>=>{
+ if(!evaluateMainnetIdentityAuthority(runtimeConfig,runtimeConfig.appOrigin)){
+  res.status(503).json({ok:false,error:'MAINNET_IDENTITY_NOT_READY'});return;
+ }
+ const userId=getAuthenticatedVeyraUserId(req);
+ if(!userId){res.status(401).json({ok:false,error:'AUTH_REQUIRED'});return;}
+ try{
+  const {db}=await import('./db/client.js');
+  const receipts=await listVerifiedSettlements(db,userId,50);
+  res.setHeader('Cache-Control','no-store');
+  res.json({ok:true,receipts});
+ }catch(e){
+  console.error('[BFF] contract Settlement history:',e instanceof Error?e.message:'unknown');
+  res.status(503).json({ok:false,error:'SETTLEMENT_HISTORY_UNAVAILABLE'});
+ }
 });
 
 app.get('/api/receipts', IDENTITY_RATE, async (req: Request, res: Response): Promise<void> => {

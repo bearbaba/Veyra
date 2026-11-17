@@ -8,7 +8,7 @@ export type LocalOperation={
   type:OperationKind; hash:string; owner:string; amount:string; asset:string;
   chainId:number; status:'SUBMITTED'|'RECORDED'|'REVERTED'; updatedAt:number;
   destination?:string;
-  note?:string;recipientLabel?:string;submittedAt?:number;
+  note?:string;recipientLabel?:string;recipientSnapshotId?:string;senderUserId?:string;submittedAt?:number;
 };
 const HASH=/^0x[0-9a-fA-F]{64}$/;
 const ADDRESS=/^0x[0-9a-fA-F]{40}$/;
@@ -30,6 +30,10 @@ export function readLocalOperations(owner:string):LocalOperation[]{
         typeof a.updatedAt==='number'&&Number.isFinite(a.updatedAt)&&
         (a.note===undefined||typeof a.note==='string'&&a.note.length<=120)&&
         (a.recipientLabel===undefined||typeof a.recipientLabel==='string'&&a.recipientLabel.length<=50)&&
+        (a.senderUserId===undefined||typeof a.senderUserId==='string'&&
+          /^usr_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(a.senderUserId))&&
+        (a.recipientSnapshotId===undefined||typeof a.recipientSnapshotId==='string'&&
+          /^snp_[1-9A-HJ-NP-Za-km-z]{10,}$/.test(a.recipientSnapshotId))&&
         (a.submittedAt===undefined||typeof a.submittedAt==='number'&&Number.isSafeInteger(a.submittedAt));
     }).slice(0,60);
   }catch{return [];}
@@ -42,7 +46,9 @@ export function recordLocalOperation(input:Omit<LocalOperation,'updatedAt'>):boo
     const next:LocalOperation={...input,owner:input.owner.toLowerCase(),updatedAt:Date.now(),
       submittedAt:same?.submittedAt??Date.now(),
       note:(input.note??same?.note)?.slice(0,120),
-      recipientLabel:(input.recipientLabel??same?.recipientLabel)?.slice(0,50)};
+      recipientLabel:(input.recipientLabel??same?.recipientLabel)?.slice(0,50),
+      recipientSnapshotId:input.recipientSnapshotId??same?.recipientSnapshotId,
+      senderUserId:input.senderUserId??same?.senderUserId};
     const existing=prior.filter(v=>!(v.hash.toLowerCase()===input.hash.toLowerCase()&&v.type===input.type));
     const packed=JSON.stringify([next,...existing].slice(0,60));
     window.localStorage.setItem(operationKey(input.owner),packed);

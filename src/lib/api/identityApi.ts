@@ -111,7 +111,7 @@ export async function probeXLinkReadiness():Promise<XLinkReadiness>{
       signal:AbortSignal.timeout(12000),
     });
     if(response.status===403)
-      return {available:false,reason:'This website is not an approved X-link return origin. Open the stable Veyra Testnet V2 domain.'};
+      return {available:false,reason:'This website is not an approved X-link return origin. No account was changed.'};
     if(response.status===404)
       return {available:false,reason:'The identity backend does not expose X linking yet. The backend needs deployment.'};
     if(!response.ok)
@@ -125,7 +125,7 @@ export async function probeXLinkReadiness():Promise<XLinkReadiness>{
       return {available:false,reason:'X OAuth is not enabled on the identity backend. Check Render X_CLIENT_ID, pinned X_REDIRECT_URI and the X Developer Portal callback.'};
     return {available:true,reason:''};
   }catch{
-    return {available:false,reason:'Cannot reach the X capability endpoint. Check the Veyra Testnet backend and try again.'};
+    return {available:false,reason:'Cannot reach the X capability endpoint. Check the official Veyra identity backend and try again.'};
   }
 }
 export async function getXLinkCapability():Promise<boolean>{
@@ -185,4 +185,14 @@ export async function completeVeyraIdRegistration(input: {
   const result = await postJson<{ ok: true; profile: MyProfile; sessionToken: string }>('/api/identity/register/complete', input);
   // The signed Social provider alone may activate a wallet-bound session.
   return { profile: result.profile, sessionToken: result.sessionToken };
+}
+
+export async function unlinkXAccount(token:string):Promise<void>{
+ const response=await fetch('/api/auth/x/revoke',{
+  method:'POST',headers:{Authorization:'Bearer '+requireSignedIdentityToken(token)},
+  credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(12000),
+ });
+ const body:unknown=await response.json().catch(()=>null);
+ if(!response.ok||!body||typeof body!=='object'||!('ok' in body)||body.ok!==true)
+  throw Error('X unlink could not be confirmed. Refresh your profile before trying again.');
 }

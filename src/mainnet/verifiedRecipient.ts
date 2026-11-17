@@ -4,7 +4,7 @@
 import {isAddress} from 'viem';
 export type VerifiedMainnetRecipient={
  owner:string;wallet:string;walletId:string;veyraUserId:string;veyraHandle:string;
- displayName:string;snapshotId:string;reviewToken:string;expiresAt:string;
+ displayName:string;avatarUrl?:string|null;snapshotId:string;reviewToken:string;expiresAt:string;
 };
 export function validVerifiedRecipient(v:VerifiedMainnetRecipient,owner:string,recipient:string,now=Date.now()):boolean{
  return isAddress(v.owner)&&v.owner.toLowerCase()===owner.toLowerCase()&&
@@ -15,4 +15,12 @@ export function validVerifiedRecipient(v:VerifiedMainnetRecipient,owner:string,r
  typeof v.snapshotId==='string'&&v.snapshotId.length>0&&
  typeof v.reviewToken==='string'&&v.reviewToken.length>0&&
  Number.isFinite(Date.parse(v.expiresAt))&&Date.parse(v.expiresAt)>now;
+}
+
+export function isSameVerifiedPaymentReceiver(old:VerifiedMainnetRecipient,now:VerifiedMainnetRecipient):boolean{
+ return old.owner.toLowerCase()===now.owner.toLowerCase()&&
+ old.wallet.toLowerCase()===now.wallet.toLowerCase()&&
+ old.walletId===now.walletId&&old.veyraUserId===now.veyraUserId&&
+ old.veyraHandle.toLowerCase()===now.veyraHandle.toLowerCase()&&
+ validVerifiedRecipient(now,old.owner,old.wallet);
 }

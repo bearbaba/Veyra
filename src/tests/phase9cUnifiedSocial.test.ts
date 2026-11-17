@@ -55,7 +55,8 @@ describe('Veyra unified wallet, social and verified alerts',()=>{
      expect(brand).toContain(icon);
    }
    expect(brand).toContain('<TokenMark variant="branded"');
-   expect(brand).not.toContain("@web3icons/react/dynamic");
+   expect(brand).toContain('NetworkIcon name={networkIcon}');
+   expect(brand).toContain('const TokenMark = TOKEN_MARKS[logoKey as keyof typeof TOKEN_MARKS]');
    expect(brand).not.toContain('text="Y"');
    expect(brand).toContain('text="WETH"');
  });
