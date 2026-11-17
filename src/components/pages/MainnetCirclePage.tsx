@@ -26,6 +26,7 @@ import {CCTP_V2_BURN_EVENT,discoverOriginalCctpSource} from '@/mainnet/discoverO
 import {assertMainnetConsumerSigningAllowed,MAINNET_PUBLIC_BETA,MAINNET_EMERGENCY_READ_ONLY} from '@/mainnet/releaseGates';
 import {readBridgeQuoteAmounts,assertBridgeQuoteWithinReviewedCap} from '@/mainnet/bridgeQuoteGuard';
 import {feeBurdenMessage} from '@/mainnet/feeBurden';
+import {arcCctpStandardFeeDisclosure,arcFastIntoArcFeeDisclosure,mainnetSourceGasToken,ARC_FEE_ANNOUNCEMENT_URL} from '@/mainnet/arcSettlementFeeDisclosure';
 import {exchangeSigningBlock,signingNotice,type SigningBlock} from '@/mainnet/exchangeSigningGate';
 import {summarizeQuote} from '@/mainnet/quoteSummary';
 import {Notice,TxStepper} from '@/components/ui/primitives';
@@ -222,7 +223,9 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
     functionName:'balanceOf',args:[address]});
    if(available<parseUnits(amount,6))throw Error('Insufficient source wallet balance.');
    const gas=await c.getBalance({address});
-   if(gas<=0n)throw Error('Insufficient native gas on source network. Add ETH before requesting a quote.');
+   if(gas<=0n)throw Error('Insufficient native gas on source network. Add '+
+    (mainnetSourceGasToken(selectedSource)??'the source network gas token')+
+    ' before requesting a quote.');
    const {params:p}=await params();
    const estimate=mode==='swap'?
     await kit.estimateSwap(p as Parameters<AppKit['estimateSwap']>[0]):
@@ -685,6 +688,20 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
      </div>
     </div>
     {mode==='swap'&&receiveSelector}
+    {mode==='bridge'&&arcCctpStandardFeeDisclosure({
+     sourceChainId:selectedSource,destinationChainId:selectedDest,asset:'USDC',
+    })&&<div role="note" aria-label="Arc CCTP fee policy"
+     className="rounded-xl border p-3 text-xs leading-5"
+     style={{color:'var(--muted)',borderColor:'var(--border)'}}>
+     {arcCctpStandardFeeDisclosure({
+      sourceChainId:selectedSource,destinationChainId:selectedDest,asset:'USDC',
+     })}
+     {arcFastIntoArcFeeDisclosure({
+      sourceChainId:selectedSource,destinationChainId:selectedDest,asset:'USDC',
+     })&&<p className="mt-1.5">{arcFastIntoArcFeeDisclosure({
+      sourceChainId:selectedSource,destinationChainId:selectedDest,asset:'USDC',
+     })}</p>}
+    </div>}
     <div className="space-y-2 rounded-xl border p-3" style={{background:'var(--surface-raised)',borderColor:'var(--border)'}}>
      <p className="text-xs font-semibold" style={{color:'var(--muted)'}}>YOU RECEIVE · {mode==='swap'?toToken:'USDC'}{mode==='bridge'?' · '+label(selectedDest):''}</p>
      <p className="display text-2xl font-bold tabular-nums" style={{color:'var(--ink)'}}>
@@ -738,6 +755,8 @@ export function MainnetCirclePage({mode,selection,embedded=false,onFinancialBusy
         <p>{mode==='swap'?'Slippage limit: 1%':
          'CCTP onchain fee cap: '+quote.bridgeMaxFee+' USDC; destination independently verified'}</p>
         <p>Source token: {token} · Destination token: {destToken}</p>
+        <p>Source network gas: {mainnetSourceGasToken(quote.source)??'verify with wallet'}. Additional provider and forwarding fees may apply.</p>
+        {mode==='bridge'&&<a href={ARC_FEE_ANNOUNCEMENT_URL} target="_blank" rel="noopener noreferrer" className="font-semibold underline">Arc and Circle fee announcement</a>}
         <p>Network gas and wallet approvals are reviewed before signing.</p>
        </div>
       </details>
