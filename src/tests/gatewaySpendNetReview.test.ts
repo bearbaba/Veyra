@@ -4,6 +4,7 @@ import {parseGatewaySdkFees} from '../core/gateway/gatewaySdkSpend';
 import {gatewaySpendQuoteSummary,gatewayFundingGrossForNet} from '../mainnet/unifiedSettlementFunding';
 
 const view=readFileSync(new URL('../components/pages/MainnetUnifiedBalancePanel.tsx',import.meta.url),'utf8');
+const execution=readFileSync(new URL('../mainnet/gatewayMainnetExecution.ts',import.meta.url),'utf8');
 
 describe('Gateway exact net-review transparency and safe preflight',()=>{
  it('shows precise net for a 0.1 USDC spend without floating point drift',()=>{
@@ -58,6 +59,7 @@ describe('Gateway exact net-review transparency and safe preflight',()=>{
   expect(view).toContain('Estimated net, not a verified destination receipt.');
   expect(view).toContain("mode==='spend'&&!spendReview");
   expect(view).toContain('submitGatewayMainnetReview(');
+  expect(execution).toContain('return gatewaySpendQuoteSummary(review.amount,review.fees).minimumReceiveUsdc;');
   expect(view).toContain('matchingGatewayAllocation(');
   expect(view).toContain('readGatewayMainnetOperation(');
  });
