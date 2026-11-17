@@ -24,7 +24,7 @@ describe('Public Mainnet feature status: conservative release truth',()=>{
  });
  it('never treats an untrusted, stale or partial status as a feature authorization',()=>{
   for(const data of [
-   null,{ok:false,...sample},{...sample,environment:'testnet'},
+   null,{...sample,ok:false},{...sample,environment:'testnet'},
    {...sample,databaseReachable:false},{ok:true,environment:'mainnet'},
    {ok:true,environment:'mainnet',databaseReachable:true,
     publicSettlementV2:{available:'true'}},
