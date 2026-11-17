@@ -27,8 +27,9 @@ export function parsePublicMainnetCapabilities(raw:unknown):PublicCapabilityRow[
  return CAPABILITIES.map(({id,label})=>{
   const feature=trusted?record(body?.[id]):null;
   const available=feature?.available;
-  return {id,label,status:typeof available==='boolean'?
-   available?'available':'unavailable':'unknown'};
+  const status:PublicFeatureStatus=typeof available==='boolean'?
+   available?'available':'unavailable':'unknown';
+  return {id,label,status};
  });
 }
 /** No credentials, no wallet provider, no signing and no backend mutations. */
