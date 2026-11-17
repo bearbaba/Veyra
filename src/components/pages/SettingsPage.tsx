@@ -235,7 +235,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
               <p className="mt-1 text-xs leading-5" style={{color:'var(--muted)'}}>
                 {VEYRA_ENV==='mainnet'
                   ?MAINNET_EMERGENCY_READ_ONLY?'Financial signing is paused. You can still review onchain receipts safely.':
-                   MAINNET_CANARY_ONLY?'Mainnet pilot: contract Settlement Pay is limited to the authorized wallet and 0.01 USDC per payment. Swap and Bridge signing are paused; Veyra Gateway Mainnet deposits are not enabled; Arc, Ethereum and Base require independent Veyra execution acceptance.':
+                   MAINNET_CANARY_ONLY?'Legacy direct wallet USDC remains canary-limited. Settlement, Gateway, Swap and Bridge have separate provider, wallet and receipt gates; an available quote is not completed settlement.':
                    'Veyra Settlement Pay requires review, wallet confirmation and an onchain receipt. Quotes are not completed transactions.'
                   :'Every payment is reviewed before wallet approval. Testnet funds only.'}
               </p>
@@ -272,7 +272,7 @@ export function SettingsPage({ onOpenSocial }: { onOpenSocial: () => void }) {
             <span className="mt-1 block text-xs leading-5" style={{color:'var(--muted)'}}>
               {VEYRA_ENV==='mainnet'
                ?MAINNET_EMERGENCY_READ_ONLY?'Mainnet is read-only. Existing transactions and receipts can be checked; sending is disabled.':
-                MAINNET_CANARY_ONLY?'Arc USDC Veyra Settlement is in a 0.01 USDC owner-only pilot. Wallet and Friends share one reviewed contract payment. Swap and Bridge quotes remain available but signing is paused. Veyra Gateway deposits require provider verification and separate activation.':
+                MAINNET_CANARY_ONLY?'Arc Mainnet wallet-held USDC is separate from Circle Gateway. Each route has independently reviewed source, destination, fees, signing authorization and receipt checks; visible balances do not imply a supported transfer.':
                 'Veyra Settlement Pay requires a separate wallet confirmation. Swap and Bridge require independently verified routes; Gateway deposits remain unavailable.'
                :'Arc Testnet USDC is enabled. Other listings are not available for sending yet.'}
             </span>
