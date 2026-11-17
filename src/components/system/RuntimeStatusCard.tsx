@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CheckCircle2, CircleAlert, ChevronDown, Loader2, RefreshCw, Server } from 'lucide-react';
 import {useUnifiedSocial} from '../../features/social/UnifiedSocial';
 import {VEYRA_ENV} from '@/lib/env';
+import {fetchPublicMainnetCapabilities,type PublicCapabilityRow} from '@/mainnet/publicMainnetCapabilities';
 
 type Status = 'loading' | 'online' | 'degraded' | 'offline';
 interface ReadinessPayload {
@@ -18,6 +19,7 @@ export function RuntimeStatusCard() {
   const [environment,setEnvironment]=useState('unknown');
   const [summary,setSummary]=useState('Checking the secure Veyra service…');
   const [attempt,setAttempt]=useState(0);
+  const [capabilities,setCapabilities]=useState<PublicCapabilityRow[]|null>(null);
 
   useEffect(()=>{
     const controller=new AbortController();
@@ -49,6 +51,18 @@ export function RuntimeStatusCard() {
       if(!active)return;
       setStatus('offline');
       setSummary('Backend could not be verified. Wallet connection is a separate state.');
+    }).finally(()=>window.clearTimeout(timer));
+    return()=>{active=false;window.clearTimeout(timer);controller.abort();};
+  },[attempt]);
+
+  useEffect(()=>{
+    if(VEYRA_ENV!=='mainnet'){setCapabilities(null);return;}
+    const controller=new AbortController();
+    let active=true;
+    setCapabilities(null);
+    const timer=window.setTimeout(()=>controller.abort(),15000);
+    void fetchPublicMainnetCapabilities(controller.signal).then(rows=>{
+      if(active)setCapabilities(rows);
     }).finally(()=>window.clearTimeout(timer));
     return()=>{active=false;window.clearTimeout(timer);controller.abort();};
   },[attempt]);
@@ -96,6 +110,24 @@ export function RuntimeStatusCard() {
           <RefreshCw className="size-3.5"/> Retry check
         </button>
       </div>
+      {VEYRA_ENV==='mainnet'&&<div className="mt-4 border-t pt-3"
+       style={{borderColor:'var(--border)'}} aria-label="Mainnet feature availability">
+        <p className="text-xs font-semibold" style={{color:'var(--ink)'}}>Live backend capabilities</p>
+        <p className="mt-1 text-[11px] leading-5" style={{color:'var(--muted)'}}>
+          Backend availability does not authorize wallet signing, verify a transaction or grant access to another person's account.
+        </p>
+        {!capabilities?<p className="mt-2 text-xs" style={{color:'var(--muted)'}}>Checking feature readiness…</p>:
+         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {capabilities.map(item=><div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+            style={{borderColor:'var(--border)'}}>
+            <span className="text-[11px] font-medium" style={{color:'var(--ink-2)'}}>{item.label}</span>
+            <span className="shrink-0 text-[11px] font-semibold"
+             style={{color:item.status==='available'?'var(--success)':item.status==='unavailable'?'var(--warning)':'var(--muted)'}}>
+              {item.status==='available'?'Available':item.status==='unavailable'?'Not enabled':'Unverified'}
+            </span>
+          </div>)}
+         </div>}
+      </div>}
     </div>
   </details>;
 }
