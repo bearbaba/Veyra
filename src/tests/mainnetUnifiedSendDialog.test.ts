@@ -25,4 +25,17 @@ describe('Compact Home Unified Send and Add dialog',()=>{
   expect(source).toContain('role="alert"');
   expect(source).toContain("if(busy)return;");
  });
+ it('distinguishes Gateway quote liquidity from transfer authorization',()=>{
+  expect(source).toContain('const canPilot=GATEWAY_MAINNET_WRITE_ENABLED;');
+  expect(source).toContain("canPilot?'Send to wallet':'Review transfer'");
+  expect(source).toContain("canPilot?'Confirm in wallet':'Signing not enabled'");
+  expect(source).toContain("canPilot?'Signing source':'Quote source'");
+  expect(source).toContain('USDC on quote-supported sources');
+  expect(source).toContain('This is a Gateway wallet transfer, not a Veyra ID payment.');
+  expect(source).not.toContain('USDC send-ready');
+  expect(source).not.toContain('3 execution-ready');
+  expect(source).toContain('disabled={!good||busy||review&&(!canPilot');
+  const execution=readFileSync(new URL('../mainnet/gatewayMainnetExecution.ts',import.meta.url),'utf8');
+  expect(execution).toContain('if(!GATEWAY_MAINNET_WRITE_ENABLED)');
+ });
 });
