@@ -14,16 +14,16 @@ import {activeSignedIdentityToken} from '@/lib/api/liveIdentitySession';
 import {MAINNET_CANARY_OWNER,MAINNET_CANARY_MAX_UNITS,MAINNET_PUBLIC_BETA,MAINNET_EMERGENCY_READ_ONLY} from './releaseGates';
 import {parseGatewaySdkFees,assertGatewaySdkFeesUnchanged,type GatewaySdkFee} from '@/core/gateway/gatewaySdkSpend';
 import {planGatewayMultiSource,matchingGatewayAllocation,type GatewayAllocation} from './gatewayMultiSourceAllocation';
+import {gatewaySpendQuoteSummary} from './unifiedSettlementFunding';
 import {readPayFundingJourney,markPayFundingAttempt} from './payFundingJourney';
 import {lockServerPayJourney} from '../lib/api/mainnetPayJourneys';
 
 /** SDK fee amounts are exact six-decimal USDC; preserve reviewed minimum. */
 function minimumGatewayReceive(review:GatewayMainnetReview):string{
  if(review.kind!=='spend'||!review.fees.length)throw Error('Circle fees have not been reviewed.');
- const costs=review.fees.reduce((total,fee)=>total+parseUnits(fee.amount.startsWith('.')?'0'+fee.amount:fee.amount,6),0n);
- const value=parseUnits(review.amount,6);
- if(value<=costs)throw Error('Circle fees exceed this transfer amount.');
- return formatUnits(value-costs,6);
+ // The persisted minimum and what the owner reviewed must come from one
+ // six-decimal SDK-fee calculator. Never save a lower minimum than shown.
+ return gatewaySpendQuoteSummary(review.amount,review.fees).minimumReceiveUsdc;
 }
 const HASH=/^0x[0-9a-fA-F]{64}$/;
 /** A first EIP-1193 wallet rejection (code 4001) before ANY successful
