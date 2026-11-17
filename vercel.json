@@ -1,5 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "develop": true,
+      "release-preview/**": true
+    }
+  },
   "framework": "vite",
   "installCommand": "bun install --frozen-lockfile",
   "buildCommand": "bun run typecheck && bun scripts/build-mainnet-pilot.ts",
