@@ -20,6 +20,7 @@ import {estimateGatewayMainnetSpend,submitGatewayMainnetReview,
 import type {GatewaySdkFee} from '@/core/gateway/gatewaySdkSpend';
 import {assertGatewayFundingNet,gatewayFundingGrossForNet} from '@/mainnet/unifiedSettlementFunding';
 import {ensurePayFundingJourney} from '@/mainnet/payFundingJourney';
+import {arcGatewayFeeDisclosure,mainnetSourceGasToken,ARC_FEE_ANNOUNCEMENT_URL} from '@/mainnet/arcSettlementFeeDisclosure';
 
 const C=GATEWAY_MAINNET_CHAINS;
 /** One-click funding picks an adequate confirmed source automatically;
@@ -266,6 +267,17 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
       borderColor:destinationId===c.chainId?'var(--border-strong)':'var(--border)'}}>
      <BrandLogo logoKey={c.logo} size={26}/><span className="truncate text-xs font-semibold">{c.chain}</span>
     </button>)}</div></div>}
+   {arcGatewayFeeDisclosure({kind:mode,sourceChainId:sourceId,
+    destinationChainId:mode==='spend'?destinationId:undefined,asset:'USDC',
+   })&&<p role="note" aria-label="Arc Gateway fee policy"
+    className="rounded-lg border p-3 text-xs leading-5"
+    style={{borderColor:'var(--border)',color:'var(--muted)'}}>
+    {arcGatewayFeeDisclosure({kind:mode,sourceChainId:sourceId,
+     destinationChainId:mode==='spend'?destinationId:undefined,asset:'USDC',
+    })}
+    {' '}<a href={ARC_FEE_ANNOUNCEMENT_URL} target="_blank" rel="noopener noreferrer"
+     className="font-semibold underline">Arc pricing</a>
+   </p>}
    <label className="block text-xs font-semibold">Amount · USDC
     <input value={amount} onChange={e=>{const next=e.target.value;setAmount(next);setReview(false);setFees(null);
      if(mode==='spend'&&!advanced&&current){const preferred=chooseGatewaySource(current,next);
@@ -309,7 +321,7 @@ export function MainnetUnifiedBalancePanel({fundingToWallet,fundingNeeded,fundin
     {fundingToWallet&&reviewedView&&
      <p className="mt-1">Funding gross: {reviewedView.amount} USDC · Arc shortfall: {fundingNeeded} USDC</p>}
     <p className="mt-1">Fees: {mode==='spend'?(fees?.map(f=>f.type+': '+f.amount+' '+f.token).join(' · ')||'Unavailable'):
-     'Network gas shown by wallet; not estimated by Veyra'}</p>
+     'Network gas ('+(mainnetSourceGasToken(sourceId)??'native token')+') shown by wallet; not estimated by Veyra'}</p>
     <details className="mt-1"><summary className="cursor-pointer">Payment safety</summary>
      <p className="mt-1">A provider result is not a destination receipt. Verify the original operation; never resend an unknown outcome.</p></details>
    </div>}
